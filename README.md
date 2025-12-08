@@ -113,9 +113,151 @@ sequenceDiagram
     RPC-->>Client: { status: "SUCCESS", ... }
 ```
 
-### State Changes Indexer and History API
+### Account Token Cache
 
-🚧 This is a work in progress.
+The wallet-backend implements a high-performance **Account Token Cache** system that enables fast retrieval of account balances across all token types. This Redis-backed cache tracks every account's token holdings, including native XLM, classic trustlines, and Stellar Asset Contract (SAC) tokens.
+
+**Why it exists:**
+- **Fast Balance Queries**: Enables sub-second response times for the GraphQL `balancesByAccountAddress` query
+- **Complete Token Coverage**: Tracks all token types an account holds without expensive RPC lookups
+- **Efficient Updates**: Incrementally updates during live ingestion without rescanning the entire ledger
+- **Horizontal Scalability**: Redis-based architecture supports distributed deployments
+
+#### Supported Token Types
+
+The cache tracks 3 distinct token types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Trustline** | Classic Stellar assets | `USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5` |
+| **SAC** | Stellar Asset Contract (wrapped classic assets) | `CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ` |
+| **SEP-41** | Custom contract tokens (implementing SEP-41 standard) | `CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS` |
+
+#### Architecture Overview
+
+The Account Token Cache operates in two phases:
+
+**1. Initial Population (Cold Start)**
+
+When the wallet-backend starts with an empty database, it performs a one-time population from Stellar history archives:
+
+```
+History Archive (Checkpoint Ledger)
+         │
+         ▼
+CheckpointChangeReader ──► Processes ledger state
+         │
+         ├──► Trustlines: account → [CODE:ISSUER, ...]
+         └──► Contracts: account → [ContractID, ...]
+                     │
+                     ▼
+            Redis Cache (Populated)
+            ├── trustlines:{account} → Set<"CODE:ISSUER">
+            └── contracts:{account} → Set<contractID>
+```
+
+**Process:**
+1. Calculates the nearest checkpoint ledger from the history archive
+2. Downloads and processes the checkpoint state file
+3. Extracts all trustline and contract balance entries
+4. Populates Redis using batch operations (50,000 items per pipeline)
+5. Completes before live ingestion begins
+
+**2. Live Ingestion (Continuous Updates)**
+
+During normal operation, the cache is updated in real-time as trustlines are created/removed and transfers of new contract tokens occurs between accounts:
+
+```
+Stellar RPC (LedgerCloseMeta)
+         │
+         ▼
+    Indexer
+    ├── TokenTransferProcessor (balance changes detects new SEP41 token updates)
+    └── EffectsProcessor (trustline changes detects new trustline additions or removal of old trustlines)
+         │
+         ▼
+   IndexerBuffer
+   ├── TrustlineChanges
+   └── ContractChanges
+         │
+         ▼
+AccountTokenService.ProcessTokenChanges()
+         │
+         ▼
+   Redis Cache (Updated)
+```
+
+**Process:**
+1. Indexer processors detect state changes from transaction effects
+2. Changes are buffered (trustline additions/removals, contract balance changes)
+3. After successful DB write, `AccountTokenService.ProcessTokenChanges()` updates Redis
+4. Uses Redis pipelining for efficient batch updates
+5. Contract metadata (name, symbol, decimals) is fetched and stored in PostgreSQL
+
+#### GraphQL Integration
+
+The Account Token Cache powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query. See the [Get Account Balances](#7-get-account-balances) section for query examples and response formats.
+
+#### Redis Data Structures
+
+The cache uses Redis sets with namespace prefixes:
+
+**Trustline Keys:**
+```
+Key: trustlines:{accountAddress}
+Value: Set<"CODE:ISSUER">
+
+Example:
+trustlines:GABC123... → {
+  "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  "EURC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+}
+```
+
+**Contract Keys:**
+```
+Key: contracts:{accountAddress}
+Value: Set<contractID>
+
+Example:
+contracts:GABC123... → {
+  "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
+  "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS"
+}
+```
+
+#### Service API
+
+The `AccountTokenService` interface provides the following methods:
+
+**Population:**
+- `PopulateAccountTokens(ctx, checkpointLedger)` - Initial cache population from history archive
+
+**Querying:**
+- `GetAccountTrustlines(ctx, accountAddress)` - Returns all classic asset trustlines
+- `GetAccountContracts(ctx, accountAddress)` - Returns all contract token IDs
+
+**Updates:**
+- `AddTrustlines(ctx, accountAddress, assets)` - Adds trustline assets to cache
+- `AddContracts(ctx, accountAddress, contractIDs)` - Adds contract IDs to cache
+- `ProcessTokenChanges(ctx, trustlineChanges, contractChanges)` - Batch update during ingestion
+
+#### Performance Characteristics
+
+**Initial Population:**
+- Processes millions of ledger entries efficiently
+- Uses Redis pipelining (50,000 operations per batch)
+- Non-blocking: completes before API serves traffic
+
+**Live Updates:**
+- Sub-millisecond Redis operations per transaction
+- Batch updates using Redis pipelines
+- Scales horizontally with Redis cluster
+
+**Balance Queries:**
+- O(1) Redis lookup per account
+- Single RPC call for all balances (no N+1 queries)
+- Typical response time: 100-300ms (including RPC roundtrip)
 
 ### GraphQL API
 
@@ -162,7 +304,17 @@ query {
 
 #### Queries
 
-The GraphQL API provides six root queries for accessing blockchain data:
+The GraphQL API provides seven root queries for accessing blockchain data:
+
+| # | Query | Description |
+|---|-------|-------------|
+| 1 | [`transactionByHash`](#1-get-transaction-by-hash) | Get a specific transaction by its hash |
+| 2 | [`transactions`](#2-list-all-transactions) | List all transactions with pagination |
+| 3 | [`accountByAddress`](#3-get-account-by-address) | Get account info and related data |
+| 4 | [`operations`](#4-list-all-operations) | List all operations with pagination |
+| 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
+| 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
+| 7 | [`balancesByAccountAddress`](#7-get-account-balances) | Get all token balances for an account |
 
 ##### 1. Get Transaction by Hash
 
@@ -451,6 +603,150 @@ query ListStateChanges {
   }
 }
 ```
+
+##### 7. Get Account Balances
+
+Retrieve all token balances for an account, including native XLM, classic trustlines, and contract tokens.
+
+```graphql
+query GetAccountBalances {
+  balancesByAccountAddress(address: "GABC...") {
+    __typename
+    tokenId
+    tokenType
+    balance
+
+    ... on NativeBalance {
+      # Native XLM balance (no additional fields)
+    }
+
+    ... on TrustlineBalance {
+      code
+      issuer
+      type
+      limit
+      buyingLiabilities
+      sellingLiabilities
+      lastModifiedLedger
+      isAuthorized
+      isAuthorizedToMaintainLiabilities
+    }
+
+    ... on SACBalance {
+      code
+      issuer
+      decimals
+      isAuthorized
+      isClawbackEnabled
+    }
+
+    ... on SEP41Balance {
+      name
+      symbol
+      decimals
+    }
+  }
+}
+```
+
+**Balance Types:**
+
+The query returns different balance types based on the token:
+
+| Type | Description | Key Fields |
+|------|-------------|------------|
+| `NativeBalance` | XLM (native asset) | `balance`, `tokenId`, `tokenType` |
+| `TrustlineBalance` | Classic Stellar trustlines | `code`, `issuer`, `limit`, `isAuthorized`, liabilities |
+| `SACBalance` | Stellar Asset Contract (wrapped classic assets) | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
+| `SEP41Balance` | Custom contract tokens (SEP-41 standard) | `name`, `symbol`, `decimals` |
+
+**Common Fields (all balance types):**
+- `balance: String!` - Current balance amount
+- `tokenId: String!` - Contract ID (C...) for the token
+- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`, `SEP41`
+
+**Token Types:**
+- `NATIVE` - XLM (Stellar's native asset)
+- `CLASSIC` - Classic Stellar trustline assets
+- `SAC` - Stellar Asset Contract (classic assets wrapped for Soroban)
+- `SEP41` - Custom fungible tokens implementing SEP-41
+
+**Example: Query with Type Fragments:**
+
+```graphql
+query GetDetailedBalances {
+  balancesByAccountAddress(address: "GABC...") {
+    tokenId
+    balance
+    tokenType
+
+    ... on TrustlineBalance {
+      code
+      issuer
+      limit
+      isAuthorized
+    }
+
+    ... on SACBalance {
+      code
+      issuer
+      decimals
+    }
+
+    ... on SEP41Balance {
+      name
+      symbol
+      decimals
+    }
+  }
+}
+```
+
+**Response Example:**
+
+```json
+{
+  "data": {
+    "balancesByAccountAddress": [
+      {
+        "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        "balance": "100.0000000",
+        "tokenType": "NATIVE"
+      },
+      {
+        "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
+        "balance": "500.0000000",
+        "tokenType": "CLASSIC",
+        "code": "USDC",
+        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "limit": "922337203685.4775807",
+        "isAuthorized": true
+      },
+      {
+        "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
+        "balance": "1000.0000000",
+        "tokenType": "SEP41",
+        "name": "Example Token",
+        "symbol": "EXT",
+        "decimals": 7
+      }
+    ]
+  }
+}
+```
+
+**How It Works:**
+
+This query leverages the Account Token Cache (see [Account Token Cache](#account-token-cache)) to efficiently retrieve balances:
+
+1. Fetches token identifiers from Redis cache (trustlines and contracts)
+2. Retrieves contract metadata from PostgreSQL (for SAC/SEP-41 tokens)
+3. Builds ledger keys and queries Stellar RPC for current balances
+4. Parses XDR entries and returns typed balance responses
+
+**Supported Address Types:**
+- **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
+- **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
 
 #### Mutations
 
