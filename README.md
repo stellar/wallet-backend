@@ -26,6 +26,16 @@ account management, and payment tracking capabilities.
       - [State Changes](#state-changes)
       - [Error Handling](#error-handling)
       - [Performance Features](#performance-features)
+    - [Integration Test Framework](#integration-test-framework)
+      - [Why Integration Tests Exist](#why-integration-tests-exist)
+      - [Architecture Overview](#architecture-overview)
+      - [Infrastructure Components](#infrastructure-components)
+      - [Test Accounts](#test-accounts)
+      - [Contract Deployment](#contract-deployment)
+      - [Test Suites](#test-suites)
+      - [Test Fixtures](#test-fixtures)
+      - [Running the Tests](#running-the-tests)
+      - [Design Patterns](#design-patterns)
   - [Local Development Setup](#local-development-setup)
     - [Prerequisites](#prerequisites)
     - [Running the Server](#running-the-server)
@@ -1677,6 +1687,302 @@ query {
 3. **Leverage DataLoaders** - Query related data in a single request rather than multiple sequential queries
 4. **Consider APQ for production** - Reduces bandwidth for frequently-executed queries
 5. **Monitor complexity** - Break complex queries into multiple smaller queries if needed
+
+### Integration Test Framework
+
+The wallet-backend includes a comprehensive integration test framework that validates the entire system end-to-end, from Docker infrastructure setup through transaction submission and GraphQL data validation. These tests provide confidence that all components work together correctly in a realistic Stellar environment.
+
+#### Why Integration Tests Exist
+
+The integration tests serve several critical purposes:
+
+1. **End-to-End Validation**: Tests the complete flow from account registration through transaction building, signing, submission, ingestion, and GraphQL querying
+2. **Infrastructure Testing**: Validates that the wallet-backend correctly integrates with Stellar Core, Stellar RPC, PostgreSQL, and Redis
+3. **Contract Interactions**: Tests both Stellar Asset Contracts (SACs) and custom SEP-41 token contracts
+4. **Data Consistency**: Ensures ingested ledger data matches on-chain state and is correctly queryable via GraphQL
+5. **Regression Prevention**: Catches breaking changes across the entire stack, not just individual components
+6. **Balance Validation**: Verifies accurate balance calculations for native XLM, classic trustlines, SAC tokens, and SEP-41 tokens
+
+#### Architecture Overview
+
+The integration tests use a **phased execution model** where each phase depends on the successful completion of previous phases:
+
+```mermaid
+graph TD
+    A[Phase 0: Infrastructure Setup] --> B[Phase 1: Account Registration]
+    B --> C[Phase 2: Balance Validation After Checkpoint]
+    C --> D[Phase 3: Build & Submit Transactions]
+    D --> E[Wait 5 seconds for ingestion]
+    E --> F[Phase 4: Data Validation via GraphQL]
+    F --> G[Phase 5: Balance Validation After Live Ingestion]
+
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#f0e1ff
+    style D fill:#e1ffe1
+    style E fill:#ffe1e1
+    style F fill:#f0e1ff
+    style G fill:#f0e1ff
+```
+
+**Execution Flow:**
+
+| Phase | Suite Name | Purpose | Dependency |
+|-------|-----------|---------|------------|
+| 0 | Infrastructure Setup | Start containers, deploy contracts, create accounts | None |
+| 1 | AccountRegisterTestSuite | Register test accounts with wallet-backend | Phase 0 |
+| 2 | AccountBalancesAfterCheckpointTestSuite | Validate balances from checkpoint state | Phase 1 |
+| 3 | BuildAndSubmitTransactionsTestSuite | Build, sign, and submit 20+ test transactions | Phase 2 |
+| 4 | DataValidationTestSuite | Query and validate all transaction data via GraphQL | Phase 3 + 5s wait |
+| 5 | AccountBalancesAfterLiveIngestionTestSuite | Validate balances after live ingestion | Phase 4 |
+
+If any phase fails, all subsequent phases are skipped to prevent cascading failures and confusing error messages.
+
+#### Infrastructure Components
+
+The integration tests spin up a complete Stellar environment using Docker containers:
+
+| Container | Image | Purpose | Exposed Port |
+|-----------|-------|---------|--------------|
+| **Redis** | `redis:7-alpine` | Account token cache and distributed locking | 6379 |
+| **Core DB** | `postgres:9.6.17-alpine` | Stellar Core database | 5432 |
+| **Stellar Core** | `stellar/stellar-core:24` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
+| **Stellar RPC** | `stellar/stellar-rpc:24.0.0` | RPC server with captive core | 8000 |
+| **Wallet DB** | `postgres:14-alpine` | Wallet-backend database | 5432 |
+| **Wallet Ingest** | `wallet-backend:integration-test-<commit>` | Ingest service processing ledgers | 8003 |
+| **Wallet API** | `wallet-backend:integration-test-<commit>` | API service with 15 channel accounts | 8002 |
+
+**Network Configuration:**
+- Network: Standalone (`Standalone Network ; February 2017`)
+- Protocol Version: 24 (upgrades automatically on startup)
+- Checkpoint Frequency: 8 ledgers
+- All containers run on a shared Docker network for inter-service communication
+
+**Container Management:**
+- Uses [`testcontainers-go`](https://golang.testcontainers.org/) for lifecycle management
+- Containers are reusable across test runs for faster execution
+- Automatic cleanup on test completion or failure
+- Health checks ensure services are ready before tests proceed
+
+#### Test Accounts
+
+The framework creates 7 distinct test accounts, each serving a specific purpose:
+
+| Account | Purpose | Funding | Trustlines |
+|---------|---------|---------|------------|
+| **Master** | Root account (issues classic assets USDC/EURC) | Pre-funded (root) | N/A |
+| **Client Auth** | JWT authentication keypair for API requests | 10,000 XLM | None |
+| **Primary Source** | Main transaction source account | 10,000 XLM | None |
+| **Secondary Source** | Secondary transaction source account | 10,000 XLM | None |
+| **Distribution** | Fee sponsor and distribution account | 10,000 XLM | None |
+| **Sponsored New** | Created via sponsored reserves (later merged) | 5 XLM (sponsored) | None |
+| **Balance Test 1** | Balance validation (isolated from tx tests) | 10,000 XLM | USDC, EURC |
+| **Balance Test 2** | Balance validation (isolated from tx tests) | 10,000 XLM | USDC |
+
+**Why Separate Balance Test Accounts?**
+
+Balance test accounts (`balanceTestAccount1` and `balanceTestAccount2`) are kept separate from transaction test accounts to prevent **balance drift**. Transaction tests modify account balances unpredictably, so using dedicated accounts ensures balance assertions remain stable and deterministic across test runs.
+
+#### Contract Deployment
+
+The tests deploy and interact with multiple Soroban contracts to validate contract-related functionality:
+
+| Contract Type | Address Format | Purpose | Initialization |
+|---------------|----------------|---------|----------------|
+| **Native Asset SAC** | `C...` (stellar:native) | XLM as a contract | Pre-deployed (deterministic) |
+| **USDC SAC** | `C...` (classic USDC) | Classic USDC asset as contract | Pre-deployed (deterministic) |
+| **EURC SAC** | `C...` (classic EURC) | Classic EURC asset as contract | Pre-deployed (deterministic) |
+| **SEP-41 Token** | `C...` (custom contract) | Custom token contract implementing SEP-41 | `__constructor(admin, 7, "SEP41 Token", "SEP41")` |
+| **Holder Contract** | `C...` (test contract) | Simple contract that holds token balances | No constructor |
+
+**SEP-41 Token Contract:**
+- Source: [`soroban_token_contract.wasm`](https://github.com/stellar/soroban-examples/tree/main/token) from stellar/soroban-examples
+- Admin: Master account
+- Decimals: 7
+- Name: "SEP41 Token"
+- Symbol: "SEP41"
+- Initial Mint: 500 tokens to `balanceTestAccount1`, 500 tokens to `holderContract`
+
+**Contract Balance Types Tested:**
+- **G-address with SAC balance**: Classic trustline represented as contract balance
+- **G-address with SEP-41 balance**: Custom token balance stored in contract data
+- **C-address with SAC balance**: Contract holding classic asset tokens
+- **C-address with SEP-41 balance**: Contract holding custom token balances
+
+All contracts are deployed and initialized during Phase 0, with a checkpoint wait to ensure they appear in ledger snapshots before balance validation begins.
+
+#### Test Suites
+
+Each test suite focuses on a specific aspect of the wallet-backend functionality:
+
+**1. AccountRegisterTestSuite** (`accounts_test.go`)
+- **Purpose**: Validates account registration and deregistration flows
+- **Tests**:
+  - Successful registration of multiple accounts
+  - Duplicate registration returns appropriate error
+  - Registered accounts are fetchable via `GetAccountByAddress`
+- **Coverage**: Account management API endpoints
+
+**2. AccountBalancesAfterCheckpointTestSuite** (`account_balances_test.go`)
+- **Purpose**: Validates balance calculations from checkpoint ledger state
+- **Tests**:
+  - Native XLM balances are correct
+  - Classic trustline balances (USDC, EURC) are accurate
+  - SEP-41 contract token balances for G-addresses
+  - SAC token balances for C-addresses (holder contract)
+  - SEP-41 token balances for C-addresses
+- **Coverage**: Balance ingestion from checkpoint, token type classification, contract metadata
+
+**3. BuildAndSubmitTransactionsTestSuite** (`transaction_test.go`)
+- **Purpose**: Tests transaction building, signing, fee bumping, and submission
+- **Tests**:
+  - Build 20+ transactions in parallel using channel accounts
+  - Local signing with test keypairs
+  - Fee bump transaction creation with distribution account
+  - Parallel submission to Stellar RPC
+  - Transaction hash validation
+- **Coverage**: Transaction building API, channel account management, fee sponsorship, RPC integration
+
+**4. DataValidationTestSuite** (`data_validation_test.go`)
+- **Purpose**: Validates all ingested transaction data via GraphQL queries
+- **Tests**:
+  - Transaction metadata (hash, ledger number, envelope XDR, result XDR, meta XDR)
+  - Operations (type, source account, operation-specific fields)
+  - State changes (account creation, balance changes, trustlines, offers, liquidity pools, sponsorship, signers, metadata)
+  - Relationships (transaction ↔ operations ↔ state changes)
+  - Pagination (forward and backward)
+- **Coverage**: GraphQL API, ingestion accuracy, ledger state parsing, XDR decoding
+
+**5. AccountBalancesAfterLiveIngestionTestSuite** (`account_balances_test.go`)
+- **Purpose**: Validates balance calculations after live ledger ingestion
+- **Tests**:
+  - Balances reflect state changes from submitted transactions
+  - Balance updates from payments, trustline operations, contract invocations
+  - Claimable balance and clawback operations affect balances correctly
+- **Coverage**: Live ingestion pipeline, balance calculation accuracy
+
+#### Test Fixtures
+
+The framework includes **20+ pre-built test scenarios** covering all Stellar operation types and common contract interactions:
+
+**Classic Operations:**
+- Payment
+- CreateAccount
+- AccountMerge
+- BeginSponsoringFutureReserves / EndSponsoringFutureReserves
+- ManageData
+- ChangeTrust
+- CreatePassiveSellOffer / ManageSellOffer / ManageBuyOffer
+- PathPaymentStrictReceive / PathPaymentStrictSend
+- SetOptions
+- Clawback / ClawbackClaimableBalance
+- SetTrustLineFlags
+- CreateClaimableBalance / ClaimClaimableBalance
+- LiquidityPoolDeposit / LiquidityPoolWithdraw
+- RevokeSponsorship
+
+**Soroban Operations:**
+- InvokeHostFunction (contract deployment)
+- InvokeHostFunction (contract invocation with authorization)
+- InvokeHostFunction (SAC token transfer)
+- InvokeHostFunction (SEP-41 token mint)
+
+Each fixture includes:
+- Operation XDR
+- Required signers
+- Expected state changes
+- Validation logic
+
+#### Running the Tests
+
+**Prerequisites:**
+- Docker and Docker Compose installed and running
+- Go 1.23.2 or later
+- ~5 minutes for initial run (includes Docker image builds)
+- ~2-3 minutes for subsequent runs (containers are reused)
+
+**Basic Execution:**
+
+```bash
+# Run all integration tests
+ENABLE_INTEGRATION_TESTS=true go test ./internal/integrationtests -v -timeout 30m
+```
+
+**Force Rebuild (after code changes):**
+
+```bash
+# Rebuild wallet-backend Docker image before running tests
+ENABLE_INTEGRATION_TESTS=true FORCE_REBUILD=true go test ./internal/integrationtests -v -timeout 30m
+```
+
+**Run Specific Test Suite:**
+
+```bash
+# Run only the balance validation tests
+ENABLE_INTEGRATION_TESTS=true go test ./internal/integrationtests -v -timeout 30m -run TestIntegrationTests/AccountBalancesAfterCheckpointTestSuite
+```
+
+**Environment Variables:**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ENABLE_INTEGRATION_TESTS` | Yes | `false` | Must be `"true"` to run integration tests (prevents accidental execution) |
+| `FORCE_REBUILD` | No | `false` | Set to `"true"` to force rebuild of wallet-backend Docker image |
+
+#### Design Patterns
+
+The integration test framework employs several sophisticated design patterns:
+
+**1. Dependency Injection**
+- `SharedContainers` provides all infrastructure dependencies
+- `TestEnvironment` injects services and clients into test suites
+- Enables easy mocking and testing of individual components
+
+**2. Phased Setup with Fail-Fast**
+- Each phase validates its preconditions before proceeding
+- Early failures prevent confusing error cascades
+- Clear phase boundaries make debugging easier
+
+**3. Parallel Execution**
+- Uses [`pond`](https://github.com/alitto/pond) worker pools for parallelism
+- Transaction building, signing, and submission run concurrently
+- GraphQL queries execute in parallel using `pond.NewGroupContext`
+- Reduces test execution time from ~10 minutes to ~2-3 minutes
+
+**4. Container Reusability**
+- Containers are tagged with session IDs and reused across test runs
+- Avoids Docker image pulls and container startup overhead
+- `Reuse: true` in testcontainers configuration
+
+**5. Separation of Concerns**
+- Infrastructure code in `infrastructure/` package
+- Test logic in top-level `*_test.go` files
+- Fixtures isolated in `fixtures.go` for reusability
+- Clear boundaries between setup, execution, and validation
+
+**6. Checkpoint-Based Validation**
+- Tests wait for Stellar Core checkpoints (every 8 ledgers)
+- Ensures ledger state is stable before balance assertions
+- Validates both checkpoint ingestion and live ingestion paths
+
+**7. Progressive Complexity**
+- Simple tests run first (account registration)
+- Complex tests run last (data validation with 20+ transactions)
+- Builds confidence incrementally
+
+**Performance Considerations:**
+- **Parallel transaction submission**: 20+ transactions submitted concurrently
+- **Parallel GraphQL queries**: State change queries run in worker pools
+- **Container reuse**: Subsequent test runs skip container creation
+- **Image caching**: Docker layers and wallet-backend image cached between runs
+- **Efficient waiting**: Only waits for checkpoints when necessary (not after every operation)
+
+**Best Practices:**
+- Tests are **idempotent**: Can run multiple times without side effects
+- Tests are **deterministic**: Same input produces same output
+- Tests are **self-contained**: Don't depend on external state
+- Tests are **comprehensive**: Cover happy paths and error cases
+- Tests are **maintainable**: Clear structure and documentation
 
 ## Local Development Setup
 
