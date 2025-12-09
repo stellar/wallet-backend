@@ -14,7 +14,8 @@ CREATE TABLE transactions (
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
-    timescaledb.order_by = 'ledger_created_at DESC, to_id DESC'
+    timescaledb.chunk_interval = '1 day',
+    timescaledb.order_by = 'ledger_created_at, to_id'
 );
 
 -- Table: transactions_accounts
@@ -28,7 +29,8 @@ CREATE TABLE transactions_accounts (
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
-    timescaledb.order_by = 'ledger_created_at DESC, to_id DESC'
+    timescaledb.chunk_interval = '1 day',
+    timescaledb.order_by = 'ledger_created_at, to_id'
 );
 
 CREATE INDEX idx_transactions_accounts_account_id ON transactions_accounts (account_id);

@@ -30,8 +30,9 @@ CREATE TABLE state_changes (
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 day',
     -- timescaledb.segment_by = 'state_change_category',
-    timescaledb.order_by = 'ledger_created_at DESC, to_id DESC, state_change_order DESC'
+    timescaledb.order_by = 'ledger_created_at, to_id, state_change_order'
 );
 
 CREATE INDEX idx_state_changes_account_id ON state_changes (account_id);

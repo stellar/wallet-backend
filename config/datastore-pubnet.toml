@@ -13,7 +13,7 @@ region = "us-east-2"
 
 [buffered_storage_backend_config]
 # Buffer size for reading ledgers
-buffer_size = 100
+buffer_size = 200
 # Number of concurrent workers for reading
 num_workers = 10
 # Number of retries for failed operations
