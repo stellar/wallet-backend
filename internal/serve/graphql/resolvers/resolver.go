@@ -35,6 +35,7 @@ const (
 // ResolverConfig holds configuration values for the GraphQL resolver.
 type ResolverConfig struct {
 	MaxAccountsPerBalancesQuery int
+	MaxWorkerPoolSize           int
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
@@ -66,6 +67,10 @@ type Resolver struct {
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
 func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+	poolSize := config.MaxWorkerPoolSize
+	if poolSize <= 0 {
+		poolSize = 100 // default fallback
+	}
 	return &Resolver{
 		models:              models,
 		accountService:      accountService,
@@ -74,7 +79,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		rpcService:          rpcService,
 		accountTokenService: accountTokenService,
 		metricsService:      metricsService,
-		pool:                pond.NewPool(0),
+		pool:                pond.NewPool(poolSize),
 		config:              config,
 	}
 }

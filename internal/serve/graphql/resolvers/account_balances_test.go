@@ -1120,7 +1120,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1178,7 +1178,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1227,7 +1227,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1272,7 +1272,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1313,7 +1313,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1334,8 +1334,8 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		ctx := context.Background()
 		resolver := &queryResolver{
 			&Resolver{
-				pool:   pond.NewPool(0),
-				config: ResolverConfig{MaxAccountsPerBalancesQuery: 20},
+				pool:   pond.NewPool(10),
+				config: ResolverConfig{MaxAccountsPerBalancesQuery: 20, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1355,8 +1355,8 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		ctx := context.Background()
 		resolver := &queryResolver{
 			&Resolver{
-				pool:   pond.NewPool(0),
-				config: ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				pool:   pond.NewPool(10),
+				config: ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1390,7 +1390,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1433,7 +1433,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 

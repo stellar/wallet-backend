@@ -65,6 +65,7 @@ type Configs struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
+	MaxGraphQLWorkerPoolSize    int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -89,6 +90,7 @@ type handlerDeps struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
+	MaxGraphQLWorkerPoolSize    int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -208,6 +210,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		TransactionService:          txService,
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
+		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 
@@ -257,6 +260,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.MetricsService,
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
+					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
 				},
 			)
 

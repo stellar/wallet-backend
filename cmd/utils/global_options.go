@@ -269,6 +269,17 @@ func MaxAccountsPerBalancesQueryOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func MaxGraphQLWorkerPoolSizeOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "max-graphql-worker-pool-size",
+		Usage:       "Maximum number of concurrent workers for GraphQL parallel operations.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 100,
+		Required:    false,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))
