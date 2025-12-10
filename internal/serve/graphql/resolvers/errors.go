@@ -19,7 +19,10 @@ const (
 	ErrMsgInvalidTransaction               = "Transaction is not a valid transaction"
 	ErrMsgFeeBumpCreationFailed            = "Failed to create fee bump transaction: %s"
 
-	// BalancesByAccountAddresses errors
+	// BalancesByAccountAddress errors (single account)
+	ErrMsgSingleInvalidAddress = "invalid address format: must be a valid Stellar account (G...) or contract (C...) address"
+
+	// BalancesByAccountAddresses errors (multiple accounts)
 	ErrMsgEmptyAddresses      = "addresses array cannot be empty"
 	ErrMsgTooManyAddresses    = "maximum %d addresses allowed per query, got %d"
 	ErrMsgInvalidAddressAt    = "invalid address format at index %d: %s"

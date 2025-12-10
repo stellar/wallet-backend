@@ -141,6 +141,17 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 
 // BalancesByAccountAddress is the resolver for the balancesByAccountAddress field.
 func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address string) ([]graphql1.Balance, error) {
+	// Validate input: address format
+	if !utils.IsValidStellarAddress(address) {
+		return nil, &gqlerror.Error{
+			Message: ErrMsgSingleInvalidAddress,
+			Extensions: map[string]interface{}{
+				"code":    "INVALID_ADDRESS",
+				"address": address,
+			},
+		}
+	}
+
 	// Build ledger keys: first the account key for native XLM balance
 	ledgerKeys := make([]string, 0)
 
@@ -148,14 +159,24 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// Add account ledger key for native XLM balance
 		accountKey, err := utils.GetAccountLedgerKey(address)
 		if err != nil {
-			return nil, fmt.Errorf("creating account ledger key: %w", err)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
 		}
 		ledgerKeys = append(ledgerKeys, accountKey)
 
 		// Fetch the current trustlines for the account
 		trustlines, err := r.accountTokenService.GetAccountTrustlines(ctx, address)
 		if err != nil {
-			return nil, fmt.Errorf("getting trustlines for account: %w", err)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
 		}
 
 		// Build ledger keys for all trustlines
@@ -163,7 +184,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			// Parse the trustline string (format: "ASSETCODE:ISSUER")
 			parts := strings.Split(trustline, ":")
 			if len(parts) != 2 {
-				return nil, fmt.Errorf("invalid trustline format: %s", trustline)
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
 			assetCode := parts[0]
 			assetIssuer := parts[1]
@@ -171,7 +197,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			// Create ledger key for this trustline
 			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
 			if keyErr != nil {
-				return nil, fmt.Errorf("creating ledger key for trustline %s: %w", trustline, keyErr)
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
 			ledgerKeys = append(ledgerKeys, ledgerKey)
 		}
@@ -180,11 +211,21 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	// Fetch the current contracts for the account
 	contractIDs, err := r.accountTokenService.GetAccountContracts(ctx, address)
 	if err != nil {
-		return nil, fmt.Errorf("getting contracts for account: %w", err)
+		return nil, &gqlerror.Error{
+			Message: ErrMsgBalancesFetchFailed,
+			Extensions: map[string]interface{}{
+				"code": "INTERNAL_ERROR",
+			},
+		}
 	}
 	contractTokens, err := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
 	if err != nil {
-		return nil, fmt.Errorf("getting contract tokens from db: %w", err)
+		return nil, &gqlerror.Error{
+			Message: ErrMsgBalancesFetchFailed,
+			Extensions: map[string]interface{}{
+				"code": "INTERNAL_ERROR",
+			},
+		}
 	}
 
 	// Build ledger keys for all contracts
@@ -193,7 +234,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// Create ledger key for this contract
 		ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
 		if keyErr != nil {
-			return nil, fmt.Errorf("creating ledger key for contract %s: %w", contract.ID, keyErr)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
 		}
 		ledgerKeys = append(ledgerKeys, ledgerKey)
 		contractsByContractID[contract.ID] = contract
@@ -202,7 +248,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	// Call RPC to get ledger entries
 	result, err := r.rpcService.GetLedgerEntries(ledgerKeys)
 	if err != nil {
-		return nil, fmt.Errorf("getting ledger entries from RPC: %w", err)
+		return nil, &gqlerror.Error{
+			Message: ErrMsgRPCUnavailable,
+			Extensions: map[string]interface{}{
+				"code": "RPC_UNAVAILABLE",
+			},
+		}
 	}
 
 	networkPassphrase := r.rpcService.NetworkPassphrase()
@@ -214,7 +265,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		var ledgerEntryData xdr.LedgerEntryData
 		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
 		if err != nil {
-			return nil, fmt.Errorf("decoding ledger entry: %w", err)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
 		}
 
 		// Check the entry type to determine if it's an account or trustline
@@ -224,7 +280,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			accountEntry := ledgerEntryData.MustAccount()
 			nativeBalance, err := parseNativeBalance(accountEntry, networkPassphrase)
 			if err != nil {
-				return nil, err
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
 			balances = append(balances, nativeBalance)
 
@@ -232,7 +293,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			trustlineEntry := ledgerEntryData.MustTrustLine()
 			trustlineBalance, err := parseTrustlineBalance(trustlineEntry, entry.LastModifiedLedger, networkPassphrase)
 			if err != nil {
-				return nil, err
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
 			balances = append(balances, trustlineBalance)
 
@@ -241,7 +307,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 			contractIDStr, ok, err := parseContractIDFromContractData(&contractDataEntry)
 			if err != nil {
-				return nil, err
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
 			if !ok {
 				continue
@@ -256,7 +327,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 		balance, err := parseContractBalance(contractDataEntry, contractIDStr, contract)
 		if err != nil {
-			return nil, err
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
 		}
 		if balance != nil {
 			balances = append(balances, balance)

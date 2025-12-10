@@ -1391,6 +1391,34 @@ This query leverages the Account Token Cache (see [Account Token Cache](#account
 - **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
 - **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
 
+**Error Handling:**
+
+This query returns structured GraphQL errors with error codes in the `extensions` field:
+
+| Error Code | Description |
+|------------|-------------|
+| `INVALID_ADDRESS` | The provided address is not a valid Stellar account (G...) or contract (C...) address |
+| `RPC_UNAVAILABLE` | Failed to fetch balance data from Stellar RPC |
+| `INTERNAL_ERROR` | An unexpected error occurred while processing the balance request |
+
+**Error Response Example:**
+
+```json
+{
+  "errors": [
+    {
+      "message": "invalid address format: must be a valid Stellar account (G...) or contract (C...) address",
+      "extensions": {
+        "code": "INVALID_ADDRESS",
+        "address": "invalid-address"
+      },
+      "path": ["balancesByAccountAddress"]
+    }
+  ],
+  "data": null
+}
+```
+
 ##### 8. Get Multiple Account Balances
 
 Retrieve token balances for multiple accounts in a single request. This query fetches balances for up to 20 accounts (configurable) with parallel processing for optimal performance.
