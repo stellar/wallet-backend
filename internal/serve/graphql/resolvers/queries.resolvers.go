@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
