@@ -720,7 +720,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "getting trustlines for account")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -745,7 +745,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "getting contracts for account")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -773,7 +773,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "getting ledger entries from RPC")
+		assert.Contains(t, err.Error(), ErrMsgRPCUnavailable)
 		assert.Nil(t, balances)
 	})
 
@@ -799,7 +799,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid trustline format")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -827,7 +827,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get contracts")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -864,7 +864,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decoding ledger entry")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -950,7 +950,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "amount field not found")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -988,7 +988,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "SEP-41 balance must be i128")
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
