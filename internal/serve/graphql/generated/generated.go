@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -2017,11 +2016,11 @@ type SEP41Balance implements Balance {
 
 """AccountBalances represents balances for a single account in multi-account queries"""
 type AccountBalances {
-    """The Stellar account or contract address"""
+    "The Stellar account or contract address"
     address: String!
-    """List of balances for this account, empty if not found"""
+    "List of balances for this account, empty if not found"
     balances: [Balance!]!
-    """Error message if balance fetch failed for this account"""
+    "Error message if balance fetch failed for this account"
     error: String
 }
 `, BuiltIn: false},

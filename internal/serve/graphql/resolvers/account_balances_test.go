@@ -624,6 +624,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return([]string{testSEP41ContractAddress}, nil)
 		mockContract.On("BatchGetByIDs", ctx, []string{testSEP41ContractAddress}).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
+		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testContractAddress, true, 10000000000)
 
@@ -839,6 +840,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]string{}, nil)
 		mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).Return([]string{}, nil)
 		mockContract.On("BatchGetByIDs", ctx, []string{}).Return([]*data.Contract{}, nil)
+		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Return invalid XDR
 		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
@@ -1118,6 +1120,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1175,6 +1178,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1223,6 +1227,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1267,6 +1272,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1290,6 +1296,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 			Return([]string{testSEP41ContractAddress}, nil)
 		mockContract.On("BatchGetByIDs", ctx, []string{testSEP41ContractAddress}).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
+		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testSEP41ContractAddress, true, 10000000000)
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
@@ -1306,6 +1313,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1347,7 +1355,8 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		ctx := context.Background()
 		resolver := &queryResolver{
 			&Resolver{
-				pool: pond.NewPool(0),
+				pool:   pond.NewPool(0),
+				config: ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1381,6 +1390,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
@@ -1423,6 +1433,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				accountTokenService: mockAccountTokenService,
 				rpcService:          mockRPCService,
 				pool:                pond.NewPool(0),
+				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10},
 			},
 		}
 
