@@ -366,6 +366,17 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
+	// Deduplicate addresses while preserving order
+	seen := make(map[string]bool)
+	uniqueAddresses := make([]string, 0, len(addresses))
+	for _, addr := range addresses {
+		if !seen[addr] {
+			seen[addr] = true
+			uniqueAddresses = append(uniqueAddresses, addr)
+		}
+	}
+	addresses = uniqueAddresses
+
 	// Validate input: address format
 	for i, addr := range addresses {
 		if !utils.IsValidStellarAddress(addr) {
@@ -379,17 +390,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 		}
 	}
-
-	// Deduplicate addresses while preserving order
-	seen := make(map[string]bool)
-	uniqueAddresses := make([]string, 0, len(addresses))
-	for _, addr := range addresses {
-		if !seen[addr] {
-			seen[addr] = true
-			uniqueAddresses = append(uniqueAddresses, addr)
-		}
-	}
-	addresses = uniqueAddresses
 
 	// Phase 1: Parallel collection of trustlines/contracts for each account
 	accountInfos := make([]*accountKeyInfo, len(addresses))
