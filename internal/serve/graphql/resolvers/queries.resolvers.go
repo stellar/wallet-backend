@@ -8,12 +8,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -395,6 +397,410 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			continue
 		}
 	}
+	return balances, nil
+}
+
+// BalancesByAccountAddresses is the resolver for the balancesByAccountAddresses field.
+// It fetches balances for multiple accounts in a single request using parallel processing.
+func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresses []string) ([]*graphql1.AccountBalances, error) {
+	// Validate input
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("addresses array cannot be empty")
+	}
+	if len(addresses) > MaxAccountsPerBalancesQuery {
+		return nil, fmt.Errorf("maximum %d addresses allowed per query, got %d", MaxAccountsPerBalancesQuery, len(addresses))
+	}
+
+	// Deduplicate addresses while preserving order
+	seen := make(map[string]bool)
+	uniqueAddresses := make([]string, 0, len(addresses))
+	for _, addr := range addresses {
+		if !seen[addr] {
+			seen[addr] = true
+			uniqueAddresses = append(uniqueAddresses, addr)
+		}
+	}
+	addresses = uniqueAddresses
+
+	// Phase 1: Parallel collection of trustlines/contracts for each account
+	accountInfos := make([]*accountKeyInfo, len(addresses))
+	group := r.pool.NewGroupContext(ctx)
+
+	for idx, addr := range addresses {
+		index := idx
+		address := addr
+		group.Submit(func() {
+			info := &accountKeyInfo{
+				address:         address,
+				isContract:      utils.IsContractAddress(address),
+				contractsByID:   make(map[string]*data.Contract),
+				keyToContractID: make(map[string]string),
+				keyToTrustline:  make(map[string]string),
+			}
+
+			// Get trustlines (skip for contract addresses)
+			if !info.isContract {
+				trustlines, err := r.accountTokenService.GetAccountTrustlines(ctx, address)
+				if err != nil {
+					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
+					accountInfos[index] = info
+					return
+				}
+				info.trustlines = trustlines
+			}
+
+			// Get contracts
+			contractIDs, err := r.accountTokenService.GetAccountContracts(ctx, address)
+			if err != nil {
+				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
+				accountInfos[index] = info
+				return
+			}
+			info.contractIDs = contractIDs
+
+			// Get contract metadata
+			if len(contractIDs) > 0 {
+				contracts, contractErr := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
+				if contractErr != nil {
+					info.collectionErr = fmt.Errorf("getting contract metadata: %w", contractErr)
+					accountInfos[index] = info
+					return
+				}
+				info.contracts = contracts
+				for _, c := range contracts {
+					info.contractsByID[c.ID] = c
+				}
+			}
+
+			accountInfos[index] = info
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for account data collection: %w", err)
+	}
+
+	// Build all ledger keys (sequential - fast operation)
+	var allLedgerKeys []string
+	for _, info := range accountInfos {
+		if info.collectionErr != nil {
+			continue // Skip accounts with collection errors
+		}
+
+		// Build ledger keys for this account
+		if !info.isContract {
+			// Add account ledger key for native XLM balance
+			accountKey, err := utils.GetAccountLedgerKey(info.address)
+			if err != nil {
+				info.collectionErr = fmt.Errorf("creating account ledger key: %w", err)
+				continue
+			}
+			info.accountKeyIdx = len(allLedgerKeys)
+			info.hasAccountKey = true
+			allLedgerKeys = append(allLedgerKeys, accountKey)
+			info.ledgerKeys = append(info.ledgerKeys, accountKey)
+
+			// Build ledger keys for all trustlines
+			for _, trustline := range info.trustlines {
+				parts := strings.Split(trustline, ":")
+				if len(parts) != 2 {
+					info.collectionErr = fmt.Errorf("invalid trustline format: %s", trustline)
+					break
+				}
+				assetCode := parts[0]
+				assetIssuer := parts[1]
+
+				ledgerKey, keyErr := utils.GetTrustlineLedgerKey(info.address, assetCode, assetIssuer)
+				if keyErr != nil {
+					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
+					break
+				}
+				info.trustlineKeyIndices = append(info.trustlineKeyIndices, len(allLedgerKeys))
+				info.keyToTrustline[ledgerKey] = trustline
+				allLedgerKeys = append(allLedgerKeys, ledgerKey)
+				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
+			}
+		}
+
+		if info.collectionErr != nil {
+			continue
+		}
+
+		// Build ledger keys for all contracts
+		for _, contract := range info.contracts {
+			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
+			if keyErr != nil {
+				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
+				break
+			}
+			info.contractKeyIndices = append(info.contractKeyIndices, len(allLedgerKeys))
+			info.keyToContractID[ledgerKey] = contract.ID
+			allLedgerKeys = append(allLedgerKeys, ledgerKey)
+			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
+		}
+	}
+
+	// Single RPC call for all ledger entries
+	var rpcResult entities.RPCGetLedgerEntriesResult
+	var rpcErr error
+	if len(allLedgerKeys) > 0 {
+		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(allLedgerKeys)
+	}
+
+	// Create mapping: ledger key -> entry result
+	entryByKey := make(map[string]*entities.LedgerEntryResult)
+	if rpcErr == nil {
+		for idx := range rpcResult.Entries {
+			if idx < len(allLedgerKeys) {
+				entryByKey[allLedgerKeys[idx]] = &rpcResult.Entries[idx]
+			}
+		}
+	}
+
+	// Phase 2: Parallel processing of results per account
+	results := make([]*graphql1.AccountBalances, len(addresses))
+	group = r.pool.NewGroupContext(ctx)
+	var resultsMu sync.Mutex
+
+	for idx, info := range accountInfos {
+		index := idx
+		info := info
+		group.Submit(func() {
+			result := &graphql1.AccountBalances{
+				Address:  info.address,
+				Balances: []graphql1.Balance{},
+			}
+
+			// Check for collection errors
+			if info.collectionErr != nil {
+				errStr := info.collectionErr.Error()
+				result.Error = &errStr
+				resultsMu.Lock()
+				results[index] = result
+				resultsMu.Unlock()
+				return
+			}
+
+			// Check for RPC error
+			if rpcErr != nil {
+				errStr := fmt.Sprintf("RPC error: %v", rpcErr)
+				result.Error = &errStr
+				resultsMu.Lock()
+				results[index] = result
+				resultsMu.Unlock()
+				return
+			}
+
+			// Parse ledger entries for this account
+			balances, parseErr := r.parseAccountBalances(info, entryByKey)
+			if parseErr != nil {
+				errStr := parseErr.Error()
+				result.Error = &errStr
+			} else {
+				result.Balances = balances
+			}
+
+			resultsMu.Lock()
+			results[index] = result
+			resultsMu.Unlock()
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for result processing: %w", err)
+	}
+
+	return results, nil
+}
+
+// parseAccountBalances parses ledger entries for a single account and returns balances
+func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, entryByKey map[string]*entities.LedgerEntryResult) ([]graphql1.Balance, error) {
+	var balances []graphql1.Balance
+	contractEntriesByContractID := make(map[string]*xdr.ContractDataEntry)
+
+	for _, ledgerKey := range info.ledgerKeys {
+		entry, exists := entryByKey[ledgerKey]
+		if !exists || entry == nil {
+			continue
+		}
+
+		var ledgerEntryData xdr.LedgerEntryData
+		if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData); err != nil {
+			return nil, fmt.Errorf("decoding ledger entry: %w", err)
+		}
+
+		//exhaustive:ignore
+		switch ledgerEntryData.Type {
+		case xdr.LedgerEntryTypeAccount:
+			accountEntry := ledgerEntryData.MustAccount()
+			balanceStr := amount.String(accountEntry.Balance)
+
+			nativeAsset := xdr.MustNewNativeAsset()
+			contractID, err := nativeAsset.ContractID(r.rpcService.NetworkPassphrase())
+			if err != nil {
+				return nil, fmt.Errorf("getting contract ID for native asset: %w", err)
+			}
+			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+			balances = append(balances, &graphql1.NativeBalance{
+				TokenID:   tokenID,
+				Balance:   balanceStr,
+				TokenType: graphql1.TokenTypeNative,
+			})
+
+		case xdr.LedgerEntryTypeTrustline:
+			trustlineEntry := ledgerEntryData.MustTrustLine()
+			balanceStr := amount.String(trustlineEntry.Balance)
+
+			var assetType, assetCode, assetIssuer string
+			asset := trustlineEntry.Asset.ToAsset()
+			asset.Extract(&assetType, &assetCode, &assetIssuer)
+
+			contractID, err := asset.ContractID(r.rpcService.NetworkPassphrase())
+			if err != nil {
+				return nil, fmt.Errorf("getting contract ID for asset: %w", err)
+			}
+			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+			limitStr := amount.String(trustlineEntry.Limit)
+
+			var buyingLiabilities, sellingLiabilities string
+			if trustlineEntry.Ext.V == 1 && trustlineEntry.Ext.V1 != nil {
+				buyingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Buying)
+				sellingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Selling)
+			} else {
+				buyingLiabilities = "0.0000000"
+				sellingLiabilities = "0.0000000"
+			}
+
+			flags := uint32(trustlineEntry.Flags)
+			isAuthorized := (flags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
+			isAuthorizedToMaintainLiabilities := (flags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
+
+			balances = append(balances, &graphql1.TrustlineBalance{
+				TokenID:                           tokenID,
+				Balance:                           balanceStr,
+				TokenType:                         graphql1.TokenTypeClassic,
+				Code:                              assetCode,
+				Issuer:                            assetIssuer,
+				Type:                              assetType,
+				Limit:                             limitStr,
+				BuyingLiabilities:                 buyingLiabilities,
+				SellingLiabilities:                sellingLiabilities,
+				LastModifiedLedger:                int32(entry.LastModifiedLedger),
+				IsAuthorized:                      isAuthorized,
+				IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
+			})
+
+		case xdr.LedgerEntryTypeContractData:
+			contractDataEntry := ledgerEntryData.MustContractData()
+
+			if contractDataEntry.Contract.ContractId == nil {
+				continue
+			}
+
+			contractID, ok := contractDataEntry.Contract.GetContractId()
+			if !ok {
+				continue
+			}
+			contractIDStr, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+			if err != nil {
+				return nil, fmt.Errorf("encoding contract ID: %w", err)
+			}
+
+			contractEntriesByContractID[contractIDStr] = &contractDataEntry
+		}
+	}
+
+	// Process contract balances
+	for contractID, contractDataEntry := range contractEntriesByContractID {
+		contract, exists := info.contractsByID[contractID]
+		if !exists {
+			continue
+		}
+
+		switch contract.Type {
+		case string(types.ContractTypeSAC):
+			if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
+				return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
+			}
+
+			balanceMap := contractDataEntry.Val.MustMap()
+			if balanceMap == nil {
+				return nil, fmt.Errorf("balance map is nil")
+			}
+
+			var balanceStr string
+			var isAuthorized, isClawbackEnabled bool
+			var amountFound, authorizedFound, clawbackFound bool
+
+			for _, entry := range *balanceMap {
+				if entry.Key.Type == xdr.ScValTypeScvSymbol {
+					keySymbol := string(entry.Key.MustSym())
+					switch keySymbol {
+					case "amount":
+						if entry.Val.Type != xdr.ScValTypeScvI128 {
+							return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+						}
+						i128Parts := entry.Val.MustI128()
+						balanceStr = amount.String128(i128Parts)
+						amountFound = true
+					case "authorized":
+						if entry.Val.Type != xdr.ScValTypeScvBool {
+							return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
+						}
+						isAuthorized = bool(entry.Val.MustB())
+						authorizedFound = true
+					case "clawback":
+						if entry.Val.Type != xdr.ScValTypeScvBool {
+							return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
+						}
+						isClawbackEnabled = bool(entry.Val.MustB())
+						clawbackFound = true
+					}
+				}
+			}
+
+			if !amountFound {
+				return nil, fmt.Errorf("amount field not found in SAC balance map")
+			}
+			if !authorizedFound {
+				return nil, fmt.Errorf("authorized field not found in SAC balance map")
+			}
+			if !clawbackFound {
+				return nil, fmt.Errorf("clawback field not found in SAC balance map")
+			}
+
+			balances = append(balances, &graphql1.SACBalance{
+				TokenID:           contractID,
+				Balance:           balanceStr,
+				TokenType:         graphql1.TokenTypeSac,
+				Code:              *contract.Code,
+				Issuer:            *contract.Issuer,
+				Decimals:          int32(contract.Decimals),
+				IsAuthorized:      isAuthorized,
+				IsClawbackEnabled: isClawbackEnabled,
+			})
+
+		case string(types.ContractTypeSEP41):
+			if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
+				return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
+			}
+
+			i128Parts := contractDataEntry.Val.MustI128()
+			balanceStr := amount.String128(i128Parts)
+
+			balances = append(balances, &graphql1.SEP41Balance{
+				TokenID:   contractID,
+				Balance:   balanceStr,
+				TokenType: graphql1.TokenTypeSep41,
+				Name:      *contract.Name,
+				Symbol:    *contract.Symbol,
+				Decimals:  int32(contract.Decimals),
+			})
+		}
+	}
+
 	return balances, nil
 }
 

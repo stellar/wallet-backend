@@ -68,6 +68,12 @@ type ComplexityRoot struct {
 		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
+	AccountBalances struct {
+		Address  func(childComplexity int) int
+		Balances func(childComplexity int) int
+		Error    func(childComplexity int) int
+	}
+
 	AccountChange struct {
 		Account         func(childComplexity int) int
 		FunderAddress   func(childComplexity int) int
@@ -177,13 +183,14 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		AccountByAddress         func(childComplexity int, address string) int
-		BalancesByAccountAddress func(childComplexity int, address string) int
-		OperationByID            func(childComplexity int, id int64) int
-		Operations               func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		StateChanges             func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		TransactionByHash        func(childComplexity int, hash string) int
-		Transactions             func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		AccountByAddress           func(childComplexity int, address string) int
+		BalancesByAccountAddress   func(childComplexity int, address string) int
+		BalancesByAccountAddresses func(childComplexity int, addresses []string) int
+		OperationByID              func(childComplexity int, id int64) int
+		Operations                 func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		StateChanges               func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		TransactionByHash          func(childComplexity int, hash string) int
+		Transactions               func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
 	RegisterAccountPayload struct {
@@ -389,6 +396,7 @@ type QueryResolver interface {
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
 	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	BalancesByAccountAddress(ctx context.Context, address string) ([]Balance, error)
+	BalancesByAccountAddresses(ctx context.Context, addresses []string) ([]*AccountBalances, error)
 }
 type ReservesChangeResolver interface {
 	Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error)
@@ -508,6 +516,27 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Account.Transactions(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+
+	case "AccountBalances.address":
+		if e.complexity.AccountBalances.Address == nil {
+			break
+		}
+
+		return e.complexity.AccountBalances.Address(childComplexity), true
+
+	case "AccountBalances.balances":
+		if e.complexity.AccountBalances.Balances == nil {
+			break
+		}
+
+		return e.complexity.AccountBalances.Balances(childComplexity), true
+
+	case "AccountBalances.error":
+		if e.complexity.AccountBalances.Error == nil {
+			break
+		}
+
+		return e.complexity.AccountBalances.Error(childComplexity), true
 
 	case "AccountChange.account":
 		if e.complexity.AccountChange.Account == nil {
@@ -1040,6 +1069,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.BalancesByAccountAddress(childComplexity, args["address"].(string)), true
+
+	case "Query.balancesByAccountAddresses":
+		if e.complexity.Query.BalancesByAccountAddresses == nil {
+			break
+		}
+
+		args, err := ec.field_Query_balancesByAccountAddresses_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.BalancesByAccountAddresses(childComplexity, args["addresses"].([]string)), true
 
 	case "Query.operationById":
 		if e.complexity.Query.OperationByID == nil {
@@ -1973,6 +2014,16 @@ type SEP41Balance implements Balance {
     symbol: String!
     decimals: Int!
 }
+
+"""AccountBalances represents balances for a single account in multi-account queries"""
+type AccountBalances {
+    """The Stellar account or contract address"""
+    address: String!
+    """List of balances for this account, empty if not found"""
+    balances: [Balance!]!
+    """Error message if balance fetch failed for this account"""
+    error: String
+}
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
 # Directives are like annotations that modify how GraphQL processes fields
@@ -2230,6 +2281,7 @@ type Query {
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
     balancesByAccountAddress(address: String!):                           [Balance!]!
+    balancesByAccountAddresses(addresses: [String!]!):                    [AccountBalances!]!
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
@@ -2909,6 +2961,29 @@ func (ec *executionContext) field_Query_balancesByAccountAddress_argsAddress(
 	}
 
 	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_balancesByAccountAddresses_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_balancesByAccountAddresses_argsAddresses(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["addresses"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_balancesByAccountAddresses_argsAddresses(
+	ctx context.Context,
+	rawArgs map[string]any,
+) ([]string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("addresses"))
+	if tmp, ok := rawArgs["addresses"]; ok {
+		return ec.unmarshalNString2ᚕstringᚄ(ctx, tmp)
+	}
+
+	var zeroVal []string
 	return zeroVal, nil
 }
 
@@ -3657,6 +3732,135 @@ func (ec *executionContext) fieldContext_Account_stateChanges(ctx context.Contex
 	if fc.Args, err = ec.field_Account_stateChanges_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountBalances_address(ctx context.Context, field graphql.CollectedField, obj *AccountBalances) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountBalances_address(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Address, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AccountBalances_address(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountBalances",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountBalances_balances(ctx context.Context, field graphql.CollectedField, obj *AccountBalances) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountBalances_balances(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Balances, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]Balance)
+	fc.Result = res
+	return ec.marshalNBalance2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBalanceᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AccountBalances_balances(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountBalances",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("FieldContext.Child cannot be called on type INTERFACE")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountBalances_error(ctx context.Context, field graphql.CollectedField, obj *AccountBalances) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountBalances_error(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Error, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AccountBalances_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountBalances",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
 	}
 	return fc, nil
 }
@@ -7452,6 +7656,69 @@ func (ec *executionContext) fieldContext_Query_balancesByAccountAddress(ctx cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_balancesByAccountAddress_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_balancesByAccountAddresses(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_balancesByAccountAddresses(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().BalancesByAccountAddresses(rctx, fc.Args["addresses"].([]string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*AccountBalances)
+	fc.Result = res
+	return ec.marshalNAccountBalances2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountBalancesᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_balancesByAccountAddresses(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_AccountBalances_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_AccountBalances_balances(ctx, field)
+			case "error":
+				return ec.fieldContext_AccountBalances_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type AccountBalances", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_balancesByAccountAddresses_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -14627,6 +14894,52 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 	return out
 }
 
+var accountBalancesImplementors = []string{"AccountBalances"}
+
+func (ec *executionContext) _AccountBalances(ctx context.Context, sel ast.SelectionSet, obj *AccountBalances) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accountBalancesImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AccountBalances")
+		case "address":
+			out.Values[i] = ec._AccountBalances_address(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "balances":
+			out.Values[i] = ec._AccountBalances_balances(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._AccountBalances_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var accountChangeImplementors = []string{"AccountChange", "BaseStateChange"}
 
 func (ec *executionContext) _AccountChange(ctx context.Context, sel ast.SelectionSet, obj *types.AccountStateChangeModel) graphql.Marshaler {
@@ -16433,6 +16746,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_balancesByAccountAddress(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "balancesByAccountAddresses":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_balancesByAccountAddresses(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18977,6 +19312,60 @@ func (ec *executionContext) marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwallet�
 		return graphql.Null
 	}
 	return ec._Account(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNAccountBalances2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountBalancesᚄ(ctx context.Context, sel ast.SelectionSet, v []*AccountBalances) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNAccountBalances2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountBalances(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNAccountBalances2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountBalances(ctx context.Context, sel ast.SelectionSet, v *AccountBalances) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._AccountBalances(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNBalance2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBalance(ctx context.Context, sel ast.SelectionSet, v Balance) graphql.Marshaler {

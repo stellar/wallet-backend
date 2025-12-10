@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -29,6 +30,7 @@ import (
 
 const (
 	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	MaxAccountsPerBalancesQuery  = 20
 )
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
@@ -50,6 +52,8 @@ type Resolver struct {
 	accountTokenService services.AccountTokenService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
+	// pool provides parallel processing capabilities for batch operations
+	pool pond.Pool
 }
 
 // NewResolver creates a new resolver instance with required dependencies
@@ -64,6 +68,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		rpcService:          rpcService,
 		accountTokenService: accountTokenService,
 		metricsService:      metricsService,
+		pool:                pond.NewPool(0),
 	}
 }
 
