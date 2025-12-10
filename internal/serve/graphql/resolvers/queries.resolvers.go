@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/stellar/go/xdr"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -267,12 +268,40 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 // BalancesByAccountAddresses is the resolver for the balancesByAccountAddresses field.
 // It fetches balances for multiple accounts in a single request using parallel processing.
 func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresses []string) ([]*graphql1.AccountBalances, error) {
-	// Validate input
+	// Validate input: empty addresses
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("addresses array cannot be empty")
+		return nil, &gqlerror.Error{
+			Message: ErrMsgEmptyAddresses,
+			Extensions: map[string]interface{}{
+				"code": "EMPTY_ADDRESSES",
+			},
+		}
 	}
+
+	// Validate input: too many addresses
 	if len(addresses) > r.config.MaxAccountsPerBalancesQuery {
-		return nil, fmt.Errorf("maximum %d addresses allowed per query, got %d", r.config.MaxAccountsPerBalancesQuery, len(addresses))
+		return nil, &gqlerror.Error{
+			Message: fmt.Sprintf(ErrMsgTooManyAddresses, r.config.MaxAccountsPerBalancesQuery, len(addresses)),
+			Extensions: map[string]interface{}{
+				"code":     "TOO_MANY_ADDRESSES",
+				"limit":    r.config.MaxAccountsPerBalancesQuery,
+				"provided": len(addresses),
+			},
+		}
+	}
+
+	// Validate input: address format
+	for i, addr := range addresses {
+		if !utils.IsValidStellarAddress(addr) {
+			return nil, &gqlerror.Error{
+				Message: fmt.Sprintf(ErrMsgInvalidAddressAt, i, addr),
+				Extensions: map[string]interface{}{
+					"code":    "INVALID_ADDRESS",
+					"index":   i,
+					"address": addr,
+				},
+			}
+		}
 	}
 
 	// Deduplicate addresses while preserving order
@@ -339,7 +368,12 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	}
 
 	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for account data collection: %w", err)
+		return nil, &gqlerror.Error{
+			Message: ErrMsgBalancesFetchFailed,
+			Extensions: map[string]interface{}{
+				"code": "INTERNAL_ERROR",
+			},
+		}
 	}
 
 	// Build all ledger keys (sequential - fast operation)
@@ -402,7 +436,12 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	if len(allLedgerKeys) > 0 {
 		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(allLedgerKeys)
 		if rpcErr != nil {
-			return nil, fmt.Errorf("fetching ledger entries from RPC: %w", rpcErr)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgRPCUnavailable,
+				Extensions: map[string]interface{}{
+					"code": "RPC_UNAVAILABLE",
+				},
+			}
 		}
 	}
 
@@ -467,7 +506,12 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	}
 
 	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for result processing: %w", err)
+		return nil, &gqlerror.Error{
+			Message: ErrMsgBalancesFetchFailed,
+			Extensions: map[string]interface{}{
+				"code": "INTERNAL_ERROR",
+			},
+		}
 	}
 
 	return results, nil

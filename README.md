@@ -1504,8 +1504,11 @@ This query uses **per-account error handling**, meaning failures for individual 
 
 | Error Code | Description |
 |------------|-------------|
+| `EMPTY_ADDRESSES` | No addresses provided in the request |
 | `TOO_MANY_ADDRESSES` | Number of addresses exceeds the configured limit (default: 20) |
-| `INVALID_ADDRESS` | One or more addresses have invalid format |
+| `INVALID_ADDRESS` | One or more addresses have invalid format (not G... or C...) |
+| `RPC_UNAVAILABLE` | Failed to fetch balance data from Stellar RPC |
+| `INTERNAL_ERROR` | Unexpected server error during processing |
 
 **Key Features:**
 

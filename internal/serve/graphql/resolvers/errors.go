@@ -18,4 +18,11 @@ const (
 	ErrMsgCannotWrapFeeBumpTransaction     = "Cannot wrap a fee-bump transaction into another fee-bump transaction"
 	ErrMsgInvalidTransaction               = "Transaction is not a valid transaction"
 	ErrMsgFeeBumpCreationFailed            = "Failed to create fee bump transaction: %s"
+
+	// BalancesByAccountAddresses errors
+	ErrMsgEmptyAddresses      = "addresses array cannot be empty"
+	ErrMsgTooManyAddresses    = "maximum %d addresses allowed per query, got %d"
+	ErrMsgInvalidAddressAt    = "invalid address format at index %d: %s"
+	ErrMsgRPCUnavailable      = "failed to fetch ledger entries from RPC"
+	ErrMsgBalancesFetchFailed = "failed to process account balances"
 )
