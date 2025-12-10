@@ -163,6 +163,44 @@ func (b *SEP41Balance) GetTokenID() string      { return b.TokenID }
 func (b *SEP41Balance) GetTokenType() TokenType { return b.TokenType }
 func (b *SEP41Balance) isBalance()              {}
 
+// AccountBalances represents balances for a single account in multi-account queries
+type AccountBalances struct {
+	Address  string    `json:"address"`
+	Balances []Balance `json:"balances"`
+	Error    *string   `json:"error,omitempty"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for AccountBalances
+// to properly handle polymorphic Balance types
+func (ab *AccountBalances) UnmarshalJSON(data []byte) error {
+	// Create a temporary struct to unmarshal basic fields
+	type tempAccountBalances struct {
+		Address  string            `json:"address"`
+		Balances []json.RawMessage `json:"balances"`
+		Error    *string           `json:"error,omitempty"`
+	}
+
+	var temp tempAccountBalances
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return fmt.Errorf("unmarshaling account balances: %w", err)
+	}
+
+	ab.Address = temp.Address
+	ab.Error = temp.Error
+
+	// Unmarshal each balance using the polymorphic unmarshaler
+	ab.Balances = make([]Balance, 0, len(temp.Balances))
+	for i, rawBalance := range temp.Balances {
+		balance, err := UnmarshalBalance(rawBalance)
+		if err != nil {
+			return fmt.Errorf("unmarshaling balance %d for account %s: %w", i, ab.Address, err)
+		}
+		ab.Balances = append(ab.Balances, balance)
+	}
+
+	return nil
+}
+
 // UnmarshalBalance unmarshals a JSON balance into the appropriate concrete type
 // based on the __typename field
 func UnmarshalBalance(data []byte) (Balance, error) {

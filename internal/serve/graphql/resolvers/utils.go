@@ -19,6 +19,18 @@ const (
 	DefaultLimit = int32(50)
 )
 
+// accountKeyInfo tracks ledger key information for a single account during multi-account balance fetch
+type accountKeyInfo struct {
+	address       string
+	isContract    bool
+	trustlines    []string         // "CODE:ISSUER" format
+	contractIDs   []string         // contract addresses
+	contracts     []*data.Contract // contract metadata
+	contractsByID map[string]*data.Contract
+	ledgerKeys    []string // base64 XDR keys for this account
+	collectionErr error    // error during data collection phase
+}
+
 // GenericEdge is a generic wrapper for a GraphQL edge.
 type GenericEdge[T any] struct {
 	Node   T

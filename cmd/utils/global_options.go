@@ -258,6 +258,28 @@ func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func MaxAccountsPerBalancesQueryOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "max-accounts-per-balances-query",
+		Usage:       "The maximum number of accounts that can be queried in a single balancesByAccountAddresses GraphQL query.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 20,
+		Required:    false,
+	}
+}
+
+func MaxGraphQLWorkerPoolSizeOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "max-graphql-worker-pool-size",
+		Usage:       "Maximum number of concurrent workers for GraphQL parallel operations.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 100,
+		Required:    false,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))

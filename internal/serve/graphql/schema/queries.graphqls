@@ -8,4 +8,5 @@ type Query {
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
     balancesByAccountAddress(address: String!):                           [Balance!]!
+    balancesByAccountAddresses(addresses: [String!]!):                    [AccountBalances!]!
 }
