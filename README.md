@@ -16,7 +16,7 @@ account management, and payment tracking capabilities.
   - [Authentication](#authentication)
   - [API Reference](#api-reference)
   - [Architecture](#architecture)
-  - [Contributing](#contributing)
+  - [Integration Tests Setup](#integration-tests-setup)
   - [Deployment](#deployment)
 
 ## Overview
@@ -1846,7 +1846,7 @@ query {
 4. **Consider APQ for production** - Reduces bandwidth for frequently-executed queries
 5. **Monitor complexity** - Break complex queries into multiple smaller queries if needed
 
-## Contributing
+## Integration Tests Setup
 
 This section provides documentation for developers contributing to the wallet-backend codebase.
 
