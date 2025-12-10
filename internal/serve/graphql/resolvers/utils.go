@@ -29,12 +29,6 @@ type accountKeyInfo struct {
 	contractsByID       map[string]*data.Contract
 	ledgerKeys          []string // base64 XDR keys for this account
 	collectionErr       error    // error during data collection phase
-	keyToContractID     map[string]string
-	keyToTrustline      map[string]string
-	hasAccountKey       bool
-	accountKeyIdx       int
-	trustlineKeyIndices []int
-	contractKeyIndices  []int
 }
 
 // GenericEdge is a generic wrapper for a GraphQL edge.

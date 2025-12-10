@@ -434,8 +434,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				address:         address,
 				isContract:      utils.IsContractAddress(address),
 				contractsByID:   make(map[string]*data.Contract),
-				keyToContractID: make(map[string]string),
-				keyToTrustline:  make(map[string]string),
 			}
 
 			// Get trustlines (skip for contract addresses)
@@ -495,8 +493,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.collectionErr = fmt.Errorf("creating account ledger key: %w", err)
 				continue
 			}
-			info.accountKeyIdx = len(allLedgerKeys)
-			info.hasAccountKey = true
 			allLedgerKeys = append(allLedgerKeys, accountKey)
 			info.ledgerKeys = append(info.ledgerKeys, accountKey)
 
@@ -515,8 +511,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
 					break
 				}
-				info.trustlineKeyIndices = append(info.trustlineKeyIndices, len(allLedgerKeys))
-				info.keyToTrustline[ledgerKey] = trustline
 				allLedgerKeys = append(allLedgerKeys, ledgerKey)
 				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			}
@@ -533,8 +527,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
 				break
 			}
-			info.contractKeyIndices = append(info.contractKeyIndices, len(allLedgerKeys))
-			info.keyToContractID[ledgerKey] = contract.ID
 			allLedgerKeys = append(allLedgerKeys, ledgerKey)
 			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 		}
@@ -545,14 +537,17 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	var rpcErr error
 	if len(allLedgerKeys) > 0 {
 		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(allLedgerKeys)
+		if rpcErr != nil {
+			return nil, fmt.Errorf("fetching ledger entries from RPC: %w", rpcErr)
+		}
 	}
 
 	// Create mapping: ledger key -> entry result
-	entryByKey := make(map[string]*entities.LedgerEntryResult)
+	ledgerEntriesByLedgerKeys := make(map[string]*entities.LedgerEntryResult)
 	if rpcErr == nil {
 		for idx := range rpcResult.Entries {
 			if idx < len(allLedgerKeys) {
-				entryByKey[allLedgerKeys[idx]] = &rpcResult.Entries[idx]
+				ledgerEntriesByLedgerKeys[allLedgerKeys[idx]] = &rpcResult.Entries[idx]
 			}
 		}
 	}
@@ -592,7 +587,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := r.parseAccountBalances(info, entryByKey)
+			balances, parseErr := r.parseAccountBalances(info, ledgerEntriesByLedgerKeys)
 			if parseErr != nil {
 				errStr := parseErr.Error()
 				result.Error = &errStr
@@ -614,12 +609,10 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 }
 
 // parseAccountBalances parses ledger entries for a single account and returns balances
-func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, entryByKey map[string]*entities.LedgerEntryResult) ([]graphql1.Balance, error) {
+func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult) ([]graphql1.Balance, error) {
 	var balances []graphql1.Balance
-	contractEntriesByContractID := make(map[string]*xdr.ContractDataEntry)
-
 	for _, ledgerKey := range info.ledgerKeys {
-		entry, exists := entryByKey[ledgerKey]
+		entry, exists := ledgerEntriesByLedgerKeys[ledgerKey]
 		if !exists || entry == nil {
 			continue
 		}
@@ -708,96 +701,91 @@ func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, entryByKey ma
 				return nil, fmt.Errorf("encoding contract ID: %w", err)
 			}
 
-			contractEntriesByContractID[contractIDStr] = &contractDataEntry
-		}
-	}
-
-	// Process contract balances
-	for contractID, contractDataEntry := range contractEntriesByContractID {
-		contract, exists := info.contractsByID[contractID]
-		if !exists {
-			continue
-		}
-
-		switch contract.Type {
-		case string(types.ContractTypeSAC):
-			if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
-				return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
+			contract, exists := info.contractsByID[contractIDStr]
+			if !exists {
+				continue
 			}
 
-			balanceMap := contractDataEntry.Val.MustMap()
-			if balanceMap == nil {
-				return nil, fmt.Errorf("balance map is nil")
-			}
-
-			var balanceStr string
-			var isAuthorized, isClawbackEnabled bool
-			var amountFound, authorizedFound, clawbackFound bool
-
-			for _, entry := range *balanceMap {
-				if entry.Key.Type == xdr.ScValTypeScvSymbol {
-					keySymbol := string(entry.Key.MustSym())
-					switch keySymbol {
-					case "amount":
-						if entry.Val.Type != xdr.ScValTypeScvI128 {
-							return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+			switch contract.Type {
+			case string(types.ContractTypeSAC):
+				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
+					return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
+				}
+	
+				balanceMap := contractDataEntry.Val.MustMap()
+				if balanceMap == nil {
+					return nil, fmt.Errorf("balance map is nil")
+				}
+	
+				var balanceStr string
+				var isAuthorized, isClawbackEnabled bool
+				var amountFound, authorizedFound, clawbackFound bool
+	
+				for _, entry := range *balanceMap {
+					if entry.Key.Type == xdr.ScValTypeScvSymbol {
+						keySymbol := string(entry.Key.MustSym())
+						switch keySymbol {
+						case "amount":
+							if entry.Val.Type != xdr.ScValTypeScvI128 {
+								return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+							}
+							i128Parts := entry.Val.MustI128()
+							balanceStr = amount.String128(i128Parts)
+							amountFound = true
+						case "authorized":
+							if entry.Val.Type != xdr.ScValTypeScvBool {
+								return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
+							}
+							isAuthorized = bool(entry.Val.MustB())
+							authorizedFound = true
+						case "clawback":
+							if entry.Val.Type != xdr.ScValTypeScvBool {
+								return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
+							}
+							isClawbackEnabled = bool(entry.Val.MustB())
+							clawbackFound = true
 						}
-						i128Parts := entry.Val.MustI128()
-						balanceStr = amount.String128(i128Parts)
-						amountFound = true
-					case "authorized":
-						if entry.Val.Type != xdr.ScValTypeScvBool {
-							return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
-						}
-						isAuthorized = bool(entry.Val.MustB())
-						authorizedFound = true
-					case "clawback":
-						if entry.Val.Type != xdr.ScValTypeScvBool {
-							return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
-						}
-						isClawbackEnabled = bool(entry.Val.MustB())
-						clawbackFound = true
 					}
 				}
+	
+				if !amountFound {
+					return nil, fmt.Errorf("amount field not found in SAC balance map")
+				}
+				if !authorizedFound {
+					return nil, fmt.Errorf("authorized field not found in SAC balance map")
+				}
+				if !clawbackFound {
+					return nil, fmt.Errorf("clawback field not found in SAC balance map")
+				}
+	
+				balances = append(balances, &graphql1.SACBalance{
+					TokenID:           contractIDStr,
+					Balance:           balanceStr,
+					TokenType:         graphql1.TokenTypeSac,
+					Code:              *contract.Code,
+					Issuer:            *contract.Issuer,
+					Decimals:          int32(contract.Decimals),
+					IsAuthorized:      isAuthorized,
+					IsClawbackEnabled: isClawbackEnabled,
+				})
+	
+			case string(types.ContractTypeSEP41):
+				if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
+					return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
+				}
+	
+				i128Parts := contractDataEntry.Val.MustI128()
+				balanceStr := amount.String128(i128Parts)
+	
+				balances = append(balances, &graphql1.SEP41Balance{
+					TokenID:   contractIDStr,
+					Balance:   balanceStr,
+					TokenType: graphql1.TokenTypeSep41,
+					Name:      *contract.Name,
+					Symbol:    *contract.Symbol,
+					Decimals:  int32(contract.Decimals),
+				})
 			}
-
-			if !amountFound {
-				return nil, fmt.Errorf("amount field not found in SAC balance map")
-			}
-			if !authorizedFound {
-				return nil, fmt.Errorf("authorized field not found in SAC balance map")
-			}
-			if !clawbackFound {
-				return nil, fmt.Errorf("clawback field not found in SAC balance map")
-			}
-
-			balances = append(balances, &graphql1.SACBalance{
-				TokenID:           contractID,
-				Balance:           balanceStr,
-				TokenType:         graphql1.TokenTypeSac,
-				Code:              *contract.Code,
-				Issuer:            *contract.Issuer,
-				Decimals:          int32(contract.Decimals),
-				IsAuthorized:      isAuthorized,
-				IsClawbackEnabled: isClawbackEnabled,
-			})
-
-		case string(types.ContractTypeSEP41):
-			if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
-				return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
-			}
-
-			i128Parts := contractDataEntry.Val.MustI128()
-			balanceStr := amount.String128(i128Parts)
-
-			balances = append(balances, &graphql1.SEP41Balance{
-				TokenID:   contractID,
-				Balance:   balanceStr,
-				TokenType: graphql1.TokenTypeSep41,
-				Name:      *contract.Name,
-				Symbol:    *contract.Symbol,
-				Decimals:  int32(contract.Decimals),
-			})
 		}
 	}
 

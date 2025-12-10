@@ -1384,15 +1384,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		}
 
 		results, err := resolver.BalancesByAccountAddresses(ctx, []string{testAccountAddress, testAccountAddress2})
-		require.NoError(t, err) // Overall call succeeds, but each account has error
-		require.Len(t, results, 2)
-
-		// Both accounts should have RPC error
-		for _, result := range results {
-			assert.NotNil(t, result.Error)
-			assert.Contains(t, *result.Error, "RPC error")
-			assert.Empty(t, result.Balances)
-		}
+		require.Error(t, err) // Overall call succeeds, but each account has error
+		assert.Contains(t, err.Error(), "fetching ledger entries")
+		require.Len(t, results, 0)
 	})
 
 	t.Run("success - mixed account and contract addresses", func(t *testing.T) {
