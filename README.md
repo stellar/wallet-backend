@@ -279,7 +279,7 @@ The wallet-backend includes several internal services that power its high-perfor
 The wallet-backend implements a high-performance **Account Token Cache** system that enables fast retrieval of account balances across all token types. This Redis-backed cache tracks every account's token holdings, including native XLM, classic trustlines, and Stellar Asset Contract (SAC) tokens.
 
 **Why it exists:**
-- **Fast Balance Queries**: Enables sub-second response times for the GraphQL `balancesByAccountAddress` query
+- **Fast Balance Queries**: Enables sub-second response times for the GraphQL queries - `balancesByAccountAddress` and `balancesByAccountAddresses`
 - **Complete Token Coverage**: Tracks all token types an account holds without expensive RPC lookups
 - **Efficient Updates**: Incrementally updates during live ingestion without rescanning the entire ledger
 - **Horizontal Scalability**: Redis-based architecture supports distributed deployments
