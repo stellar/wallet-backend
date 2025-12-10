@@ -81,7 +81,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Path to TOML config file for datastore backend. Required when ledger-backend-type is 'datastore'",
 			OptType:     types.String,
 			ConfigKey:   &cfg.DatastoreConfigPath,
-			FlagDefault: "",
+			FlagDefault: "config/datastore-pubnet.toml",
 			Required:    false,
 		},
 	}
