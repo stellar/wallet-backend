@@ -946,7 +946,7 @@ query {
 
 #### Queries
 
-The GraphQL API provides seven root queries for accessing blockchain data:
+The GraphQL API provides eight root queries for accessing blockchain data:
 
 | # | Query | Description |
 |---|-------|-------------|
@@ -957,6 +957,7 @@ The GraphQL API provides seven root queries for accessing blockchain data:
 | 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
 | 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
 | 7 | [`balancesByAccountAddress`](#7-get-account-balances) | Get all token balances for an account |
+| 8 | [`balancesByAccountAddresses`](#8-get-multiple-account-balances) | Get token balances for multiple accounts |
 
 ##### 1. Get Transaction by Hash
 
@@ -1389,6 +1390,137 @@ This query leverages the Account Token Cache (see [Account Token Cache](#account
 **Supported Address Types:**
 - **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
 - **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
+
+##### 8. Get Multiple Account Balances
+
+Retrieve token balances for multiple accounts in a single request. This query fetches balances for up to 20 accounts (configurable) with parallel processing for optimal performance.
+
+```graphql
+query GetMultipleAccountBalances {
+  balancesByAccountAddresses(addresses: ["GABC...", "GDEF...", "CXYZ..."]) {
+    address
+    balances {
+      __typename
+      tokenId
+      tokenType
+      balance
+
+      ... on NativeBalance {
+        # Native XLM balance (no additional fields)
+      }
+
+      ... on TrustlineBalance {
+        code
+        issuer
+        limit
+        isAuthorized
+      }
+
+      ... on SACBalance {
+        code
+        issuer
+        decimals
+      }
+
+      ... on SEP41Balance {
+        name
+        symbol
+        decimals
+      }
+    }
+    error
+  }
+}
+```
+
+**Response Type:**
+
+The query returns an array of `AccountBalances` objects, one per requested address:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | `String!` | The Stellar account or contract address |
+| `balances` | `[Balance!]!` | List of balances for this account (empty if not found) |
+| `error` | `String` | Error message if balance fetch failed for this account |
+
+**Response Example:**
+
+```json
+{
+  "data": {
+    "balancesByAccountAddresses": [
+      {
+        "address": "GABC...",
+        "balances": [
+          {
+            "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+            "balance": "100.0000000",
+            "tokenType": "NATIVE"
+          },
+          {
+            "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
+            "balance": "500.0000000",
+            "tokenType": "CLASSIC",
+            "code": "USDC",
+            "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+            "limit": "922337203685.4775807",
+            "isAuthorized": true
+          }
+        ],
+        "error": null
+      },
+      {
+        "address": "GDEF...",
+        "balances": [],
+        "error": "account not found on the network"
+      },
+      {
+        "address": "CXYZ...",
+        "balances": [
+          {
+            "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
+            "balance": "1000.0000000",
+            "tokenType": "SEP41",
+            "name": "Example Token",
+            "symbol": "EXT",
+            "decimals": 7
+          }
+        ],
+        "error": null
+      }
+    ]
+  }
+}
+```
+
+**Error Handling:**
+
+This query uses **per-account error handling**, meaning failures for individual accounts don't fail the entire request:
+
+- **Per-account errors**: Stored in the `error` field of each `AccountBalances` object. Other accounts still return their balances successfully.
+- **Query-level errors**: Only occur for validation failures (e.g., exceeding address limit, empty address array, invalid address format).
+
+**Query-Level Error Codes:**
+
+| Error Code | Description |
+|------------|-------------|
+| `TOO_MANY_ADDRESSES` | Number of addresses exceeds the configured limit (default: 20) |
+| `INVALID_ADDRESS` | One or more addresses have invalid format |
+
+**Key Features:**
+
+- **Parallel Processing**: Balances for multiple accounts are fetched concurrently using worker pools
+- **Single RPC Call**: All ledger entries are retrieved in a single RPC request for efficiency
+- **Address Deduplication**: Duplicate addresses in the input are automatically deduplicated
+- **Empty Results**: Returns empty `balances` array (not an error) when an account is not found
+
+**Supported Address Types:**
+- **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
+- **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
+
+**Configuration:**
+
+The maximum number of addresses per query is configurable via the `--max-accounts-per-balances-query` flag or `MAX_ACCOUNTS_PER_BALANCES_QUERY` environment variable (default: 20).
 
 #### Mutations
 
