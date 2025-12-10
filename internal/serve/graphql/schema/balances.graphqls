@@ -50,10 +50,10 @@ type SEP41Balance implements Balance {
 
 """AccountBalances represents balances for a single account in multi-account queries"""
 type AccountBalances {
-    """The Stellar account or contract address"""
+    // The Stellar account or contract address
     address: String!
-    """List of balances for this account, empty if not found"""
+    // List of balances for this account, empty if not found
     balances: [Balance!]!
-    """Error message if balance fetch failed for this account"""
+    // Error message if balance fetch failed for this account
     error: String
 }

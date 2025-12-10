@@ -30,8 +30,12 @@ import (
 
 const (
 	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	MaxAccountsPerBalancesQuery  = 20
 )
+
+// ResolverConfig holds configuration values for the GraphQL resolver.
+type ResolverConfig struct {
+	MaxAccountsPerBalancesQuery int
+}
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
@@ -54,12 +58,14 @@ type Resolver struct {
 	metricsService metrics.MetricsService
 	// pool provides parallel processing capabilities for batch operations
 	pool pond.Pool
+	// config holds resolver-specific configuration values
+	config ResolverConfig
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	return &Resolver{
 		models:              models,
 		accountService:      accountService,
@@ -69,6 +75,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		accountTokenService: accountTokenService,
 		metricsService:      metricsService,
 		pool:                pond.NewPool(0),
+		config:              config,
 	}
 }
 

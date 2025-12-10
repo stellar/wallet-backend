@@ -35,6 +35,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
+		utils.MaxAccountsPerBalancesQueryOption(&cfg.MaxAccountsPerBalancesQuery),
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
 		{

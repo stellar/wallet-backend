@@ -407,8 +407,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	if len(addresses) == 0 {
 		return nil, fmt.Errorf("addresses array cannot be empty")
 	}
-	if len(addresses) > MaxAccountsPerBalancesQuery {
-		return nil, fmt.Errorf("maximum %d addresses allowed per query, got %d", MaxAccountsPerBalancesQuery, len(addresses))
+	if len(addresses) > r.config.MaxAccountsPerBalancesQuery {
+		return nil, fmt.Errorf("maximum %d addresses allowed per query, got %d", r.config.MaxAccountsPerBalancesQuery, len(addresses))
 	}
 
 	// Deduplicate addresses while preserving order
@@ -431,9 +431,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		address := addr
 		group.Submit(func() {
 			info := &accountKeyInfo{
-				address:         address,
-				isContract:      utils.IsContractAddress(address),
-				contractsByID:   make(map[string]*data.Contract),
+				address:       address,
+				isContract:    utils.IsContractAddress(address),
+				contractsByID: make(map[string]*data.Contract),
 			}
 
 			// Get trustlines (skip for contract addresses)
@@ -711,16 +711,16 @@ func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, ledgerEntries
 				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
 					return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
 				}
-	
+
 				balanceMap := contractDataEntry.Val.MustMap()
 				if balanceMap == nil {
 					return nil, fmt.Errorf("balance map is nil")
 				}
-	
+
 				var balanceStr string
 				var isAuthorized, isClawbackEnabled bool
 				var amountFound, authorizedFound, clawbackFound bool
-	
+
 				for _, entry := range *balanceMap {
 					if entry.Key.Type == xdr.ScValTypeScvSymbol {
 						keySymbol := string(entry.Key.MustSym())
@@ -747,7 +747,7 @@ func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, ledgerEntries
 						}
 					}
 				}
-	
+
 				if !amountFound {
 					return nil, fmt.Errorf("amount field not found in SAC balance map")
 				}
@@ -757,7 +757,7 @@ func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, ledgerEntries
 				if !clawbackFound {
 					return nil, fmt.Errorf("clawback field not found in SAC balance map")
 				}
-	
+
 				balances = append(balances, &graphql1.SACBalance{
 					TokenID:           contractIDStr,
 					Balance:           balanceStr,
@@ -768,15 +768,15 @@ func (r *queryResolver) parseAccountBalances(info *accountKeyInfo, ledgerEntries
 					IsAuthorized:      isAuthorized,
 					IsClawbackEnabled: isClawbackEnabled,
 				})
-	
+
 			case string(types.ContractTypeSEP41):
 				if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
 					return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
 				}
-	
+
 				i128Parts := contractDataEntry.Val.MustI128()
 				balanceStr := amount.String128(i128Parts)
-	
+
 				balances = append(balances, &graphql1.SEP41Balance{
 					TokenID:   contractIDStr,
 					Balance:   balanceStr,

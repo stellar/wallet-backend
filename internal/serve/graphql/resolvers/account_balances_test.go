@@ -1326,7 +1326,8 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		ctx := context.Background()
 		resolver := &queryResolver{
 			&Resolver{
-				pool: pond.NewPool(0),
+				pool:   pond.NewPool(0),
+				config: ResolverConfig{MaxAccountsPerBalancesQuery: 20},
 			},
 		}
 
