@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -417,16 +416,15 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.trustlines = trustlines
 			}
 
-			// Get contracts
+			// Get contract IDs for the account: note that this also contains contract tokens that we currently dont support (non SEP-41)
 			contractIDs, err := r.accountTokenService.GetAccountContracts(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info
 				return
 			}
-			info.contractIDs = contractIDs
 
-			// Get contract metadata
+			// Get contract metadata: note that this will always return only the supported tokens irrespective of non-supported contract IDs
 			if len(contractIDs) > 0 {
 				contracts, contractErr := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
 				if contractErr != nil {
@@ -434,7 +432,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 					accountInfos[index] = info
 					return
 				}
-				info.contracts = contracts
 				for _, c := range contracts {
 					info.contractsByID[c.ID] = c
 				}
@@ -454,7 +451,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	}
 
 	// Build all ledger keys (sequential - fast operation)
-	uniqueLedgerKeys := set.NewSet[string]()
+	ledgerKeys := make([]string, 0)
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
@@ -468,7 +465,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.collectionErr = fmt.Errorf("creating account ledger key: %w", err)
 				continue
 			}
-			uniqueLedgerKeys.Add(accountKey)
+			ledgerKeys = append(ledgerKeys, accountKey)
 			info.ledgerKeys = append(info.ledgerKeys, accountKey)
 
 			// Build ledger keys for all trustlines
@@ -486,7 +483,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
 					break
 				}
-				uniqueLedgerKeys.Add(ledgerKey)
+				ledgerKeys = append(ledgerKeys, ledgerKey)
 				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			}
 		}
@@ -496,13 +493,13 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 
 		// Build ledger keys for all contracts
-		for _, contract := range info.contracts {
+		for _, contract := range info.contractsByID {
 			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
 			if keyErr != nil {
 				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
 				break
 			}
-			uniqueLedgerKeys.Add(ledgerKey)
+			ledgerKeys = append(ledgerKeys, ledgerKey)
 			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 		}
 	}
@@ -510,8 +507,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	// Single RPC call for all ledger entries
 	var rpcResult entities.RPCGetLedgerEntriesResult
 	var rpcErr error
-	if uniqueLedgerKeys.Cardinality() > 0 {
-		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(uniqueLedgerKeys.ToSlice())
+	if len(ledgerKeys) > 0 {
+		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(ledgerKeys)
 		if rpcErr != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgRPCUnavailable,
