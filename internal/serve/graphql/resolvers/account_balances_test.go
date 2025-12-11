@@ -240,7 +240,7 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 		ContractData: &contractDataEntry,
 	}
 
-	ledgerKey, err := utils.GetContractDataEntryLedgerKey(contractID, holderAddress)
+	ledgerKey, err := utils.GetContractDataEntryLedgerKey(holderAddress, contractID)
 	if err != nil {
 		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
 	}
@@ -319,7 +319,7 @@ func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderCont
 		ContractData: &contractDataEntry,
 	}
 
-	ledgerKey, err := utils.GetContractDataEntryLedgerKey(contractID, holderAddress)
+	ledgerKey, err := utils.GetContractDataEntryLedgerKey(holderAddress, contractID)
 	if err != nil {
 		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
 	}
