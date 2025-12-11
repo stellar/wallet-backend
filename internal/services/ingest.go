@@ -445,6 +445,12 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 
 	innerTxHashes := make([]string, 0, len(txs))
 	for _, tx := range txs {
+		if tx.InnerTransactionHash != "" {
+			innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
+			continue
+		}
+
+		// Fallback for cases where InnerTransactionHash might not be populated (though it should be)
 		// Skip transactions without envelope XDR (when skip-tx-envelope is enabled)
 		if tx.EnvelopeXDR == nil {
 			continue

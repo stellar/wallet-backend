@@ -32,19 +32,49 @@ func Test_ConvertTransaction(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	gotDataTx, err := ConvertTransaction(&ingestTx, false, false)
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, false, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	metaXDR := unsafeMetaXDRStr
 	envelopeXDR := envelopeXDRStr
 	wantDataTx := &types.Transaction{
-		Hash:            "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
-		ToID:            20929375637504,
-		EnvelopeXDR:     &envelopeXDR,
-		ResultXDR:       txResultPairXDRStr,
-		MetaXDR:         &metaXDR,
-		LedgerNumber:    4873,
-		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
+		ToID:                 20929375637504,
+		EnvelopeXDR:          &envelopeXDR,
+		ResultXDR:            txResultPairXDRStr,
+		MetaXDR:              &metaXDR,
+		LedgerNumber:         4873,
+		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
+	}
+	assert.Equal(t, wantDataTx, gotDataTx)
+}
+
+func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
+	var lcm xdr.LedgerCloseMeta
+	err := xdr.SafeUnmarshalBase64(ledgerCloseMetaXDR, &lcm)
+	require.NoError(t, err)
+
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(network.TestNetworkPassphrase, lcm)
+	require.NoError(t, err)
+	ingestTx, err := ledgerTxReader.Read()
+	require.NoError(t, err)
+
+	// skipTxEnvelope = true
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, true, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	metaXDR := unsafeMetaXDRStr
+	// envelopeXDR should be nil
+	wantDataTx := &types.Transaction{
+		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
+		ToID:                 20929375637504,
+		EnvelopeXDR:          nil,
+		ResultXDR:            txResultPairXDRStr,
+		MetaXDR:              &metaXDR,
+		LedgerNumber:         4873,
+		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
 }
