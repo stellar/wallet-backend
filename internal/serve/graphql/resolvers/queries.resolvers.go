@@ -523,12 +523,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 	// Create mapping: ledger key -> entry result
 	ledgerEntriesByLedgerKeys := make(map[string]*entities.LedgerEntryResult)
-	if rpcErr == nil {
-		for idx := range rpcResult.Entries {
-			if idx < len(allLedgerKeys) {
-				ledgerEntriesByLedgerKeys[allLedgerKeys[idx]] = &rpcResult.Entries[idx]
-			}
-		}
+	for _, entry := range rpcResult.Entries {
+		ledgerEntriesByLedgerKeys[entry.KeyXDR] = &entry
 	}
 
 	// Phase 2: Parallel processing of results per account
