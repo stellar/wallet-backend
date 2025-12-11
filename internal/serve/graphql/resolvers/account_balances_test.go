@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -92,8 +93,13 @@ func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntr
 		Type:    xdr.LedgerEntryTypeAccount,
 		Account: &accountEntry,
 	}
+	ledgerKey, err := utils.GetAccountLedgerKey(address)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get account ledger key: %v", err))
+	}
 
 	return entities.LedgerEntryResult{
+		KeyXDR:             ledgerKey,
 		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
 		LastModifiedLedger: 1000,
 	}
@@ -131,7 +137,13 @@ func createTrustlineLedgerEntry(accountAddress, assetCode, assetIssuer string, b
 		TrustLine: &trustlineEntry,
 	}
 
+	ledgerKey, err := utils.GetTrustlineLedgerKey(accountAddress, assetCode, assetIssuer)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get trustline ledger key: %v", err))
+	}
+
 	return entities.LedgerEntryResult{
+		KeyXDR:             ledgerKey,
 		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
 		LastModifiedLedger: 1000,
 	}
@@ -228,7 +240,13 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 		ContractData: &contractDataEntry,
 	}
 
+	ledgerKey, err := utils.GetContractDataEntryLedgerKey(contractID, holderAddress)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
+	}
+
 	return entities.LedgerEntryResult{
+		KeyXDR:             ledgerKey,
 		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
 		LastModifiedLedger: 1000,
 	}
@@ -301,7 +319,13 @@ func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderCont
 		ContractData: &contractDataEntry,
 	}
 
+	ledgerKey, err := utils.GetContractDataEntryLedgerKey(contractID, holderAddress)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
+	}
+
 	return entities.LedgerEntryResult{
+		KeyXDR:             ledgerKey,
 		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
 		LastModifiedLedger: 1000,
 	}
