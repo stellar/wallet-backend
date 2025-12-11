@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -453,7 +454,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	}
 
 	// Build all ledger keys (sequential - fast operation)
-	var allLedgerKeys []string
+	uniqueLedgerKeys := set.NewSet[string]()
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
@@ -467,7 +468,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.collectionErr = fmt.Errorf("creating account ledger key: %w", err)
 				continue
 			}
-			allLedgerKeys = append(allLedgerKeys, accountKey)
+			uniqueLedgerKeys.Add(accountKey)
 			info.ledgerKeys = append(info.ledgerKeys, accountKey)
 
 			// Build ledger keys for all trustlines
@@ -485,7 +486,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
 					break
 				}
-				allLedgerKeys = append(allLedgerKeys, ledgerKey)
+				uniqueLedgerKeys.Add(ledgerKey)
 				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			}
 		}
@@ -501,7 +502,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
 				break
 			}
-			allLedgerKeys = append(allLedgerKeys, ledgerKey)
+			uniqueLedgerKeys.Add(ledgerKey)
 			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 		}
 	}
@@ -509,8 +510,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	// Single RPC call for all ledger entries
 	var rpcResult entities.RPCGetLedgerEntriesResult
 	var rpcErr error
-	if len(allLedgerKeys) > 0 {
-		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(allLedgerKeys)
+	if uniqueLedgerKeys.Cardinality() > 0 {
+		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(uniqueLedgerKeys.ToSlice())
 		if rpcErr != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgRPCUnavailable,
