@@ -72,6 +72,8 @@ type Configs struct {
 	DatastoreConfigPath string
 	// SkipTxMeta skips storing transaction metadata (meta_xdr) to reduce storage space
 	SkipTxMeta bool
+	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
+	SkipTxEnvelope bool
 }
 
 func Ingest(cfg Configs) error {
@@ -151,7 +153,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

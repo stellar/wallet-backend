@@ -91,7 +91,7 @@ type AccountWithOperationID struct {
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
-	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
+	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`

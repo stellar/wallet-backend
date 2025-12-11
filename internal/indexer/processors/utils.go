@@ -83,10 +83,14 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) (*types.Transaction, error) {
-	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool) (*types.Transaction, error) {
+	var envelopeXDR *string
+	if !skipTxEnvelope {
+		envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
+		}
+		envelopeXDR = &envelopeXDRStr
 	}
 
 	resultXDR, err := xdr.MarshalBase64(transaction.Result)

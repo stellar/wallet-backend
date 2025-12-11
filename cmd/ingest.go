@@ -92,6 +92,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: true,
 			Required:    false,
 		},
+		{
+			Name:        "skip-tx-envelope",
+			Usage:       "Skip storing transaction envelope (envelope_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxEnvelope,
+			FlagDefault: true,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{

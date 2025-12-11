@@ -32,14 +32,15 @@ func Test_ConvertTransaction(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	gotDataTx, err := ConvertTransaction(&ingestTx, false)
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, false)
 	require.NoError(t, err)
 
 	metaXDR := unsafeMetaXDRStr
+	envelopeXDR := envelopeXDRStr
 	wantDataTx := &types.Transaction{
 		Hash:            "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:            20929375637504,
-		EnvelopeXDR:     envelopeXDRStr,
+		EnvelopeXDR:     &envelopeXDR,
 		ResultXDR:       txResultPairXDRStr,
 		MetaXDR:         &metaXDR,
 		LedgerNumber:    4873,
