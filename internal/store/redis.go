@@ -18,6 +18,20 @@ const (
 	OpSet       RedisOperation = "SET"
 )
 
+// Token registry keys for mapping full strings to short integer IDs.
+// This reduces Redis memory usage by storing short IDs instead of full asset/contract strings.
+const (
+	// Asset registry (for trustlines)
+	assetToIDKey    = "asset_to_id"   // HASH: asset_string → ID
+	idToAssetKey    = "id_to_asset"   // HASH: ID → asset_string
+	assetCounterKey = "asset_counter" // STRING: atomic counter for ID assignment
+
+	// Contract registry
+	contractToIDKey    = "contract_to_id"   // HASH: contract_address → ID
+	idToContractKey    = "id_to_contract"   // HASH: ID → contract_address
+	contractCounterKey = "contract_counter" // STRING: atomic counter for ID assignment
+)
+
 // RedisPipelineOperation represents a single set operation to be executed in a pipeline.
 type RedisPipelineOperation struct {
 	Op      RedisOperation
@@ -107,4 +121,143 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 	}
 
 	return nil
+}
+
+// GetOrCreateAssetID returns the ID for an asset string, creating a new ID if it doesn't exist.
+// Uses Redis HASH for O(1) lookups and INCR for atomic ID assignment.
+func (r *RedisStore) GetOrCreateAssetID(ctx context.Context, asset string) (string, error) {
+	return r.getOrCreateID(ctx, asset, assetToIDKey, idToAssetKey, assetCounterKey)
+}
+
+// GetAssetsByIDs batch resolves asset IDs to their full asset strings.
+// Returns a slice of asset strings in the same order as the input IDs.
+func (r *RedisStore) GetAssetsByIDs(ctx context.Context, ids []string) ([]string, error) {
+	return r.getValuesByIDs(ctx, ids, idToAssetKey)
+}
+
+// BatchAssignAssetIDs assigns IDs to multiple assets in a single pipeline.
+// Returns a map from asset string to its assigned ID.
+func (r *RedisStore) BatchAssignAssetIDs(ctx context.Context, assets []string) (map[string]string, error) {
+	return r.batchAssignIDs(ctx, assets, assetToIDKey, idToAssetKey, assetCounterKey)
+}
+
+// GetOrCreateContractID returns the ID for a contract address, creating a new ID if it doesn't exist.
+func (r *RedisStore) GetOrCreateContractID(ctx context.Context, contractAddr string) (string, error) {
+	return r.getOrCreateID(ctx, contractAddr, contractToIDKey, idToContractKey, contractCounterKey)
+}
+
+// GetContractsByIDs batch resolves contract IDs to their full contract addresses.
+// Returns a slice of contract addresses in the same order as the input IDs.
+func (r *RedisStore) GetContractsByIDs(ctx context.Context, ids []string) ([]string, error) {
+	return r.getValuesByIDs(ctx, ids, idToContractKey)
+}
+
+// BatchAssignContractIDs assigns IDs to multiple contracts in a single pipeline.
+// Returns a map from contract address to its assigned ID.
+func (r *RedisStore) BatchAssignContractIDs(ctx context.Context, contracts []string) (map[string]string, error) {
+	return r.batchAssignIDs(ctx, contracts, contractToIDKey, idToContractKey, contractCounterKey)
+}
+
+// getOrCreateID is a generic helper for creating/retrieving IDs for token strings.
+func (r *RedisStore) getOrCreateID(ctx context.Context, value, toIDKey, toValueKey, counterKey string) (string, error) {
+	// Check if ID already exists
+	existingID, err := r.client.HGet(ctx, toIDKey, value).Result()
+	if err == nil {
+		return existingID, nil
+	}
+	if !errors.Is(err, redis.Nil) {
+		return "", fmt.Errorf("checking existing ID for %s: %w", value, err)
+	}
+
+	// ID doesn't exist, assign a new one atomically
+	newID, err := r.client.Incr(ctx, counterKey).Result()
+	if err != nil {
+		return "", fmt.Errorf("incrementing counter %s: %w", counterKey, err)
+	}
+
+	idStr := fmt.Sprintf("%d", newID)
+
+	// Store bidirectional mapping using pipeline
+	pipe := r.client.Pipeline()
+	pipe.HSet(ctx, toIDKey, value, idStr)
+	pipe.HSet(ctx, toValueKey, idStr, value)
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return "", fmt.Errorf("storing ID mapping for %s: %w", value, err)
+	}
+
+	return idStr, nil
+}
+
+// getValuesByIDs batch retrieves values for multiple IDs using HMGET.
+func (r *RedisStore) getValuesByIDs(ctx context.Context, ids []string, toValueKey string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	values, err := r.client.HMGet(ctx, toValueKey, ids...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("batch getting values from %s: %w", toValueKey, err)
+	}
+
+	result := make([]string, len(ids))
+	for i, v := range values {
+		if v != nil {
+			result[i] = v.(string)
+		}
+	}
+	return result, nil
+}
+
+// batchAssignIDs assigns IDs to multiple values efficiently using pipelining.
+// First checks which values already have IDs, then assigns new IDs only for missing ones.
+func (r *RedisStore) batchAssignIDs(ctx context.Context, values []string, toIDKey, toValueKey, counterKey string) (map[string]string, error) {
+	if len(values) == 0 {
+		return make(map[string]string), nil
+	}
+
+	result := make(map[string]string, len(values))
+
+	// Check which values already have IDs
+	existingIDs, err := r.client.HMGet(ctx, toIDKey, values...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("checking existing IDs: %w", err)
+	}
+
+	// Collect values that need new IDs
+	var needsID []string
+	for i, v := range existingIDs {
+		if v != nil {
+			result[values[i]] = v.(string)
+		} else {
+			needsID = append(needsID, values[i])
+		}
+	}
+
+	if len(needsID) == 0 {
+		return result, nil
+	}
+
+	// Reserve a range of IDs atomically
+	endID, err := r.client.IncrBy(ctx, counterKey, int64(len(needsID))).Result()
+	if err != nil {
+		return nil, fmt.Errorf("reserving ID range: %w", err)
+	}
+	startID := endID - int64(len(needsID)) + 1
+
+	// Assign IDs and store mappings using pipeline
+	pipe := r.client.Pipeline()
+	for i, value := range needsID {
+		idStr := fmt.Sprintf("%d", startID+int64(i))
+		result[value] = idStr
+		pipe.HSet(ctx, toIDKey, value, idStr)
+		pipe.HSet(ctx, toValueKey, idStr, value)
+	}
+
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("storing batch ID mappings: %w", err)
+	}
+
+	return result, nil
 }

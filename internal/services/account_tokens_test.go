@@ -231,11 +231,13 @@ func TestGetAccountTrustlines(t *testing.T) {
 			name:           "account with trustlines",
 			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 			setupData: func() {
-				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				// Use service method to add trustlines (handles ID conversion)
+				assets := []string{
+					"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+					"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
+				}
 				//nolint:errcheck // test setup
-				_, _ = mr.SetAdd(key, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-				//nolint:errcheck // test setup
-				_, _ = mr.SetAdd(key, "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ")
+				_ = service.AddTrustlines(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N", assets)
 			},
 			want:    []string{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
 			wantErr: false,
@@ -294,11 +296,13 @@ func TestGetAccountContracts(t *testing.T) {
 			name:           "account with contracts",
 			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 			setupData: func() {
-				key := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				// Use service method to add contracts (handles ID conversion)
+				contracts := []string{
+					"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+					"CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+				}
 				//nolint:errcheck // test setup
-				_, _ = mr.SetAdd(key, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-				//nolint:errcheck // test setup
-				_, _ = mr.SetAdd(key, "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+				_ = service.AddContracts(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N", contracts)
 			},
 			want:    []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4", "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"},
 			wantErr: false,
@@ -952,7 +956,7 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 		contractsPrefix:  contractsKeyPrefix,
 	}
 
-	t.Run("stores trustlines in Redis", func(t *testing.T) {
+	t.Run("stores trustlines in Redis with ID compression", func(t *testing.T) {
 		mr.FlushAll()
 
 		trustlines := map[string][]string{
@@ -964,18 +968,26 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts)
 		require.NoError(t, err)
 
-		// Verify trustlines were stored
+		// Verify IDs (not raw strings) are stored in account sets
 		members1, err := mr.SMembers(trustlinesKeyPrefix + "account1")
 		require.NoError(t, err)
-		assert.Contains(t, members1, "USDC:issuer1")
-		assert.Contains(t, members1, "EUROC:issuer2")
+		assert.Len(t, members1, 2)
+		// IDs should be short numeric strings like "1", "2", "3"
+		for _, id := range members1 {
+			assert.Regexp(t, `^\d+$`, id, "stored ID should be numeric")
+		}
 
-		members2, err := mr.SMembers(trustlinesKeyPrefix + "account2")
+		// Verify data is retrievable via service method (round-trip test)
+		retrievedAssets, err := service.GetAccountTrustlines(ctx, "account1")
 		require.NoError(t, err)
-		assert.Contains(t, members2, "XLM:native")
+		assert.ElementsMatch(t, []string{"USDC:issuer1", "EUROC:issuer2"}, retrievedAssets)
+
+		retrievedAssets2, err := service.GetAccountTrustlines(ctx, "account2")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"XLM:native"}, retrievedAssets2)
 	})
 
-	t.Run("stores contracts in Redis", func(t *testing.T) {
+	t.Run("stores contracts in Redis with ID compression", func(t *testing.T) {
 		mr.FlushAll()
 
 		trustlines := make(map[string][]string)
@@ -987,15 +999,23 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts)
 		require.NoError(t, err)
 
-		// Verify contracts were stored
+		// Verify IDs (not raw strings) are stored in account sets
 		members1, err := mr.SMembers(contractsKeyPrefix + "account1")
 		require.NoError(t, err)
-		assert.Contains(t, members1, "contract1")
-		assert.Contains(t, members1, "contract2")
+		assert.Len(t, members1, 2)
+		// IDs should be short numeric strings
+		for _, id := range members1 {
+			assert.Regexp(t, `^\d+$`, id, "stored ID should be numeric")
+		}
 
-		members2, err := mr.SMembers(contractsKeyPrefix + "account2")
+		// Verify data is retrievable via service method (round-trip test)
+		retrievedContracts, err := service.GetAccountContracts(ctx, "account1")
 		require.NoError(t, err)
-		assert.Contains(t, members2, "contract3")
+		assert.ElementsMatch(t, []string{"contract1", "contract2"}, retrievedContracts)
+
+		retrievedContracts2, err := service.GetAccountContracts(ctx, "account2")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"contract3"}, retrievedContracts2)
 	})
 }
 
@@ -1038,10 +1058,10 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractChanges: []types.ContractChange{},
 			setupData:       func() {},
 			verifyData: func(t *testing.T) {
-				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-				members, err := mr.SMembers(key)
+				// Verify through service method (handles ID resolution)
+				assets, err := service.GetAccountTrustlines(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 				require.NoError(t, err)
-				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+				assert.Contains(t, assets, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 			},
 			wantErr: false,
 		},
@@ -1056,18 +1076,16 @@ func TestProcessTokenChanges(t *testing.T) {
 			},
 			contractChanges: []types.ContractChange{},
 			setupData: func() {
-				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				// Use service method to add trustline (handles ID conversion)
 				//nolint:errcheck // test setup
-				_, _ = mr.SetAdd(key, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+				_ = service.AddTrustlines(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					[]string{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"})
 			},
 			verifyData: func(t *testing.T) {
-				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-				// Check if key exists before getting members (set may be deleted if empty)
-				if mr.Exists(key) {
-					members, err := mr.SMembers(key)
-					require.NoError(t, err)
-					assert.NotContains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-				}
+				// Verify through service method (handles ID resolution)
+				assets, err := service.GetAccountTrustlines(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.NotContains(t, assets, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 			},
 			wantErr: false,
 		},
@@ -1083,10 +1101,10 @@ func TestProcessTokenChanges(t *testing.T) {
 			},
 			setupData: func() {},
 			verifyData: func(t *testing.T) {
-				contractKey := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-				members, err := mr.SMembers(contractKey)
+				// Verify through service method (handles ID resolution)
+				contracts, err := service.GetAccountContracts(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 				require.NoError(t, err)
-				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+				assert.Contains(t, contracts, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
 			},
 			wantErr: false,
 		},
@@ -1144,13 +1162,12 @@ func TestProcessTokenChanges(t *testing.T) {
 			},
 			setupData: func() {},
 			verifyData: func(t *testing.T) {
-				trustlineKey := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-				trustlines, err := mr.SMembers(trustlineKey)
+				// Verify through service methods (handles ID resolution)
+				trustlines, err := service.GetAccountTrustlines(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 				require.NoError(t, err)
 				assert.Contains(t, trustlines, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 
-				contractKey := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-				contracts, err := mr.SMembers(contractKey)
+				contracts, err := service.GetAccountContracts(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 				require.NoError(t, err)
 				assert.Contains(t, contracts, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
 			},

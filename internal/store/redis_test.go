@@ -350,3 +350,188 @@ func TestRedisStore_ExecutePipeline(t *testing.T) {
 		assert.Contains(t, err.Error(), "executing set pipeline")
 	})
 }
+
+func TestRedisStore_GetOrCreateAssetID(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("creates new ID for unknown asset", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		id, err := store.GetOrCreateAssetID(ctx, "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+		require.NoError(t, err)
+		assert.Equal(t, "1", id)
+
+		// Second asset gets next ID
+		id2, err := store.GetOrCreateAssetID(ctx, "EURC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+		require.NoError(t, err)
+		assert.Equal(t, "2", id2)
+	})
+
+	t.Run("returns existing ID for known asset", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Create asset
+		id1, err := store.GetOrCreateAssetID(ctx, "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+		require.NoError(t, err)
+
+		// Request same asset again
+		id2, err := store.GetOrCreateAssetID(ctx, "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+		require.NoError(t, err)
+		assert.Equal(t, id1, id2)
+	})
+
+	t.Run("handles error when Redis is unavailable", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		mr.Close()
+
+		_, err := store.GetOrCreateAssetID(ctx, "USDC:GBBD47")
+		assert.Error(t, err)
+	})
+}
+
+func TestRedisStore_GetAssetsByIDs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resolves IDs to assets in order", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Create some assets
+		id1, err := store.GetOrCreateAssetID(ctx, "USDC:ISSUER1")
+		require.NoError(t, err)
+		id2, err := store.GetOrCreateAssetID(ctx, "EURC:ISSUER2")
+		require.NoError(t, err)
+		id3, err := store.GetOrCreateAssetID(ctx, "XLM:ISSUER3")
+		require.NoError(t, err)
+
+		// Resolve in different order
+		assets, err := store.GetAssetsByIDs(ctx, []string{id3, id1, id2})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"XLM:ISSUER3", "USDC:ISSUER1", "EURC:ISSUER2"}, assets)
+	})
+
+	t.Run("returns empty slice for empty input", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		assets, err := store.GetAssetsByIDs(ctx, []string{})
+		require.NoError(t, err)
+		assert.Nil(t, assets)
+	})
+
+	t.Run("returns empty strings for unknown IDs", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		assets, err := store.GetAssetsByIDs(ctx, []string{"999", "1000"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"", ""}, assets)
+	})
+}
+
+func TestRedisStore_BatchAssignAssetIDs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("assigns IDs to multiple new assets", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		assets := []string{"USDC:ISSUER1", "EURC:ISSUER2", "XLM:ISSUER3"}
+		result, err := store.BatchAssignAssetIDs(ctx, assets)
+		require.NoError(t, err)
+
+		assert.Len(t, result, 3)
+		assert.Equal(t, "1", result["USDC:ISSUER1"])
+		assert.Equal(t, "2", result["EURC:ISSUER2"])
+		assert.Equal(t, "3", result["XLM:ISSUER3"])
+	})
+
+	t.Run("reuses existing IDs", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Pre-create one asset
+		_, err := store.GetOrCreateAssetID(ctx, "USDC:ISSUER1")
+		require.NoError(t, err)
+
+		// Batch assign including the existing one
+		assets := []string{"USDC:ISSUER1", "EURC:ISSUER2"}
+		result, err := store.BatchAssignAssetIDs(ctx, assets)
+		require.NoError(t, err)
+
+		assert.Equal(t, "1", result["USDC:ISSUER1"]) // existing
+		assert.Equal(t, "2", result["EURC:ISSUER2"]) // new
+	})
+
+	t.Run("returns empty map for empty input", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		result, err := store.BatchAssignAssetIDs(ctx, []string{})
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+}
+
+func TestRedisStore_GetOrCreateContractID(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("creates new ID for unknown contract", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		id, err := store.GetOrCreateContractID(ctx, "CAQCMV4JFG7CDSWHBYKL5VL3IXSVXCKKFR33GXXYXQF6GDZTTRVHNXYA")
+		require.NoError(t, err)
+		assert.Equal(t, "1", id)
+	})
+
+	t.Run("returns existing ID for known contract", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		id1, err := store.GetOrCreateContractID(ctx, "CAQCMV4JFG7CDSWHBYKL5VL3IXSVXCKKFR33GXXYXQF6GDZTTRVHNXYA")
+		require.NoError(t, err)
+
+		id2, err := store.GetOrCreateContractID(ctx, "CAQCMV4JFG7CDSWHBYKL5VL3IXSVXCKKFR33GXXYXQF6GDZTTRVHNXYA")
+		require.NoError(t, err)
+		assert.Equal(t, id1, id2)
+	})
+}
+
+func TestRedisStore_GetContractsByIDs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resolves IDs to contracts in order", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		id1, err := store.GetOrCreateContractID(ctx, "CONTRACT1")
+		require.NoError(t, err)
+		id2, err := store.GetOrCreateContractID(ctx, "CONTRACT2")
+		require.NoError(t, err)
+
+		contracts, err := store.GetContractsByIDs(ctx, []string{id2, id1})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"CONTRACT2", "CONTRACT1"}, contracts)
+	})
+}
+
+func TestRedisStore_BatchAssignContractIDs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("assigns IDs to multiple new contracts", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		contracts := []string{"CONTRACT1", "CONTRACT2", "CONTRACT3"}
+		result, err := store.BatchAssignContractIDs(ctx, contracts)
+		require.NoError(t, err)
+
+		assert.Len(t, result, 3)
+		assert.Equal(t, "1", result["CONTRACT1"])
+		assert.Equal(t, "2", result["CONTRACT2"])
+		assert.Equal(t, "3", result["CONTRACT3"])
+	})
+}
