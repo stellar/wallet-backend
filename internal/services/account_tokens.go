@@ -235,12 +235,6 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			continue
 		}
 
-		// Convert contract address to short ID
-		contractShortID, err := s.redisStore.GetOrCreateContractID(ctx, change.ContractID)
-		if err != nil {
-			return fmt.Errorf("getting contract ID for %s: %w", change.ContractID, err)
-		}
-
 		// For contract changes, we always add contract IDs and never remove them.
 		// This is because contract balance entries persist in the ledger even when balance is zero,
 		// unlike trustlines which can be completely deleted. We track all contracts an account has
@@ -248,7 +242,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 		operations = append(operations, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
 			Key:     s.buildContractKey(change.AccountID),
-			Members: []string{contractShortID},
+			Members: []string{change.ContractID},
 		})
 	}
 
@@ -328,27 +322,21 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 // GetAccountContracts retrieves all contract token IDs for an account from Redis.
 // For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
 // For C-address: all contract tokens (SAC, custom)
-// Returns full contract addresses (C...) after resolving from internal IDs.
+// Returns full contract addresses (C...).
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
 	if err := validateAccountAddress(accountAddress); err != nil {
 		return nil, err
 	}
 	key := s.buildContractKey(accountAddress)
 
-	// Get IDs from SET
-	ids, err := s.redisStore.SMembers(ctx, key)
+	contracts, err := s.redisStore.SMembers(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
 	}
-	if len(ids) == 0 {
+	if len(contracts) == 0 {
 		return nil, nil
 	}
 
-	// Batch resolve IDs to contract addresses
-	contracts, err := s.redisStore.GetContractsByIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("resolving contract IDs for account %s: %w", accountAddress, err)
-	}
 	return contracts, nil
 }
 
@@ -542,32 +530,25 @@ func (s *accountTokenService) enrichContractTypes(
 }
 
 // storeAccountTokensInRedis stores all collected trustlines and contracts into Redis using pipelining.
-// Converts asset/contract strings to short IDs before storing to reduce memory usage.
+// Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
+// Contract addresses are stored directly as full strings.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
 	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
 	contractsByAccountAddress map[string]set.Set[string],
 	uniqueTrustlines []wbdata.TrustlineAsset,
-	uniqueContractTokens []string,
+	_ []string, // uniqueContractTokens - no longer needed, contracts stored directly
 ) error {
 	startTime := time.Now()
 
-	// Step 2: Batch-assign IDs to all unique assets and contracts
-	// Use PostgreSQL for assets
+	// Batch-assign IDs to all unique trustline assets using PostgreSQL
 	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}
 	log.Ctx(ctx).Infof("Assigned IDs to %d unique assets", len(assetIDMap))
 
-	// Use Redis for contracts (unchanged)
-	contractIDMap, err := s.redisStore.BatchAssignContractIDs(ctx, uniqueContractTokens)
-	if err != nil {
-		return fmt.Errorf("batch assigning contract IDs: %w", err)
-	}
-	log.Ctx(ctx).Infof("Assigned IDs to %d unique contracts", len(contractIDMap))
-
-	// Step 3: Build pipeline operations with IDs instead of full strings
+	// Build pipeline operations
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
 	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
 
@@ -588,18 +569,16 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		}
 	}
 
-	// Add contract operations with contract IDs
+	// Add contract operations with full contract addresses
 	for accountAddress, contractAddresses := range contractsByAccountAddress {
-		contractIDs := make([]string, contractAddresses.Cardinality())
-		i := 0
+		contracts := make([]string, 0, contractAddresses.Cardinality())
 		for contractAddr := range contractAddresses.Iter() {
-			contractIDs[i] = contractIDMap[contractAddr]
-			i++
+			contracts = append(contracts, contractAddr)
 		}
 		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
 			Key:     s.buildContractKey(accountAddress),
-			Members: contractIDs,
+			Members: contracts,
 		})
 	}
 

@@ -205,7 +205,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		result, err := m.BatchInsert(ctx, []*TrustlineAsset{})
+		result, err := m.BatchInsert(ctx, []TrustlineAsset{})
 		require.NoError(t, err)
 		require.Empty(t, result)
 	})
@@ -223,7 +223,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		assets := []*TrustlineAsset{
+		assets := []TrustlineAsset{
 			{Code: "USDC", Issuer: "ISSUER1"},
 			{Code: "EURC", Issuer: "ISSUER2"},
 			{Code: "XLM", Issuer: "ISSUER3"},
@@ -258,7 +258,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		}
 
 		// First insert
-		assets1 := []*TrustlineAsset{
+		assets1 := []TrustlineAsset{
 			{Code: "USDC", Issuer: "ISSUER1"},
 		}
 		result1, err := m.BatchInsert(ctx, assets1)
@@ -266,7 +266,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.Len(t, result1, 1)
 
 		// Second insert with same asset plus new one
-		assets2 := []*TrustlineAsset{
+		assets2 := []TrustlineAsset{
 			{Code: "USDC", Issuer: "ISSUER1"}, // duplicate
 			{Code: "EURC", Issuer: "ISSUER2"}, // new
 		}
