@@ -293,9 +293,9 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	// Convert string IDs to int64
 	ids := make([]int64, 0, len(idStrings))
 	for _, idStr := range idStrings {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			log.Ctx(ctx).Warnf("Skipping invalid asset ID %s for account %s: %v", idStr, accountAddress, err)
+		id, parseErr := strconv.ParseInt(idStr, 10, 64)
+		if parseErr != nil {
+			log.Ctx(ctx).Warnf("Skipping invalid asset ID %s for account %s: %v", idStr, accountAddress, parseErr)
 			continue
 		}
 		ids = append(ids, id)
