@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/sac"
@@ -32,9 +33,9 @@ const (
 // checkpointData holds all data collected from processing a checkpoint ledger.
 type checkpointData struct {
 	// Trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
-	Trustlines map[string][]string
+	TrustlinesByAccountAddress map[string]set.Set[string]
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
-	Contracts map[string][]string
+	ContractsByHolderAddress map[string]set.Set[string]
 	// ContractTypesByContractID tracks the token type for each unique contract ID
 	ContractTypesByContractID map[string]types.ContractType
 	// ContractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
@@ -161,7 +162,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	// 	}
 	// }
 
-	return s.storeAccountTokensInRedis(ctx, cpData.Trustlines, cpData.Contracts)
+	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress)
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).
@@ -449,8 +450,8 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
 	data := checkpointData{
-		Trustlines:                make(map[string][]string),
-		Contracts:                 make(map[string][]string),
+		TrustlinesByAccountAddress:                make(map[string]set.Set[string]),
+		ContractsByHolderAddress:                 make(map[string]set.Set[string]),
 		ContractTypesByContractID: make(map[string]types.ContractType),
 		ContractIDsByWasmHash:     make(map[xdr.Hash][]string),
 		ContractCodesByWasmHash:   make(map[xdr.Hash][]byte),
@@ -483,7 +484,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				continue
 			}
 			entries++
-			data.Trustlines[accountAddress] = append(data.Trustlines[accountAddress], assetStr)
+			data.TrustlinesByAccountAddress[accountAddress].Add(assetStr)
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -506,7 +507,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				if skip {
 					continue
 				}
-				data.Contracts[holderAddress] = append(data.Contracts[holderAddress], contractAddressStr)
+				data.ContractsByHolderAddress[holderAddress].Add(contractAddressStr)
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
@@ -553,55 +554,49 @@ func (s *accountTokenService) enrichContractTypes(
 // Converts asset/contract strings to short IDs before storing to reduce memory usage.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
-	trustlines map[string][]string,
-	contracts map[string][]string,
+	trustlinesByAccountAddress map[string]set.Set[string],
+	contractsByAccountAddress map[string]set.Set[string],
 ) error {
 	startTime := time.Now()
 
 	// Step 1: Collect all unique assets and contracts
-	uniqueAssets := make(map[string]struct{})
-	for _, assets := range trustlines {
-		for _, asset := range assets {
-			uniqueAssets[asset] = struct{}{}
+	uniqueAssets := set.NewSet[string]()
+	for _, assets := range trustlinesByAccountAddress {
+		for asset := range assets.Iter() {
+			uniqueAssets.Add(asset)
 		}
 	}
-	uniqueContracts := make(map[string]struct{})
-	for _, contractAddrs := range contracts {
-		for _, contractAddr := range contractAddrs {
-			uniqueContracts[contractAddr] = struct{}{}
+	uniqueContractTokens := set.NewSet[string]()
+	for _, contractAddrs := range contractsByAccountAddress {
+		for contractAddr := range contractAddrs.Iter() {
+			uniqueContractTokens.Add(contractAddr)
 		}
 	}
 
 	// Step 2: Batch-assign IDs to all unique assets and contracts
-	assetList := make([]string, 0, len(uniqueAssets))
-	for asset := range uniqueAssets {
-		assetList = append(assetList, asset)
-	}
-	assetIDMap, err := s.redisStore.BatchAssignAssetIDs(ctx, assetList)
+	assetIDMap, err := s.redisStore.BatchAssignAssetIDs(ctx, uniqueAssets.ToSlice())
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}
 	log.Ctx(ctx).Infof("Assigned IDs to %d unique assets", len(assetIDMap))
 
-	contractList := make([]string, 0, len(uniqueContracts))
-	for contract := range uniqueContracts {
-		contractList = append(contractList, contract)
-	}
-	contractIDMap, err := s.redisStore.BatchAssignContractIDs(ctx, contractList)
+	contractIDMap, err := s.redisStore.BatchAssignContractIDs(ctx, uniqueContractTokens.ToSlice())
 	if err != nil {
 		return fmt.Errorf("batch assigning contract IDs: %w", err)
 	}
 	log.Ctx(ctx).Infof("Assigned IDs to %d unique contracts", len(contractIDMap))
 
 	// Step 3: Build pipeline operations with IDs instead of full strings
-	totalOps := len(trustlines) + len(contracts)
+	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
 	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
 
 	// Add trustline operations with asset IDs
-	for accountAddress, assets := range trustlines {
-		assetIDs := make([]string, len(assets))
-		for i, asset := range assets {
+	for accountAddress, assets := range trustlinesByAccountAddress {
+		assetIDs := make([]string, assets.Cardinality())
+		i := 0
+		for asset := range assets.Iter() {
 			assetIDs[i] = assetIDMap[asset]
+			i++
 		}
 		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
@@ -611,10 +606,12 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	}
 
 	// Add contract operations with contract IDs
-	for accountAddress, contractAddresses := range contracts {
-		contractIDs := make([]string, len(contractAddresses))
-		for i, contractAddr := range contractAddresses {
+	for accountAddress, contractAddresses := range contractsByAccountAddress {
+		contractIDs := make([]string, contractAddresses.Cardinality())
+		i := 0
+		for contractAddr := range contractAddresses.Iter() {
 			contractIDs[i] = contractIDMap[contractAddr]
+			i++
 		}
 		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
@@ -631,7 +628,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		}
 	}
 
-	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlines), len(contracts), time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
 	return nil
 }
 
