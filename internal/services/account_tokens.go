@@ -621,24 +621,20 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		}
 		if sb.Len() > 0 {
 			redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-				Op:      store.OpHSet,
-				Key:     s.buildTrustlineKey(accountAddress),
-				Field:   accountAddress,
-				Value:   sb.String(),
+				Op:    store.OpHSet,
+				Key:   s.buildTrustlineKey(accountAddress),
+				Field: accountAddress,
+				Value: sb.String(),
 			})
 		}
 	}
 
 	// Add contract operations with full contract addresses
 	for accountAddress, contractAddresses := range contractsByAccountAddress {
-		contracts := make([]string, 0, contractAddresses.Cardinality())
-		for contractAddr := range contractAddresses.Iter() {
-			contracts = append(contracts, contractAddr)
-		}
 		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
 			Key:     s.buildContractKey(accountAddress),
-			Members: contracts,
+			Members: contractAddresses.ToSlice(),
 		})
 	}
 
