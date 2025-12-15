@@ -64,16 +64,6 @@ type AccountTokenService interface {
 	// The checkpointLedger parameter specifies which checkpoint to use for population.
 	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error
 
-	// AddTrustlines adds trustline assets to an account's Redis set.
-	// Assets should be formatted as "CODE:ISSUER".
-	// Returns nil if assets is empty (no-op).
-	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
-
-	// AddContracts adds contract token IDs to an account's Redis set.
-	// Assets should be contract addresses starting with "C".
-	// Returns nil if assets is empty (no-op).
-	AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error
-
 	// GetAccountTrustlines retrieves all classic trustline assets for an account.
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
@@ -287,68 +277,6 @@ func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
 // buildContractKey constructs the Redis key for an account's contracts set.
 func (s *accountTokenService) buildContractKey(accountAddress string) string {
 	return s.contractsPrefix + accountAddress
-}
-
-// AddTrustlines adds trustline assets to an account's Redis set.
-// Assets are formatted as "CODE:ISSUER".
-// Internally stores short integer IDs to reduce memory usage.
-// Returns nil if assets is empty (no-op).
-func (s *accountTokenService) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
-	if err := validateAccountAddress(accountAddress); err != nil {
-		return err
-	}
-	if len(assets) == 0 {
-		return nil
-	}
-
-	// Convert assets to IDs using PostgreSQL model
-	assetIDs := make([]string, 0, len(assets))
-	for _, asset := range assets {
-		code, issuer, err := parseAssetString(asset)
-		if err != nil {
-			return fmt.Errorf("parsing asset %s: %w", asset, err)
-		}
-		id, err := s.trustlineAssetModel.GetOrCreateID(ctx, code, issuer)
-		if err != nil {
-			return fmt.Errorf("getting asset ID for %s: %w", asset, err)
-		}
-		assetIDs = append(assetIDs, strconv.FormatInt(id, 10))
-	}
-
-	key := s.buildTrustlineKey(accountAddress)
-	if err := s.redisStore.SAdd(ctx, key, assetIDs...); err != nil {
-		return fmt.Errorf("adding trustlines for account %s (key: %s): %w", accountAddress, key, err)
-	}
-	return nil
-}
-
-// AddContracts adds contract token IDs to an account's Redis set.
-// Contract IDs are contract addresses starting with "C".
-// Internally stores short integer IDs to reduce memory usage.
-// Returns nil if contractIDs is empty (no-op).
-func (s *accountTokenService) AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error {
-	if err := validateAccountAddress(accountAddress); err != nil {
-		return err
-	}
-	if len(contractIDs) == 0 {
-		return nil
-	}
-
-	// Convert contract addresses to short IDs
-	shortIDs := make([]string, 0, len(contractIDs))
-	for _, contractID := range contractIDs {
-		id, err := s.redisStore.GetOrCreateContractID(ctx, contractID)
-		if err != nil {
-			return fmt.Errorf("getting contract ID for %s: %w", contractID, err)
-		}
-		shortIDs = append(shortIDs, id)
-	}
-
-	key := s.buildContractKey(accountAddress)
-	if err := s.redisStore.SAdd(ctx, key, shortIDs...); err != nil {
-		return fmt.Errorf("adding contracts for account %s (key: %s): %w", accountAddress, key, err)
-	}
-	return nil
 }
 
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
