@@ -18,15 +18,9 @@ const (
 	OpSet       RedisOperation = "SET"
 )
 
-// Token registry keys for mapping full strings to short integer IDs.
-// This reduces Redis memory usage by storing short IDs instead of full asset/contract strings.
+// Contract registry keys for mapping full contract addresses to short integer IDs.
+// This reduces Redis memory usage by storing short IDs instead of full contract address strings.
 const (
-	// Asset registry (for trustlines)
-	assetToIDKey    = "asset_to_id"   // HASH: asset_string → ID
-	idToAssetKey    = "id_to_asset"   // HASH: ID → asset_string
-	assetCounterKey = "asset_counter" // STRING: atomic counter for ID assignment
-
-	// Contract registry
 	contractToIDKey    = "contract_to_id"   // HASH: contract_address → ID
 	idToContractKey    = "id_to_contract"   // HASH: ID → contract_address
 	contractCounterKey = "contract_counter" // STRING: atomic counter for ID assignment
@@ -121,24 +115,6 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 	}
 
 	return nil
-}
-
-// GetOrCreateAssetID returns the ID for an asset string, creating a new ID if it doesn't exist.
-// Uses Redis HASH for O(1) lookups and INCR for atomic ID assignment.
-func (r *RedisStore) GetOrCreateAssetID(ctx context.Context, asset string) (string, error) {
-	return r.getOrCreateID(ctx, asset, assetToIDKey, idToAssetKey, assetCounterKey)
-}
-
-// GetAssetsByIDs batch resolves asset IDs to their full asset strings.
-// Returns a slice of asset strings in the same order as the input IDs.
-func (r *RedisStore) GetAssetsByIDs(ctx context.Context, ids []string) ([]string, error) {
-	return r.getValuesByIDs(ctx, ids, idToAssetKey)
-}
-
-// BatchAssignAssetIDs assigns IDs to multiple assets in a single pipeline.
-// Returns a map from asset string to its assigned ID.
-func (r *RedisStore) BatchAssignAssetIDs(ctx context.Context, assets []string) (map[string]string, error) {
-	return r.batchAssignIDs(ctx, assets, assetToIDKey, idToAssetKey, assetCounterKey)
 }
 
 // GetOrCreateContractID returns the ID for a contract address, creating a new ID if it doesn't exist.

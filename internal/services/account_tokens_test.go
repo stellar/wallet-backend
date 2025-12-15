@@ -366,10 +366,10 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Len(t, cpData.Trustlines, 1)
-		assert.Contains(t, cpData.Trustlines, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.Contains(t, cpData.Trustlines["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		assert.Empty(t, cpData.Contracts)
+		assert.Len(t, cpData.TrustlinesByAccountAddress, 1)
+		assert.Contains(t, cpData.TrustlinesByAccountAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		assert.Contains(t, cpData.TrustlinesByAccountAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
 		assert.Empty(t, cpData.ContractCodesByWasmHash)
@@ -425,12 +425,15 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Len(t, cpData.Contracts, 1)
-		assert.Contains(t, cpData.Contracts, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.Len(t, cpData.Contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], 1)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Len(t, cpData.ContractsByHolderAddress, 1)
+		assert.Contains(t, cpData.ContractsByHolderAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		holderContracts := cpData.ContractsByHolderAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"]
+		assert.Equal(t, 1, holderContracts.Cardinality())
 		// Contract address should start with C
-		assert.Equal(t, "C", string(cpData.Contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"][0][0]))
+		for contractAddr := range holderContracts.Iter() {
+			assert.Equal(t, "C", string(contractAddr[0]))
+		}
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
 		assert.Empty(t, cpData.ContractCodesByWasmHash)
@@ -462,8 +465,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
 
@@ -503,8 +506,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 
 		// Valid SAC should be immediately classified as ContractTypeSAC
 		assert.Len(t, cpData.ContractTypesByContractID, 1)
@@ -572,8 +575,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 		// Non-SAC contracts should NOT be classified yet (happens in enrichContractTypes)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		// Non-SAC contracts should be added to contractsByWasm for validation
@@ -638,8 +641,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// Should not error, just skip the entry
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		// Contract with nil WASM hash should NOT be added to contractsByWasm
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
@@ -712,8 +715,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 
 		// SAC should be in contractTypes
 		assert.Len(t, cpData.ContractTypesByContractID, 1)
@@ -767,8 +770,8 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, cpData.Trustlines)
-		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.TrustlinesByAccountAddress)
+		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
 		assert.Empty(t, cpData.ContractCodesByWasmHash)

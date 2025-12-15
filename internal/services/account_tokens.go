@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -16,6 +18,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
+	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 )
@@ -33,9 +36,13 @@ const (
 // checkpointData holds all data collected from processing a checkpoint ledger.
 type checkpointData struct {
 	// Trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
-	TrustlinesByAccountAddress map[string]set.Set[string]
+	TrustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset]
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string]set.Set[string]
+	// UniqueTrustlines tracks all unique trustline assets
+	UniqueTrustlines set.Set[wbdata.TrustlineAsset]
+	// UniqueContractTokens tracks all unique contract tokens
+	UniqueContractTokens set.Set[string]
 	// ContractTypesByContractID tracks the token type for each unique contract ID
 	ContractTypesByContractID map[string]types.ContractType
 	// ContractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
@@ -88,6 +95,7 @@ type accountTokenService struct {
 	contractValidator       ContractValidator
 	redisStore              *store.RedisStore
 	contractMetadataService ContractMetadataService
+	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
 	pool                    pond.Pool
 	networkPassphrase       string
 	trustlinesPrefix        string
@@ -100,6 +108,7 @@ func NewAccountTokenService(
 	redisStore *store.RedisStore,
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
+	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	pool pond.Pool,
 ) (AccountTokenService, error) {
 	// Note: archive can be nil for serve mode (only reads from Redis)
@@ -109,6 +118,7 @@ func NewAccountTokenService(
 		contractValidator:       contractValidator,
 		redisStore:              redisStore,
 		contractMetadataService: contractMetadataService,
+		trustlineAssetModel:     trustlineAssetModel,
 		pool:                    pool,
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
@@ -162,7 +172,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	// 	}
 	// }
 
-	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress)
+	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.UniqueTrustlines.ToSlice(), cpData.UniqueContractTokens.ToSlice())
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).
@@ -197,8 +207,14 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			continue
 		}
 
-		// Convert asset to short ID
-		assetID, err := s.redisStore.GetOrCreateAssetID(ctx, change.Asset)
+		// Parse "CODE:ISSUER" format and get or create asset ID from PostgreSQL
+		code, issuer, err := parseAssetString(change.Asset)
+		if err != nil {
+			log.Ctx(ctx).Warnf("Skipping trustline change with invalid asset format %s: %v", change.Asset, err)
+			continue
+		}
+
+		assetID, err := s.trustlineAssetModel.GetOrCreateID(ctx, code, issuer)
 		if err != nil {
 			return fmt.Errorf("getting asset ID for %s: %w", change.Asset, err)
 		}
@@ -218,7 +234,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 		operations = append(operations, store.RedisPipelineOperation{
 			Op:      op,
 			Key:     key,
-			Members: []string{assetID},
+			Members: []string{strconv.FormatInt(assetID, 10)},
 		})
 	}
 
@@ -254,6 +270,15 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	return nil
 }
 
+// parseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
+func parseAssetString(asset string) (code, issuer string, err error) {
+	parts := strings.SplitN(asset, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid asset format: expected CODE:ISSUER, got %s", asset)
+	}
+	return parts[0], parts[1], nil
+}
+
 // buildTrustlineKey constructs the Redis key for an account's trustlines set.
 func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
 	return s.trustlinesPrefix + accountAddress
@@ -276,14 +301,18 @@ func (s *accountTokenService) AddTrustlines(ctx context.Context, accountAddress 
 		return nil
 	}
 
-	// Convert assets to IDs
+	// Convert assets to IDs using PostgreSQL model
 	assetIDs := make([]string, 0, len(assets))
 	for _, asset := range assets {
-		id, err := s.redisStore.GetOrCreateAssetID(ctx, asset)
+		code, issuer, err := parseAssetString(asset)
+		if err != nil {
+			return fmt.Errorf("parsing asset %s: %w", asset, err)
+		}
+		id, err := s.trustlineAssetModel.GetOrCreateID(ctx, code, issuer)
 		if err != nil {
 			return fmt.Errorf("getting asset ID for %s: %w", asset, err)
 		}
-		assetIDs = append(assetIDs, id)
+		assetIDs = append(assetIDs, strconv.FormatInt(id, 10))
 	}
 
 	key := s.buildTrustlineKey(accountAddress)
@@ -331,18 +360,39 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	key := s.buildTrustlineKey(accountAddress)
 
 	// Get IDs from SET
-	ids, err := s.redisStore.SMembers(ctx, key)
+	idStrings, err := s.redisStore.SMembers(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
 	}
+	if len(idStrings) == 0 {
+		return nil, nil
+	}
+
+	// Convert string IDs to int64
+	ids := make([]int64, 0, len(idStrings))
+	for _, idStr := range idStrings {
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			log.Ctx(ctx).Warnf("Skipping invalid asset ID %s for account %s: %v", idStr, accountAddress, err)
+			continue
+		}
+		ids = append(ids, id)
+	}
+
 	if len(ids) == 0 {
 		return nil, nil
 	}
 
-	// Batch resolve IDs to asset strings
-	assets, err := s.redisStore.GetAssetsByIDs(ctx, ids)
+	// Batch resolve IDs to asset objects from PostgreSQL
+	assetRecords, err := s.trustlineAssetModel.BatchGetByIDs(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("resolving asset IDs for account %s: %w", accountAddress, err)
+	}
+
+	// Convert to "CODE:ISSUER" format
+	assets := make([]string, 0, len(assetRecords))
+	for _, asset := range assetRecords {
+		assets = append(assets, asset.AssetKey())
 	}
 	return assets, nil
 }
@@ -381,24 +431,26 @@ func (s *accountTokenService) GetCheckpointLedger() uint32 {
 
 // processTrustlineChange extracts trustline information from a ledger change entry.
 // Returns the account address and asset string, with skip=true if the entry should be skipped.
-func (s *accountTokenService) processTrustlineChange(change ingest.Change) (accountAddress string, assetStr string, skip bool) {
+func (s *accountTokenService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, bool) {
 	trustlineEntry := change.Post.Data.MustTrustLine()
-	accountAddress = trustlineEntry.AccountId.Address()
+	accountAddress := trustlineEntry.AccountId.Address()
 	asset := trustlineEntry.Asset
 
 	// Skip liquidity pool shares as they're tracked separately via pool-specific indexing
 	// and don't represent traditional trustlines.
 	if asset.Type == xdr.AssetTypeAssetTypePoolShare {
-		return "", "", true
+		return "", wbdata.TrustlineAsset{}, true
 	}
 
 	var assetType, assetCode, assetIssuer string
 	if err := trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		return "", "", true
+		return "", wbdata.TrustlineAsset{}, true
 	}
 
-	assetStr = fmt.Sprintf("%s:%s", assetCode, assetIssuer)
-	return accountAddress, assetStr, false
+	return accountAddress, wbdata.TrustlineAsset{
+		Code:   assetCode,
+		Issuer: assetIssuer,
+	}, false
 }
 
 // processContractBalanceChange extracts contract balance information from a contract data entry.
@@ -450,11 +502,13 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
 	data := checkpointData{
-		TrustlinesByAccountAddress:                make(map[string]set.Set[string]),
-		ContractsByHolderAddress:                 make(map[string]set.Set[string]),
-		ContractTypesByContractID: make(map[string]types.ContractType),
-		ContractIDsByWasmHash:     make(map[xdr.Hash][]string),
-		ContractCodesByWasmHash:   make(map[xdr.Hash][]byte),
+		TrustlinesByAccountAddress: make(map[string]set.Set[wbdata.TrustlineAsset]),
+		ContractsByHolderAddress:   make(map[string]set.Set[string]),
+		UniqueTrustlines:           set.NewSet[wbdata.TrustlineAsset](),
+		UniqueContractTokens:       set.NewSet[string](),
+		ContractTypesByContractID:  make(map[string]types.ContractType),
+		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
+		ContractCodesByWasmHash:    make(map[xdr.Hash][]byte),
 	}
 
 	entries := 0
@@ -479,12 +533,17 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		//exhaustive:ignore
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
-			accountAddress, assetStr, skip := s.processTrustlineChange(change)
+			accountAddress, asset, skip := s.processTrustlineChange(change)
 			if skip {
 				continue
 			}
 			entries++
-			data.TrustlinesByAccountAddress[accountAddress].Add(assetStr)
+
+			if _, ok := data.TrustlinesByAccountAddress[accountAddress]; !ok {
+				data.TrustlinesByAccountAddress[accountAddress] = set.NewSet[wbdata.TrustlineAsset]()
+			}
+			data.TrustlinesByAccountAddress[accountAddress].Add(asset)
+			data.UniqueTrustlines.Add(asset)
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -507,7 +566,11 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				if skip {
 					continue
 				}
+				if _, ok := data.ContractsByHolderAddress[holderAddress]; !ok {
+					data.ContractsByHolderAddress[holderAddress] = set.NewSet[string]()
+				}
 				data.ContractsByHolderAddress[holderAddress].Add(contractAddressStr)
+				data.UniqueContractTokens.Add(contractAddressStr)
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
@@ -554,33 +617,23 @@ func (s *accountTokenService) enrichContractTypes(
 // Converts asset/contract strings to short IDs before storing to reduce memory usage.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
-	trustlinesByAccountAddress map[string]set.Set[string],
+	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
 	contractsByAccountAddress map[string]set.Set[string],
+	uniqueTrustlines []wbdata.TrustlineAsset,
+	uniqueContractTokens []string,
 ) error {
 	startTime := time.Now()
 
-	// Step 1: Collect all unique assets and contracts
-	uniqueAssets := set.NewSet[string]()
-	for _, assets := range trustlinesByAccountAddress {
-		for asset := range assets.Iter() {
-			uniqueAssets.Add(asset)
-		}
-	}
-	uniqueContractTokens := set.NewSet[string]()
-	for _, contractAddrs := range contractsByAccountAddress {
-		for contractAddr := range contractAddrs.Iter() {
-			uniqueContractTokens.Add(contractAddr)
-		}
-	}
-
 	// Step 2: Batch-assign IDs to all unique assets and contracts
-	assetIDMap, err := s.redisStore.BatchAssignAssetIDs(ctx, uniqueAssets.ToSlice())
+	// Use PostgreSQL for assets
+	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}
 	log.Ctx(ctx).Infof("Assigned IDs to %d unique assets", len(assetIDMap))
 
-	contractIDMap, err := s.redisStore.BatchAssignContractIDs(ctx, uniqueContractTokens.ToSlice())
+	// Use Redis for contracts (unchanged)
+	contractIDMap, err := s.redisStore.BatchAssignContractIDs(ctx, uniqueContractTokens)
 	if err != nil {
 		return fmt.Errorf("batch assigning contract IDs: %w", err)
 	}
@@ -590,19 +643,21 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
 	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
 
-	// Add trustline operations with asset IDs
+	// Add trustline operations with asset IDs from PostgreSQL
 	for accountAddress, assets := range trustlinesByAccountAddress {
-		assetIDs := make([]string, assets.Cardinality())
-		i := 0
+		assetIDs := make([]string, 0, assets.Cardinality())
 		for asset := range assets.Iter() {
-			assetIDs[i] = assetIDMap[asset]
-			i++
+			if id, ok := assetIDMap[asset.Code+":"+asset.Issuer]; ok {
+				assetIDs = append(assetIDs, strconv.FormatInt(id, 10))
+			}
 		}
-		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-			Op:      store.SetOpAdd,
-			Key:     s.buildTrustlineKey(accountAddress),
-			Members: assetIDs,
-		})
+		if len(assetIDs) > 0 {
+			redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
+				Op:      store.SetOpAdd,
+				Key:     s.buildTrustlineKey(accountAddress),
+				Members: assetIDs,
+			})
+		}
 	}
 
 	// Add contract operations with contract IDs
