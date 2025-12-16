@@ -194,22 +194,21 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	operations := make([]store.RedisPipelineOperation, 0)
 
 	// Build unique prefix buckets and group changes by account
-	uniqueTrustlinePrefixes := set.NewSet[string]()
+	addressesByBucketPrefix := make(map[string][]string)
 	trustlineChangesByAccount := make(map[string][]types.TrustlineChange)
 	accountToPrefix := make(map[string]string) // Map account -> its prefix bucket
 
 	for _, change := range trustlineChanges {
 		prefix := s.buildTrustlineKey(change.AccountID)
-		uniqueTrustlinePrefixes.Add(prefix)
+		addressesByBucketPrefix[prefix] = append(addressesByBucketPrefix[prefix], change.AccountID)
 		trustlineChangesByAccount[change.AccountID] = append(trustlineChangesByAccount[change.AccountID], change)
 		accountToPrefix[change.AccountID] = prefix
 	}
 
 	// Process each prefix bucket - decode varint binary format to int64 sets
 	trustlinesSetByAccount := make(map[string]set.Set[int64])
-	for prefix := range uniqueTrustlinePrefixes.Iter() {
-		// Get all existing accounts within this prefix bucket
-		existingTrustlines, err := s.redisStore.HGetAll(ctx, prefix)
+	for prefix, accounts := range addressesByBucketPrefix {
+		existingTrustlines, err := s.redisStore.HMGet(ctx, prefix, accounts...)
 		if err != nil {
 			return fmt.Errorf("getting key %s: %w", prefix, err)
 		}

@@ -102,12 +102,19 @@ func (r *RedisStore) HGet(ctx context.Context, key string, field string) (string
 	return val, nil
 }
 
-func (r *RedisStore) HGetAll(ctx context.Context, key string) (map[string]string, error) {
-	val, err := r.client.HGetAll(ctx, key).Result()
+func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (map[string]string, error) {
+	vals, err := r.client.HMGet(ctx, key, fields...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("getting key %s: %w", key, err)
 	}
-	return val, nil
+
+	result := make(map[string]string)
+	for i, field := range fields {
+		if vals[i] != nil {
+			result[field] = vals[i].(string)
+		}
+	}
+	return result, nil
 }
 
 // ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
