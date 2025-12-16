@@ -35,7 +35,7 @@ const (
 	redisPipelineBatchSize = 50000
 
 	// numTrustlineBuckets is the number of buckets to use for trustline distribution.
-	numTrustlineBuckets = 12000
+	numTrustlineBuckets = 20000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
