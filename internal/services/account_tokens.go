@@ -44,8 +44,6 @@ type checkpointData struct {
 	TrustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset]
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string]set.Set[string]
-	// UniqueTrustlines tracks all unique trustline assets
-	UniqueTrustlines set.Set[wbdata.TrustlineAsset]
 	// UniqueContractTokens tracks all unique contract tokens
 	UniqueContractTokens set.Set[string]
 	// ContractTypesByContractID tracks the token type for each unique contract ID
@@ -54,6 +52,8 @@ type checkpointData struct {
 	ContractIDsByWasmHash map[xdr.Hash][]string
 	// ContractCodesByWasmHash maps WASM hashes to their contract code bytes
 	ContractCodesByWasmHash map[xdr.Hash][]byte
+	// TrustlineFrequency tracks how many accounts hold each trustline asset for frequency-based ID assignment
+	TrustlineFrequency map[wbdata.TrustlineAsset]int
 }
 
 // AccountTokenService manages Redis caching of account token holdings,
@@ -167,7 +167,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 		}
 	}
 
-	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.UniqueTrustlines.ToSlice(), cpData.UniqueContractTokens.ToSlice())
+	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency, cpData.UniqueContractTokens.ToSlice())
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).
@@ -491,11 +491,11 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	data := checkpointData{
 		TrustlinesByAccountAddress: make(map[string]set.Set[wbdata.TrustlineAsset]),
 		ContractsByHolderAddress:   make(map[string]set.Set[string]),
-		UniqueTrustlines:           set.NewSet[wbdata.TrustlineAsset](),
 		UniqueContractTokens:       set.NewSet[string](),
 		ContractTypesByContractID:  make(map[string]types.ContractType),
 		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
 		ContractCodesByWasmHash:    make(map[xdr.Hash][]byte),
+		TrustlineFrequency:         make(map[wbdata.TrustlineAsset]int),
 	}
 
 	entries := 0
@@ -530,7 +530,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				data.TrustlinesByAccountAddress[accountAddress] = set.NewSet[wbdata.TrustlineAsset]()
 			}
 			data.TrustlinesByAccountAddress[accountAddress].Add(asset)
-			data.UniqueTrustlines.Add(asset)
+			data.TrustlineFrequency[asset]++
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -602,22 +602,44 @@ func (s *accountTokenService) enrichContractTypes(
 
 // storeAccountTokensInRedis stores all collected trustlines and contracts into Redis using pipelining.
 // Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
+// Assets are sorted by frequency before insertion so the most common assets get the lowest IDs,
+// which results in smaller varint encoding and reduced Redis memory usage.
 // Contract addresses are stored directly as full strings.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
 	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
 	contractsByAccountAddress map[string]set.Set[string],
-	uniqueTrustlines []wbdata.TrustlineAsset,
+	trustlineFrequency map[wbdata.TrustlineAsset]int,
 	_ []string, // uniqueContractTokens - no longer needed, contracts stored directly
 ) error {
 	startTime := time.Now()
+
+	// Sort assets by frequency (descending) for optimal varint encoding.
+	// Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
+	type assetFreq struct {
+		asset wbdata.TrustlineAsset
+		count int
+	}
+	sortedAssets := make([]assetFreq, 0, len(trustlineFrequency))
+	for asset, count := range trustlineFrequency {
+		sortedAssets = append(sortedAssets, assetFreq{asset, count})
+	}
+	sort.Slice(sortedAssets, func(i, j int) bool {
+		return sortedAssets[i].count > sortedAssets[j].count
+	})
+
+	// Extract sorted asset slice for batch insert
+	uniqueTrustlines := make([]wbdata.TrustlineAsset, len(sortedAssets))
+	for i, af := range sortedAssets {
+		uniqueTrustlines[i] = af.asset
+	}
 
 	// Batch-assign IDs to all unique trustline assets using PostgreSQL
 	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}
-	log.Ctx(ctx).Infof("Assigned IDs to %d unique assets", len(assetIDMap))
+	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
 
 	// Build pipeline operations
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
