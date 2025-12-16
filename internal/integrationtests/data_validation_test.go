@@ -430,17 +430,18 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 total state changes")
 
-	for _, edge := range stateChanges.Edges {
+	for i, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
 		suite.Require().NoError(err, "failed to marshal state change")
-		fmt.Printf("%s\n", string(jsonBytes))
+		fmt.Printf("State Change #%d:\n%s\n", i+1, string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
 	fmt.Printf("primary account: %s\n", primaryAccount)
 	fmt.Printf("sponsored new account: %s\n", sponsoredNewAccount)
 	fmt.Printf("xlm contract address: %s\n", xlmContractAddress)
+
+	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 total state changes")
 
 	// Fetch all state changes in parallel
 	sponsorshipQueries := []stateChangeQuery{
