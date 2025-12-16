@@ -71,7 +71,7 @@ type AccountTokenService interface {
 
 	// GetAccountTrustlines retrieves all classic trustline assets for an account.
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
-	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
+	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
 
 	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
@@ -328,7 +328,7 @@ func (s *accountTokenService) buildContractKey(accountAddress string) string {
 
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
 // Returns asset strings in "CODE:ISSUER" format after resolving from internal IDs.
-func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
+func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
 	if err := validateAccountAddress(accountAddress); err != nil {
 		return nil, err
 	}
@@ -365,12 +365,7 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 		return nil, fmt.Errorf("resolving asset IDs for account %s: %w", accountAddress, err)
 	}
 
-	// Convert to "CODE:ISSUER" format
-	assets := make([]string, 0, len(assetRecords))
-	for _, asset := range assetRecords {
-		assets = append(assets, asset.AssetKey())
-	}
-	return assets, nil
+	return assetRecords, nil
 }
 
 // GetAccountContracts retrieves all contract token IDs for an account from Redis.

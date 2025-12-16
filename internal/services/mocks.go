@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -136,19 +137,9 @@ func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, che
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
-	args := a.Called(ctx, accountAddress, assets)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error {
-	args := a.Called(ctx, accountAddress, contractIDs)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
+func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
 	args := a.Called(ctx, accountAddress)
-	return args.Get(0).([]string), args.Error(1)
+	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
 }
 
 func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
