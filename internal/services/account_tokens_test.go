@@ -19,6 +19,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/store"
 )
 
+// Helper function to encode asset IDs for test setup
+func testEncodeAssetIDs(ids []int64) string {
+	return string(encodeAssetIDs(ids))
+}
+
 // Mock ChangeReader for testing
 type mockChangeReader struct {
 	changes []ingest.Change
@@ -251,6 +256,50 @@ func TestParseAssetString(t *testing.T) {
 	}
 }
 
+func TestEncodeDecodeAssetIDs(t *testing.T) {
+	t.Run("empty slice returns nil", func(t *testing.T) {
+		encoded := encodeAssetIDs([]int64{})
+		assert.Nil(t, encoded)
+
+		decoded := decodeAssetIDs(nil)
+		assert.Nil(t, decoded)
+
+		decoded = decodeAssetIDs([]byte{})
+		assert.Nil(t, decoded)
+	})
+
+	t.Run("single ID roundtrip", func(t *testing.T) {
+		ids := []int64{42}
+		encoded := encodeAssetIDs(ids)
+		decoded := decodeAssetIDs(encoded)
+		assert.Equal(t, ids, decoded)
+	})
+
+	t.Run("multiple IDs roundtrip", func(t *testing.T) {
+		ids := []int64{1, 2, 3, 100, 1000, 163006, 253529}
+		encoded := encodeAssetIDs(ids)
+		decoded := decodeAssetIDs(encoded)
+		assert.Equal(t, ids, decoded)
+	})
+
+	t.Run("large IDs roundtrip", func(t *testing.T) {
+		ids := []int64{1, 127, 128, 16383, 16384, 2097151, 2097152, 268435455}
+		encoded := encodeAssetIDs(ids)
+		decoded := decodeAssetIDs(encoded)
+		assert.Equal(t, ids, decoded)
+	})
+
+	t.Run("varint is smaller than ASCII for typical IDs", func(t *testing.T) {
+		// Typical trustline IDs from production
+		ids := []int64{163006, 153698, 22755, 197674, 162872}
+		encoded := encodeAssetIDs(ids)
+
+		// ASCII would be "163006,153698,22755,197674,162872" = 34 bytes
+		asciiLen := len("163006,153698,22755,197674,162872")
+		assert.Less(t, len(encoded), asciiLen, "varint should be smaller than ASCII")
+	})
+}
+
 func TestBuildTrustlineKey(t *testing.T) {
 	service := &accountTokenService{
 		trustlinesPrefix: trustlinesKeyPrefix,
@@ -335,8 +384,8 @@ func TestGetAccountTrustlines(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		// Insert trustline ID directly into Redis hash
-		mr.HSet(key, accountAddress, "1")
+		// Insert trustline ID in varint binary format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock BatchGetByIDs to return the asset
 		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1}).Return([]*wbdata.TrustlineAsset{
@@ -363,8 +412,8 @@ func TestGetAccountTrustlines(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		// Insert multiple trustline IDs
-		mr.HSet(key, accountAddress, "1,2,3")
+		// Insert multiple trustline IDs in varint binary format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2, 3}))
 
 		// Mock BatchGetByIDs to return multiple assets
 		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1, 2, 3}).Return([]*wbdata.TrustlineAsset{
@@ -379,35 +428,6 @@ func TestGetAccountTrustlines(t *testing.T) {
 		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"})
 		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 2, Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"})
 		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 3, Code: "BTC", Issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"})
-	})
-
-	t.Run("skips invalid asset IDs in Redis", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Insert mix of valid and invalid IDs
-		mr.HSet(key, accountAddress, "1,invalid,2")
-
-		// Mock should only receive the valid IDs
-		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1, 2}).Return([]*wbdata.TrustlineAsset{
-			{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-			{ID: 2, Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
-		}, nil)
-
-		got, err := service.GetAccountTrustlines(ctx, accountAddress)
-		assert.NoError(t, err)
-		assert.Len(t, got, 2)
 	})
 
 	t.Run("handles BatchGetByIDs error", func(t *testing.T) {
@@ -425,7 +445,8 @@ func TestGetAccountTrustlines(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		mr.HSet(key, accountAddress, "1")
+		// Insert trustline ID in varint binary format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock returns error
 		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1}).Return(nil, assert.AnError)
@@ -434,27 +455,6 @@ func TestGetAccountTrustlines(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, got)
 		assert.Contains(t, err.Error(), "resolving asset IDs")
-	})
-
-	t.Run("returns nil when all IDs are invalid", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Insert only invalid IDs
-		mr.HSet(key, accountAddress, "invalid,also_invalid")
-
-		got, err := service.GetAccountTrustlines(ctx, accountAddress)
-		assert.NoError(t, err)
-		assert.Nil(t, got)
 	})
 }
 
@@ -1082,10 +1082,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		}, []types.ContractChange{})
 		assert.NoError(t, err)
 
-		// Verify trustline is stored in Redis
+		// Verify trustline is stored in Redis in varint format
 		key := service.buildTrustlineKey(accountAddress)
 		val := mr.HGet(key, accountAddress)
-		assert.Equal(t, "1", val)
+		decodedIDs := decodeAssetIDs([]byte(val))
+		assert.Equal(t, []int64{1}, decodedIDs)
 	})
 
 	t.Run("add trustline to existing account", func(t *testing.T) {
@@ -1103,8 +1104,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		// Pre-populate with existing trustline
-		mr.HSet(key, accountAddress, "1")
+		// Pre-populate with existing trustline in varint format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock GetOrCreateID for the new asset
 		mockAssetModel.On("GetOrCreateID", ctx, "EUROC", "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ").Return(int64(2), nil)
@@ -1119,11 +1120,12 @@ func TestProcessTokenChanges(t *testing.T) {
 		}, []types.ContractChange{})
 		assert.NoError(t, err)
 
-		// Verify both trustlines exist
+		// Verify both trustlines exist by decoding the varint data
 		val := mr.HGet(key, accountAddress)
-		// Should contain both IDs (order may vary)
-		assert.Contains(t, val, "1")
-		assert.Contains(t, val, "2")
+		decodedIDs := decodeAssetIDs([]byte(val))
+		assert.Len(t, decodedIDs, 2)
+		assert.Contains(t, decodedIDs, int64(1))
+		assert.Contains(t, decodedIDs, int64(2))
 	})
 
 	t.Run("remove trustline from account with multiple", func(t *testing.T) {
@@ -1141,8 +1143,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		// Pre-populate with multiple trustlines
-		mr.HSet(key, accountAddress, "1,2")
+		// Pre-populate with multiple trustlines in varint format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
 
 		// Mock GetOrCreateID for the asset being removed
 		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)
@@ -1159,7 +1161,8 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Verify only ID 2 remains
 		val := mr.HGet(key, accountAddress)
-		assert.Equal(t, "2", val)
+		decodedIDs := decodeAssetIDs([]byte(val))
+		assert.Equal(t, []int64{2}, decodedIDs)
 	})
 
 	t.Run("remove last trustline deletes field", func(t *testing.T) {
@@ -1177,8 +1180,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		key := service.buildTrustlineKey(accountAddress)
 
-		// Pre-populate with single trustline
-		mr.HSet(key, accountAddress, "1")
+		// Pre-populate with single trustline in varint format
+		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock GetOrCreateID for the asset being removed
 		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)

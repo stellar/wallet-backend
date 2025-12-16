@@ -2,12 +2,12 @@ package services
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -184,7 +184,7 @@ func validateAccountAddress(accountAddress string) error {
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
-// Internally stores short integer IDs to reduce memory usage.
+// Internally stores short integer IDs in varint binary format to reduce memory usage.
 func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
@@ -205,8 +205,8 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 		accountToPrefix[change.AccountID] = prefix
 	}
 
-	// Process each prefix bucket
-	trustlinesSetByAccount := make(map[string]set.Set[string])
+	// Process each prefix bucket - decode varint binary format to int64 sets
+	trustlinesSetByAccount := make(map[string]set.Set[int64])
 	for prefix := range uniqueTrustlinePrefixes.Iter() {
 		// Get all existing accounts within this prefix bucket
 		existingTrustlines, err := s.redisStore.HGetAll(ctx, prefix)
@@ -214,10 +214,11 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			return fmt.Errorf("getting key %s: %w", prefix, err)
 		}
 
-		// Parse existing trustlines into sets
-		for accountAddress, trustlineStr := range existingTrustlines {
-			if trustlineStr != "" {
-				trustlinesSetByAccount[accountAddress] = set.NewSet(strings.Split(trustlineStr, ",")...)
+		// Parse existing trustlines (varint format) into sets
+		for accountAddress, trustlineData := range existingTrustlines {
+			if trustlineData != "" {
+				ids := decodeAssetIDs([]byte(trustlineData))
+				trustlinesSetByAccount[accountAddress] = set.NewSet(ids...)
 			}
 		}
 	}
@@ -231,7 +232,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 
 		// Initialize set if account doesn't exist yet
 		if _, exists := trustlinesSetByAccount[accountAddress]; !exists {
-			trustlinesSetByAccount[accountAddress] = set.NewSet[string]()
+			trustlinesSetByAccount[accountAddress] = set.NewSet[int64]()
 		}
 
 		for _, change := range changes {
@@ -246,12 +247,11 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 				return fmt.Errorf("getting asset ID for %s: %w", change.Asset, err)
 			}
 
-			assetIDStr := strconv.FormatInt(assetID, 10)
 			switch change.Operation {
 			case types.TrustlineOpAdd:
-				trustlinesSetByAccount[accountAddress].Add(assetIDStr)
+				trustlinesSetByAccount[accountAddress].Add(assetID)
 			case types.TrustlineOpRemove:
-				trustlinesSetByAccount[accountAddress].Remove(assetIDStr)
+				trustlinesSetByAccount[accountAddress].Remove(assetID)
 			}
 		}
 	}
@@ -269,11 +269,12 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 				Field: accountAddress,
 			})
 		} else {
+			// Encode asset IDs to varint binary format
 			operations = append(operations, store.RedisPipelineOperation{
 				Op:    store.OpHSet,
 				Key:   prefix,
 				Field: accountAddress,
-				Value: strings.Join(trustlineSet.ToSlice(), ","),
+				Value: string(encodeAssetIDs(trustlineSet.ToSlice())),
 			})
 		}
 	}
@@ -313,6 +314,37 @@ func parseAssetString(asset string) (code, issuer string, err error) {
 	return parts[0], parts[1], nil
 }
 
+// encodeAssetIDs encodes a slice of asset IDs to varint binary format.
+func encodeAssetIDs(ids []int64) []byte {
+	if len(ids) == 0 {
+		return nil
+	}
+	buf := make([]byte, len(ids)*binary.MaxVarintLen64)
+	offset := 0
+	for _, id := range ids {
+		n := binary.PutUvarint(buf[offset:], uint64(id))
+		offset += n
+	}
+	return buf[:offset]
+}
+
+// decodeAssetIDs decodes varint binary format to slice of asset IDs.
+func decodeAssetIDs(buf []byte) []int64 {
+	if len(buf) == 0 {
+		return nil
+	}
+	result := make([]int64, 0)
+	for len(buf) > 0 {
+		val, n := binary.Uvarint(buf)
+		if n <= 0 {
+			break
+		}
+		result = append(result, int64(val))
+		buf = buf[n:]
+	}
+	return result
+}
+
 // buildTrustlineKey constructs the Redis key for an account's trustlines set.
 func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
 	h := fnv.New32a()
@@ -334,33 +366,23 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	}
 	key := s.buildTrustlineKey(accountAddress)
 
-	// Get IDs from SET
-	idString, err := s.redisStore.HGet(ctx, key, accountAddress)
+	// Get varint-encoded IDs from Redis hash
+	idData, err := s.redisStore.HGet(ctx, key, accountAddress)
 	if err != nil {
 		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
 	}
-	if idString == "" {
+	if idData == "" {
 		return nil, nil
 	}
 
-	// Convert string IDs to int64
-	ids := strings.Split(idString, ",")
-	result := make([]int64, 0, len(ids))
-	for _, idStr := range ids {
-		id, parseErr := strconv.ParseInt(idStr, 10, 64)
-		if parseErr != nil {
-			log.Ctx(ctx).Warnf("Skipping invalid asset ID %s for account %s: %v", idStr, accountAddress, parseErr)
-			continue
-		}
-		result = append(result, id)
-	}
-
-	if len(result) == 0 {
+	// Decode varint binary format to asset IDs
+	ids := decodeAssetIDs([]byte(idData))
+	if len(ids) == 0 {
 		return nil, nil
 	}
 
 	// Batch resolve IDs to asset objects from PostgreSQL
-	assetRecords, err := s.trustlineAssetModel.BatchGetByIDs(ctx, result)
+	assetRecords, err := s.trustlineAssetModel.BatchGetByIDs(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("resolving asset IDs for account %s: %w", accountAddress, err)
 	}
@@ -601,25 +623,20 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
 	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
 
-	// Add trustline operations with asset IDs from PostgreSQL
+	// Add trustline operations with asset IDs from PostgreSQL, encoded as varint
 	for accountAddress, assets := range trustlinesByAccountAddress {
-		var sb strings.Builder
-		first := true
+		ids := make([]int64, 0, assets.Cardinality())
 		for asset := range assets.Iter() {
 			if id, ok := assetIDMap[asset.Code+":"+asset.Issuer]; ok {
-				if !first {
-					sb.WriteByte(',')
-				}
-				sb.WriteString(strconv.FormatInt(id, 10))
-				first = false
+				ids = append(ids, id)
 			}
 		}
-		if sb.Len() > 0 {
+		if len(ids) > 0 {
 			redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 				Op:    store.OpHSet,
 				Key:   s.buildTrustlineKey(accountAddress),
 				Field: accountAddress,
-				Value: sb.String(),
+				Value: string(encodeAssetIDs(ids)),
 			})
 		}
 	}
