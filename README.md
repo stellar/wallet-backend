@@ -302,81 +302,155 @@ The Account Token Cache operates in two phases:
 
 When the wallet-backend starts with an empty database, it performs a one-time population from Stellar history archives:
 
-```
-History Archive (Checkpoint Ledger)
-         │
-         ▼
-CheckpointChangeReader ──► Processes ledger state
-         │
-         ├──► Trustlines: account → [CODE:ISSUER, ...]
-         └──► Contracts: account → [ContractID, ...]
-                     │
-                     ▼
-            Redis Cache (Populated)
-            ├── trustlines:{account} → Set<"CODE:ISSUER">
-            └── contracts:{account} → Set<contractID>
+```mermaid
+flowchart TD
+    A[History Archive] --> B[Read Checkpoint Ledger]
+    B --> C[Collect Trustlines & Track Frequency]
+    C --> D[Sort Assets by Frequency]
+    D --> E[Batch Insert to PostgreSQL]
+    E --> F[Assign Asset IDs]
+    F --> G[Encode IDs to VARINT Binary]
+    G --> H[Store in Bucketed Redis Hashes]
 ```
 
 **Process:**
 1. Calculates the nearest checkpoint ledger from the history archive
 2. Downloads and processes the checkpoint state file
-3. Extracts all trustline and contract balance entries
-4. Populates Redis using batch operations (50,000 items per pipeline)
-5. Completes before live ingestion begins
+3. Extracts all trustline entries and tracks how frequently each asset appears
+4. Sorts assets by frequency (descending) so common assets get lower IDs
+5. Batch inserts assets to PostgreSQL `trustline_assets` table
+6. Encodes asset IDs to compact VARINT binary format
+7. Stores in Redis using bucketed hashes (50,000 operations per pipeline batch)
+8. Completes before live ingestion begins
 
 **2. Live Ingestion (Continuous Updates)**
 
-During normal operation, the cache is updated in real-time as trustlines are created/removed and transfers of new contract tokens occurs between accounts:
+During normal operation, the cache is updated in real-time as trustlines are created/removed and transfers of new contract tokens occur between accounts:
 
-```
-Stellar RPC (LedgerCloseMeta)
-         │
-         ▼
-    Indexer
-    ├── TokenTransferProcessor (balance changes detects new SEP41 token updates)
-    └── EffectsProcessor (trustline changes detects new trustline additions or removal of old trustlines)
-         │
-         ▼
-   IndexerBuffer
-   ├── TrustlineChanges
-   └── ContractChanges
-         │
-         ▼
-AccountTokenService.ProcessTokenChanges()
-         │
-         ▼
-   Redis Cache (Updated)
+```mermaid
+flowchart TD
+    A[Stellar RPC - LedgerCloseMeta] --> B[Indexer]
+    B --> C[TokenTransferProcessor]
+    B --> D[EffectsProcessor]
+    C --> E[IndexerBuffer]
+    D --> E
+    E --> F[TrustlineChanges & ContractChanges]
+    F --> G[Get/Create Asset IDs from PostgreSQL]
+    G --> H[Encode to VARINT Binary]
+    H --> I[Pipeline Updates to Redis]
 ```
 
 **Process:**
 1. Indexer processors detect state changes from transaction effects
 2. Changes are buffered (trustline additions/removals, contract balance changes)
-3. After successful DB write, `AccountTokenService.ProcessTokenChanges()` updates Redis
-4. Uses Redis pipelining for efficient batch updates
-5. Contract metadata (name, symbol, decimals) is fetched and stored in PostgreSQL
+3. Asset IDs are fetched or created from PostgreSQL
+4. IDs are encoded to compact VARINT binary format
+5. After successful DB write, `AccountTokenService.ProcessTokenChanges()` updates Redis
+6. Uses Redis pipelining for efficient batch updates
+7. Contract metadata (name, symbol, decimals) is fetched and stored in PostgreSQL
 
 #### GraphQL Integration
 
 The Account Token Cache powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query. See the [Get Account Balances](#7-get-account-balances) section for query examples and response formats.
 
+#### Storage Optimization Strategies
+
+The Account Token Cache uses several optimization strategies to minimize Redis memory usage while maintaining fast lookup performance.
+
+**1. PostgreSQL Asset ID Mapping**
+
+Instead of storing full asset strings (e.g., `USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`) in Redis, we store compact integer IDs. The mapping between IDs and asset strings is maintained in a PostgreSQL table:
+
+```sql
+CREATE TABLE trustline_assets (
+    id BIGSERIAL PRIMARY KEY,
+    code TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    UNIQUE(code, issuer)
+);
+```
+
+This reduces storage from ~60 bytes per asset string to a small integer ID.
+
+**2. Bucket Sharding**
+
+Instead of creating one Redis key per account (millions of keys), accounts are distributed across 12,000 buckets using FNV-1a hashing:
+
+```
+Key format: trustlines:{bucket}
+Bucket = fnv32(accountAddress) % 12000
+```
+
+Each bucket is a Redis hash containing multiple accounts. This improves Redis memory efficiency and reduces key overhead.
+
+**3. VARINT Binary Encoding**
+
+Asset IDs are encoded using Go's variable-length integer (VARINT) format instead of storing them as text:
+
+| ID Value | VARINT Bytes | ASCII Bytes |
+|----------|--------------|-------------|
+| 1 | 1 byte | 1 byte |
+| 127 | 1 byte | 3 bytes |
+| 1000 | 2 bytes | 4 bytes |
+| 100000 | 3 bytes | 6 bytes |
+
+This provides significant compression, especially for accounts holding multiple assets.
+
+**4. Frequency-Based ID Assignment**
+
+During initial population, assets are sorted by how frequently they appear across all accounts. The most common assets (like USDC) receive the lowest IDs (1, 2, 3...), which encode to fewer bytes in VARINT format:
+
+```
+USDC (held by 100K accounts) → ID 1 (1 byte)
+EURC (held by 50K accounts)  → ID 2 (1 byte)
+Rare asset (10 accounts)     → ID 50000 (3 bytes)
+```
+
+This multiplies the benefits of VARINT encoding by ensuring common assets use minimal storage across all accounts.
+
 #### Redis Data Structures
 
-The cache uses Redis sets with namespace prefixes:
+The cache uses optimized Redis data structures for trustlines and sets for contracts:
 
-**Trustline Keys:**
+**Trustline Storage (Bucketed Hashes with VARINT)**
+
+Trustlines are stored in Redis hashes, bucketed by account address hash:
+
+```mermaid
+flowchart LR
+    subgraph Redis["Redis (Bucketed Hashes)"]
+        B0["trustlines:0"]
+        B1["trustlines:1"]
+        BN["trustlines:11999"]
+    end
+    subgraph PG["PostgreSQL"]
+        T["trustline_assets"]
+    end
+    B0 -->|"GABC... → [1,3,45]"| T
+    T -->|"id=1 → USDC:GA..."| B0
 ```
-Key: trustlines:{accountAddress}
-Value: Set<"CODE:ISSUER">
+
+```
+Structure: Hash
+Key: trustlines:{bucket}  (bucket = fnv32(account) % 12000)
+Field: accountAddress
+Value: VARINT-encoded binary blob of asset IDs
 
 Example:
-trustlines:GABC123... → {
-  "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-  "EURC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+trustlines:1234 → {
+  "GABC123...": [binary: 0x01 0x03 0x2D]     // IDs: [1, 3, 45]
+  "GDEF456...": [binary: 0x02 0x05 0x43]     // IDs: [2, 5, 67]
 }
+
+Resolution: IDs → PostgreSQL trustline_assets table → "CODE:ISSUER"
 ```
 
-**Contract Keys:**
+**Contract Storage (Sets)**
+
+Contract token IDs are stored directly as Redis sets (no ID mapping needed):
+
 ```
+Structure: Set
 Key: contracts:{accountAddress}
 Value: Set<contractID>
 
@@ -393,30 +467,36 @@ The `AccountTokenService` interface provides the following methods:
 
 **Population:**
 - `PopulateAccountTokens(ctx, checkpointLedger)` - Initial cache population from history archive
+- `GetCheckpointLedger()` - Returns the checkpoint ledger used for initial population
 
 **Querying:**
-- `GetAccountTrustlines(ctx, accountAddress)` - Returns all classic asset trustlines
+- `GetAccountTrustlines(ctx, accountAddress)` - Returns all classic asset trustlines (resolves IDs from PostgreSQL)
 - `GetAccountContracts(ctx, accountAddress)` - Returns all contract token IDs
 
 **Updates:**
-- `AddTrustlines(ctx, accountAddress, assets)` - Adds trustline assets to cache
-- `AddContracts(ctx, accountAddress, contractIDs)` - Adds contract IDs to cache
-- `ProcessTokenChanges(ctx, trustlineChanges, contractChanges)` - Batch update during ingestion
+- `ProcessTokenChanges(ctx, trustlineChanges, contractChanges)` - Batch update during live ingestion (handles ID assignment, VARINT encoding, and Redis pipelining)
 
 #### Performance Characteristics
 
 **Initial Population:**
 - Processes millions of ledger entries efficiently
 - Uses Redis pipelining (50,000 operations per batch)
+- Frequency-based sorting ensures optimal VARINT compression
 - Non-blocking: completes before API serves traffic
 
 **Live Updates:**
 - Sub-millisecond Redis operations per transaction
-- Batch updates using Redis pipelines
+- Batch updates using Redis pipelines with VARINT encoding
+- Efficient bucket-based lookups via FNV-1a hashing
 - Scales horizontally with Redis cluster
 
+**Memory Efficiency:**
+- Combined optimizations (ID mapping, VARINT, frequency sorting, bucketing) significantly reduce Redis memory usage compared to storing full asset strings
+- Most common assets encode to 1-2 bytes per account
+
 **Balance Queries:**
-- O(1) Redis lookup per account
+- O(1) Redis hash field lookup per account
+- Single PostgreSQL query to resolve asset IDs to strings
 - Single RPC call for all balances (no N+1 queries)
 - Typical response time: 100-300ms (including RPC roundtrip)
 
