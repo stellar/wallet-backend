@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

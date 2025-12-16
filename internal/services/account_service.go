@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/stellar/go/strkey"
+	"github.com/stellar/go-stellar-sdk/strkey"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/metrics"

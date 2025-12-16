@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stellar/go/toid"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
-	"github.com/stellar/go/toid"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vektah/gqlparser/v2/ast"

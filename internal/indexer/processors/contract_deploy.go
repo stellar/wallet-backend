@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -29,7 +28,7 @@ func (p *ContractDeployProcessor) Name() string {
 }
 
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
-func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {

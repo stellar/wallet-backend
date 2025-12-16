@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	godbtest "github.com/stellar/go/support/db/dbtest"
+	godbtest "github.com/stellar/go-stellar-sdk/support/db/dbtest"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"

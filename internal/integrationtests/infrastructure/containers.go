@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -323,8 +323,10 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 		ExposedPorts: []string{"8000/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("8000/tcp"),
+			// Wait for RPC health check to succeed - increased timeout to allow captive-core initialization
 			wait.ForExec([]string{"sh", "-c", `curl -s -X POST http://localhost:8000 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"getHealth","id":1}' | grep -q '"result"'`}).
 				WithPollInterval(2*time.Second).
+				WithStartupTimeout(120*time.Second).
 				WithExitCodeMatcher(func(exitCode int) bool { return exitCode == 0 }),
 		),
 	}

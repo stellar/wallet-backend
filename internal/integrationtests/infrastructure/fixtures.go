@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stellar/go/amount"
-	"github.com/stellar/go/keypair"
-	operations "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/utils"
@@ -614,7 +614,7 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 	if err != nil {
 		return nil, nil, fmt.Errorf("converting liquidity pool ID to XDR: %w", err)
 	}
-	poolIDStrkey := operations.PoolIDToString(poolIDXDR)
+	poolIDStrkey := processors.PoolIDToString(poolIDXDR)
 	f.LiquidityPoolID = poolIDStrkey
 
 	// Create ChangeTrustAsset for the liquidity pool

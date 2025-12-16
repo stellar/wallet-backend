@@ -5,9 +5,9 @@ package resolvers
 import (
 	"fmt"
 
-	"github.com/stellar/go/amount"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"

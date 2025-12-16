@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/go/toid"
+	"github.com/stellar/go-stellar-sdk/toid"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
