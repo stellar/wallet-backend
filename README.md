@@ -500,6 +500,18 @@ The `AccountTokenService` interface provides the following methods:
 - Single RPC call for all balances (no N+1 queries)
 - Typical response time: 100-300ms (including RPC roundtrip)
 
+**Performance Trade-offs:**
+
+The storage optimizations introduce a trade-off between memory usage and query latency:
+
+| Operation | Trade-off |
+|-----------|-----------|
+| `GetAccountTrustlines` | +1 PostgreSQL query (sub-ms) to resolve IDs to asset strings |
+| `ProcessTokenChanges` | Read-modify-write pattern for trustline updates instead of direct set operations |
+| Memory | ~90% reduction in Redis memory usage |
+
+The additional PostgreSQL round-trip for trustline queries is negligible in practice because the Stellar RPC call to fetch actual balances (100-300ms) dominates total query latency. This trade-off optimizes for large-scale deployments where Redis memory costs are significant.
+
 ### Contract Validator Service
 
 The wallet-backend implements a **Contract Validator Service** that validates whether Stellar contracts implement the SEP-41 token standard by analyzing their WASM bytecode. This service is a critical component of the [Account Token Cache](#account-token-cache) system, enabling automatic classification of contract tokens during cache population.
