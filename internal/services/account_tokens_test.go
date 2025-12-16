@@ -981,11 +981,16 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
 		}
+
+		// No trustline changes, so BatchGetOrCreateIDs is called with empty slice
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
 			{
@@ -1011,11 +1016,16 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
 		}
+
+		// No trustline changes, so BatchGetOrCreateIDs is called with empty slice
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
 			{
@@ -1035,11 +1045,16 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
 		}
+
+		// Empty asset is skipped during parsing, so BatchGetOrCreateIDs is called with empty slice
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1069,8 +1084,10 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock GetOrCreateID to return asset ID
-		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)
+		// Mock BatchGetOrCreateIDs to return asset ID
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1107,8 +1124,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with existing trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock GetOrCreateID for the new asset
-		mockAssetModel.On("GetOrCreateID", ctx, "EUROC", "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ").Return(int64(2), nil)
+		// Mock BatchGetOrCreateIDs for the new asset
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
+		}).Return(map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1146,8 +1165,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with multiple trustlines in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
 
-		// Mock GetOrCreateID for the asset being removed
-		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)
+		// Mock BatchGetOrCreateIDs for the asset being removed
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1183,8 +1204,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with single trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock GetOrCreateID for the asset being removed
-		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)
+		// Mock BatchGetOrCreateIDs for the asset being removed
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1215,8 +1238,10 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock GetOrCreateID calls
-		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(1), nil)
+		// Mock BatchGetOrCreateIDs - same asset appears twice so it's deduplicated
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
 		// Send changes out of order - remove then add (by opID)
 		// Op 2: Remove, Op 1: Add - should be processed as Add first, then Remove
@@ -1242,7 +1267,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.Empty(t, val)
 	})
 
-	t.Run("handles GetOrCreateID error", func(t *testing.T) {
+	t.Run("handles BatchGetOrCreateIDs error", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
@@ -1254,8 +1279,10 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractsPrefix:     contractsKeyPrefix,
 		}
 
-		// Mock GetOrCreateID to return error
-		mockAssetModel.On("GetOrCreateID", ctx, "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").Return(int64(0), assert.AnError)
+		// Mock BatchGetOrCreateIDs to return error
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(nil, assert.AnError)
 
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
@@ -1266,20 +1293,25 @@ func TestProcessTokenChanges(t *testing.T) {
 			},
 		}, []types.ContractChange{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "getting asset ID")
+		assert.Contains(t, err.Error(), "getting or creating trustline asset IDs")
 	})
 
 	t.Run("handles invalid asset format", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		// Invalid asset is skipped during parsing, so BatchGetOrCreateIDs is called with empty slice
+		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
 
 		// Asset without colon should be skipped (not cause error)
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{

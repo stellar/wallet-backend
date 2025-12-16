@@ -14,8 +14,6 @@ import (
 
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
-	// GetOrCreateID returns the ID for a trustline asset, creating it if it doesn't exist.
-	GetOrCreateID(ctx context.Context, code, issuer string) (int64, error)
 	// BatchGetOrCreateIDs returns IDs for multiple trustline assets, creating any that don't exist.
 	BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
@@ -125,31 +123,6 @@ func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []
 	m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BatchGetOrCreateIDs", "trustline_assets")
 	return result, nil
-}
-
-// GetOrCreateID returns the ID for a trustline asset, creating it if it doesn't exist.
-// Uses INSERT ... ON CONFLICT for atomic upsert behavior.
-func (m *TrustlineAssetModel) GetOrCreateID(ctx context.Context, code, issuer string) (int64, error) {
-	const query = `
-		INSERT INTO trustline_assets (code, issuer)
-		VALUES ($1, $2)
-		ON CONFLICT (code, issuer) DO UPDATE SET code = EXCLUDED.code
-		RETURNING id
-	`
-
-	start := time.Now()
-	var id int64
-	err := m.DB.GetContext(ctx, &id, query, code, issuer)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetOrCreateID", "trustline_assets", duration)
-
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetOrCreateID", "trustline_assets", "query_error")
-		return 0, fmt.Errorf("getting or creating trustline asset ID for %s:%s: %w", code, issuer, err)
-	}
-
-	m.MetricsService.IncDBQuery("GetOrCreateID", "trustline_assets")
-	return id, nil
 }
 
 // BatchGetByIDs retrieves trustline assets by their IDs.
