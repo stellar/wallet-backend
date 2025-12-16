@@ -190,6 +190,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -279,6 +280,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -316,6 +318,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -354,6 +357,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -389,6 +393,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -426,6 +431,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -464,6 +470,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -514,6 +521,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
@@ -574,6 +582,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			tokenTransferProcessor: mockTokenTransfer,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
+			networkPassphrase:      network.TestNetworkPassphrase,
 		}
 
 		// Test ProcessLedgerTransactions
