@@ -345,7 +345,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		got, err := service.GetAccountTrustlines(ctx, accountAddress)
 		assert.NoError(t, err)
-		assert.Equal(t, []string{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"}, got)
+		assert.Equal(t, []*wbdata.TrustlineAsset{{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"}}, got)
 	})
 
 	t.Run("account with multiple trustlines", func(t *testing.T) {
@@ -376,9 +376,9 @@ func TestGetAccountTrustlines(t *testing.T) {
 		got, err := service.GetAccountTrustlines(ctx, accountAddress)
 		assert.NoError(t, err)
 		assert.Len(t, got, 3)
-		assert.Contains(t, got, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		assert.Contains(t, got, "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ")
-		assert.Contains(t, got, "BTC:GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"})
+		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 2, Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"})
+		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 3, Code: "BTC", Issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"})
 	})
 
 	t.Run("skips invalid asset IDs in Redis", func(t *testing.T) {
