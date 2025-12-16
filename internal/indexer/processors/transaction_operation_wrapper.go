@@ -367,6 +367,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 }
 
 func getTransactionV1Envelope(transactionEnvelope xdr.TransactionEnvelope) xdr.TransactionV1Envelope {
+	//exhaustive:ignore
 	switch transactionEnvelope.Type {
 	case xdr.EnvelopeTypeEnvelopeTypeTx:
 		return transactionEnvelope.MustV1()
@@ -462,6 +463,7 @@ func contractCodeFromContractData(ledgerKey xdr.LedgerKey) string {
 }
 
 func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey) error {
+	//exhaustive:ignore
 	switch ledgerKey.Type {
 	case xdr.LedgerEntryTypeAccount:
 		result["account_id"] = ledgerKey.Account.AccountId.Address()
@@ -491,6 +493,7 @@ func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey)
 
 func getLedgerKeyParticipants(ledgerKey xdr.LedgerKey) []xdr.AccountId {
 	var result []xdr.AccountId
+	//exhaustive:ignore
 	switch ledgerKey.Type {
 	case xdr.LedgerEntryTypeAccount:
 		result = append(result, ledgerKey.Account.AccountId)
