@@ -197,12 +197,29 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	addressesByBucketPrefix := make(map[string][]string)
 	trustlineChangesByAccount := make(map[string][]types.TrustlineChange)
 	accountToPrefix := make(map[string]string) // Map account -> its prefix bucket
+	uniqueTrustlineAssets := set.NewSet[wbdata.TrustlineAsset]()
 
 	for _, change := range trustlineChanges {
 		prefix := s.buildTrustlineKey(change.AccountID)
 		addressesByBucketPrefix[prefix] = append(addressesByBucketPrefix[prefix], change.AccountID)
 		trustlineChangesByAccount[change.AccountID] = append(trustlineChangesByAccount[change.AccountID], change)
 		accountToPrefix[change.AccountID] = prefix
+
+		code, issuer, err := parseAssetString(change.Asset)
+		if err != nil {
+			log.Ctx(ctx).Errorf("parsing asset string from trustline change: %v", err)
+			continue
+		}
+		uniqueTrustlineAssets.Add(wbdata.TrustlineAsset{
+			Code:   code,
+			Issuer: issuer,
+		})
+	}
+
+	// Get or create trustline asset IDs
+	assetsToID, err := s.trustlineAssetModel.BatchGetOrCreateIDs(ctx, uniqueTrustlineAssets.ToSlice())
+	if err != nil {
+		return fmt.Errorf("getting or creating trustline asset IDs: %w", err)
 	}
 
 	// Process each prefix bucket - decode varint binary format to int64 sets
@@ -241,8 +258,8 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 				continue
 			}
 
-			assetID, err := s.trustlineAssetModel.GetOrCreateID(ctx, code, issuer)
-			if err != nil {
+			assetID, exists := assetsToID[code+":"+issuer]
+			if !exists {
 				return fmt.Errorf("getting asset ID for %s: %w", change.Asset, err)
 			}
 

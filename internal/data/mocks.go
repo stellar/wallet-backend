@@ -72,6 +72,14 @@ func NewTrustlineAssetModelMock(t interface {
 	return mockAsset
 }
 
+func (m *TrustlineAssetModelMock) BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+	args := m.Called(ctx, assets)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
 func (m *TrustlineAssetModelMock) GetOrCreateID(ctx context.Context, code, issuer string) (int64, error) {
 	args := m.Called(ctx, code, issuer)
 	return args.Get(0).(int64), args.Error(1)

@@ -16,6 +16,8 @@ import (
 type TrustlineAssetModelInterface interface {
 	// GetOrCreateID returns the ID for a trustline asset, creating it if it doesn't exist.
 	GetOrCreateID(ctx context.Context, code, issuer string) (int64, error)
+	// BatchGetOrCreateIDs returns IDs for multiple trustline assets, creating any that don't exist.
+	BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
 	// BatchInsert inserts multiple trustline assets and returns a map of "code:issuer" to ID.
@@ -41,6 +43,88 @@ type TrustlineAsset struct {
 // AssetKey returns the "CODE:ISSUER" format string for this asset.
 func (a *TrustlineAsset) AssetKey() string {
 	return fmt.Sprintf("%s:%s", a.Code, a.Issuer)
+}
+
+// BatchGetOrCreateIDs returns IDs for multiple trustline assets, creating any that don't exist.
+// Uses batch INSERT ... ON CONFLICT for atomic upsert behavior.
+// Returns a map of "code:issuer" -> id.
+func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+	if len(assets) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	codes := make([]string, len(assets))
+	issuers := make([]string, len(assets))
+	for i, a := range assets {
+		codes[i] = a.Code
+		issuers[i] = a.Issuer
+	}
+
+	// Step 1: Try to get existing rows first (cheap SELECT)
+	const selectQuery = `
+		SELECT id, code, issuer FROM trustline_assets
+		WHERE (code, issuer) IN (SELECT * FROM UNNEST($1::text[], $2::text[]))
+	`
+
+	start := time.Now()
+	rows, err := m.DB.QueryxContext(ctx, selectQuery, pq.Array(codes), pq.Array(issuers))
+	if err != nil {
+		return nil, fmt.Errorf("selecting trustline assets: %w", err)
+	}
+
+	result := make(map[string]int64, len(assets))
+	for rows.Next() {
+		var id int64
+		var code, issuer string
+		if err := rows.Scan(&id, &code, &issuer); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning trustline asset: %w", err)
+		}
+		result[code+":"+issuer] = id
+	}
+	rows.Close()
+
+	// Step 2: If all found, we're done (fast path - most common case)
+	if len(result) == len(assets) {
+		m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
+		m.MetricsService.IncDBQuery("BatchGetOrCreateIDs", "trustline_assets")
+		return result, nil
+	}
+
+	// Step 3: Insert only missing ones
+	var newCodes, newIssuers []string
+	for i, a := range assets {
+		if _, exists := result[a.Code+":"+a.Issuer]; !exists {
+			newCodes = append(newCodes, codes[i])
+			newIssuers = append(newIssuers, issuers[i])
+		}
+	}
+
+	const insertQuery = `
+		INSERT INTO trustline_assets (code, issuer)
+		SELECT * FROM UNNEST($1::text[], $2::text[])
+		ON CONFLICT (code, issuer) DO UPDATE SET code = EXCLUDED.code
+		RETURNING id, code, issuer
+	`
+
+	rows, err = m.DB.QueryxContext(ctx, insertQuery, pq.Array(newCodes), pq.Array(newIssuers))
+	if err != nil {
+		return nil, fmt.Errorf("inserting trustline assets: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var code, issuer string
+		if err := rows.Scan(&id, &code, &issuer); err != nil {
+			return nil, fmt.Errorf("scanning inserted trustline asset: %w", err)
+		}
+		result[code+":"+issuer] = id
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchGetOrCreateIDs", "trustline_assets")
+	return result, nil
 }
 
 // GetOrCreateID returns the ID for a trustline asset, creating it if it doesn't exist.
