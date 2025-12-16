@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing/store"

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stellar/go/amount"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 

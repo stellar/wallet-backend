@@ -4,8 +4,8 @@ import (
 	"go/types"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stellar/go/network"
-	"github.com/stellar/go/support/config"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/support/config"
 
 	"github.com/stellar/wallet-backend/internal/signing"
 )

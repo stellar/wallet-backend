@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/utils"
 )

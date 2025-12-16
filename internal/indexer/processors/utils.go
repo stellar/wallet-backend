@@ -5,17 +5,17 @@ package processors
 import (
 	"fmt"
 
-	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/toid"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/toid"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"encoding/hex"
 
 	"github.com/pkg/errors"
-	"github.com/stellar/go/amount"
-	"github.com/stellar/go/hash"
+	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stellar/go-stellar-sdk/hash"
 )
 
 // PoolIDToString converts a pool ID to its string representation

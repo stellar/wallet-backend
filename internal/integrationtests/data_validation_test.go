@@ -11,9 +11,9 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
