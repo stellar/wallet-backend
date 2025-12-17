@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
-func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+// CreateAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
+func (s *SharedContainers) CreateAndFundAccounts(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
 	// Build CreateAccount operations for all accounts
 	ops := make([]txnbuild.Operation, len(accounts))
 	for i, kp := range accounts {
@@ -123,4 +123,21 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 	require.NoError(t, err, "failed to create EURC trustline")
 
 	log.Ctx(ctx).Infof("🔗 Created EURC trustline for balance test account 1 %s: %s:%s", s.balanceTestAccount1KeyPair.Address(), eurcAsset.Code, eurcAsset.Issuer)
+}
+
+// SubmitPaymentOp executes a native XLM payment from the master account to a destination
+func (s *SharedContainers) SubmitPaymentOp(ctx context.Context, t *testing.T, to string, amount string) {
+	ops := []txnbuild.Operation{
+		&txnbuild.Payment{
+			Destination:   to,
+			Amount:        amount,
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: s.masterKeyPair.Address(),
+		},
+	}
+
+	_, err := executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair})
+	require.NoError(t, err, "failed to execute payment")
+
+	log.Ctx(ctx).Infof("💸 Payment of %s XLM from %s to %s", amount, s.masterKeyPair.Address(), to)
 }

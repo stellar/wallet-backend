@@ -381,6 +381,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 // createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
 func createWalletBackendIngestContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -413,6 +414,10 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"REDIS_PORT":                              "6379",
 		},
 		Networks: []string{testNetwork.Name},
+	}
+
+	for k, v := range extraEnv {
+		containerRequest.Env[k] = v
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
