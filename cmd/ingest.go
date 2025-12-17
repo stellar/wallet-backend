@@ -84,6 +84,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "",
 			Required:    false,
 		},
+		{
+			Name:        "enable-participant-filtering",
+			Usage:       "When enabled, only store transactions, operations, and state changes for pre-registered accounts. When disabled (default), store all data.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.EnableParticipantFiltering,
+			FlagDefault: false,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{

@@ -179,13 +179,10 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 
 // BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
 func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
-	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
-	query := fmt.Sprintf(`
-		SELECT %s, transactions_accounts.tx_hash
+	query := `
+		SELECT account_id AS stellar_address, tx_hash
 		FROM transactions_accounts
-		INNER JOIN accounts
-		ON transactions_accounts.account_id = accounts.stellar_address
-		WHERE transactions_accounts.tx_hash = ANY($1)`, columns)
+		WHERE tx_hash = ANY($1)`
 	var accounts []*types.AccountWithTxHash
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
@@ -202,13 +199,10 @@ func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string
 
 // BatchGetByOperationIDs gets the accounts that are associated with the given operation IDs.
 func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.AccountWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
-	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.operation_id
+	query := `
+		SELECT account_id AS stellar_address, operation_id
 		FROM operations_accounts
-		INNER JOIN accounts
-		ON operations_accounts.account_id = accounts.stellar_address
-		WHERE operations_accounts.operation_id = ANY($1)`, columns)
+		WHERE operation_id = ANY($1)`
 	var accounts []*types.AccountWithOperationID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
@@ -225,8 +219,6 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 
 // BatchGetByStateChangeIDs gets the accounts that are associated with the given state change IDs.
 func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.AccountWithStateChangeID, error) {
-	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
-
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
@@ -235,12 +227,11 @@ func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []i
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
-		FROM accounts
-		INNER JOIN state_changes ON accounts.stellar_address = state_changes.account_id
-		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
-		ORDER BY accounts.created_at DESC
-	`, columns, strings.Join(tuples, ", "))
+		SELECT account_id AS stellar_address, CONCAT(to_id, '-', state_change_order) AS state_change_id
+		FROM state_changes
+		WHERE (to_id, state_change_order) IN (%s)
+		ORDER BY ledger_created_at DESC
+	`, strings.Join(tuples, ", "))
 
 	var accountsWithStateChanges []*types.AccountWithStateChangeID
 	start := time.Now()
