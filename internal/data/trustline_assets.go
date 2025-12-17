@@ -75,12 +75,17 @@ func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []
 		var id int64
 		var code, issuer string
 		if err := rows.Scan(&id, &code, &issuer); err != nil {
-			rows.Close()
+			err = rows.Close()
+			if err != nil {
+				return nil, fmt.Errorf("closing rows: %w", err)
+			}
 			return nil, fmt.Errorf("scanning trustline asset: %w", err)
 		}
 		result[code+":"+issuer] = id
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("closing rows: %w", err)
+	}
 
 	// Step 2: If all found, we're done (fast path - most common case)
 	if len(result) == len(assets) {
@@ -109,7 +114,11 @@ func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []
 	if err != nil {
 		return nil, fmt.Errorf("inserting trustline assets: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			panic(err)
+		}
+	}()
 
 	for rows.Next() {
 		var id int64
