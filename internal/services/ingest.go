@@ -15,13 +15,11 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -552,21 +550,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 
 	innerTxHashes := make([]string, 0, len(txs))
 	for _, tx := range txs {
-		if tx.InnerTransactionHash != "" {
-			innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
-			continue
-		}
-
-		// Fallback for cases where InnerTransactionHash might not be populated (though it should be)
-		// Skip transactions without envelope XDR (when skip-tx-envelope is enabled)
-		if tx.EnvelopeXDR == nil {
-			continue
-		}
-		innerTxHash, err := m.extractInnerTxHash(*tx.EnvelopeXDR)
-		if err != nil {
-			return fmt.Errorf("extracting inner tx hash: %w", err)
-		}
-		innerTxHashes = append(innerTxHashes, innerTxHash)
+		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
 	}
 
 	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
@@ -576,57 +560,6 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 	}
 
 	return nil
-}
-
-func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
-	var ledgerTransactions []entities.Transaction
-	var cursor string
-	lastLedgerSeen := ledger
-	for lastLedgerSeen == ledger {
-		getTxnsResp, err := m.rpcService.GetTransactions(ledger, cursor, 50)
-		if err != nil {
-			return []entities.Transaction{}, fmt.Errorf("getTransactions: %w", err)
-		}
-		cursor = getTxnsResp.Cursor
-		for _, tx := range getTxnsResp.Transactions {
-			if tx.Ledger == ledger {
-				ledgerTransactions = append(ledgerTransactions, tx)
-				lastLedgerSeen = tx.Ledger
-			} else {
-				lastLedgerSeen = tx.Ledger
-				break
-			}
-		}
-	}
-	return ledgerTransactions, nil
-}
-
-// extractInnerTxHash takes a transaction XDR string and returns the hash of its inner transaction.
-// For fee bump transactions, it returns the hash of the inner transaction.
-// For regular transactions, it returns the hash of the transaction itself.
-func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
-	if err != nil {
-		return "", fmt.Errorf("deserializing envelope xdr %q: %w", txXDR, err)
-	}
-
-	var innerTx *txnbuild.Transaction
-	feeBumpTx, ok := genericTx.FeeBump()
-	if ok {
-		innerTx = feeBumpTx.InnerTransaction()
-	} else {
-		innerTx, ok = genericTx.Transaction()
-		if !ok {
-			return "", errors.New("transaction is neither fee bump nor inner transaction")
-		}
-	}
-
-	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
-	if err != nil {
-		return "", fmt.Errorf("generating hash hex: %w", err)
-	}
-
-	return innerTxHash, nil
 }
 
 // filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
