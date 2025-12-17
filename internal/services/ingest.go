@@ -196,69 +196,37 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 }
 
-// startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
-// acquiring an advisory lock to prevent concurrent ingestion instances.
-func (m *ingestService) startLiveIngestion(ctx context.Context) error {
-	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-		return fmt.Errorf("acquiring advisory lock: %w", err)
-	} else if !lockAcquired {
-		return errors.New("advisory lock not acquired")
-	}
-	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-			err = fmt.Errorf("releasing advisory lock: %w", err)
-			log.Ctx(ctx).Error(err)
-		}
-	}()
-
-	// Get latest ingested ledger to determine DB state
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
-	if err != nil {
-		return fmt.Errorf("getting latest ledger cursor: %w", err)
-	}
-
-	startLedger := latestIngestedLedger + 1
-	if latestIngestedLedger == 0 {
-		startLedger, err = m.archive.GetLatestLedgerSequence()
-		if err != nil {
-			return fmt.Errorf("getting latest ledger sequence: %w", err)
+// getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
+// It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
+func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
 		}
 
-		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
-		if err != nil {
-			return fmt.Errorf("populating account tokens cache: %w", err)
+		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
+		if err == nil {
+			return ledgerMeta, nil
 		}
+		lastErr = err
 
-		err := m.initializeCursors(ctx, startLedger)
-		if err != nil {
-			return fmt.Errorf("initializing cursors: %w", err)
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxRetryBackoff {
+			backoff = maxRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
+
+		select {
+		case <-ctx.Done():
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
 		}
 	}
-
-	// Start unbounded ingestion from latest ledger ingested onwards
-	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
-	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
-	}
-	return m.ingestLiveLedgers(ctx, startLedger)
-}
-
-
-func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
-	cursorStart := time.Now()
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-		}
-		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("updating cursors: %w", err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
-	return nil
+	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
