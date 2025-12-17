@@ -31,6 +31,30 @@ import (
 
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
+// IngestServiceConfig holds the configuration for creating an IngestService.
+type IngestServiceConfig struct {
+	IngestionMode           string
+	Models                  *data.Models
+	LatestLedgerCursorName  string
+	OldestLedgerCursorName  string
+	AccountTokensCursorName string
+	AppTracker              apptracker.AppTracker
+	RPCService              RPCService
+	LedgerBackend           ledgerbackend.LedgerBackend
+	LedgerBackendFactory    LedgerBackendFactory
+	ChannelAccountStore     store.ChannelAccountStore
+	AccountTokenService     AccountTokenService
+	ContractMetadataService ContractMetadataService
+	MetricsService          metrics.MetricsService
+	GetLedgersLimit         int
+	Network                 string
+	NetworkPassphrase       string
+	Archive                 historyarchive.ArchiveInterface
+	SkipTxMeta              bool
+	SkipTxEnvelope          bool
+	EnableParticipantFiltering bool
+}
+
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {

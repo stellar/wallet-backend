@@ -161,8 +161,28 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
-	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope, cfg.EnableParticipantFiltering)
+	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
+		IngestionMode:           cfg.IngestionMode,
+		Models:                  models,
+		LatestLedgerCursorName:  cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		AccountTokensCursorName: cfg.AccountTokensCursorName,
+		AppTracker:              cfg.AppTracker,
+		RPCService:              rpcService,
+		LedgerBackend:           ledgerBackend,
+		LedgerBackendFactory:    ledgerBackendFactory,
+		ChannelAccountStore:     chAccStore,
+		AccountTokenService:     accountTokenService,
+		ContractMetadataService: contractMetadataService,
+		MetricsService:          metricsService,
+		GetLedgersLimit:         cfg.GetLedgersLimit,
+		Network:                 cfg.Network,
+		NetworkPassphrase:       cfg.NetworkPassphrase,
+		Archive:                 archive,
+		SkipTxMeta:              cfg.SkipTxMeta,
+		SkipTxEnvelope:          cfg.SkipTxEnvelope,
+		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
