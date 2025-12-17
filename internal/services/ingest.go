@@ -46,22 +46,23 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models                  *data.Models
-	ledgerCursorName        string
-	accountTokensCursorName string
-	advisoryLockID          int
-	appTracker              apptracker.AppTracker
-	rpcService              RPCService
-	ledgerBackend           ledgerbackend.LedgerBackend
-	chAccStore              store.ChannelAccountStore
-	accountTokenService     AccountTokenService
-	contractMetadataService ContractMetadataService
-	metricsService          metrics.MetricsService
-	networkPassphrase       string
-	getLedgersLimit         int
-	ledgerIndexer           *indexer.Indexer
-	archive                 historyarchive.ArchiveInterface
-	backfillMode            bool
+	models                     *data.Models
+	ledgerCursorName           string
+	accountTokensCursorName    string
+	advisoryLockID             int
+	appTracker                 apptracker.AppTracker
+	rpcService                 RPCService
+	ledgerBackend              ledgerbackend.LedgerBackend
+	chAccStore                 store.ChannelAccountStore
+	accountTokenService        AccountTokenService
+	contractMetadataService    ContractMetadataService
+	metricsService             metrics.MetricsService
+	networkPassphrase          string
+	getLedgersLimit            int
+	ledgerIndexer              *indexer.Indexer
+	archive                    historyarchive.ArchiveInterface
+	backfillMode               bool
+	enableParticipantFiltering bool
 }
 
 func NewIngestService(
@@ -80,6 +81,7 @@ func NewIngestService(
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	skipTxMeta bool,
+	enableParticipantFiltering bool,
 ) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
@@ -102,6 +104,7 @@ func NewIngestService(
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta),
 		archive:                 archive,
 		backfillMode:            false,
+		enableParticipantFiltering: enableParticipantFiltering,
 	}, nil
 }
 
@@ -324,42 +327,143 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	return transactions, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
-	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		// 2. Insert queries
-		// 2.1. Insert all participants as accounts
-		participants := indexerBuffer.GetAllParticipants()
-		if len(participants) > 0 {
-			if err := m.models.Account.BatchInsert(ctx, dbTx, participants); err != nil {
-				return fmt.Errorf("batch inserting accounts: %w", err)
-			}
-			log.Ctx(ctx).Infof("✅ inserted %d participant accounts", len(participants))
-		}
+// filteredIngestionData holds the filtered data for ingestion
+type filteredIngestionData struct {
+	txs            []types.Transaction
+	txParticipants map[string]set.Set[string]
+	ops            []types.Operation
+	opParticipants map[int64]set.Set[string]
+	stateChanges   []types.StateChange
+}
 
-		// 2.2. Insert transactions
-		txs := indexerBuffer.GetTransactions()
-		stellarAddressesByTxHash := indexerBuffer.GetTransactionsParticipants()
+// filterByRegisteredAccounts filters ingestion data to only include items
+// where at least one participant is a registered account.
+// If a transaction/operation has ANY registered participant, it is included with ALL its participants.
+func (m *ingestService) filterByRegisteredAccounts(
+	ctx context.Context,
+	txs []types.Transaction,
+	txParticipants map[string]set.Set[string],
+	ops []types.Operation,
+	opParticipants map[int64]set.Set[string],
+	stateChanges []types.StateChange,
+	allParticipants []string,
+) (*filteredIngestionData, error) {
+	// Get registered accounts from DB
+	existing, err := m.models.Account.BatchGetByIDs(ctx, allParticipants)
+	if err != nil {
+		return nil, fmt.Errorf("getting registered accounts: %w", err)
+	}
+	registeredAccounts := set.NewSet(existing...)
+
+	log.Ctx(ctx).Infof("filtering enabled: %d/%d participants are registered", len(existing), len(allParticipants))
+
+	// Filter transactions: include if ANY participant is registered
+	txHashesToInclude := set.NewSet[string]()
+	for txHash, participants := range txParticipants {
+		for p := range participants.Iter() {
+			if registeredAccounts.Contains(p) {
+				txHashesToInclude.Add(txHash)
+				break
+			}
+		}
+	}
+
+	filteredTxs := make([]types.Transaction, 0, txHashesToInclude.Cardinality())
+	filteredTxParticipants := make(map[string]set.Set[string])
+	for _, tx := range txs {
+		if txHashesToInclude.Contains(tx.Hash) {
+			filteredTxs = append(filteredTxs, tx)
+			filteredTxParticipants[tx.Hash] = txParticipants[tx.Hash]
+		}
+	}
+
+	// Filter operations: include if ANY participant is registered
+	opIDsToInclude := set.NewSet[int64]()
+	for opID, participants := range opParticipants {
+		for p := range participants.Iter() {
+			if registeredAccounts.Contains(p) {
+				opIDsToInclude.Add(opID)
+				break
+			}
+		}
+	}
+
+	filteredOps := make([]types.Operation, 0, opIDsToInclude.Cardinality())
+	filteredOpParticipants := make(map[int64]set.Set[string])
+	for _, op := range ops {
+		if opIDsToInclude.Contains(op.ID) {
+			filteredOps = append(filteredOps, op)
+			filteredOpParticipants[op.ID] = opParticipants[op.ID]
+		}
+	}
+
+	// Filter state changes: include if account is registered
+	filteredSC := make([]types.StateChange, 0)
+	for _, sc := range stateChanges {
+		if registeredAccounts.Contains(sc.AccountID) {
+			filteredSC = append(filteredSC, sc)
+		}
+	}
+
+	log.Ctx(ctx).Infof("after filtering: %d txs, %d ops, %d state_changes",
+		len(filteredTxs), len(filteredOps), len(filteredSC))
+
+	return &filteredIngestionData{
+		txs:            filteredTxs,
+		txParticipants: filteredTxParticipants,
+		ops:            filteredOps,
+		opParticipants: filteredOpParticipants,
+		stateChanges:   filteredSC,
+	}, nil
+}
+
+func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
+	// Get data from indexer buffer
+	txs := indexerBuffer.GetTransactions()
+	txParticipants := indexerBuffer.GetTransactionsParticipants()
+	ops := indexerBuffer.GetOperations()
+	opParticipants := indexerBuffer.GetOperationsParticipants()
+	stateChanges := indexerBuffer.GetStateChanges()
+
+	// When filtering is enabled, only store data for registered accounts
+	if m.enableParticipantFiltering {
+		filtered, err := m.filterByRegisteredAccounts(
+			ctx, txs, txParticipants, ops, opParticipants, stateChanges,
+			indexerBuffer.GetAllParticipants(),
+		)
+		if err != nil {
+			return fmt.Errorf("filtering by registered accounts: %w", err)
+		}
+		txs = filtered.txs
+		txParticipants = filtered.txParticipants
+		ops = filtered.ops
+		opParticipants = filtered.opParticipants
+		stateChanges = filtered.stateChanges
+	}
+
+	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		// NOTE: No BatchInsert(accounts) - accounts table only has registered accounts
+
+		// 2. Insert queries
+		// 2.1. Insert transactions
 		if len(txs) > 0 {
-			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
+			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, txParticipants)
 			if err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 		}
 
-		// 2.3. Insert operations
-		ops := indexerBuffer.GetOperations()
-		stellarAddressesByOpID := indexerBuffer.GetOperationsParticipants()
+		// 2.2. Insert operations
 		if len(ops) > 0 {
-			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
+			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, opParticipants)
 			if err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 		}
 
-		// 2.4. Insert state changes
-		stateChanges := indexerBuffer.GetStateChanges()
+		// 2.3. Insert state changes
 		if len(stateChanges) > 0 {
 			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
 			if err != nil {

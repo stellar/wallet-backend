@@ -74,4 +74,14 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
+
+	if t.Failed() {
+		t.Fatal("AccountBalancesAfterLiveIngestionTestSuite failed, skipping remaining tests")
+	}
+
+	t.Run("AccountRegisterTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountRegisterTestSuite{
+			testEnv: testEnv,
+		})
+	})
 }
