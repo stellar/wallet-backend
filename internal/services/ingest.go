@@ -90,23 +90,7 @@ type ingestService struct {
 }
 
 func NewIngestService(
-	models *data.Models,
-	ledgerCursorName string,
-	accountTokensCursorName string,
-	appTracker apptracker.AppTracker,
-	rpcService RPCService,
-	ledgerBackend ledgerbackend.LedgerBackend,
-	chAccStore store.ChannelAccountStore,
-	accountTokenService AccountTokenService,
-	contractMetadataService ContractMetadataService,
-	metricsService metrics.MetricsService,
-	getLedgersLimit int,
-	network string,
-	networkPassphrase string,
-	archive historyarchive.ArchiveInterface,
-	skipTxMeta bool,
-	skipTxEnvelope bool,
-	enableParticipantFiltering bool,
+	cfg IngestServiceConfig,
 ) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)

@@ -161,6 +161,11 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
+	// Create a factory function for parallel backfill (each batch needs its own backend)
+	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+		return NewLedgerBackend(ctx, cfg)
+	}
+
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:           cfg.IngestionMode,
 		Models:                  models,
