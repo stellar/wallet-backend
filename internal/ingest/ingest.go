@@ -74,6 +74,9 @@ type Configs struct {
 	SkipTxMeta bool
 	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
 	SkipTxEnvelope bool
+	// EnableParticipantFiltering controls whether to filter ingested data by pre-registered accounts.
+	// When false (default), all data is stored. When true, only data for pre-registered accounts is stored.
+	EnableParticipantFiltering bool
 }
 
 func Ingest(cfg Configs) error {
@@ -153,7 +156,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope, cfg.EnableParticipantFiltering)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
