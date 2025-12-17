@@ -31,6 +31,26 @@ import (
 
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
+const (
+	// BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
+	BackfillBatchSize uint32 = 250
+	// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
+	// to avoid racing with live finalization during parallel processing.
+	HistoricalBufferLedgers uint32 = 5
+	// maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
+	maxLedgerFetchRetries = 10
+	// maxRetryBackoff is the maximum backoff duration between retry attempts.
+	maxRetryBackoff = 30 * time.Second
+	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
+	IngestionModeLive = "live"
+	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
+	IngestionModeBackfill = "backfill"
+)
+
+// LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
+// Each batch needs its own backend because LedgerBackend is not thread-safe.
+type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
+
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
 	IngestionMode           string
@@ -55,6 +75,43 @@ type IngestServiceConfig struct {
 	EnableParticipantFiltering bool
 }
 
+// BackfillBatch represents a contiguous range of ledgers to process as a unit.
+type BackfillBatch struct {
+	StartLedger uint32
+	EndLedger   uint32
+}
+
+// BackfillResult tracks the outcome of processing a single batch.
+type BackfillResult struct {
+	Batch        BackfillBatch
+	LedgersCount int
+	Duration     time.Duration
+	Error        error
+}
+
+// batchAnalysis holds the aggregated results from processing multiple backfill batches.
+type batchAnalysis struct {
+	failedBatches []BackfillBatch
+	successCount  int
+	totalLedgers  int
+}
+
+// analyzeBatchResults aggregates backfill batch results and logs any failures.
+func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
+	var analysis batchAnalysis
+	for _, result := range results {
+		if result.Error != nil {
+			analysis.failedBatches = append(analysis.failedBatches, result.Batch)
+			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			analysis.successCount++
+			analysis.totalLedgers += result.LedgersCount
+		}
+	}
+	return analysis
+}
+
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {
@@ -70,13 +127,16 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
+	ingestionMode              string
 	models                     *data.Models
-	ledgerCursorName           string
+	latestLedgerCursorName     string
+	oldestLedgerCursorName     string
 	accountTokensCursorName    string
 	advisoryLockID             int
 	appTracker                 apptracker.AppTracker
 	rpcService                 RPCService
 	ledgerBackend              ledgerbackend.LedgerBackend
+	ledgerBackendFactory       LedgerBackendFactory
 	chAccStore                 store.ChannelAccountStore
 	accountTokenService        AccountTokenService
 	contractMetadataService    ContractMetadataService
@@ -87,37 +147,58 @@ type ingestService struct {
 	archive                    historyarchive.ArchiveInterface
 	backfillMode               bool
 	enableParticipantFiltering bool
+	backfillPool               pond.Pool
 }
 
-func NewIngestService(
-	cfg IngestServiceConfig,
-) (*ingestService, error) {
+func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+
+	backfillPool := pond.NewPool(0)
+	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
-		models:                     models,
-		ledgerCursorName:           ledgerCursorName,
-		accountTokensCursorName:    accountTokensCursorName,
-		advisoryLockID:             generateAdvisoryLockID(network),
-		appTracker:                 appTracker,
-		rpcService:                 rpcService,
-		ledgerBackend:              ledgerBackend,
-		chAccStore:                 chAccStore,
-		accountTokenService:        accountTokenService,
-		contractMetadataService:    contractMetadataService,
-		metricsService:             metricsService,
-		networkPassphrase:          networkPassphrase,
-		getLedgersLimit:            getLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta, skipTxEnvelope),
-		archive:                    archive,
-		backfillMode:               false,
-		enableParticipantFiltering: enableParticipantFiltering,
+		ingestionMode:           cfg.IngestionMode,
+		models:                  cfg.Models,
+		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		accountTokensCursorName: cfg.AccountTokensCursorName,
+		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
+		appTracker:              cfg.AppTracker,
+		rpcService:              cfg.RPCService,
+		ledgerBackend:           cfg.LedgerBackend,
+		ledgerBackendFactory:    cfg.LedgerBackendFactory,
+		chAccStore:              cfg.ChannelAccountStore,
+		accountTokenService:     cfg.AccountTokenService,
+		contractMetadataService: cfg.ContractMetadataService,
+		metricsService:          cfg.MetricsService,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		getLedgersLimit:         cfg.GetLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		archive:                 cfg.Archive,
+		enableParticipantFiltering: cfg.EnableParticipantFiltering,
+		backfillPool:            backfillPool,
 	}, nil
 }
 
+// Run starts the ingestion service in the configured mode (live or backfill).
+// For live mode, startLedger and endLedger are ignored and ingestion runs continuously from the last checkpoint.
+// For backfill mode, processes ledgers in the range [startLedger, endLedger].
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	switch m.ingestionMode {
+	case IngestionModeLive:
+		return m.startLiveIngestion(ctx)
+	case IngestionModeBackfill:
+		return m.startBackfilling(ctx, startLedger, endLedger)
+	default:
+		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
+	}
+}
+
+// startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
+// acquiring an advisory lock to prevent concurrent ingestion instances.
+func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
 		return fmt.Errorf("acquiring advisory lock: %w", err)
@@ -131,92 +212,38 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}()
 
-	// Check if account tokens cache is populated
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.ledgerCursorName)
+	// Get latest ingested ledger to determine DB state
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
-		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
+		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
 
-	// If latestIngestedLedger == 0, then its an empty db. In that case, we get the latest checkpoint ledger
-	// and start from there.
+	startLedger := latestIngestedLedger + 1
 	if latestIngestedLedger == 0 {
-		startLedger, err = m.calculateCheckpointLedger(startLedger)
+		startLedger, err = m.archive.GetLatestLedgerSequence()
 		if err != nil {
-			return fmt.Errorf("calculating checkpoint ledger: %w", err)
+			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
-
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
+		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("populating account tokens cache: %w", err)
 		}
-	} else {
-		// If we already have data ingested currently, then we check the start ledger value supplied by the user.
-		// If it is 0 or beyond the current ingested ledger, we just start from where we left off.
-		if startLedger == 0 || startLedger >= latestIngestedLedger {
-			startLedger = latestIngestedLedger + 1
-		} else {
-			// If start ledger is some value less than latest ingested ledger, we go into backfilling mode. In this mode
-			// we dont update the account token cache (since it is already populated with recent checkpoint ledger) and we dont
-			// update the latest ledger ingested cursor.
-			// NOTE: Currently we dont have the functionality of detecting gaps and intelligently backfilling so we would process the same
-			// ledgers again during backfilling. However the db insertions have ON CONFLICT DO NOTHING, so we would not do repeated insertions
-			m.backfillMode = true
+
+		err := m.initializeCursors(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("initializing cursors: %w", err)
 		}
 	}
 
-	// Prepare backend range
-	err = m.prepareBackendRange(ctx, startLedger, endLedger)
-	if err != nil {
-		return fmt.Errorf("preparing backend range: %w", err)
+	// Start unbounded ingestion from latest ledger ingested onwards
+	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
 	}
-
-	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for endLedger == 0 || currentLedger < endLedger {
-		ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
-		if ledgerErr != nil {
-			if endLedger > 0 && currentLedger > endLedger {
-				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-				return nil
-			}
-			log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		totalStart := time.Now()
-		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-		}
-
-		// Update cursor only for live ingestion
-		if !m.backfillMode {
-			err := m.updateCursor(ctx, currentLedger)
-			if err != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
-			}
-		}
-		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(1)
-
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
-		currentLedger++
-
-		// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
-		// false. This is because when backfilling data, we are not updating the latest ledger cursor
-		// and not processing any account token cache changes. Remember that the account token cache was
-		// already populated using a more recent checkpoint ledger so we dont need to process older data.
-		if m.backfillMode && currentLedger > latestIngestedLedger {
-			m.backfillMode = false
-		}
-		if endLedger > 0 && currentLedger > endLedger {
-			log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-			return nil
-		}
-	}
-	return nil
+	return m.ingestLiveLedgers(ctx, startLedger)
 }
+
 
 func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
 	cursorStart := time.Now()
