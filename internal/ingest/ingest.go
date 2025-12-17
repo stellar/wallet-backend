@@ -101,15 +101,37 @@ func Ingest(cfg Configs) error {
 }
 
 func setupDeps(cfg Configs) (services.IngestService, error) {
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to the database: %w", err)
+	ctx := context.Background()
+
+	var dbConnectionPool db.ConnectionPool
+	var err error
+	switch cfg.IngestionMode {
+	// Use optimized connection pool for backfill mode with async commit and increased work_mem
+	case string(IngestionModeBackfill):
+		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
+		}
+
+		// Disable FK constraint checking for faster inserts (requires elevated privileges)
+		if fkErr := db.ConfigureBackfillSession(ctx, dbConnectionPool); fkErr != nil {
+			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
+			// Continue anyway - other optimizations (async commit, work_mem) still apply
+		} else {
+			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled, work_mem=256MB")
+		}
+	default:
+		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to the database: %w", err)
+		}
 	}
-	db, err := dbConnectionPool.SqlxDB(context.Background())
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
-	metricsService := metrics.NewMetricsService(db)
+
+	metricsService := metrics.NewMetricsService(sqlxDB)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
