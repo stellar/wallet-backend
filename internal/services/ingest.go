@@ -147,10 +147,9 @@ type ingestService struct {
 	archive                    historyarchive.ArchiveInterface
 	enableParticipantFiltering bool
 	backfillPool               pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
-	backfillInstanceID        string // Format: "startLedger-endLedger" for multi-instance metrics
-	catchupThreshold          uint32
+	backfillBatchSize          uint32
+	backfillDBInsertBatchSize  uint32
+	catchupThreshold           uint32
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {

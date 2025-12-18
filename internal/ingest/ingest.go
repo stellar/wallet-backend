@@ -220,10 +220,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		SkipTxMeta:                 cfg.SkipTxMeta,
 		SkipTxEnvelope:             cfg.SkipTxEnvelope,
 		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
-		BackfillWorkers:           cfg.BackfillWorkers,
-		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
-		CatchupThreshold:          cfg.CatchupThreshold,
+		BackfillWorkers:            cfg.BackfillWorkers,
+		BackfillBatchSize:          cfg.BackfillBatchSize,
+		BackfillDBInsertBatchSize:  cfg.BackfillDBInsertBatchSize,
+		CatchupThreshold:           cfg.CatchupThreshold,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

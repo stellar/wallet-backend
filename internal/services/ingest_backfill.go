@@ -125,7 +125,7 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 	for _, gap := range gaps {
 		start := gap.GapStart
 		for start <= gap.GapEnd {
-			end := min(start + m.backfillBatchSize - 1, gap.GapEnd)
+			end := min(start+m.backfillBatchSize-1, gap.GapEnd)
 			batches = append(batches, BackfillBatch{
 				StartLedger: start,
 				EndLedger:   end,
