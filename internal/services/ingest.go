@@ -129,7 +129,6 @@ type ingestService struct {
 	models                     *data.Models
 	latestLedgerCursorName     string
 	oldestLedgerCursorName     string
-	accountTokensCursorName    string
 	advisoryLockID             int
 	appTracker                 apptracker.AppTracker
 	rpcService                 RPCService

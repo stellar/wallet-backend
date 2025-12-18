@@ -71,7 +71,6 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 				IngestionMode:              IngestionModeLive,
 				Models:                     models,
 				LatestLedgerCursorName:     "testCursor",
-				AccountTokensCursorName:    "accountTokensCursor",
 				AppTracker:                 &mockAppTracker,
 				RPCService:                 &mockRPCService,
 				LedgerBackend:              mockLedgerBackend,
