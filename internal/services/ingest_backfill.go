@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -196,7 +197,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 			return result
 		}
 
-		err = m.processLedger(ctx, ledgerMeta)
+		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
@@ -217,11 +218,38 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		}
 	}
 
+	// Flush remaining data in buffer
+	if ledgersInBuffer > 0 {
+		if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+			result.Duration = time.Since(start)
+			return result
+		}
+	}
+
 	result.Duration = time.Since(start)
 	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
 		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
 	return result
+}
+
+// processBackfillLedger processes a ledger and populates the provided buffer.
+func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+
+	// Get transactions from ledger
+	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
+	if err != nil {
+		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	// Process transactions and populate buffer (combined collection + processing)
+	_, err = m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+	return nil
 }
 
 // updateOldestLedgerCursor updates the oldest ledger cursor during backfill with metrics tracking.
