@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/stellar/go/ingest/ledgerbackend"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
 // startBackfilling processes historical ledgers in the specified range,
@@ -141,16 +141,11 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
-	var mu sync.Mutex
 
 	for i, batch := range batches {
-		idx := i
-		b := batch
 		group.Submit(func() {
-			result := m.processSingleBatch(ctx, b)
-			mu.Lock()
-			results[idx] = result
-			mu.Unlock()
+			result := m.processSingleBatch(ctx, batch)
+			results[i] = result
 		})
 	}
 
@@ -187,6 +182,11 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		return result
 	}
 
+	// Process each ledger in the batch using a single shared buffer.
+	// Periodically flush to DB to control memory usage.
+	batchBuffer := indexer.NewIndexerBuffer()
+	ledgersInBuffer := uint32(0)
+
 	// Process each ledger in the batch sequentially
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
@@ -202,13 +202,23 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 			result.Duration = time.Since(start)
 			return result
 		}
-
 		result.LedgersCount++
+		ledgersInBuffer++
+
+		// Flush buffer periodically to control memory usage
+		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
+				result.Duration = time.Since(start)
+				return result
+			}
+			batchBuffer.Clear()
+			ledgersInBuffer = 0
+		}
 	}
 
 	result.Duration = time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("backfill_batch", result.Duration.Seconds())
-	log.Ctx(ctx).Infof("Batch [%d-%d] completed: %d ledgers in %v",
+	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
 		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
 	return result
