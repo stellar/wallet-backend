@@ -37,6 +37,7 @@ type SharedContainers struct {
 	WalletDBContainer      *TestContainer
 	RedisContainer         *TestContainer
 	WalletBackendContainer *WalletBackendContainer
+	BackfillContainer      *TestContainer // Separate container for backfill testing
 
 	// HTTP client for RPC calls (reusable, safe for concurrent use)
 	httpClient *http.Client
@@ -454,6 +455,24 @@ func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *k
 // GetMasterKeyPair returns the master account keypair
 func (s *SharedContainers) GetMasterKeyPair(ctx context.Context) *keypair.Full {
 	return s.masterKeyPair
+}
+
+// GetDistributionAccountKeyPair returns the distribution account keypair
+func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.distributionAccountKeyPair
+}
+
+// GetWalletDBConnectionString returns the connection string for the wallet backend database
+func (s *SharedContainers) GetWalletDBConnectionString(ctx context.Context) (string, error) {
+	dbHost, err := s.WalletDBContainer.GetHost(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting database host: %w", err)
+	}
+	dbPort, err := s.WalletDBContainer.GetPort(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting database port: %w", err)
+	}
+	return fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort), nil
 }
 
 // Cleanup cleans up shared containers after all tests complete
