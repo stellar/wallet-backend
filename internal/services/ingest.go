@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -31,8 +32,6 @@ import (
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
-	// BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
-	BackfillBatchSize uint32 = 250
 	// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
 	// to avoid racing with live finalization during parallel processing.
 	HistoricalBufferLedgers uint32 = 5
@@ -71,6 +70,10 @@ type IngestServiceConfig struct {
 	SkipTxMeta                 bool
 	SkipTxEnvelope             bool
 	EnableParticipantFiltering bool
+	BackfillWorkers            int
+	BackfillBatchSize          int
+	BackfillDBInsertBatchSize  int
+	CatchupThreshold           int
 }
 
 // BackfillBatch represents a contiguous range of ledgers to process as a unit.
@@ -144,6 +147,10 @@ type ingestService struct {
 	archive                    historyarchive.ArchiveInterface
 	enableParticipantFiltering bool
 	backfillPool               pond.Pool
+	backfillBatchSize         uint32
+	backfillDBInsertBatchSize uint32
+	backfillInstanceID        string // Format: "startLedger-endLedger" for multi-instance metrics
+	catchupThreshold          uint32
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -151,7 +158,13 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	backfillPool := pond.NewPool(0)
+	// Create backfill pool with bounded size to control memory usage.
+	// Default to NumCPU if not specified.
+	backfillWorkers := cfg.BackfillWorkers
+	if backfillWorkers <= 0 {
+		backfillWorkers = runtime.NumCPU()
+	}
+	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
@@ -174,6 +187,9 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		archive:                    cfg.Archive,
 		enableParticipantFiltering: cfg.EnableParticipantFiltering,
 		backfillPool:               backfillPool,
+		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:           uint32(cfg.CatchupThreshold),
 	}, nil
 }
 

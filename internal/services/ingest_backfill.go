@@ -37,7 +37,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return nil
 	}
 
-	backfillBatches := m.splitGapsIntoBatches(gaps, BackfillBatchSize)
+	backfillBatches := m.splitGapsIntoBatches(gaps)
 	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
 	duration := time.Since(startTime)
@@ -119,13 +119,13 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 }
 
 // splitGapsIntoBatches divides ledger gaps into fixed-size batches for parallel processing.
-func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
+func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []BackfillBatch {
 	var batches []BackfillBatch
 
 	for _, gap := range gaps {
 		start := gap.GapStart
 		for start <= gap.GapEnd {
-			end := min(start+batchSize-1, gap.GapEnd)
+			end := min(start + m.backfillBatchSize - 1, gap.GapEnd)
 			batches = append(batches, BackfillBatch{
 				StartLedger: start,
 				EndLedger:   end,
