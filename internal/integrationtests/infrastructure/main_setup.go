@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -27,6 +28,7 @@ import (
 
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
+	walletBackendImage string
 	// Docker infrastructure
 	TestNetwork            *testcontainers.DockerNetwork
 	PostgresContainer      *TestContainer
@@ -67,6 +69,13 @@ type SharedContainers struct {
 // initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
 func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context) error {
 	var err error
+
+	// Build wallet-backend image first so that by the time we start the containers,
+	// Stellar Core has advanced enough ledgers for the health check to pass.
+	s.walletBackendImage, err = ensureWalletBackendImage(ctx, walletBackendContainerTag)
+	if err != nil {
+		return fmt.Errorf("ensuring wallet backend image: %w", err)
+	}
 
 	// Create network
 	s.TestNetwork, err = network.New(ctx)
@@ -270,28 +279,112 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 		return fmt.Errorf("creating wallet DB container: %w", err)
 	}
 
-	// Build or verify wallet-backend Docker image
-	walletBackendImage, err := ensureWalletBackendImage(ctx, walletBackendContainerTag)
-	if err != nil {
-		return fmt.Errorf("ensuring wallet backend image: %w", err)
-	}
-
 	// Start wallet-backend ingest
 	s.WalletBackendContainer = &WalletBackendContainer{}
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, nil)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
 
+	// Wait for ingest to catch up with RPC before starting API
+	if err := s.waitForIngestSync(ctx); err != nil {
+		return fmt.Errorf("waiting for ingest sync: %w", err)
+	}
+
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
 
 	return nil
+}
+
+// waitForIngestSync waits until the ingest service has caught up with RPC.
+// It polls every 2 seconds until the gap between RPC's latest ledger and the
+// backend's live_ingest_cursor is within the health threshold (50 ledgers).
+func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
+	const (
+		pollInterval          = 2 * time.Second
+		timeout               = 5 * time.Minute
+		ledgerHealthThreshold = uint32(50)
+		ledgerCursorName      = "latest_ingest_ledger"
+	)
+
+	// Get RPC connection
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	if err != nil {
+		return fmt.Errorf("getting RPC connection string: %w", err)
+	}
+
+	// Get DB connection
+	dbHost, err := s.WalletDBContainer.GetHost(ctx)
+	if err != nil {
+		return fmt.Errorf("getting database host: %w", err)
+	}
+	dbPort, err := s.WalletDBContainer.GetPort(ctx)
+	if err != nil {
+		return fmt.Errorf("getting database port: %w", err)
+	}
+	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	if err != nil {
+		return fmt.Errorf("opening database connection pool: %w", err)
+	}
+	defer dbConnectionPool.Close() //nolint:errcheck
+
+	// Create RPC service for health checks
+	httpClient := s.httpClient
+	metricsService := metrics.NewMockMetricsService()
+	metricsService.On("IncRPCMethodCalls", "GetHealth")
+	metricsService.On("IncRPCEndpointSuccess", "getHealth")
+	metricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64"))
+	metricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64"))
+	metricsService.On("IncRPCRequests", "getHealth")
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	if err != nil {
+		return fmt.Errorf("creating RPC service: %w", err)
+	}
+
+	log.Ctx(ctx).Info("⏳ Waiting for ingest to sync with RPC...")
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	timeoutChan := time.After(timeout)
+
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timeout waiting for ingest to sync with RPC after %v", timeout)
+		case <-ticker.C:
+			// Get RPC latest ledger
+			health, err := rpcService.GetHealth()
+			if err != nil {
+				log.Ctx(ctx).Warnf("Failed to get RPC health: %v", err)
+				continue
+			}
+
+			// Get backend's latest ledger from database
+			var backendLatestLedger uint32
+			err = dbConnectionPool.GetContext(ctx, &backendLatestLedger,
+				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName)
+			if err != nil {
+				log.Ctx(ctx).Warnf("Failed to get backend latest ledger: %v", err)
+				continue
+			}
+
+			gap := health.LatestLedger - backendLatestLedger
+			log.Ctx(ctx).Infof("🔄 Ingest sync status: RPC=%d, Backend=%d, Gap=%d (threshold=%d)",
+				health.LatestLedger, backendLatestLedger, gap, ledgerHealthThreshold)
+
+			if gap <= 5 {
+				log.Ctx(ctx).Info("✅ Ingest is synced with RPC")
+				return nil
+			}
+		}
+	}
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
