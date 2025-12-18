@@ -54,25 +54,24 @@ type StorageBackendConfig struct {
 }
 
 type Configs struct {
-	IngestionMode           string
-	LatestLedgerCursorName  string
-	OldestLedgerCursorName  string
-	DatabaseURL             string
-	RedisHost               string
-	RedisPort               int
-	ServerPort              int
-	StartLedger             int
-	EndLedger               int
-	LogLevel                logrus.Level
-	AppTracker              apptracker.AppTracker
-	RPCURL                  string
-	Network                 string
-	NetworkPassphrase       string
-	GetLedgersLimit         int
-	AdminPort               int
-	AccountTokensCursorName string
-	ArchiveURL              string
-	CheckpointFrequency     int
+	IngestionMode          string
+	LatestLedgerCursorName string
+	OldestLedgerCursorName string
+	DatabaseURL            string
+	RedisHost              string
+	RedisPort              int
+	ServerPort             int
+	StartLedger            int
+	EndLedger              int
+	LogLevel               logrus.Level
+	AppTracker             apptracker.AppTracker
+	RPCURL                 string
+	Network                string
+	NetworkPassphrase      string
+	GetLedgersLimit        int
+	AdminPort              int
+	ArchiveURL             string
+	CheckpointFrequency    int
 	// LedgerBackendType specifies which backend to use for fetching ledgers
 	LedgerBackendType LedgerBackendType
 	// DatastoreConfigPath is the path to the TOML config file for datastore backend
@@ -194,7 +193,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		Models:                     models,
 		LatestLedgerCursorName:     cfg.LatestLedgerCursorName,
 		OldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		AccountTokensCursorName:    cfg.AccountTokensCursorName,
 		AppTracker:                 cfg.AppTracker,
 		RPCService:                 rpcService,
 		LedgerBackend:              ledgerBackend,

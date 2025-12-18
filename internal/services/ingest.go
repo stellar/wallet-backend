@@ -56,7 +56,6 @@ type IngestServiceConfig struct {
 	Models                     *data.Models
 	LatestLedgerCursorName     string
 	OldestLedgerCursorName     string
-	AccountTokensCursorName    string
 	AppTracker                 apptracker.AppTracker
 	RPCService                 RPCService
 	LedgerBackend              ledgerbackend.LedgerBackend
@@ -161,7 +160,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		models:                     cfg.Models,
 		latestLedgerCursorName:     cfg.LatestLedgerCursorName,
 		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		accountTokensCursorName:    cfg.AccountTokensCursorName,
 		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
 		appTracker:                 cfg.AppTracker,
 		rpcService:                 cfg.RPCService,

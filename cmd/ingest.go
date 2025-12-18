@@ -61,14 +61,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
-			Name:        "account-tokens-cursor-name",
-			Usage:       "Name of last synced account tokens ledger cursor, used to keep track of the last ledger ingested by the service.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.AccountTokensCursorName,
-			FlagDefault: "live_account_tokens_ingest_cursor",
-			Required:    true,
-		},
-		{
 			Name:        "archive-url",
 			Usage:       "Archive URL for history archives",
 			OptType:     types.String,
