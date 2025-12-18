@@ -111,3 +111,297 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 		})
 	}
 }
+
+func Test_generateAdvisoryLockID(t *testing.T) {
+	testCases := []struct {
+		name     string
+		network  string
+		expected int
+	}{
+		{
+			name:     "testnet_generates_consistent_id",
+			network:  "testnet",
+			expected: generateAdvisoryLockID("testnet"),
+		},
+		{
+			name:     "mainnet_generates_consistent_id",
+			network:  "mainnet",
+			expected: generateAdvisoryLockID("mainnet"),
+		},
+		{
+			name:    "different_networks_generate_different_ids",
+			network: "testnet",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := generateAdvisoryLockID(tc.network)
+
+			if tc.name == "different_networks_generate_different_ids" {
+				mainnetID := generateAdvisoryLockID("mainnet")
+				testnetID := generateAdvisoryLockID("testnet")
+				assert.NotEqual(t, mainnetID, testnetID, "different networks should generate different lock IDs")
+			} else {
+				// Verify consistency - same network should always generate same ID
+				result2 := generateAdvisoryLockID(tc.network)
+				assert.Equal(t, result, result2, "same network should generate same lock ID")
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func Test_ingestService_splitGapsIntoBatches(t *testing.T) {
+	svc := &ingestService{}
+
+	testCases := []struct {
+		name      string
+		gaps      []data.LedgerRange
+		batchSize uint32
+		expected  []BackfillBatch
+	}{
+		{
+			name:      "empty_gaps",
+			gaps:      []data.LedgerRange{},
+			batchSize: 100,
+			expected:  nil,
+		},
+		{
+			name: "single_gap_smaller_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 150},
+			},
+			batchSize: 200,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 150},
+			},
+		},
+		{
+			name: "single_gap_larger_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 399},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+				{StartLedger: 200, EndLedger: 299},
+				{StartLedger: 300, EndLedger: 399},
+			},
+		},
+		{
+			name: "single_gap_exact_batch_size",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 199},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+			},
+		},
+		{
+			name: "multiple_gaps",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 149},
+				{GapStart: 300, GapEnd: 349},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 149},
+				{StartLedger: 300, EndLedger: 349},
+			},
+		},
+		{
+			name: "multiple_gaps_with_splits",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 249},
+				{GapStart: 500, GapEnd: 599},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+				{StartLedger: 200, EndLedger: 249},
+				{StartLedger: 500, EndLedger: 599},
+			},
+		},
+		{
+			name: "single_ledger_gap",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 100},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 100},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := svc.splitGapsIntoBatches(tc.gaps, tc.batchSize)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func Test_ingestService_calculateBackfillGaps(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name         string
+		startLedger  uint32
+		endLedger    uint32
+		setupDB      func(t *testing.T)
+		expectedGaps []data.LedgerRange
+	}{
+		{
+			name:        "entirely_before_oldest_ingested_ledger",
+			startLedger: 50,
+			endLedger:   80,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 80},
+			},
+		},
+		{
+			name:        "overlaps_with_oldest_ingested_ledger",
+			startLedger: 50,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions for 100-200 (no gaps)
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 99},
+			},
+		},
+		{
+			name:        "entirely_within_ingested_range_no_gaps",
+			startLedger: 110,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions for 100-200 (no gaps)
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{},
+		},
+		{
+			name:        "entirely_within_ingested_range_with_gaps",
+			startLedger: 110,
+			endLedger:   180,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
+				for ledger := uint32(100); ledger <= 120; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+				for ledger := uint32(150); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 121, GapEnd: 149},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			mockAppTracker := apptracker.MockAppTracker{}
+			mockRPCService := RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			mockLedgerBackend := &LedgerBackendMock{}
+			mockArchive := &HistoryArchiveMock{}
+
+			svc, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &mockAppTracker,
+				RPCService:             &mockRPCService,
+				LedgerBackend:          mockLedgerBackend,
+				ChannelAccountStore:    mockChAccStore,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                mockArchive,
+				SkipTxMeta:             false,
+				SkipTxEnvelope:         false,
+			})
+			require.NoError(t, err)
+
+			gaps, err := svc.calculateBackfillGaps(ctx, tc.startLedger, tc.endLedger)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedGaps, gaps)
+		})
+	}
+}
