@@ -144,7 +144,6 @@ type ingestService struct {
 	getLedgersLimit            int
 	ledgerIndexer              *indexer.Indexer
 	archive                    historyarchive.ArchiveInterface
-	backfillMode               bool
 	enableParticipantFiltering bool
 	backfillPool               pond.Pool
 }

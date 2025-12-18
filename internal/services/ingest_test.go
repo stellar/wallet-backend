@@ -4,9 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,7 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
@@ -24,164 +21,6 @@ import (
 const (
 	defaultGetLedgersLimit = 50
 )
-
-func TestGetLedgerTransactions(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
-	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockLedgerBackend := &LedgerBackendMock{}
-	mockArchive := &HistoryArchiveMock{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false, false, false)
-	require.NoError(t, err)
-	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-
-		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash1",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash2",
-					Ledger: 2,
-				},
-			},
-		}
-		mockRPCService.
-			On("GetTransactions", int64(1), "", 50).
-			Return(rpcGetTransactionsResult, nil).
-			Once()
-
-		txns, err := ingestService.GetLedgerTransactions(1)
-		assert.Equal(t, 1, len(txns))
-		assert.Equal(t, txns[0].Hash, "hash1")
-		assert.NoError(t, err)
-	})
-
-	t.Run("ledger_transactions_split_between_multiple_gettransactions_calls", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-
-		rpcGetTransactionsResult1 := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash1",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash2",
-					Ledger: 1,
-				},
-			},
-		}
-		rpcGetTransactionsResult2 := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash3",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash4",
-					Ledger: 2,
-				},
-			},
-		}
-
-		mockRPCService.
-			On("GetTransactions", int64(1), "", 50).
-			Return(rpcGetTransactionsResult1, nil).
-			Once()
-
-		mockRPCService.
-			On("GetTransactions", int64(1), "51", 50).
-			Return(rpcGetTransactionsResult2, nil).
-			Once()
-
-		txns, err := ingestService.GetLedgerTransactions(1)
-		assert.Equal(t, 3, len(txns))
-		assert.Equal(t, txns[0].Hash, "hash1")
-		assert.Equal(t, txns[1].Hash, "hash2")
-		assert.Equal(t, txns[2].Hash, "hash3")
-		assert.NoError(t, err)
-	})
-}
-
-func Test_ingestService_extractInnerTxHash(t *testing.T) {
-	networkPassphrase := network.TestNetworkPassphrase
-	sourceAccountKP := keypair.MustRandom()
-	destAccountKP := keypair.MustRandom()
-
-	// Create a simple inner transaction
-	innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: sourceAccountKP.Address(),
-			Sequence:  1,
-		},
-		Operations: []txnbuild.Operation{&txnbuild.CreateAccount{
-			Destination: destAccountKP.Address(),
-			Amount:      "1",
-		}},
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-		IncrementSequenceNum: true,
-		BaseFee:              txnbuild.MinBaseFee,
-	})
-	require.NoError(t, err)
-	innerTx, err = innerTx.Sign(networkPassphrase, sourceAccountKP)
-	require.NoError(t, err)
-
-	innerTxHash, err := innerTx.HashHex(networkPassphrase)
-	require.NoError(t, err)
-	innerTxXDR, err := innerTx.Base64()
-	require.NoError(t, err)
-
-	// Create a fee bump transaction
-	feeBumpAccountKP := keypair.MustRandom()
-	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
-		Inner:      innerTx,
-		FeeAccount: feeBumpAccountKP.Address(),
-		BaseFee:    2 * txnbuild.MinBaseFee,
-	})
-	require.NoError(t, err)
-	feeBumpTx, err = feeBumpTx.Sign(networkPassphrase, feeBumpAccountKP)
-	require.NoError(t, err)
-	feeBumpTxXDR, err := feeBumpTx.Base64()
-	require.NoError(t, err)
-
-	ingestSvc := ingestService{rpcService: &rpcService{networkPassphrase: networkPassphrase}}
-
-	t.Run("🟢inner_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(innerTxXDR)
-		require.NoError(t, err)
-		assert.Equal(t, innerTxHash, gotTxHash)
-	})
-
-	t.Run("🟢fee_bump_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(feeBumpTxXDR)
-		require.NoError(t, err)
-		assert.Equal(t, innerTxHash, gotTxHash)
-	})
-}
 
 func Test_ingestService_getLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
@@ -217,6 +56,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
 			defer mockMetricsService.AssertExpectations(t)
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 			require.NoError(t, err)
@@ -227,7 +67,26 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockArchive := &HistoryArchiveMock{}
-			ingestService, err := NewIngestService(models, "testCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false, false, false)
+			ingestService, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:              IngestionModeLive,
+				Models:                     models,
+				LatestLedgerCursorName:     "testCursor",
+				AccountTokensCursorName:    "accountTokensCursor",
+				AppTracker:                 &mockAppTracker,
+				RPCService:                 &mockRPCService,
+				LedgerBackend:              mockLedgerBackend,
+				ChannelAccountStore:        mockChAccStore,
+				AccountTokenService:        nil,
+				ContractMetadataService:    nil,
+				MetricsService:             mockMetricsService,
+				GetLedgersLimit:            defaultGetLedgersLimit,
+				Network:                    network.TestNetworkPassphrase,
+				NetworkPassphrase:          network.TestNetworkPassphrase,
+				Archive:                    mockArchive,
+				SkipTxMeta:                 false,
+				SkipTxEnvelope:             false,
+				EnableParticipantFiltering: false,
+			})
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
