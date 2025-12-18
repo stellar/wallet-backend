@@ -181,8 +181,8 @@ func (s *SharedContainers) WaitForBackfillCompletion(ctx context.Context, expect
 						// Log container output for debugging
 						logs, logErr := s.BackfillContainer.Container.Logs(ctx)
 						if logErr == nil {
-							logBytes, _ := io.ReadAll(logs)
-							logs.Close() //nolint:errcheck
+							logBytes, _ := io.ReadAll(logs) //nolint:errcheck
+							logs.Close()                    //nolint:errcheck
 							log.Ctx(ctx).Errorf("Backfill container logs:\n%s", string(logBytes))
 						}
 						return fmt.Errorf("backfill container exited with code %d", state.ExitCode)
