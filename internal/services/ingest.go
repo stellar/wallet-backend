@@ -306,9 +306,9 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 // filteredIngestionData holds the filtered data for ingestion
 type filteredIngestionData struct {
-	txs            []types.Transaction
+	txs            []*types.Transaction
 	txParticipants map[string]set.Set[string]
-	ops            []types.Operation
+	ops            []*types.Operation
 	opParticipants map[int64]set.Set[string]
 	stateChanges   []types.StateChange
 }
@@ -318,9 +318,9 @@ type filteredIngestionData struct {
 // If a transaction/operation has ANY registered participant, it is included with ALL its participants.
 func (m *ingestService) filterByRegisteredAccounts(
 	ctx context.Context,
-	txs []types.Transaction,
+	txs []*types.Transaction,
 	txParticipants map[string]set.Set[string],
-	ops []types.Operation,
+	ops []*types.Operation,
 	opParticipants map[int64]set.Set[string],
 	stateChanges []types.StateChange,
 	allParticipants []string,
@@ -345,7 +345,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredTxs := make([]types.Transaction, 0, txHashesToInclude.Cardinality())
+	filteredTxs := make([]*types.Transaction, 0, txHashesToInclude.Cardinality())
 	filteredTxParticipants := make(map[string]set.Set[string])
 	for _, tx := range txs {
 		if txHashesToInclude.Contains(tx.Hash) {
@@ -365,7 +365,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredOps := make([]types.Operation, 0, opIDsToInclude.Cardinality())
+	filteredOps := make([]*types.Operation, 0, opIDsToInclude.Cardinality())
 	filteredOpParticipants := make(map[int64]set.Set[string])
 	for _, op := range ops {
 		if opIDsToInclude.Contains(op.ID) {
@@ -450,7 +450,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, txs []types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -463,7 +463,7 @@ func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transact
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, ops []types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
 	if len(ops) == 0 {
 		return nil
 	}
@@ -507,7 +507,7 @@ func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChang
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txs []types.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}

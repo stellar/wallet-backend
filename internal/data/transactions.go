@@ -167,7 +167,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
-	txs []types.Transaction,
+	txs []*types.Transaction,
 	stellarAddressesByTxHash map[string]set.Set[string],
 ) ([]string, error) {
 	if sqlExecuter == nil {

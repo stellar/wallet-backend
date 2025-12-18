@@ -241,7 +241,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 func (m *OperationModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
-	operations []types.Operation,
+	operations []*types.Operation,
 	stellarAddressesByOpID map[int64]set.Set[string],
 ) ([]int64, error) {
 	if sqlExecuter == nil {
