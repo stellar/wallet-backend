@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,

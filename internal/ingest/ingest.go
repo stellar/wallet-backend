@@ -34,6 +34,7 @@ const (
 
 // LedgerBackendType represents the type of ledger backend to use
 type LedgerBackendType string
+
 // IngestionMode represents the mode of ingestion to use
 type IngestionMode string
 
@@ -189,25 +190,25 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:           cfg.IngestionMode,
-		Models:                  models,
-		LatestLedgerCursorName:  cfg.LatestLedgerCursorName,
-		OldestLedgerCursorName:  cfg.OldestLedgerCursorName,
-		AccountTokensCursorName: cfg.AccountTokensCursorName,
-		AppTracker:              cfg.AppTracker,
-		RPCService:              rpcService,
-		LedgerBackend:           ledgerBackend,
-		LedgerBackendFactory:    ledgerBackendFactory,
-		ChannelAccountStore:     chAccStore,
-		AccountTokenService:     accountTokenService,
-		ContractMetadataService: contractMetadataService,
-		MetricsService:          metricsService,
-		GetLedgersLimit:         cfg.GetLedgersLimit,
-		Network:                 cfg.Network,
-		NetworkPassphrase:       cfg.NetworkPassphrase,
-		Archive:                 archive,
-		SkipTxMeta:              cfg.SkipTxMeta,
-		SkipTxEnvelope:          cfg.SkipTxEnvelope,
+		IngestionMode:              cfg.IngestionMode,
+		Models:                     models,
+		LatestLedgerCursorName:     cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		AccountTokensCursorName:    cfg.AccountTokensCursorName,
+		AppTracker:                 cfg.AppTracker,
+		RPCService:                 rpcService,
+		LedgerBackend:              ledgerBackend,
+		LedgerBackendFactory:       ledgerBackendFactory,
+		ChannelAccountStore:        chAccStore,
+		AccountTokenService:        accountTokenService,
+		ContractMetadataService:    contractMetadataService,
+		MetricsService:             metricsService,
+		GetLedgersLimit:            cfg.GetLedgersLimit,
+		Network:                    cfg.Network,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+		Archive:                    archive,
+		SkipTxMeta:                 cfg.SkipTxMeta,
+		SkipTxEnvelope:             cfg.SkipTxEnvelope,
 		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
 	})
 	if err != nil {

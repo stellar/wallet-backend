@@ -52,25 +52,25 @@ type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend
 
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
-	IngestionMode           string
-	Models                  *data.Models
-	LatestLedgerCursorName  string
-	OldestLedgerCursorName  string
-	AccountTokensCursorName string
-	AppTracker              apptracker.AppTracker
-	RPCService              RPCService
-	LedgerBackend           ledgerbackend.LedgerBackend
-	LedgerBackendFactory    LedgerBackendFactory
-	ChannelAccountStore     store.ChannelAccountStore
-	AccountTokenService     AccountTokenService
-	ContractMetadataService ContractMetadataService
-	MetricsService          metrics.MetricsService
-	GetLedgersLimit         int
-	Network                 string
-	NetworkPassphrase       string
-	Archive                 historyarchive.ArchiveInterface
-	SkipTxMeta              bool
-	SkipTxEnvelope          bool
+	IngestionMode              string
+	Models                     *data.Models
+	LatestLedgerCursorName     string
+	OldestLedgerCursorName     string
+	AccountTokensCursorName    string
+	AppTracker                 apptracker.AppTracker
+	RPCService                 RPCService
+	LedgerBackend              ledgerbackend.LedgerBackend
+	LedgerBackendFactory       LedgerBackendFactory
+	ChannelAccountStore        store.ChannelAccountStore
+	AccountTokenService        AccountTokenService
+	ContractMetadataService    ContractMetadataService
+	MetricsService             metrics.MetricsService
+	GetLedgersLimit            int
+	Network                    string
+	NetworkPassphrase          string
+	Archive                    historyarchive.ArchiveInterface
+	SkipTxMeta                 bool
+	SkipTxEnvelope             bool
 	EnableParticipantFiltering bool
 }
 
@@ -158,26 +158,26 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
-		ingestionMode:           cfg.IngestionMode,
-		models:                  cfg.Models,
-		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
-		accountTokensCursorName: cfg.AccountTokensCursorName,
-		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
-		appTracker:              cfg.AppTracker,
-		rpcService:              cfg.RPCService,
-		ledgerBackend:           cfg.LedgerBackend,
-		ledgerBackendFactory:    cfg.LedgerBackendFactory,
-		chAccStore:              cfg.ChannelAccountStore,
-		accountTokenService:     cfg.AccountTokenService,
-		contractMetadataService: cfg.ContractMetadataService,
-		metricsService:          cfg.MetricsService,
-		networkPassphrase:       cfg.NetworkPassphrase,
-		getLedgersLimit:         cfg.GetLedgersLimit,
-		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
-		archive:                 cfg.Archive,
+		ingestionMode:              cfg.IngestionMode,
+		models:                     cfg.Models,
+		latestLedgerCursorName:     cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		accountTokensCursorName:    cfg.AccountTokensCursorName,
+		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
+		appTracker:                 cfg.AppTracker,
+		rpcService:                 cfg.RPCService,
+		ledgerBackend:              cfg.LedgerBackend,
+		ledgerBackendFactory:       cfg.LedgerBackendFactory,
+		chAccStore:                 cfg.ChannelAccountStore,
+		accountTokenService:        cfg.AccountTokenService,
+		contractMetadataService:    cfg.ContractMetadataService,
+		metricsService:             cfg.MetricsService,
+		networkPassphrase:          cfg.NetworkPassphrase,
+		getLedgersLimit:            cfg.GetLedgersLimit,
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		archive:                    cfg.Archive,
 		enableParticipantFiltering: cfg.EnableParticipantFiltering,
-		backfillPool:            backfillPool,
+		backfillPool:               backfillPool,
 	}, nil
 }
 
