@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -238,7 +240,8 @@ func Test_ingestService_splitGapsIntoBatches(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := svc.splitGapsIntoBatches(tc.gaps, tc.batchSize)
+			svc.backfillBatchSize = tc.batchSize
+			result := svc.splitGapsIntoBatches(tc.gaps)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
@@ -402,6 +405,139 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			gaps, err := svc.calculateBackfillGaps(ctx, tc.startLedger, tc.endLedger)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedGaps, gaps)
+		})
+	}
+}
+
+func Test_BackfillMode_Validation(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name                  string
+		mode                  BackfillMode
+		startLedger           uint32
+		endLedger             uint32
+		latestIngested        uint32
+		expectValidationError bool
+		errorContains         string
+	}{
+		{
+			name:                  "historical_mode_valid_range",
+			mode:                  BackfillModeHistorical,
+			startLedger:           50,
+			endLedger:             80,
+			latestIngested:        100,
+			expectValidationError: false,
+		},
+		{
+			name:                  "historical_mode_end_exceeds_latest",
+			mode:                  BackfillModeHistorical,
+			startLedger:           50,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: true,
+			errorContains:         "end ledger 150 cannot be greater than latest ingested ledger 100",
+		},
+		{
+			name:                  "catchup_mode_valid_range",
+			mode:                  BackfillModeCatchup,
+			startLedger:           101,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: false,
+		},
+		{
+			name:                  "catchup_mode_start_not_next_ledger",
+			mode:                  BackfillModeCatchup,
+			startLedger:           105,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: true,
+			errorContains:         "catchup must start from ledger 101",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			// Set up latest ingested ledger cursor
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
+				tc.latestIngested)
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
+				tc.latestIngested)
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			mockAppTracker := apptracker.MockAppTracker{}
+			mockRPCService := RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			mockLedgerBackend := &LedgerBackendMock{}
+			mockArchive := &HistoryArchiveMock{}
+
+			// Create a mock ledger backend factory that returns an error immediately
+			// This allows validation to pass but stops batch processing early
+			mockBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+				return nil, fmt.Errorf("mock backend factory error")
+			}
+
+			svc, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &mockAppTracker,
+				RPCService:             &mockRPCService,
+				LedgerBackend:          mockLedgerBackend,
+				LedgerBackendFactory:   mockBackendFactory,
+				ChannelAccountStore:    mockChAccStore,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                mockArchive,
+				SkipTxMeta:             false,
+				SkipTxEnvelope:         false,
+				BackfillBatchSize:      100,
+			})
+			require.NoError(t, err)
+
+			err = svc.startBackfilling(ctx, tc.startLedger, tc.endLedger, tc.mode)
+			if tc.expectValidationError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				// For valid cases, validation passes but batch processing fails
+				// The error will be wrapped as "backfilling failed: X/Y batches failed"
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "backfilling failed")
+				// Ensure it's NOT a validation error
+				assert.NotContains(t, err.Error(), "cannot be greater than latest ingested ledger")
+				assert.NotContains(t, err.Error(), "catchup must start from ledger")
+			}
 		})
 	}
 }
