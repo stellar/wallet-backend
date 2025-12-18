@@ -14,9 +14,21 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
-// startBackfilling processes historical ledgers in the specified range,
-// identifying gaps and processing them in parallel batches.
-func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32) error {
+// BackfillMode indicates the purpose of backfilling.
+type BackfillMode int
+
+const (
+	// BackfillModeHistorical fills gaps within already-ingested ledger range.
+	BackfillModeHistorical BackfillMode = iota
+	// BackfillModeCatchup fills forward gaps to catch up to network tip.
+	BackfillModeCatchup
+)
+
+// startBackfilling processes ledgers in the specified range, identifying gaps
+// and processing them in parallel batches. The mode parameter determines:
+// - BackfillModeHistorical: fills gaps within already-ingested range
+// - BackfillModeCatchup: catches up to network tip from latest ingested ledger
+func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32, mode BackfillMode) error {
 	if startLedger > endLedger {
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
 	}
@@ -25,13 +37,29 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
-	if endLedger > latestIngestedLedger {
-		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
+
+	// Validate based on mode
+	switch mode {
+	case BackfillModeHistorical:
+		if endLedger > latestIngestedLedger {
+			return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
+		}
+	case BackfillModeCatchup:
+		if startLedger != latestIngestedLedger+1 {
+			return fmt.Errorf("catchup must start from ledger %d (latestIngestedLedger + 1), got %d", latestIngestedLedger+1, startLedger)
+		}
 	}
 
-	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
-	if err != nil {
-		return fmt.Errorf("calculating backfill gaps: %w", err)
+	// Determine gaps to fill based on mode
+	var gaps []data.LedgerRange
+	if mode == BackfillModeCatchup {
+		// For catchup, treat entire range as a single gap (no existing data in this range)
+		gaps = []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
+	} else {
+		gaps, err = m.calculateBackfillGaps(ctx, startLedger, endLedger)
+		if err != nil {
+			return fmt.Errorf("calculating backfill gaps: %w", err)
+		}
 	}
 	if len(gaps) == 0 {
 		log.Ctx(ctx).Infof("No gaps to backfill in range [%d - %d]", startLedger, endLedger)
@@ -48,9 +76,16 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
 	}
 
-	// Update oldest ledger cursor on success if configured
-	if err := m.updateOldestLedgerCursor(ctx, startLedger); err != nil {
-		return fmt.Errorf("updating cursor: %w", err)
+	// Update cursors based on mode
+	switch mode {
+	case BackfillModeHistorical:
+		if err := m.updateOldestLedgerCursor(ctx, startLedger); err != nil {
+			return fmt.Errorf("updating oldest cursor: %w", err)
+		}
+	case BackfillModeCatchup:
+		if err := m.updateLatestLedgerCursorAfterCatchup(ctx, endLedger); err != nil {
+			return fmt.Errorf("updating latest cursor after catchup: %w", err)
+		}
 	}
 
 	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches, %d ledgers", duration, analysis.successCount, analysis.totalLedgers)
@@ -266,5 +301,22 @@ func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, currentLed
 		return fmt.Errorf("updating cursors: %w", err)
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
+	return nil
+}
+
+// updateLatestLedgerCursorAfterCatchup updates the latest ledger cursor after catchup completes.
+func (m *ingestService) updateLatestLedgerCursorAfterCatchup(ctx context.Context, ledger uint32) error {
+	cursorStart := time.Now()
+	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); updateErr != nil {
+			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+		}
+		m.metricsService.SetLatestLedgerIngested(float64(ledger))
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("updating cursors: %w", err)
+	}
+	m.metricsService.ObserveIngestionPhaseDuration("catchup_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }

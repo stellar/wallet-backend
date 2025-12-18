@@ -200,7 +200,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	case IngestionModeLive:
 		return m.startLiveIngestion(ctx)
 	case IngestionModeBackfill:
-		return m.startBackfilling(ctx, startLedger, endLedger)
+		return m.startBackfilling(ctx, startLedger, endLedger, BackfillModeHistorical)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
