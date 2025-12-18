@@ -59,6 +59,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 		networkLatestLedger := health.LatestLedger
 		if networkLatestLedger > startLedger && (networkLatestLedger-startLedger) >= m.catchupThreshold {
+			log.Ctx(ctx).Infof("Wallet backend has fallen behind network tip by %d ledgers. Doing optimized catchup to the tip: %d", networkLatestLedger-startLedger, networkLatestLedger)
 			err := m.startBackfilling(ctx, startLedger, networkLatestLedger)
 			if err != nil {
 				return fmt.Errorf("catching up to network tip: %w", err)
