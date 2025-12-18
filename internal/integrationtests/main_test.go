@@ -42,6 +42,13 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	// Test catchup backfilling during live ingestion
+	t.Run("CatchupTestSuite", func(t *testing.T) {
+		suite.Run(t, &CatchupTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
 	// Phase 1: Validate balances from checkpoint before fixture transactions
 	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
