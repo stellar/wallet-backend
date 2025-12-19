@@ -375,7 +375,7 @@ func (m *OperationModel) BatchCopy(
 		"ledger_number", "ledger_created_at",
 	))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("preparing COPY statement for operations: %w", err)
 	}
 	defer func() { _ = opStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
@@ -390,7 +390,7 @@ func (m *OperationModel) BatchCopy(
 			op.LedgerCreatedAt,
 		)
 		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
 			return 0, fmt.Errorf("COPY exec for operation: %w", err)
 		}
 	}
@@ -398,7 +398,7 @@ func (m *OperationModel) BatchCopy(
 	// Flush the COPY buffer for operations
 	_, err = opStmt.Exec()
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("flushing COPY buffer for operations: %w", err)
 	}
 
@@ -408,7 +408,7 @@ func (m *OperationModel) BatchCopy(
 			"operation_id", "account_id",
 		))
 		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
 			return 0, fmt.Errorf("preparing COPY statement for operations_accounts: %w", err)
 		}
 		defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
@@ -419,7 +419,7 @@ func (m *OperationModel) BatchCopy(
 			for _, address := range addressSlice {
 				_, err = oaStmt.Exec(opID, address)
 				if err != nil {
-					m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+					m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
 					return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
 				}
 			}
@@ -428,17 +428,17 @@ func (m *OperationModel) BatchCopy(
 		// Flush the COPY buffer for operations_accounts
 		_, err = oaStmt.Exec()
 		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
 			return 0, fmt.Errorf("flushing COPY buffer for operations_accounts: %w", err)
 		}
 
-		m.MetricsService.IncDBQuery("BatchInsertCopy", "operations_accounts")
+		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchInsertCopy", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchInsertCopy", "operations", len(operations))
-	m.MetricsService.IncDBQuery("BatchInsertCopy", "operations")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
+	m.MetricsService.IncDBQuery("BatchCopy", "operations")
 
 	return len(operations), nil
 }

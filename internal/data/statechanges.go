@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -339,6 +340,124 @@ func (m *StateChangeModel) BatchInsert(
 	m.MetricsService.IncDBQuery("BatchInsert", "state_changes")
 
 	return insertedIDs, nil
+}
+
+// BatchCopy inserts state changes using PostgreSQL COPY protocol.
+// Optimized for bulk inserts where conflict handling is not needed.
+func (m *StateChangeModel) BatchCopy(
+	ctx context.Context,
+	dbTx db.Transaction,
+	stateChanges []types.StateChange,
+) (int, error) {
+	if len(stateChanges) == 0 {
+		return 0, nil
+	}
+
+	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
+	sqlxTx, ok := dbTx.(*sqlx.Tx)
+	if !ok {
+		return 0, fmt.Errorf("expected *sqlx.Tx, got %T", dbTx)
+	}
+
+	start := time.Now()
+
+	// COPY state_changes
+	stmt, err := sqlxTx.Prepare(pq.CopyIn("state_changes",
+		"to_id", "state_change_order", "state_change_category", "state_change_reason",
+		"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
+		"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
+		"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
+		"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+	))
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("preparing COPY statement for state_changes: %w", err)
+	}
+	defer func() { _ = stmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
+
+	for _, sc := range stateChanges {
+		// Handle nullable fields - pass nil for invalid/empty values
+		var reason interface{}
+		if sc.StateChangeReason != nil {
+			reason = string(*sc.StateChangeReason)
+		}
+
+		var tokenID, amount, offerID interface{}
+		var signerAccountID, spenderAccountID, sponsoredAccountID interface{}
+		var sponsorAccountID, deployerAccountID, funderAccountID interface{}
+
+		if sc.TokenID.Valid {
+			tokenID = sc.TokenID.String
+		}
+		if sc.Amount.Valid {
+			amount = sc.Amount.String
+		}
+		if sc.OfferID.Valid {
+			offerID = sc.OfferID.String
+		}
+		if sc.SignerAccountID.Valid {
+			signerAccountID = sc.SignerAccountID.String
+		}
+		if sc.SpenderAccountID.Valid {
+			spenderAccountID = sc.SpenderAccountID.String
+		}
+		if sc.SponsoredAccountID.Valid {
+			sponsoredAccountID = sc.SponsoredAccountID.String
+		}
+		if sc.SponsorAccountID.Valid {
+			sponsorAccountID = sc.SponsorAccountID.String
+		}
+		if sc.DeployerAccountID.Valid {
+			deployerAccountID = sc.DeployerAccountID.String
+		}
+		if sc.FunderAccountID.Valid {
+			funderAccountID = sc.FunderAccountID.String
+		}
+
+		_, err = stmt.Exec(
+			sc.ToID,
+			sc.StateChangeOrder,
+			string(sc.StateChangeCategory),
+			reason,
+			sc.LedgerCreatedAt,
+			int(sc.LedgerNumber),
+			sc.AccountID,
+			sc.OperationID,
+			sc.TxHash,
+			tokenID,
+			amount,
+			offerID,
+			signerAccountID,
+			spenderAccountID,
+			sponsoredAccountID,
+			sponsorAccountID,
+			deployerAccountID,
+			funderAccountID,
+			sc.SignerWeights,  // NullableJSONB implements driver.Valuer
+			sc.Thresholds,     // NullableJSONB implements driver.Valuer
+			sc.TrustlineLimit, // NullableJSONB implements driver.Valuer
+			sc.Flags,          // NullableJSON implements driver.Valuer
+			sc.KeyValue,       // NullableJSONB implements driver.Valuer
+		)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("COPY exec for state_change: %w", err)
+		}
+	}
+
+	// Flush the COPY buffer
+	_, err = stmt.Exec()
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("flushing COPY buffer for state_changes: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
+	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
+
+	return len(stateChanges), nil
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.
