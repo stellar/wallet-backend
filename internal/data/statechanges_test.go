@@ -8,6 +8,7 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1126,7 +1127,7 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 		b.Fatalf("failed to create parent transaction: %v", err)
 	}
 
-	batchSizes := []int{10, 100, 1000, 5000}
+	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
 
 	for _, size := range batchSizes {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
@@ -1183,7 +1184,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 		b.Fatalf("failed to create parent transaction: %v", err)
 	}
 
-	batchSizes := []int{10, 100, 1000, 5000}
+	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
 
 	for _, size := range batchSizes {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
@@ -1212,6 +1213,88 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 
 				b.StopTimer()
 				if err := dbTx.Commit(); err != nil {
+					b.Fatalf("failed to commit transaction: %v", err)
+				}
+				b.StartTimer()
+			}
+		})
+	}
+}
+
+// BenchmarkStateChangeModel_BatchCopyPgx benchmarks bulk insert using pgx's binary COPY protocol.
+// This is a proof-of-concept to compare pgx binary COPY vs lib/pq text COPY.
+func BenchmarkStateChangeModel_BatchCopyPgx(b *testing.B) {
+	dbt := dbtest.OpenB(b)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to open db connection pool: %v", err)
+	}
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		b.Fatalf("failed to get sqlx db: %v", err)
+	}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
+	}
+
+	// Create pgx connection for BatchCopyPgx
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to connect with pgx: %v", err)
+	}
+	defer conn.Close(ctx)
+
+	// Create a parent transaction that state changes will reference
+	const txHash = "benchmark_tx_hash"
+	accountID := keypair.MustRandom().Address()
+	now := time.Now()
+	_, err = conn.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+	`, txHash, now)
+	if err != nil {
+		b.Fatalf("failed to create parent transaction: %v", err)
+	}
+
+	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
+
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				// Clean up state changes before each iteration (keep the parent transaction)
+				_, err = conn.Exec(ctx, "TRUNCATE state_changes CASCADE")
+				if err != nil {
+					b.Fatalf("failed to truncate: %v", err)
+				}
+
+				// Generate fresh test data for each iteration
+				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+
+				// Start a pgx transaction
+				pgxTx, err := conn.Begin(ctx)
+				if err != nil {
+					b.Fatalf("failed to begin transaction: %v", err)
+				}
+				b.StartTimer()
+
+				_, err = m.BatchCopyPgx(ctx, pgxTx, scs)
+				if err != nil {
+					pgxTx.Rollback(ctx)
+					b.Fatalf("BatchCopyPgx failed: %v", err)
+				}
+
+				b.StopTimer()
+				if err := pgxTx.Commit(ctx); err != nil {
 					b.Fatalf("failed to commit transaction: %v", err)
 				}
 				b.StartTimer()
