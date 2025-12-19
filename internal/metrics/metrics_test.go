@@ -1039,3 +1039,254 @@ func TestStateChangeMetrics(t *testing.T) {
 		}
 	})
 }
+
+func TestBackfillMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	t.Run("backfill batches completed gauge", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.IncBackfillBatchesCompleted(instance)
+		ms.IncBackfillBatchesCompleted(instance)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_batches_completed" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(2), metric.GetGauge().GetValue())
+				// Verify instance label
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_batches_completed metric not found")
+	})
+
+	t.Run("backfill batches failed gauge", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.IncBackfillBatchesFailed(instance)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_batches_failed" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(1), metric.GetGauge().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_batches_failed metric not found")
+	})
+
+	t.Run("backfill phase duration histogram", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.ObserveBackfillPhaseDuration(instance, "get_ledger_from_backend", 0.5)
+		ms.ObserveBackfillPhaseDuration(instance, "db_insert", 1.2)
+		ms.ObserveBackfillPhaseDuration(instance, "batch_processing", 2.5)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		phasesFound := make(map[string]bool)
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_phase_duration_seconds" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["backfill_instance"] == instance {
+						phasesFound[labels["phase"]] = true
+						assert.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount())
+					}
+				}
+			}
+		}
+		assert.True(t, found, "backfill_phase_duration_seconds metric not found")
+		assert.True(t, phasesFound["get_ledger_from_backend"])
+		assert.True(t, phasesFound["db_insert"])
+		assert.True(t, phasesFound["batch_processing"])
+	})
+
+	t.Run("backfill ledgers processed counter", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.IncBackfillLedgersProcessed(instance, 50)
+		ms.IncBackfillLedgersProcessed(instance, 30)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_ledgers_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(80), metric.GetCounter().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_ledgers_processed_total metric not found")
+	})
+
+	t.Run("backfill transactions processed counter", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.IncBackfillTransactionsProcessed(instance, 100)
+		ms.IncBackfillTransactionsProcessed(instance, 50)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_transactions_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(150), metric.GetCounter().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_transactions_processed_total metric not found")
+	})
+
+	t.Run("backfill operations processed counter", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.IncBackfillOperationsProcessed(instance, 200)
+		ms.IncBackfillOperationsProcessed(instance, 75)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_operations_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(275), metric.GetCounter().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_operations_processed_total metric not found")
+	})
+
+	t.Run("backfill elapsed gauge", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance := "100-200"
+
+		ms.SetBackfillElapsed(instance, 120.5)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_elapsed_seconds" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(120.5), metric.GetGauge().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, instance, labels["backfill_instance"])
+			}
+		}
+		assert.True(t, found, "backfill_elapsed_seconds metric not found")
+
+		// Test update
+		ms.SetBackfillElapsed(instance, 240.0)
+		metricFamilies, err = ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "backfill_elapsed_seconds" {
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(240.0), metric.GetGauge().GetValue())
+			}
+		}
+	})
+
+	t.Run("multiple backfill instances tracked independently", func(t *testing.T) {
+		ms := NewMetricsService(db)
+		instance1 := "100-200"
+		instance2 := "300-400"
+
+		ms.IncBackfillBatchesCompleted(instance1)
+		ms.IncBackfillBatchesCompleted(instance1)
+		ms.IncBackfillBatchesCompleted(instance2)
+
+		ms.IncBackfillLedgersProcessed(instance1, 50)
+		ms.IncBackfillLedgersProcessed(instance2, 100)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		batchesValues := make(map[string]float64)
+		ledgersValues := make(map[string]float64)
+
+		for _, mf := range metricFamilies {
+			switch mf.GetName() {
+			case "backfill_batches_completed":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					batchesValues[labels["backfill_instance"]] = metric.GetGauge().GetValue()
+				}
+			case "backfill_ledgers_processed_total":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					ledgersValues[labels["backfill_instance"]] = metric.GetCounter().GetValue()
+				}
+			}
+		}
+
+		assert.Equal(t, float64(2), batchesValues[instance1], "Expected 2 batches for instance1")
+		assert.Equal(t, float64(1), batchesValues[instance2], "Expected 1 batch for instance2")
+		assert.Equal(t, float64(50), ledgersValues[instance1], "Expected 50 ledgers for instance1")
+		assert.Equal(t, float64(100), ledgersValues[instance2], "Expected 100 ledgers for instance2")
+	})
+}

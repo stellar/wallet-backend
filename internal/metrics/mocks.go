@@ -166,3 +166,32 @@ func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
 func (m *MockMetricsService) SetOldestLedgerIngested(value float64) {
 	m.Called(value)
 }
+
+// Backfill Metrics
+func (m *MockMetricsService) IncBackfillBatchesCompleted(instance string) {
+	m.Called(instance)
+}
+
+func (m *MockMetricsService) IncBackfillBatchesFailed(instance string) {
+	m.Called(instance)
+}
+
+func (m *MockMetricsService) ObserveBackfillPhaseDuration(instance string, phase string, duration float64) {
+	m.Called(instance, phase, duration)
+}
+
+func (m *MockMetricsService) IncBackfillLedgersProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillTransactionsProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillOperationsProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) SetBackfillElapsed(instance string, seconds float64) {
+	m.Called(instance, seconds)
+}
