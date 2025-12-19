@@ -22,7 +22,6 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -439,22 +438,16 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		return err
 	}
 
-	if err := pgxTx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing pgx transaction: %w", err)
+	// Unlock channel accounts only during live ingestion (skip for historical backfill)
+	// This is done within the same pgxTx for atomicity - all inserts and unlocks succeed or fail together
+	if m.ingestionMode == IngestionModeLive {
+		if err := m.unlockChannelAccounts(ctx, pgxTx, txs); err != nil {
+			return err
+		}
 	}
 
-	// Unlock channel accounts only during live ingestion (skip for historical backfill)
-	// This uses a separate sqlx transaction because unlockChannelAccounts needs sqlx.Tx
-	if m.ingestionMode == IngestionModeLive {
-		dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			if err := m.unlockChannelAccounts(ctx, dbTx, txs); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
-			return nil
-		})
-		if dbTxErr != nil {
-			return fmt.Errorf("unlocking channel accounts: %w", dbTxErr)
-		}
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
 	}
 
 	// Process token changes only during live ingestion (not backfill)
@@ -523,7 +516,7 @@ func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChang
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -533,7 +526,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Trans
 		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
 	}
 
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, dbTx, innerTxHashes...); err != nil {
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, innerTxHashes...); err != nil {
 		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
 	} else if affectedRows > 0 {
 		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
