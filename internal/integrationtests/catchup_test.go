@@ -3,6 +3,7 @@ package integrationtests
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/stellar/go/support/log"
@@ -74,7 +75,7 @@ func (suite *CatchupTestSuite) TestCatchupDuringLiveIngestion() {
 	// Verify catchup was triggered by checking logs
 	logs, err := containers.GetIngestContainerLogs(ctx)
 	suite.Require().NoError(err, "failed to get ingest container logs")
-	suite.Assert().Contains(logs, "Wallet backend has fallen behind network tip by 20 ledgers. Doing optimized catchup to the tip: 75",
+	suite.Assert().Contains(logs, fmt.Sprintf("Wallet backend has fallen behind network tip by %d ledgers. Doing optimized catchup to the tip: %d", targetLedger - initialLatest, targetLedger),
 		"should see catchup triggered log message")
 
 	// Verify oldest cursor stayed the same (catchup doesn't change oldest)
