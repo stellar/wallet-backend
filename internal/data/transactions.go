@@ -7,6 +7,8 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
@@ -378,4 +380,85 @@ func (m *TransactionModel) BatchCopy(
 	m.MetricsService.IncDBQuery("BatchCopy", "transactions")
 
 	return len(txs), nil
+}
+
+// BatchCopyPgx inserts transactions using pgx's binary COPY protocol.
+// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
+// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+func (m *TransactionModel) BatchCopyPgx(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	txs []*types.Transaction,
+	stellarAddressesByTxHash map[string]set.Set[string],
+) (int, error) {
+	if len(txs) == 0 {
+		return 0, nil
+	}
+
+	start := time.Now()
+
+	// COPY transactions using pgx binary format with native pgtype types
+	copyCount, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"transactions"},
+		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_number", "ledger_created_at"},
+		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
+			tx := txs[i]
+			return []any{
+				pgtype.Text{String: tx.Hash, Valid: true},
+				pgtype.Int8{Int64: tx.ToID, Valid: true},
+				pgtypeTextFromPtr(tx.EnvelopeXDR),
+				pgtype.Text{String: tx.ResultXDR, Valid: true},
+				pgtypeTextFromPtr(tx.MetaXDR),
+				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
+				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
+			}, nil
+		}),
+	)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopyPgx", "transactions", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("pgx CopyFrom transactions: %w", err)
+	}
+	if int(copyCount) != len(txs) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
+	}
+
+	// COPY transactions_accounts using pgx binary format with native pgtype types
+	if len(stellarAddressesByTxHash) > 0 {
+		var taRows [][]any
+		for txHash, addresses := range stellarAddressesByTxHash {
+			txHashPgtype := pgtype.Text{String: txHash, Valid: true}
+			for _, addr := range addresses.ToSlice() {
+				taRows = append(taRows, []any{txHashPgtype, pgtype.Text{String: addr, Valid: true}})
+			}
+		}
+
+		_, err = pgxTx.CopyFrom(
+			ctx,
+			pgx.Identifier{"transactions_accounts"},
+			[]string{"tx_hash", "account_id"},
+			pgx.CopyFromRows(taRows),
+		)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchCopyPgx", "transactions_accounts", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
+		}
+
+		m.MetricsService.IncDBQuery("BatchCopyPgx", "transactions_accounts")
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopyPgx", "transactions", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopyPgx", "transactions", len(txs))
+	m.MetricsService.IncDBQuery("BatchCopyPgx", "transactions")
+
+	return len(txs), nil
+}
+
+// pgtypeTextFromPtr converts a *string to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromPtr(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: *s, Valid: true}
 }

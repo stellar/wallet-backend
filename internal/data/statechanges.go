@@ -2,11 +2,14 @@ package data
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
@@ -486,6 +489,109 @@ func (m *StateChangeModel) BatchCopy(
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
 	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
+
+	return len(stateChanges), nil
+}
+
+// pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
+	return pgtype.Text{String: ns.String, Valid: ns.Valid}
+}
+
+// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
+	if r == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: string(*r), Valid: true}
+}
+
+// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
+// pgx automatically handles map[string]any → JSONB conversion.
+func jsonbFromMap(m types.NullableJSONB) any {
+	if m == nil {
+		return nil
+	}
+	// Return the map directly; pgx handles JSON marshaling automatically
+	return map[string]any(m)
+}
+
+// jsonbFromSlice converts types.NullableJSON to any for pgx CopyFrom.
+// pgx automatically handles []string → JSONB conversion.
+func jsonbFromSlice(s types.NullableJSON) any {
+	if s == nil {
+		return nil
+	}
+	// Return the slice directly; pgx handles JSON marshaling automatically
+	return []string(s)
+}
+
+// BatchCopyPgx inserts state changes using pgx's binary COPY protocol.
+// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
+// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+func (m *StateChangeModel) BatchCopyPgx(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	stateChanges []types.StateChange,
+) (int, error) {
+	if len(stateChanges) == 0 {
+		return 0, nil
+	}
+
+	start := time.Now()
+
+	// COPY state_changes using pgx binary format with native pgtype types
+	copyCount, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"state_changes"},
+		[]string{
+			"to_id", "state_change_order", "state_change_category", "state_change_reason",
+			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
+			"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
+			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
+			"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+		},
+		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
+			sc := stateChanges[i]
+			return []any{
+				pgtype.Int8{Int64: sc.ToID, Valid: true},
+				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
+				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
+				pgtypeTextFromReasonPtr(sc.StateChangeReason),
+				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
+				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
+				pgtype.Text{String: sc.AccountID, Valid: true},
+				pgtype.Int8{Int64: sc.OperationID, Valid: true},
+				pgtype.Text{String: sc.TxHash, Valid: true},
+				pgtypeTextFromNullString(sc.TokenID),
+				pgtypeTextFromNullString(sc.Amount),
+				pgtypeTextFromNullString(sc.OfferID),
+				pgtypeTextFromNullString(sc.SignerAccountID),
+				pgtypeTextFromNullString(sc.SpenderAccountID),
+				pgtypeTextFromNullString(sc.SponsoredAccountID),
+				pgtypeTextFromNullString(sc.SponsorAccountID),
+				pgtypeTextFromNullString(sc.DeployerAccountID),
+				pgtypeTextFromNullString(sc.FunderAccountID),
+				jsonbFromMap(sc.SignerWeights),
+				jsonbFromMap(sc.Thresholds),
+				jsonbFromMap(sc.TrustlineLimit),
+				jsonbFromSlice(sc.Flags),
+				jsonbFromMap(sc.KeyValue),
+			}, nil
+		}),
+	)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopyPgx", "state_changes", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
+	}
+	if int(copyCount) != len(stateChanges) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopyPgx", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopyPgx", "state_changes", len(stateChanges))
+	m.MetricsService.IncDBQuery("BatchCopyPgx", "state_changes")
 
 	return len(stateChanges), nil
 }
