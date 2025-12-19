@@ -11,7 +11,7 @@ CREATE TABLE state_changes (
     ledger_number INTEGER NOT NULL,
     account_id TEXT NOT NULL,
     operation_id BIGINT NOT NULL,
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash),
+    tx_hash TEXT NOT NULL,
     token_id TEXT,
     amount TEXT,
     flags JSONB,
@@ -25,15 +25,15 @@ CREATE TABLE state_changes (
     deployer_account_id TEXT,
     funder_account_id TEXT,
     thresholds JSONB,
-    trustline_limit JSONB,
-    PRIMARY KEY (to_id, state_change_order)
+    trustline_limit JSONB
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, to_id, state_change_order'
 );
 
-CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_tx_hash ON state_changes(tx_hash);
-CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
-CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
-
+CREATE INDEX idx_state_changes_account_id ON state_changes (account_id);
 
 -- +migrate Down
 

@@ -2,26 +2,35 @@
 
 -- Table: operations
 CREATE TABLE operations (
-    id BIGINT PRIMARY KEY,
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash),
+    id BIGINT,
+    tx_hash TEXT NOT NULL,
     operation_type TEXT NOT NULL,
     operation_xdr TEXT,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, id'
 );
-
-CREATE INDEX idx_operations_tx_hash ON operations(tx_hash);
-CREATE INDEX idx_operations_operation_type ON operations(operation_type);
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
 -- Table: operations_accounts
+-- Junction table linking operations to participating accounts.
 CREATE TABLE operations_accounts (
-    operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    operation_id BIGINT NOT NULL,
     account_id TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (account_id, operation_id)
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, operation_id'
 );
+
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts (account_id);
 
 -- +migrate Down
 
