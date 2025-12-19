@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -414,6 +415,35 @@ func (m *StateChangeModel) BatchCopy(
 			funderAccountID = sc.FunderAccountID.String
 		}
 
+		// Convert JSONB fields to JSON strings (lib/pq COPY needs string, not []byte for JSONB)
+		var signerWeights, thresholds, trustlineLimit, flags, keyValue any
+		var jsonBytes []byte
+		if sc.SignerWeights != nil {
+			if jsonBytes, err = json.Marshal(sc.SignerWeights); err == nil {
+				signerWeights = string(jsonBytes)
+			}
+		}
+		if sc.Thresholds != nil {
+			if jsonBytes, err = json.Marshal(sc.Thresholds); err == nil {
+				thresholds = string(jsonBytes)
+			}
+		}
+		if sc.TrustlineLimit != nil {
+			if jsonBytes, err = json.Marshal(sc.TrustlineLimit); err == nil {
+				trustlineLimit = string(jsonBytes)
+			}
+		}
+		if sc.Flags != nil {
+			if jsonBytes, err = json.Marshal(sc.Flags); err == nil {
+				flags = string(jsonBytes)
+			}
+		}
+		if sc.KeyValue != nil {
+			if jsonBytes, err = json.Marshal(sc.KeyValue); err == nil {
+				keyValue = string(jsonBytes)
+			}
+		}
+
 		_, err = stmt.Exec(
 			sc.ToID,
 			sc.StateChangeOrder,
@@ -433,11 +463,11 @@ func (m *StateChangeModel) BatchCopy(
 			sponsorAccountID,
 			deployerAccountID,
 			funderAccountID,
-			sc.SignerWeights,  // NullableJSONB implements driver.Valuer
-			sc.Thresholds,     // NullableJSONB implements driver.Valuer
-			sc.TrustlineLimit, // NullableJSONB implements driver.Valuer
-			sc.Flags,          // NullableJSON implements driver.Valuer
-			sc.KeyValue,       // NullableJSONB implements driver.Valuer
+			signerWeights,
+			thresholds,
+			trustlineLimit,
+			flags,
+			keyValue,
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
