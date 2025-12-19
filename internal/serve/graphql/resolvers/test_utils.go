@@ -42,10 +42,6 @@ func getTestCtx(table string, columns []string) context.Context {
 	return ctx
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
 	parentAccount := &types.Account{StellarAddress: "test-account"}
