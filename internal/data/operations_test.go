@@ -200,6 +200,173 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	}
 }
 
+func Test_OperationModel_BatchCopy(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test accounts
+	kp1 := keypair.MustRandom()
+	kp2 := keypair.MustRandom()
+	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
+	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	require.NoError(t, err)
+
+	// Create referenced transactions first
+	meta1, meta2 := "meta1", "meta2"
+	envelope1, envelope2 := "envelope1", "envelope2"
+	tx1 := types.Transaction{
+		Hash:            "tx1",
+		ToID:            1,
+		EnvelopeXDR:     &envelope1,
+		ResultXDR:       "result1",
+		MetaXDR:         &meta1,
+		LedgerNumber:    1,
+		LedgerCreatedAt: now,
+	}
+	tx2 := types.Transaction{
+		Hash:            "tx2",
+		ToID:            2,
+		EnvelopeXDR:     &envelope2,
+		ResultXDR:       "result2",
+		MetaXDR:         &meta2,
+		LedgerNumber:    2,
+		LedgerCreatedAt: now,
+	}
+
+	// Insert transactions
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	require.NoError(t, err)
+	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[string]set.Set[string]{
+		tx1.Hash: set.NewSet(kp1.Address()),
+		tx2.Hash: set.NewSet(kp2.Address()),
+	})
+	require.NoError(t, err)
+
+	op1 := types.Operation{
+		ID:              1,
+		TxHash:          tx1.Hash,
+		OperationType:   types.OperationTypePayment,
+		OperationXDR:    "operation1",
+		LedgerCreatedAt: now,
+	}
+	op2 := types.Operation{
+		ID:              2,
+		TxHash:          tx2.Hash,
+		OperationType:   types.OperationTypeCreateAccount,
+		OperationXDR:    "operation2",
+		LedgerCreatedAt: now,
+	}
+
+	testCases := []struct {
+		name                   string
+		operations             []*types.Operation
+		stellarAddressesByOpID map[int64]set.Set[string]
+		wantCount              int
+		wantErrContains        string
+	}{
+		{
+			name:                   "🟢successful_insert_multiple",
+			operations:             []*types.Operation{&op1, &op2},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address()), op2.ID: set.NewSet(kp2.Address())},
+			wantCount:              2,
+		},
+		{
+			name:                   "🟢empty_input",
+			operations:             []*types.Operation{},
+			stellarAddressesByOpID: map[int64]set.Set[string]{},
+			wantCount:              0,
+		},
+		{
+			name:                   "🟢no_participants",
+			operations:             []*types.Operation{&op1},
+			stellarAddressesByOpID: map[int64]set.Set[string]{},
+			wantCount:              1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clear the database before each test
+			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE operations, operations_accounts CASCADE")
+			require.NoError(t, err)
+
+			// Create fresh mock for each test case
+			mockMetricsService := metrics.NewMockMetricsService()
+			// Only set up metric expectations if we have operations to insert
+			if len(tc.operations) > 0 {
+				mockMetricsService.
+					On("ObserveDBQueryDuration", "BatchCopy", "operations", mock.Anything).Return().Once()
+				mockMetricsService.
+					On("ObserveDBBatchSize", "BatchCopy", "operations", mock.Anything).Return().Once()
+				mockMetricsService.
+					On("IncDBQuery", "BatchCopy", "operations").Return().Once()
+				if len(tc.stellarAddressesByOpID) > 0 {
+					mockMetricsService.
+						On("IncDBQuery", "BatchCopy", "operations_accounts").Return().Once()
+				}
+			}
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &OperationModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			// BatchCopy requires a transaction
+			dbTx, err := dbConnectionPool.BeginTxx(ctx, nil)
+			require.NoError(t, err)
+
+			gotCount, err := m.BatchCopy(ctx, dbTx, tc.operations, tc.stellarAddressesByOpID)
+
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
+				dbTx.Rollback()
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, dbTx.Commit())
+			assert.Equal(t, tc.wantCount, gotCount)
+
+			// Verify from DB
+			var dbInsertedIDs []int64
+			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT id FROM operations ORDER BY id")
+			require.NoError(t, err)
+			assert.Len(t, dbInsertedIDs, tc.wantCount)
+
+			// Verify account links if expected
+			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
+				var accountLinks []struct {
+					OperationID int64  `db:"operation_id"`
+					AccountID   string `db:"account_id"`
+				}
+				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
+				require.NoError(t, err)
+
+				// Create a map of operation_id -> set of account_ids
+				accountLinksMap := make(map[int64][]string)
+				for _, link := range accountLinks {
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+				}
+
+				// Verify each expected operation has its account links
+				for opID, expectedAddresses := range tc.stellarAddressesByOpID {
+					actualAddresses := accountLinksMap[opID]
+					assert.ElementsMatch(t, expectedAddresses.ToSlice(), actualAddresses, "account links for op %d don't match", opID)
+				}
+			}
+		})
+	}
+}
+
 func TestOperationModel_GetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
