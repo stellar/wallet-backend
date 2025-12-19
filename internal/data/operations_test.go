@@ -334,14 +334,14 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			// Only set up metric expectations if we have operations to insert
 			if len(tc.operations) > 0 {
 				mockMetricsService.
-					On("ObserveDBQueryDuration", "BatchCopyPgx", "operations", mock.Anything).Return().Once()
+					On("ObserveDBQueryDuration", "BatchCopy", "operations", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("ObserveDBBatchSize", "BatchCopyPgx", "operations", mock.Anything).Return().Once()
+					On("ObserveDBBatchSize", "BatchCopy", "operations", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("IncDBQuery", "BatchCopyPgx", "operations").Return().Once()
+					On("IncDBQuery", "BatchCopy", "operations").Return().Once()
 				if len(tc.stellarAddressesByOpID) > 0 {
 					mockMetricsService.
-						On("IncDBQuery", "BatchCopyPgx", "operations_accounts").Return().Once()
+						On("IncDBQuery", "BatchCopy", "operations_accounts").Return().Once()
 				}
 			}
 			defer mockMetricsService.AssertExpectations(t)
@@ -986,7 +986,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				_, err = m.BatchCopy(ctx, pgxTx, ops, addressesByOpID)
 				if err != nil {
 					pgxTx.Rollback(ctx)
-					b.Fatalf("BatchCopyPgx failed: %v", err)
+					b.Fatalf("BatchCopy failed: %v", err)
 				}
 
 				b.StopTimer()

@@ -305,14 +305,14 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			// Only set up metric expectations if we have transactions to insert
 			if len(tc.txs) > 0 {
 				mockMetricsService.
-					On("ObserveDBQueryDuration", "BatchCopyPgx", "transactions", mock.Anything).Return().Once()
+					On("ObserveDBQueryDuration", "BatchCopy", "transactions", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("ObserveDBBatchSize", "BatchCopyPgx", "transactions", mock.Anything).Return().Once()
+					On("ObserveDBBatchSize", "BatchCopy", "transactions", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("IncDBQuery", "BatchCopyPgx", "transactions").Return().Once()
+					On("IncDBQuery", "BatchCopy", "transactions").Return().Once()
 				if len(tc.stellarAddressesByHash) > 0 {
 					mockMetricsService.
-						On("IncDBQuery", "BatchCopyPgx", "transactions_accounts").Return().Once()
+						On("IncDBQuery", "BatchCopy", "transactions_accounts").Return().Once()
 				}
 			}
 			defer mockMetricsService.AssertExpectations(t)
@@ -727,7 +727,7 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 				_, err = m.BatchCopy(ctx, pgxTx, txs, addressesByHash)
 				if err != nil {
 					pgxTx.Rollback(ctx)
-					b.Fatalf("BatchCopyPgx failed: %v", err)
+					b.Fatalf("BatchCopy failed: %v", err)
 				}
 
 				b.StopTimer()

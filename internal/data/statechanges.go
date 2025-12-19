@@ -432,7 +432,7 @@ func (m *StateChangeModel) BatchCopy(
 		}),
 	)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopyPgx", "state_changes", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
 	}
 	if int(copyCount) != len(stateChanges) {
@@ -440,9 +440,9 @@ func (m *StateChangeModel) BatchCopy(
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchCopyPgx", "state_changes", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopyPgx", "state_changes", len(stateChanges))
-	m.MetricsService.IncDBQuery("BatchCopyPgx", "state_changes")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
+	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
 
 	return len(stateChanges), nil
 }

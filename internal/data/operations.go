@@ -382,7 +382,7 @@ func (m *OperationModel) BatchCopy(
 		}),
 	)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopyPgx", "operations", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom operations: %w", err)
 	}
 	if int(copyCount) != len(operations) {
@@ -406,17 +406,17 @@ func (m *OperationModel) BatchCopy(
 			pgx.CopyFromRows(oaRows),
 		)
 		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopyPgx", "operations_accounts", utils.GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
 			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
 		}
 
-		m.MetricsService.IncDBQuery("BatchCopyPgx", "operations_accounts")
+		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchCopyPgx", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopyPgx", "operations", len(operations))
-	m.MetricsService.IncDBQuery("BatchCopyPgx", "operations")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
+	m.MetricsService.IncDBQuery("BatchCopy", "operations")
 
 	return len(operations), nil
 }

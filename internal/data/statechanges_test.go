@@ -345,11 +345,11 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			// Only set up metric expectations if we have state changes to insert
 			if len(tc.stateChanges) > 0 {
 				mockMetricsService.
-					On("ObserveDBQueryDuration", "BatchCopyPgx", "state_changes", mock.Anything).Return().Once()
+					On("ObserveDBQueryDuration", "BatchCopy", "state_changes", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("ObserveDBBatchSize", "BatchCopyPgx", "state_changes", mock.Anything).Return().Once()
+					On("ObserveDBBatchSize", "BatchCopy", "state_changes", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("IncDBQuery", "BatchCopyPgx", "state_changes").Return().Once()
+					On("IncDBQuery", "BatchCopy", "state_changes").Return().Once()
 			}
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -1224,7 +1224,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 				_, err = m.BatchCopy(ctx, pgxTx, scs)
 				if err != nil {
 					pgxTx.Rollback(ctx)
-					b.Fatalf("BatchCopyPgx failed: %v", err)
+					b.Fatalf("BatchCopy failed: %v", err)
 				}
 
 				b.StopTimer()
