@@ -19,6 +19,31 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// generateTestStateChanges creates n test state changes for benchmarking.
+func generateTestStateChanges(n int, txHash string, accountID string, startToID int64) []types.StateChange {
+	scs := make([]types.StateChange, n)
+	now := time.Now()
+	reason := types.StateChangeReasonCredit
+
+	for i := 0; i < n; i++ {
+		scs[i] = types.StateChange{
+			ToID:                startToID + int64(i),
+			StateChangeOrder:    1,
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   &reason,
+			LedgerCreatedAt:     now,
+			LedgerNumber:        uint32(i + 1),
+			AccountID:           accountID,
+			OperationID:         int64(i + 1),
+			TxHash:              txHash,
+			TokenID:             sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			Amount:              sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
+		}
+	}
+
+	return scs
+}
+
 func TestStateChangeModel_BatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -1051,4 +1076,131 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
+}
+
+func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
+	dbt := dbtest.OpenB(b)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to open db connection pool: %v", err)
+	}
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		b.Fatalf("failed to get sqlx db: %v", err)
+	}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
+	}
+
+	// Create a parent transaction that state changes will reference
+	const txHash = "benchmark_tx_hash"
+	accountID := keypair.MustRandom().Address()
+	now := time.Now()
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+	`, txHash, now)
+	if err != nil {
+		b.Fatalf("failed to create parent transaction: %v", err)
+	}
+
+	batchSizes := []int{10, 100, 1000, 5000}
+
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				// Clean up state changes before each iteration (keep the parent transaction)
+				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
+				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
+				// Generate fresh test data for each iteration
+				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+				b.StartTimer()
+
+				_, err := m.BatchInsert(ctx, nil, scs)
+				if err != nil {
+					b.Fatalf("BatchInsert failed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
+	dbt := dbtest.OpenB(b)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to open db connection pool: %v", err)
+	}
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		b.Fatalf("failed to get sqlx db: %v", err)
+	}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
+	}
+
+	// Create a parent transaction that state changes will reference
+	const txHash = "benchmark_tx_hash"
+	accountID := keypair.MustRandom().Address()
+	now := time.Now()
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+	`, txHash, now)
+	if err != nil {
+		b.Fatalf("failed to create parent transaction: %v", err)
+	}
+
+	batchSizes := []int{10, 100, 1000, 5000}
+
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				// Clean up state changes before each iteration (keep the parent transaction)
+				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
+				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
+				// Generate fresh test data for each iteration
+				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+
+				// BatchCopy requires a transaction
+				dbTx, err := dbConnectionPool.BeginTxx(ctx, nil)
+				if err != nil {
+					b.Fatalf("failed to begin transaction: %v", err)
+				}
+				b.StartTimer()
+
+				_, err = m.BatchCopy(ctx, dbTx, scs)
+				if err != nil {
+					dbTx.Rollback()
+					b.Fatalf("BatchCopy failed: %v", err)
+				}
+
+				b.StopTimer()
+				if err := dbTx.Commit(); err != nil {
+					b.Fatalf("failed to commit transaction: %v", err)
+				}
+				b.StartTimer()
+			}
+		})
+	}
 }

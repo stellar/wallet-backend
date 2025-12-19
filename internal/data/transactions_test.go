@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,6 +17,33 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// generateTestTransactions creates n test transactions for benchmarking.
+func generateTestTransactions(n int, startToID int64) ([]*types.Transaction, map[string]set.Set[string]) {
+	txs := make([]*types.Transaction, n)
+	addressesByHash := make(map[string]set.Set[string])
+	now := time.Now()
+
+	for i := 0; i < n; i++ {
+		hash := fmt.Sprintf("txhash_%d", startToID+int64(i))
+		envelope := fmt.Sprintf("envelope_%d", i)
+		meta := fmt.Sprintf("meta_%d", i)
+		address := keypair.MustRandom().Address()
+
+		txs[i] = &types.Transaction{
+			Hash:            hash,
+			ToID:            startToID + int64(i),
+			EnvelopeXDR:     &envelope,
+			ResultXDR:       fmt.Sprintf("result_%d", i),
+			MetaXDR:         &meta,
+			LedgerNumber:    uint32(i + 1),
+			LedgerCreatedAt: now,
+		}
+		addressesByHash[hash] = set.NewSet(address)
+	}
+
+	return txs, addressesByHash
+}
 
 func Test_TransactionModel_BatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
@@ -589,4 +617,107 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Equal(t, "tx1", stateChangeIDsFound["1-1"])
 	assert.Equal(t, "tx2", stateChangeIDsFound["2-1"])
 	assert.Equal(t, "tx1", stateChangeIDsFound["3-1"])
+}
+
+func BenchmarkTransactionModel_BatchInsert(b *testing.B) {
+	dbt := dbtest.OpenB(b)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to open db connection pool: %v", err)
+	}
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		b.Fatalf("failed to get sqlx db: %v", err)
+	}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
+	}
+
+	batchSizes := []int{10, 100, 1000, 5000}
+
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				// Clean up before each iteration
+				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
+				dbConnectionPool.ExecContext(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
+				// Generate fresh test data for each iteration
+				txs, addressesByHash := generateTestTransactions(size, int64(i*size))
+				b.StartTimer()
+
+				_, err := m.BatchInsert(ctx, nil, txs, addressesByHash)
+				if err != nil {
+					b.Fatalf("BatchInsert failed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
+	dbt := dbtest.OpenB(b)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	if err != nil {
+		b.Fatalf("failed to open db connection pool: %v", err)
+	}
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		b.Fatalf("failed to get sqlx db: %v", err)
+	}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
+	}
+
+	batchSizes := []int{10, 100, 1000, 5000}
+
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				// Clean up before each iteration
+				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
+				dbConnectionPool.ExecContext(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
+				// Generate fresh test data for each iteration
+				txs, addressesByHash := generateTestTransactions(size, int64(i*size))
+
+				// BatchCopy requires a transaction
+				dbTx, err := dbConnectionPool.BeginTxx(ctx, nil)
+				if err != nil {
+					b.Fatalf("failed to begin transaction: %v", err)
+				}
+				b.StartTimer()
+
+				_, err = m.BatchCopy(ctx, dbTx, txs, addressesByHash)
+				if err != nil {
+					dbTx.Rollback()
+					b.Fatalf("BatchCopy failed: %v", err)
+				}
+
+				b.StopTimer()
+				if err := dbTx.Commit(); err != nil {
+					b.Fatalf("failed to commit transaction: %v", err)
+				}
+				b.StartTimer()
+			}
+		})
+	}
 }
