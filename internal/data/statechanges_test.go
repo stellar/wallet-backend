@@ -329,6 +329,11 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		},
 	}
 
+	// Create pgx connection for BatchCopy (requires pgx.Tx, not sqlx.Tx)
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clear the database before each test
@@ -340,11 +345,11 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			// Only set up metric expectations if we have state changes to insert
 			if len(tc.stateChanges) > 0 {
 				mockMetricsService.
-					On("ObserveDBQueryDuration", "BatchCopy", "state_changes", mock.Anything).Return().Once()
+					On("ObserveDBQueryDuration", "BatchCopyPgx", "state_changes", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("ObserveDBBatchSize", "BatchCopy", "state_changes", mock.Anything).Return().Once()
+					On("ObserveDBBatchSize", "BatchCopyPgx", "state_changes", mock.Anything).Return().Once()
 				mockMetricsService.
-					On("IncDBQuery", "BatchCopy", "state_changes").Return().Once()
+					On("IncDBQuery", "BatchCopyPgx", "state_changes").Return().Once()
 			}
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -353,21 +358,21 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 				MetricsService: mockMetricsService,
 			}
 
-			// BatchCopy requires a transaction
-			dbTx, err := dbConnectionPool.BeginTxx(ctx, nil)
+			// BatchCopy requires a pgx transaction
+			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, dbTx, tc.stateChanges)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.stateChanges)
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)
-				dbTx.Rollback()
+				pgxTx.Rollback(ctx)
 				return
 			}
 
 			require.NoError(t, err)
-			require.NoError(t, dbTx.Commit())
+			require.NoError(t, pgxTx.Commit(ctx))
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
@@ -1151,6 +1156,7 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 	}
 }
 
+// BenchmarkStateChangeModel_BatchCopy benchmarks bulk insert using pgx's binary COPY protocol.
 func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 	dbt := dbtest.OpenB(b)
 	defer dbt.Close()
@@ -1172,79 +1178,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 		MetricsService: metricsService,
 	}
 
-	// Create a parent transaction that state changes will reference
-	const txHash = "benchmark_tx_hash"
-	accountID := keypair.MustRandom().Address()
-	now := time.Now()
-	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
-	`, txHash, now)
-	if err != nil {
-		b.Fatalf("failed to create parent transaction: %v", err)
-	}
-
-	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
-
-	for _, size := range batchSizes {
-		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				// Clean up state changes before each iteration (keep the parent transaction)
-				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
-				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
-				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
-
-				// BatchCopy requires a transaction
-				dbTx, err := dbConnectionPool.BeginTxx(ctx, nil)
-				if err != nil {
-					b.Fatalf("failed to begin transaction: %v", err)
-				}
-				b.StartTimer()
-
-				_, err = m.BatchCopy(ctx, dbTx, scs)
-				if err != nil {
-					dbTx.Rollback()
-					b.Fatalf("BatchCopy failed: %v", err)
-				}
-
-				b.StopTimer()
-				if err := dbTx.Commit(); err != nil {
-					b.Fatalf("failed to commit transaction: %v", err)
-				}
-				b.StartTimer()
-			}
-		})
-	}
-}
-
-// BenchmarkStateChangeModel_BatchCopyPgx benchmarks bulk insert using pgx's binary COPY protocol.
-// This is a proof-of-concept to compare pgx binary COPY vs lib/pq text COPY.
-func BenchmarkStateChangeModel_BatchCopyPgx(b *testing.B) {
-	dbt := dbtest.OpenB(b)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	if err != nil {
-		b.Fatalf("failed to open db connection pool: %v", err)
-	}
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
-
-	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: metricsService,
-	}
-
-	// Create pgx connection for BatchCopyPgx
+	// Create pgx connection for BatchCopy
 	conn, err := pgx.Connect(ctx, dbt.DSN)
 	if err != nil {
 		b.Fatalf("failed to connect with pgx: %v", err)
@@ -1287,7 +1221,7 @@ func BenchmarkStateChangeModel_BatchCopyPgx(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopyPgx(ctx, pgxTx, scs)
+				_, err = m.BatchCopy(ctx, pgxTx, scs)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopyPgx failed: %v", err)

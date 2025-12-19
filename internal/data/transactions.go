@@ -9,7 +9,6 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -279,113 +278,10 @@ func (m *TransactionModel) BatchInsert(
 	return insertedHashes, nil
 }
 
-// BatchCopy inserts transactions using PostgreSQL COPY protocol.
-// Optimized for bulk inserts where conflict handling is not needed.
-func (m *TransactionModel) BatchCopy(
-	ctx context.Context,
-	dbTx db.Transaction,
-	txs []*types.Transaction,
-	stellarAddressesByTxHash map[string]set.Set[string],
-) (int, error) {
-	if len(txs) == 0 {
-		return 0, nil
-	}
-
-	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
-	sqlxTx, ok := dbTx.(*sqlx.Tx)
-	if !ok {
-		return 0, fmt.Errorf("expected *sqlx.Tx, got %T", dbTx)
-	}
-
-	start := time.Now()
-
-	// COPY transactions
-	txStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions",
-		"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr",
-		"ledger_number", "ledger_created_at",
-	))
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopy", "transactions", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("preparing COPY statement for transactions: %w", err)
-	}
-	defer func() { _ = txStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
-
-	for _, tx := range txs {
-		// Handle nullable string pointers - pass nil or the string value
-		var envelopeXDR, metaXDR interface{}
-		if tx.EnvelopeXDR != nil {
-			envelopeXDR = *tx.EnvelopeXDR
-		}
-		if tx.MetaXDR != nil {
-			metaXDR = *tx.MetaXDR
-		}
-
-		_, err = txStmt.Exec(
-			tx.Hash,
-			tx.ToID,
-			envelopeXDR,
-			tx.ResultXDR,
-			metaXDR,
-			int(tx.LedgerNumber),
-			tx.LedgerCreatedAt,
-		)
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "transactions", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("COPY exec for transaction: %w", err)
-		}
-	}
-
-	// Flush the COPY buffer for transactions
-	_, err = txStmt.Exec()
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopy", "transactions", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("flushing COPY buffer for transactions: %w", err)
-	}
-
-	// COPY transactions_accounts
-	if len(stellarAddressesByTxHash) > 0 {
-		taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",
-			"tx_hash", "account_id",
-		))
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("preparing COPY statement for transactions_accounts: %w", err)
-		}
-		defer func() { _ = taStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
-
-		for txHash, addresses := range stellarAddressesByTxHash {
-			addressSlice := addresses.ToSlice()
-			for _, address := range addressSlice {
-				_, err = taStmt.Exec(txHash, address)
-				if err != nil {
-					m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))
-					return 0, fmt.Errorf("COPY exec for transactions_accounts: %w", err)
-				}
-			}
-		}
-
-		// Flush the COPY buffer for transactions_accounts
-		_, err = taStmt.Exec()
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("flushing COPY buffer for transactions_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchCopy", "transactions_accounts")
-	}
-
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "transactions", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopy", "transactions", len(txs))
-	m.MetricsService.IncDBQuery("BatchCopy", "transactions")
-
-	return len(txs), nil
-}
-
-// BatchCopyPgx inserts transactions using pgx's binary COPY protocol.
+// BatchCopy inserts transactions using pgx's binary COPY protocol.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
-func (m *TransactionModel) BatchCopyPgx(
+func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,

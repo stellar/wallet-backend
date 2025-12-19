@@ -13,6 +13,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/ledgerbackend"
@@ -417,27 +418,43 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		stateChanges = filtered.stateChanges
 	}
 
-	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
-			return err
+	// Use pgx transaction for BatchCopy operations (binary COPY protocol)
+	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning pgx transaction: %w", err)
+	}
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
 		}
-		if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
-			return err
-		}
-		if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
-			return err
-		}
+	}()
 
-		// Unlock channel accounts only during live ingestion (skip for historical backfill)
-		if m.ingestionMode == IngestionModeLive {
+	if err := m.insertTransactions(ctx, pgxTx, txs, txParticipants); err != nil {
+		return err
+	}
+	if err := m.insertOperations(ctx, pgxTx, ops, opParticipants); err != nil {
+		return err
+	}
+	if err := m.insertStateChanges(ctx, pgxTx, stateChanges); err != nil {
+		return err
+	}
+
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
+	}
+
+	// Unlock channel accounts only during live ingestion (skip for historical backfill)
+	// This uses a separate sqlx transaction because unlockChannelAccounts needs sqlx.Tx
+	if m.ingestionMode == IngestionModeLive {
+		dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 			if err := m.unlockChannelAccounts(ctx, dbTx, txs); err != nil {
 				return fmt.Errorf("unlocking channel accounts: %w", err)
 			}
+			return nil
+		})
+		if dbTxErr != nil {
+			return fmt.Errorf("unlocking channel accounts: %w", dbTxErr)
 		}
-		return nil
-	})
-	if dbTxErr != nil {
-		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
 	}
 
 	// Process token changes only during live ingestion (not backfill)
@@ -449,11 +466,11 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.Transactions.BatchCopy(ctx, dbTx, txs, stellarAddressesByTxHash)
+	insertedCount, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByTxHash)
 	if err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
 	}
@@ -462,11 +479,11 @@ func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transact
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
 	if len(ops) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.Operations.BatchCopy(ctx, dbTx, ops, stellarAddressesByOpID)
+	insertedCount, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
 	if err != nil {
 		return fmt.Errorf("batch inserting operations: %w", err)
 	}
@@ -475,11 +492,11 @@ func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transactio
 }
 
 // insertStateChanges batch inserts state changes and records metrics.
-func (m *ingestService) insertStateChanges(ctx context.Context, dbTx db.Transaction, stateChanges []types.StateChange) error {
+func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) error {
 	if len(stateChanges) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.StateChanges.BatchCopy(ctx, dbTx, stateChanges)
+	insertedCount, err := m.models.StateChanges.BatchCopy(ctx, pgxTx, stateChanges)
 	if err != nil {
 		return fmt.Errorf("batch inserting state changes: %w", err)
 	}

@@ -3,14 +3,12 @@ package data
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -346,153 +344,6 @@ func (m *StateChangeModel) BatchInsert(
 	return insertedIDs, nil
 }
 
-// BatchCopy inserts state changes using PostgreSQL COPY protocol.
-// Optimized for bulk inserts where conflict handling is not needed.
-func (m *StateChangeModel) BatchCopy(
-	ctx context.Context,
-	dbTx db.Transaction,
-	stateChanges []types.StateChange,
-) (int, error) {
-	if len(stateChanges) == 0 {
-		return 0, nil
-	}
-
-	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
-	sqlxTx, ok := dbTx.(*sqlx.Tx)
-	if !ok {
-		return 0, fmt.Errorf("expected *sqlx.Tx, got %T", dbTx)
-	}
-
-	start := time.Now()
-
-	// COPY state_changes
-	stmt, err := sqlxTx.Prepare(pq.CopyIn("state_changes",
-		"to_id", "state_change_order", "state_change_category", "state_change_reason",
-		"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
-		"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
-		"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-		"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
-	))
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("preparing COPY statement for state_changes: %w", err)
-	}
-	defer func() { _ = stmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
-
-	for _, sc := range stateChanges {
-		// Handle nullable fields - pass nil for invalid/empty values
-		var reason interface{}
-		if sc.StateChangeReason != nil {
-			reason = string(*sc.StateChangeReason)
-		}
-
-		var tokenID, amount, offerID interface{}
-		var signerAccountID, spenderAccountID, sponsoredAccountID interface{}
-		var sponsorAccountID, deployerAccountID, funderAccountID interface{}
-
-		if sc.TokenID.Valid {
-			tokenID = sc.TokenID.String
-		}
-		if sc.Amount.Valid {
-			amount = sc.Amount.String
-		}
-		if sc.OfferID.Valid {
-			offerID = sc.OfferID.String
-		}
-		if sc.SignerAccountID.Valid {
-			signerAccountID = sc.SignerAccountID.String
-		}
-		if sc.SpenderAccountID.Valid {
-			spenderAccountID = sc.SpenderAccountID.String
-		}
-		if sc.SponsoredAccountID.Valid {
-			sponsoredAccountID = sc.SponsoredAccountID.String
-		}
-		if sc.SponsorAccountID.Valid {
-			sponsorAccountID = sc.SponsorAccountID.String
-		}
-		if sc.DeployerAccountID.Valid {
-			deployerAccountID = sc.DeployerAccountID.String
-		}
-		if sc.FunderAccountID.Valid {
-			funderAccountID = sc.FunderAccountID.String
-		}
-
-		// Convert JSONB fields to JSON strings (lib/pq COPY needs string, not []byte for JSONB)
-		var signerWeights, thresholds, trustlineLimit, flags, keyValue any
-		var jsonBytes []byte
-		if sc.SignerWeights != nil {
-			if jsonBytes, err = json.Marshal(sc.SignerWeights); err == nil {
-				signerWeights = string(jsonBytes)
-			}
-		}
-		if sc.Thresholds != nil {
-			if jsonBytes, err = json.Marshal(sc.Thresholds); err == nil {
-				thresholds = string(jsonBytes)
-			}
-		}
-		if sc.TrustlineLimit != nil {
-			if jsonBytes, err = json.Marshal(sc.TrustlineLimit); err == nil {
-				trustlineLimit = string(jsonBytes)
-			}
-		}
-		if sc.Flags != nil {
-			if jsonBytes, err = json.Marshal(sc.Flags); err == nil {
-				flags = string(jsonBytes)
-			}
-		}
-		if sc.KeyValue != nil {
-			if jsonBytes, err = json.Marshal(sc.KeyValue); err == nil {
-				keyValue = string(jsonBytes)
-			}
-		}
-
-		_, err = stmt.Exec(
-			sc.ToID,
-			sc.StateChangeOrder,
-			string(sc.StateChangeCategory),
-			reason,
-			sc.LedgerCreatedAt,
-			int(sc.LedgerNumber),
-			sc.AccountID,
-			sc.OperationID,
-			sc.TxHash,
-			tokenID,
-			amount,
-			offerID,
-			signerAccountID,
-			spenderAccountID,
-			sponsoredAccountID,
-			sponsorAccountID,
-			deployerAccountID,
-			funderAccountID,
-			signerWeights,
-			thresholds,
-			trustlineLimit,
-			flags,
-			keyValue,
-		)
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("COPY exec for state_change: %w", err)
-		}
-	}
-
-	// Flush the COPY buffer
-	_, err = stmt.Exec()
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("flushing COPY buffer for state_changes: %w", err)
-	}
-
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
-	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
-
-	return len(stateChanges), nil
-}
-
 // pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
 func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}
@@ -526,10 +377,10 @@ func jsonbFromSlice(s types.NullableJSON) any {
 	return []string(s)
 }
 
-// BatchCopyPgx inserts state changes using pgx's binary COPY protocol.
+// BatchCopy inserts state changes using pgx's binary COPY protocol.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
-func (m *StateChangeModel) BatchCopyPgx(
+func (m *StateChangeModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	stateChanges []types.StateChange,
