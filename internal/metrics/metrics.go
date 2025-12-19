@@ -53,15 +53,12 @@ type MetricsService interface {
 	ObserveGraphQLComplexity(operationName string, complexity int)
 	IncGraphQLError(operationName, errorType string)
 	// Backfill Metrics - all methods require instance ID
-	SetBackfillBatchesTotal(instance string, count int)
 	IncBackfillBatchesCompleted(instance string)
 	IncBackfillBatchesFailed(instance string)
 	ObserveBackfillPhaseDuration(instance string, phase string, duration float64)
 	IncBackfillLedgersProcessed(instance string, count int)
 	IncBackfillTransactionsProcessed(instance string, count int)
 	IncBackfillOperationsProcessed(instance string, count int)
-	IncBackfillRetries(instance string)
-	ObserveBackfillBatchLedgersProcessed(instance string, count int)
 	SetBackfillElapsed(instance string, seconds float64)
 }
 
@@ -794,10 +791,6 @@ func (m *metricsService) IncGraphQLError(operationName, errorType string) {
 }
 
 // Backfill Metrics
-func (m *metricsService) SetBackfillBatchesTotal(instance string, count int) {
-	m.backfillBatchesTotal.WithLabelValues(instance).Set(float64(count))
-}
-
 func (m *metricsService) IncBackfillBatchesCompleted(instance string) {
 	m.backfillBatchesCompleted.WithLabelValues(instance).Inc()
 }
@@ -820,18 +813,6 @@ func (m *metricsService) IncBackfillTransactionsProcessed(instance string, count
 
 func (m *metricsService) IncBackfillOperationsProcessed(instance string, count int) {
 	m.backfillOperationsProcessed.WithLabelValues(instance).Add(float64(count))
-}
-
-func (m *metricsService) IncBackfillRetries(instance string) {
-	m.backfillRetriesTotal.WithLabelValues(instance).Inc()
-}
-
-func (m *metricsService) ObserveBackfillBatchSize(instance string, size int) {
-	m.backfillBatchSize.WithLabelValues(instance).Observe(float64(size))
-}
-
-func (m *metricsService) ObserveBackfillBatchLedgersProcessed(instance string, count int) {
-	m.backfillBatchLedgersProcessed.WithLabelValues(instance).Observe(float64(count))
 }
 
 func (m *metricsService) SetBackfillElapsed(instance string, seconds float64) {

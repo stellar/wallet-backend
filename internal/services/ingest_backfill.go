@@ -50,12 +50,29 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		}
 	}
 
+	// Start elapsed time updater goroutine
+	startTime := time.Now()
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.metricsService.SetBackfillElapsed(m.backfillInstanceID, time.Since(startTime).Seconds())
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	// Determine gaps to fill based on mode
 	var gaps []data.LedgerRange
 	if mode == BackfillModeCatchup {
 		// For catchup, treat entire range as a single gap (no existing data in this range)
 		gaps = []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
 	} else {
+		m.backfillInstanceID = fmt.Sprintf("%d-%d", startLedger, endLedger)
 		gaps, err = m.calculateBackfillGaps(ctx, startLedger, endLedger)
 		if err != nil {
 			return fmt.Errorf("calculating backfill gaps: %w", err)
@@ -67,11 +84,20 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	}
 
 	backfillBatches := m.splitGapsIntoBatches(gaps)
-	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
+	close(done)
 	duration := time.Since(startTime)
+	m.metricsService.SetBackfillElapsed(m.backfillInstanceID, duration.Seconds())
 
 	analysis := analyzeBatchResults(ctx, results)
+	if len(analysis.failedBatches) > 0 {
+		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
+	}
+
+	// Record failed batches metric
+	for range analysis.failedBatches {
+		m.metricsService.IncBackfillBatchesFailed(m.backfillInstanceID)
+	}
 	if len(analysis.failedBatches) > 0 {
 		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
 	}
@@ -225,12 +251,14 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Process each ledger in the batch sequentially
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+		fetchStart := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
 		if err != nil {
 			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
 		}
+		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "get_ledger_from_backend", time.Since(fetchStart).Seconds())
 
 		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
 		if err != nil {
@@ -243,11 +271,16 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 		// Flush buffer periodically to control memory usage
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
+			m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
+
+			start := time.Now()
 			if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
 				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
 				result.Duration = time.Since(start)
 				return result
 			}
+			m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insert", time.Since(start).Seconds())
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
 		}
@@ -255,14 +288,22 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Flush remaining data in buffer
 	if ledgersInBuffer > 0 {
+		m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
+		m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
+
+		start := time.Now()
 		if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
 			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
 			result.Duration = time.Since(start)
 			return result
 		}
+		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "insert_into_db", time.Since(start).Seconds())
 	}
 
 	result.Duration = time.Since(start)
+	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "batch_processing", result.Duration.Seconds())
+	m.metricsService.IncBackfillBatchesCompleted(m.backfillInstanceID)
+	m.metricsService.IncBackfillLedgersProcessed(m.backfillInstanceID, result.LedgersCount)
 	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
 		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
@@ -274,6 +315,7 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Get transactions from ledger
+	start := time.Now()
 	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
 	if err != nil {
 		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
@@ -284,6 +326,7 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 	if err != nil {
 		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
+	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "process_ledger_transactions", time.Since(start).Seconds())
 	return nil
 }
 
