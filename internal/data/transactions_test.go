@@ -686,7 +686,7 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 		MetricsService: metricsService,
 	}
 
-	batchSizes := []int{10, 100, 1000, 5000}
+	batchSizes := []int{10000, 50000, 90000, 150000}
 
 	for _, size := range batchSizes {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
