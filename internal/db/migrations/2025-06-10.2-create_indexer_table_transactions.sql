@@ -4,9 +4,9 @@
 CREATE TABLE transactions (
     hash TEXT PRIMARY KEY,
     to_id BIGINT NOT NULL,
-    envelope_xdr TEXT,
+    envelope_xdr BYTEA,
     result_xdr TEXT,
-    meta_xdr TEXT,
+    meta_xdr BYTEA,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -2,9 +2,9 @@
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  envelopeXdr:     String
+  envelopeXdr:     String @goField(forceResolver: true)
   resultXdr:       String!
-  metaXdr:         String
+  metaXdr:         String @goField(forceResolver: true)
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!

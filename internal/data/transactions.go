@@ -178,9 +178,9 @@ func (m *TransactionModel) BatchInsert(
 	// 1. Flatten the transactions into parallel slices
 	hashes := make([]string, len(txs))
 	toIDs := make([]int64, len(txs))
-	envelopeXDRs := make([]*string, len(txs))
+	envelopeXDRs := make([][]byte, len(txs))
 	resultXDRs := make([]string, len(txs))
-	metaXDRs := make([]*string, len(txs))
+	metaXDRs := make([][]byte, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
@@ -216,9 +216,9 @@ func (m *TransactionModel) BatchInsert(
 			SELECT
 				UNNEST($1::text[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
-				UNNEST($3::text[]) AS envelope_xdr,
+				UNNEST($3::bytea[]) AS envelope_xdr,
 				UNNEST($4::text[]) AS result_xdr,
-				UNNEST($5::text[]) AS meta_xdr,
+				UNNEST($5::bytea[]) AS meta_xdr,
 				UNNEST($6::bigint[]) AS ledger_number,
 				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) t
@@ -309,21 +309,12 @@ func (m *TransactionModel) BatchCopy(
 	defer func() { _ = txStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
 	for _, tx := range txs {
-		// Handle nullable string pointers - pass nil or the string value
-		var envelopeXDR, metaXDR interface{}
-		if tx.EnvelopeXDR != nil {
-			envelopeXDR = *tx.EnvelopeXDR
-		}
-		if tx.MetaXDR != nil {
-			metaXDR = *tx.MetaXDR
-		}
-
 		_, err = txStmt.Exec(
 			tx.Hash,
 			tx.ToID,
-			envelopeXDR,
+			tx.EnvelopeXDR, // []byte directly, nil slices handled by lib/pq
 			tx.ResultXDR,
-			metaXDR,
+			tx.MetaXDR, // []byte directly, nil slices handled by lib/pq
 			int(tx.LedgerNumber),
 			tx.LedgerCreatedAt,
 		)

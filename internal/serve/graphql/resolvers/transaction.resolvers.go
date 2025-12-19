@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,26 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
+
+// EnvelopeXdr is the resolver for the envelopeXdr field.
+// Encodes the raw BYTEA envelope XDR bytes to base64 string for GraphQL response.
+func (r *transactionResolver) EnvelopeXdr(ctx context.Context, obj *types.Transaction) (*string, error) {
+	if obj.EnvelopeXDR == nil {
+		return nil, nil
+	}
+	encoded := base64.StdEncoding.EncodeToString(obj.EnvelopeXDR)
+	return &encoded, nil
+}
+
+// MetaXdr is the resolver for the metaXdr field.
+// Encodes the raw BYTEA meta XDR bytes to base64 string for GraphQL response.
+func (r *transactionResolver) MetaXdr(ctx context.Context, obj *types.Transaction) (*string, error) {
+	if obj.MetaXDR == nil {
+		return nil, nil
+	}
+	encoded := base64.StdEncoding.EncodeToString(obj.MetaXDR)
+	return &encoded, nil
+}
 
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object

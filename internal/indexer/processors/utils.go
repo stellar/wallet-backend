@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/stellar/go/ingest"
@@ -85,32 +86,40 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 }
 
 func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
-	var envelopeXDR *string
-	envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
+	// Marshal envelope XDR - need base64 for TransactionFromXDR, raw bytes for storage
+	envelopeXDRBase64, err := xdr.MarshalBase64(transaction.Envelope)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
 	}
 
+	// Convert to raw bytes for BYTEA storage
+	var envelopeXDR []byte
 	if !skipTxEnvelope {
-		envelopeXDR = &envelopeXDRStr
+		var buf bytes.Buffer
+		if _, err = xdr.Marshal(&buf, transaction.Envelope); err != nil {
+			return nil, fmt.Errorf("marshalling transaction envelope bytes: %w", err)
+		}
+		envelopeXDR = buf.Bytes()
 	}
 
+	// ResultXDR remains as base64 string (TEXT column)
 	resultXDR, err := xdr.MarshalBase64(transaction.Result)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction result: %w", err)
 	}
 
-	var metaXDR *string
+	// Marshal meta XDR to raw bytes for BYTEA storage
+	var metaXDR []byte
 	if !skipTxMeta {
-		metaXDRStr, marshalErr := xdr.MarshalBase64(transaction.UnsafeMeta)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("marshalling transaction meta: %w", marshalErr)
+		var buf bytes.Buffer
+		if _, err = xdr.Marshal(&buf, transaction.UnsafeMeta); err != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
 		}
-		metaXDR = &metaXDRStr
+		metaXDR = buf.Bytes()
 	}
 
-	// Calculate inner transaction hash
-	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRStr)
+	// Calculate inner transaction hash (requires base64 string)
+	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRBase64)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing envelope xdr: %w", err)
 	}

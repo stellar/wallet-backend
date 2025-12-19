@@ -26,16 +26,16 @@ func generateTestTransactions(n int, startToID int64) ([]*types.Transaction, map
 
 	for i := 0; i < n; i++ {
 		hash := fmt.Sprintf("txhash_%d", startToID+int64(i))
-		envelope := fmt.Sprintf("envelope_%d", i)
-		meta := fmt.Sprintf("meta_%d", i)
+		envelope := []byte(fmt.Sprintf("envelope_%d", i))
+		meta := []byte(fmt.Sprintf("meta_%d", i))
 		address := keypair.MustRandom().Address()
 
 		txs[i] = &types.Transaction{
 			Hash:            hash,
 			ToID:            startToID + int64(i),
-			EnvelopeXDR:     &envelope,
+			EnvelopeXDR:     envelope,
 			ResultXDR:       fmt.Sprintf("result_%d", i),
-			MetaXDR:         &meta,
+			MetaXDR:         meta,
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
@@ -62,23 +62,23 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
 
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
+	meta1, meta2 := []byte("meta1"), []byte("meta2")
+	envelope1, envelope2 := []byte("envelope1"), []byte("envelope2")
 	tx1 := types.Transaction{
 		Hash:            "tx1",
 		ToID:            1,
-		EnvelopeXDR:     &envelope1,
+		EnvelopeXDR:     envelope1,
 		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		MetaXDR:         meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
-		EnvelopeXDR:     &envelope2,
+		EnvelopeXDR:     envelope2,
 		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		MetaXDR:         meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
@@ -223,23 +223,23 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
 
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
+	meta1, meta2 := []byte("meta1"), []byte("meta2")
+	envelope1, envelope2 := []byte("envelope1"), []byte("envelope2")
 	tx1 := types.Transaction{
 		Hash:            "tx1",
 		ToID:            1,
-		EnvelopeXDR:     &envelope1,
+		EnvelopeXDR:     envelope1,
 		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		MetaXDR:         meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
-		EnvelopeXDR:     &envelope2,
+		EnvelopeXDR:     envelope2,
 		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		MetaXDR:         meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
@@ -397,7 +397,7 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	assert.Equal(t, txHash, transaction.Hash)
 	assert.Equal(t, int64(1), transaction.ToID)
 	require.NotNil(t, transaction.EnvelopeXDR)
-	assert.Equal(t, "envelope", *transaction.EnvelopeXDR)
+	assert.Equal(t, []byte("envelope"), transaction.EnvelopeXDR)
 }
 
 func TestTransactionModel_GetAll(t *testing.T) {

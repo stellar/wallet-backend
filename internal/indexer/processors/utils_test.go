@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -35,14 +36,18 @@ func Test_ConvertTransaction(t *testing.T) {
 	gotDataTx, err := ConvertTransaction(&ingestTx, false, false, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
-	metaXDR := unsafeMetaXDRStr
-	envelopeXDR := envelopeXDRStr
+	// Decode base64 strings to bytes for comparison
+	metaXDR, err := base64.StdEncoding.DecodeString(unsafeMetaXDRStr)
+	require.NoError(t, err)
+	envelopeXDR, err := base64.StdEncoding.DecodeString(envelopeXDRStr)
+	require.NoError(t, err)
+
 	wantDataTx := &types.Transaction{
 		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:                 20929375637504,
-		EnvelopeXDR:          &envelopeXDR,
+		EnvelopeXDR:          envelopeXDR,
 		ResultXDR:            txResultPairXDRStr,
-		MetaXDR:              &metaXDR,
+		MetaXDR:              metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
@@ -64,14 +69,17 @@ func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
 	gotDataTx, err := ConvertTransaction(&ingestTx, false, true, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
-	metaXDR := unsafeMetaXDRStr
+	// Decode base64 string to bytes for comparison
+	metaXDR, err := base64.StdEncoding.DecodeString(unsafeMetaXDRStr)
+	require.NoError(t, err)
+
 	// envelopeXDR should be nil
 	wantDataTx := &types.Transaction{
 		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:                 20929375637504,
 		EnvelopeXDR:          nil,
 		ResultXDR:            txResultPairXDRStr,
-		MetaXDR:              &metaXDR,
+		MetaXDR:              metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",

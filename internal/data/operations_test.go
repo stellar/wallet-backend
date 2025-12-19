@@ -61,23 +61,23 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create referenced transactions first
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
+	meta1, meta2 := []byte("meta1"), []byte("meta2")
+	envelope1, envelope2 := []byte("envelope1"), []byte("envelope2")
 	tx1 := types.Transaction{
 		Hash:            "tx1",
 		ToID:            1,
-		EnvelopeXDR:     &envelope1,
+		EnvelopeXDR:     envelope1,
 		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		MetaXDR:         meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
-		EnvelopeXDR:     &envelope2,
+		EnvelopeXDR:     envelope2,
 		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		MetaXDR:         meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
@@ -244,23 +244,23 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create referenced transactions first
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
+	meta1, meta2 := []byte("meta1"), []byte("meta2")
+	envelope1, envelope2 := []byte("envelope1"), []byte("envelope2")
 	tx1 := types.Transaction{
 		Hash:            "tx1",
 		ToID:            1,
-		EnvelopeXDR:     &envelope1,
+		EnvelopeXDR:     envelope1,
 		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		MetaXDR:         meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
-		EnvelopeXDR:     &envelope2,
+		EnvelopeXDR:     envelope2,
 		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		MetaXDR:         meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}

@@ -275,12 +275,12 @@ type ComplexityRoot struct {
 
 	Transaction struct {
 		Accounts        func(childComplexity int) int
-		EnvelopeXDR     func(childComplexity int) int
+		EnvelopeXdr     func(childComplexity int) int
 		Hash            func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
-		MetaXDR         func(childComplexity int) int
+		MetaXdr         func(childComplexity int) int
 		Operations      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		ResultXDR       func(childComplexity int) int
 		StateChanges    func(childComplexity int, first *int32, after *string, last *int32, before *string) int
@@ -431,6 +431,10 @@ type StandardBalanceChangeResolver interface {
 	Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
 }
 type TransactionResolver interface {
+	EnvelopeXdr(ctx context.Context, obj *types.Transaction) (*string, error)
+
+	MetaXdr(ctx context.Context, obj *types.Transaction) (*string, error)
+
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -1529,11 +1533,11 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		return e.complexity.Transaction.Accounts(childComplexity), true
 
 	case "Transaction.envelopeXdr":
-		if e.complexity.Transaction.EnvelopeXDR == nil {
+		if e.complexity.Transaction.EnvelopeXdr == nil {
 			break
 		}
 
-		return e.complexity.Transaction.EnvelopeXDR(childComplexity), true
+		return e.complexity.Transaction.EnvelopeXdr(childComplexity), true
 
 	case "Transaction.hash":
 		if e.complexity.Transaction.Hash == nil {
@@ -1564,11 +1568,11 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		return e.complexity.Transaction.LedgerNumber(childComplexity), true
 
 	case "Transaction.metaXdr":
-		if e.complexity.Transaction.MetaXDR == nil {
+		if e.complexity.Transaction.MetaXdr == nil {
 			break
 		}
 
-		return e.complexity.Transaction.MetaXDR(childComplexity), true
+		return e.complexity.Transaction.MetaXdr(childComplexity), true
 
 	case "Transaction.operations":
 		if e.complexity.Transaction.Operations == nil {
@@ -2399,9 +2403,9 @@ type BalanceAuthorizationChange implements BaseStateChange{
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  envelopeXdr:     String
+  envelopeXdr:     String @goField(forceResolver: true)
   resultXdr:       String!
-  metaXdr:         String
+  metaXdr:         String @goField(forceResolver: true)
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
@@ -10485,7 +10489,7 @@ func (ec *executionContext) _Transaction_envelopeXdr(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.EnvelopeXDR, nil
+		return ec.resolvers.Transaction().EnvelopeXdr(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -10503,8 +10507,8 @@ func (ec *executionContext) fieldContext_Transaction_envelopeXdr(_ context.Conte
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -10570,7 +10574,7 @@ func (ec *executionContext) _Transaction_metaXdr(ctx context.Context, field grap
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.MetaXDR, nil
+		return ec.resolvers.Transaction().MetaXdr(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -10588,8 +10592,8 @@ func (ec *executionContext) fieldContext_Transaction_metaXdr(_ context.Context, 
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -17925,14 +17929,76 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "envelopeXdr":
-			out.Values[i] = ec._Transaction_envelopeXdr(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_envelopeXdr(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "resultXdr":
 			out.Values[i] = ec._Transaction_resultXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "metaXdr":
-			out.Values[i] = ec._Transaction_metaXdr(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_metaXdr(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerNumber":
 			out.Values[i] = ec._Transaction_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

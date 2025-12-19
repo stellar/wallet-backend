@@ -56,9 +56,9 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		txn := &types.Transaction{
 			Hash:            fmt.Sprintf("tx%d", i+1),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
-			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
+			EnvelopeXDR:     []byte(fmt.Sprintf("envelope%d", i+1)),
 			ResultXDR:       fmt.Sprintf("result%d", i+1),
-			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
+			MetaXDR:         []byte(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
 		}
