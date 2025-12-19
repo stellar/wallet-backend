@@ -20,6 +20,7 @@ import (
 )
 
 // generateTestStateChanges creates n test state changes for benchmarking.
+// Populates all fields to provide an upper-bound benchmark.
 func generateTestStateChanges(n int, txHash string, accountID string, startToID int64) []types.StateChange {
 	scs := make([]types.StateChange, n)
 	now := time.Now()
@@ -36,8 +37,22 @@ func generateTestStateChanges(n int, txHash string, accountID string, startToID 
 			AccountID:           accountID,
 			OperationID:         int64(i + 1),
 			TxHash:              txHash,
-			TokenID:             sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
-			Amount:              sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
+			// sql.NullString fields
+			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
+			OfferID:            sql.NullString{String: fmt.Sprintf("offer_%d", i), Valid: true},
+			SignerAccountID:    sql.NullString{String: fmt.Sprintf("GSIGNER%032d", i), Valid: true},
+			SpenderAccountID:   sql.NullString{String: fmt.Sprintf("GSPENDER%031d", i), Valid: true},
+			SponsoredAccountID: sql.NullString{String: fmt.Sprintf("GSPONSORED%028d", i), Valid: true},
+			SponsorAccountID:   sql.NullString{String: fmt.Sprintf("GSPONSOR%030d", i), Valid: true},
+			DeployerAccountID:  sql.NullString{String: fmt.Sprintf("GDEPLOYER%029d", i), Valid: true},
+			FunderAccountID:    sql.NullString{String: fmt.Sprintf("GFUNDER%031d", i), Valid: true},
+			// JSONB fields
+			SignerWeights:  types.NullableJSONB{"weight": i + 1, "key": fmt.Sprintf("signer_%d", i)},
+			Thresholds:     types.NullableJSONB{"low": 1, "med": 2, "high": 3},
+			TrustlineLimit: types.NullableJSONB{"limit": fmt.Sprintf("%d", (i+1)*1000)},
+			Flags:          types.NullableJSON{"auth_required", "auth_revocable"},
+			KeyValue:       types.NullableJSONB{"key": fmt.Sprintf("data_key_%d", i), "value": fmt.Sprintf("data_value_%d", i)},
 		}
 	}
 
