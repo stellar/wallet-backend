@@ -405,6 +405,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"CHECKPOINT_FREQUENCY":             "8",
 			"GET_LEDGERS_LIMIT":                "200",
 			"SKIP_TX_META":                     "false",
+			"SKIP_TX_ENVELOPE":                 "false",
 			"LEDGER_BACKEND_TYPE":              "rpc",
 			"START_LEDGER":                     "0",
 			"END_LEDGER":                       "0",

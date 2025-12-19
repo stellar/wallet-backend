@@ -93,6 +93,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
+			Name:        "skip-tx-envelope",
+			Usage:       "Skip storing transaction envelope (envelope_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxEnvelope,
+			FlagDefault: true,
+			Required:    false,
+		},
+		{
 			Name:        "enable-participant-filtering",
 			Usage:       "When enabled, only store transactions, operations, and state changes for pre-registered accounts. When disabled (default), store all data.",
 			OptType:     types.Bool,

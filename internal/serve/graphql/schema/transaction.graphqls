@@ -2,7 +2,7 @@
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  envelopeXdr:     String!
+  envelopeXdr:     String
   resultXdr:       String!
   metaXdr:         String
   ledgerNumber:    UInt32!

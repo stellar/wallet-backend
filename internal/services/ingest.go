@@ -81,6 +81,7 @@ func NewIngestService(
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	skipTxMeta bool,
+	skipTxEnvelope bool,
 	enableParticipantFiltering bool,
 ) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
@@ -101,7 +102,7 @@ func NewIngestService(
 		metricsService:             metricsService,
 		networkPassphrase:          networkPassphrase,
 		getLedgersLimit:            getLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta),
+		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta, skipTxEnvelope),
 		archive:                    archive,
 		backfillMode:               false,
 		enableParticipantFiltering: enableParticipantFiltering,
@@ -548,7 +549,17 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 
 	innerTxHashes := make([]string, 0, len(txs))
 	for _, tx := range txs {
-		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		if tx.InnerTransactionHash != "" {
+			innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
+			continue
+		}
+
+		// Fallback for cases where InnerTransactionHash might not be populated (though it should be)
+		// Skip transactions without envelope XDR (when skip-tx-envelope is enabled)
+		if tx.EnvelopeXDR == nil {
+			continue
+		}
+		innerTxHash, err := m.extractInnerTxHash(*tx.EnvelopeXDR)
 		if err != nil {
 			return fmt.Errorf("extracting inner tx hash: %w", err)
 		}

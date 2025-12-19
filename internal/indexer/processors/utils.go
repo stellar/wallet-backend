@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/toid"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -83,10 +84,15 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) (*types.Transaction, error) {
-	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
+	var envelopeXDR *string
+	envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
+	}
+
+	if !skipTxEnvelope {
+		envelopeXDR = &envelopeXDRStr
 	}
 
 	resultXDR, err := xdr.MarshalBase64(transaction.Result)
@@ -103,17 +109,38 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) 
 		metaXDR = &metaXDRStr
 	}
 
+	// Calculate inner transaction hash
+	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRStr)
+	if err != nil {
+		return nil, fmt.Errorf("deserializing envelope xdr: %w", err)
+	}
+
+	var innerTx *txnbuild.Transaction
+	if feeBumpTx, ok := genericTx.FeeBump(); ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else if tx, ok := genericTx.Transaction(); ok {
+		innerTx = tx
+	} else {
+		return nil, fmt.Errorf("transaction is neither fee bump nor inner transaction")
+	}
+
+	innerTxHash, err := innerTx.HashHex(networkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("generating inner hash hex: %w", err)
+	}
+
 	ledgerSequence := transaction.Ledger.LedgerSequence()
 	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
 
 	return &types.Transaction{
-		ToID:            transactionID,
-		Hash:            transaction.Hash.HexString(),
-		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
-		EnvelopeXDR:     envelopeXDR,
-		ResultXDR:       resultXDR,
-		MetaXDR:         metaXDR,
-		LedgerNumber:    ledgerSequence,
+		ToID:                 transactionID,
+		Hash:                 transaction.Hash.HexString(),
+		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
+		EnvelopeXDR:          envelopeXDR,
+		ResultXDR:            resultXDR,
+		MetaXDR:              metaXDR,
+		LedgerNumber:         ledgerSequence,
+		InnerTransactionHash: innerTxHash,
 	}, nil
 }
 

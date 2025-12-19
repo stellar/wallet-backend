@@ -177,7 +177,7 @@ func (m *TransactionModel) BatchInsert(
 	// 1. Flatten the transactions into parallel slices
 	hashes := make([]string, len(txs))
 	toIDs := make([]int64, len(txs))
-	envelopeXDRs := make([]string, len(txs))
+	envelopeXDRs := make([]*string, len(txs))
 	resultXDRs := make([]string, len(txs))
 	metaXDRs := make([]*string, len(txs))
 	ledgerNumbers := make([]int, len(txs))
