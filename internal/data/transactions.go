@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -293,6 +294,26 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
+	// Sort transactions by (LedgerCreatedAt DESC, ToID DESC) for TimescaleDB optimization
+	// Build lookup map for transaction data (O(n))
+	txDataByHash := make(map[string]struct {
+		toID            int64
+		ledgerCreatedAt time.Time
+	})
+	for _, tx := range txs {
+		txDataByHash[tx.Hash] = struct {
+			toID            int64
+			ledgerCreatedAt time.Time
+		}{tx.ToID, tx.LedgerCreatedAt}
+	}
+	
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
+			return txs[i].ToID > txs[j].ToID
+		}
+		return txs[i].LedgerCreatedAt.After(txs[j].LedgerCreatedAt)
+	})
+
 	// COPY transactions using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -321,19 +342,43 @@ func (m *TransactionModel) BatchCopy(
 
 	// COPY transactions_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByTxHash) > 0 {
-		var taRows [][]any
+		type taRow struct {
+			txHash string
+			toID   int64
+			addr   string
+			ledgerCreatedAt time.Time
+		}
+		var taRows []taRow
 		for txHash, addresses := range stellarAddressesByTxHash {
-			txHashPgtype := pgtype.Text{String: txHash, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txHashPgtype, pgtype.Text{String: addr, Valid: true}})
+			for address := range addresses.Iter() {
+				taRows = append(taRows, taRow{
+					txHash:          txHash,
+					toID:            txDataByHash[txHash].toID,
+					addr:            address,
+					ledgerCreatedAt: txDataByHash[txHash].ledgerCreatedAt,
+				})
 			}
 		}
+
+		sort.Slice(taRows, func(i, j int) bool {
+			if taRows[i].ledgerCreatedAt.Equal(taRows[j].ledgerCreatedAt) {
+				return taRows[i].toID > taRows[j].toID
+			}
+			return taRows[i].ledgerCreatedAt.After(taRows[j].ledgerCreatedAt)
+		})
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_hash", "account_id"},
-			pgx.CopyFromRows(taRows),
+			[]string{"tx_hash", "to_id", "account_id", "ledger_created_at"},
+			pgx.CopyFromSlice(len(taRows), func(i int) ([]any, error) {
+				return []any{
+					pgtype.Text{String: taRows[i].txHash, Valid: true},
+					pgtype.Int8{Int64: taRows[i].toID, Valid: true},
+					pgtype.Text{String: taRows[i].addr, Valid: true},
+					pgtype.Timestamptz{Time: taRows[i].ledgerCreatedAt, Valid: true},
+				}, nil
+			}),
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))
