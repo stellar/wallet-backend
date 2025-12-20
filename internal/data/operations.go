@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -364,6 +365,17 @@ func (m *OperationModel) BatchCopy(
 
 	start := time.Now()
 
+	opCreatedAtByHash := make(map[int64]time.Time)
+	for _, op := range operations {
+		opCreatedAtByHash[op.ID] = op.LedgerCreatedAt
+	}
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
+			return operations[i].ID > operations[j].ID
+		}
+		return operations[i].LedgerCreatedAt.After(operations[j].LedgerCreatedAt)
+	})
+
 	// COPY operations using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -393,16 +405,19 @@ func (m *OperationModel) BatchCopy(
 	if len(stellarAddressesByOpID) > 0 {
 		var oaRows [][]any
 		for opID, addresses := range stellarAddressesByOpID {
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+			for addr := range addresses.Iter() {
+				oaRows = append(oaRows, []any{
+					pgtype.Int8{Int64: opID, Valid: true},
+					pgtype.Text{String: addr, Valid: true},
+					pgtype.Timestamptz{Time: opCreatedAtByHash[opID], Valid: true},
+				})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
-			[]string{"operation_id", "account_id"},
+			[]string{"operation_id", "account_id", "ledger_created_at"},
 			pgx.CopyFromRows(oaRows),
 		)
 		if err != nil {
