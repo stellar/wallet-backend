@@ -26,6 +26,46 @@ services:
     configs:
       - source: postgres_init
         target: /docker-entrypoint-initdb.d/init-schemas.sql
+  
+  timescale-db:
+    container_name: timescale-db
+    image: timescale/timescaledb:latest-pg17
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wallet-backend"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: wallet-backend
+      PGDATA: /data/postgres
+      POSTGRES_INITDB_ARGS: "--auth-host=trust"
+    volumes:
+      - postgres-db:/data/postgres
+    ports:
+      - 5432:5432
+    command:
+      - postgres
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - checkpoint_completion_target=0.7
+      - -c
+      - checkpoint_timeout=20min
+      - -c
+      - wal_buffers=64MB
+      - -c
+      - timescaledb.enable_direct_compress_copy=on
+      - -c
+      - timescaledb.enable_direct_compress_copy_sort_batches=off
+      - -c
+      - timescaledb.enable_direct_compress_copy_client_sorted=on
+    configs:
+      - source: postgres_init
+        target: /docker-entrypoint-initdb.d/init-schemas.sql
 
   redis:
     container_name: redis
