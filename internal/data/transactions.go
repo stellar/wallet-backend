@@ -295,7 +295,6 @@ func (m *TransactionModel) BatchCopy(
 	start := time.Now()
 
 	// Sort transactions by (LedgerCreatedAt DESC, ToID DESC) for TimescaleDB optimization
-	// Build lookup map for transaction data (O(n))
 	txDataByHash := make(map[string]struct {
 		toID            int64
 		ledgerCreatedAt time.Time
