@@ -64,7 +64,6 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	}
 
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
-	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
 	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 

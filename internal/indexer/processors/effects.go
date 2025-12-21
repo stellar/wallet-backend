@@ -96,7 +96,6 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 	}()
 
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
-	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
 	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 
