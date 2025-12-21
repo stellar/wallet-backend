@@ -98,14 +98,13 @@ type AccountWithOperationID struct {
 }
 
 type Transaction struct {
-	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
+	Hash            string    `json:"hash,omitempty" db:"hash"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
-	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Removed: LedgerNumber (derive via GetLedgerNumber()), IngestedAt
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
@@ -210,11 +209,9 @@ type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
-	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Removed: LedgerNumber (derive via GetLedgerNumber()), TxHash (derive via GetTxID()), IngestedAt
 	// Relationships:
-	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
@@ -315,9 +312,10 @@ type StateChange struct {
 	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
-	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	AccountID           string              `json:"accountId,omitempty" db:"account_id"`
+	// Removed: IngestedAt, LedgerNumber (derive via GetLedgerNumber()),
+	//          OperationID (derive via GetOperationID()), TxHash (derive via GetTxID())
 	// Nullable fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
@@ -328,26 +326,20 @@ type StateChange struct {
 	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
 	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
-	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
+	// Nullable JSONB fields:
 	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
 	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
 	TrustlineLimit NullableJSONB `json:"trustlineLimit,omitempty" db:"trustline_limit"`
 	Flags          NullableJSON  `json:"flags,omitempty" db:"flags"`
 	KeyValue       NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
-	// Relationships:
-	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	// Relationships (populated via resolvers, not DB):
 	Account     *Account     `json:"account,omitempty"`
-	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
-	// Internal IDs used for sorting state changes within an operation.
-	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string
-	TrustlineAsset string `json:"-"`
-	// Internal only: used for filtering contract changes and identifying token type
-	ContractType ContractType `json:"-"`
+	// Internal fields used for sorting and processing:
+	SortKey        string       `json:"-"`
+	TrustlineAsset string       `json:"-"` // code:issuer formatted asset string
+	ContractType   ContractType `json:"-"` // used for filtering contract changes
 }
 
 // GetLedgerNumber derives the ledger sequence number from the state change TOID.
