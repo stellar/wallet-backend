@@ -1,10 +1,8 @@
 # GraphQL StateChange type - represents changes to blockchain state
-interface BaseStateChange {           
+interface BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
 
   # GraphQL Relationships - these fields use resolvers
   # Related account
@@ -12,7 +10,7 @@ interface BaseStateChange {
 
   # Related operation - nullable since fee state changes do not have operations associated with them
   operation:                  Operation @goField(forceResolver: true)
-  
+
   # Related transaction
   transaction:                Transaction! @goField(forceResolver: true)
 }
@@ -20,23 +18,19 @@ interface BaseStateChange {
 type StandardBalanceChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
+  tokenId:                    String!
   amount:                     String!
 }
 
 type AccountChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -47,9 +41,7 @@ type AccountChange implements BaseStateChange {
 type SignerChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -61,9 +53,7 @@ type SignerChange implements BaseStateChange {
 type SignerThresholdsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -74,9 +64,7 @@ type SignerThresholdsChange implements BaseStateChange {
 type MetadataChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -87,9 +75,7 @@ type MetadataChange implements BaseStateChange {
 type FlagsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -100,9 +86,7 @@ type FlagsChange implements BaseStateChange {
 type TrustlineChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -115,9 +99,7 @@ type TrustlineChange implements BaseStateChange {
 type ReservesChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -130,9 +112,7 @@ type ReservesChange implements BaseStateChange{
 type BalanceAuthorizationChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)

@@ -4,17 +4,15 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
-  ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
-  ingestedAt:      Time!
-  
-  # GraphQL Relationships - these fields use resolvers  
+
+  # GraphQL Relationships - these fields use resolvers
   # Parent transaction
   transaction: Transaction! @goField(forceResolver: true)
-  
+
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)
-  
+
   # Related state changes - uses resolver to fetch associated changes
   stateChanges(first: Int, after: String, last: Int, before: String):    StateChangeConnection
 }

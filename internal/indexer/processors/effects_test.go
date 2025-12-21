@@ -50,10 +50,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 8)
 
 		for _, change := range changes {
-			assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), change.OperationID)
-			assert.Equal(t, uint32(12345), change.LedgerNumber)
+			assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), change.ToID)
+			assert.Equal(t, uint32(12345), change.GetLedgerNumber())
 			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
-			assert.Equal(t, hash, change.TxHash)
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
@@ -114,8 +113,8 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
-		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].ToID)
+		assert.Equal(t, uint32(12345), changes[0].GetLedgerNumber())
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
@@ -158,10 +157,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
-		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].ToID)
+		assert.Equal(t, uint32(12345), changes[0].GetLedgerNumber())
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[0].TxHash)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
@@ -198,10 +196,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
-		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].ToID)
+		assert.Equal(t, uint32(12345), changes[0].GetLedgerNumber())
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[0].TxHash)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{
@@ -243,10 +240,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
-		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].ToID)
+		assert.Equal(t, uint32(12345), changes[0].GetLedgerNumber())
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[0].TxHash)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
@@ -283,10 +279,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 9)
 
 		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
-		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].ToID)
+		assert.Equal(t, uint32(12345), changes[1].GetLedgerNumber())
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[1].TxHash)
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[1].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)

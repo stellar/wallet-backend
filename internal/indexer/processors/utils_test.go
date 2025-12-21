@@ -43,7 +43,6 @@ func Test_ConvertTransaction(t *testing.T) {
 		EnvelopeXDR:          &envelopeXDR,
 		ResultXDR:            txResultPairXDRStr,
 		MetaXDR:              &metaXDR,
-		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
@@ -72,7 +71,6 @@ func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
 		EnvelopeXDR:          nil,
 		ResultXDR:            txResultPairXDRStr,
 		MetaXDR:              &metaXDR,
-		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
@@ -101,8 +99,6 @@ func Test_ConvertOperation(t *testing.T) {
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    opXDRStr,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
-		LedgerNumber:    4873,
-		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 	}
 	assert.Equal(t, wantDataOp, gotDataOp)
 }

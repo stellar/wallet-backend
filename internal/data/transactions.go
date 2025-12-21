@@ -182,7 +182,6 @@ func (m *TransactionModel) BatchInsert(
 	envelopeXDRs := make([]*string, len(txs))
 	resultXDRs := make([]string, len(txs))
 	metaXDRs := make([]*string, len(txs))
-	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
 	for i, t := range txs {
@@ -191,7 +190,6 @@ func (m *TransactionModel) BatchInsert(
 		envelopeXDRs[i] = t.EnvelopeXDR
 		resultXDRs[i] = t.ResultXDR
 		metaXDRs[i] = t.MetaXDR
-		ledgerNumbers[i] = int(t.LedgerNumber)
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
 	}
 
@@ -210,9 +208,9 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions
 	inserted_transactions AS (
 		INSERT INTO transactions
-			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		SELECT
-			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
+			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::text[]) AS hash,
@@ -220,8 +218,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($3::text[]) AS envelope_xdr,
 				UNNEST($4::text[]) AS result_xdr,
 				UNNEST($5::text[]) AS meta_xdr,
-				UNNEST($6::bigint[]) AS ledger_number,
-				UNNEST($7::timestamptz[]) AS ledger_created_at
+				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) t
 		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
@@ -235,8 +232,8 @@ func (m *TransactionModel) BatchInsert(
 			ta.tx_hash, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($7::text[]) AS tx_hash,
+				UNNEST($8::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -253,7 +250,6 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(envelopeXDRs),
 		pq.Array(resultXDRs),
 		pq.Array(metaXDRs),
-		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(txHashes),
 		pq.Array(stellarAddresses),
@@ -297,7 +293,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_number", "ledger_created_at"},
+		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_created_at"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			return []any{
@@ -306,7 +302,6 @@ func (m *TransactionModel) BatchCopy(
 				pgtypeTextFromPtr(tx.EnvelopeXDR),
 				pgtype.Text{String: tx.ResultXDR, Valid: true},
 				pgtypeTextFromPtr(tx.MetaXDR),
-				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
 			}, nil
 		}),
