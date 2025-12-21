@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -390,6 +391,17 @@ func (m *StateChangeModel) BatchCopy(
 	}
 
 	start := time.Now()
+
+	// Sort state changes by (LedgerCreatedAt DESC, ToID DESC, StateChangeOrder DESC) for TimescaleDB optimization
+	sort.Slice(stateChanges, func(i, j int) bool {
+		if stateChanges[i].LedgerCreatedAt.Equal(stateChanges[j].LedgerCreatedAt) {
+			if stateChanges[i].ToID == stateChanges[j].ToID {
+				return stateChanges[i].StateChangeOrder > stateChanges[j].StateChangeOrder
+			}
+			return stateChanges[i].ToID > stateChanges[j].ToID
+		}
+		return stateChanges[i].LedgerCreatedAt.After(stateChanges[j].LedgerCreatedAt)
+	})
 
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
