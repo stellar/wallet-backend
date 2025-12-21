@@ -437,13 +437,16 @@ func (m *StateChangeModel) BatchCopy(
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.
+// Uses JOIN with transactions table since tx_hash column was removed from state_changes.
 func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// JOIN with transactions table via TOID derivation: (sc.to_id & ~4095) = t.to_id
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE tx_hash = $1
+		SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order", t.hash as tx_hash
+		FROM state_changes sc
+		JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
+		WHERE t.hash = $1
 	`, columns))
 
 	args := []interface{}{txHash}
@@ -452,19 +455,19 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+				AND (sc.to_id < %d OR (sc.to_id = %d AND sc.state_change_order < %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+				AND (sc.to_id > %d OR (sc.to_id = %d AND sc.state_change_order > %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		}
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id DESC, sc.state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id ASC, sc.state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
@@ -492,30 +495,33 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
+// Uses JOIN with transactions table since tx_hash column was removed from state_changes.
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
-	// This guarantees that each transaction gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple transactions.
+	// transactions, we use ROW_NUMBER() with PARTITION BY t.hash to limit results per transaction.
+	// Uses JOIN with transactions table via TOID derivation: (sc.to_id & ~4095) = t.to_id
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (tx_hash) AS (
 				SELECT * FROM UNNEST($1::text[])
 			),
-			
+
 			ranked_state_changes_per_tx_hash AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
-				FROM 
+					t.hash as tx_hash,
+					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM
 					state_changes sc
-				JOIN 
-					inputs i ON sc.tx_hash = i.tx_hash
+				JOIN
+					transactions t ON (sc.to_id & ~4095) = t.to_id
+				JOIN
+					inputs i ON t.hash = i.tx_hash
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_tx_hash
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", tx_hash FROM ranked_state_changes_per_tx_hash
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
