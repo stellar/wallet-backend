@@ -215,8 +215,9 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
@@ -225,12 +226,14 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
 	}
 
+	// JOIN condition: for operation-related state changes, to_id IS the operation ID.
+	// We filter only state changes that have operations (to_id & 4095 != 0).
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
-		FROM operations
-		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
-		ORDER BY operations.ledger_created_at DESC
+		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) AS state_change_id
+		FROM operations o
+		INNER JOIN state_changes sc ON o.id = sc.to_id AND (sc.to_id & 4095) != 0
+		WHERE (sc.to_id, sc.state_change_order) IN (%s)
+		ORDER BY o.ledger_created_at DESC
 	`, columns, strings.Join(tuples, ", "))
 
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
