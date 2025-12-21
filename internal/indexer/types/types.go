@@ -41,6 +41,15 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
+// TOID (Total Order ID) derivation constants.
+// TOID structure from SEP-0035: [ledger_sequence (32 bits)][tx_order (20 bits)][op_order (12 bits)]
+const (
+	// TOIDOperationMask is used to extract operation order from TOID (lower 12 bits)
+	TOIDOperationMask = int64(4095) // 0xFFF - 12 bits for operation order
+	// TOIDLedgerShift is the number of bits to shift to get ledger sequence
+	TOIDLedgerShift = 32
+)
+
 type ContractType string
 
 const (
@@ -105,6 +114,11 @@ type Transaction struct {
 	// or the transaction hash for regular transactions.
 	// This field is transient and not stored in the database.
 	InnerTransactionHash string `json:"innerTransactionHash,omitempty" db:"-"`
+}
+
+// GetLedgerNumber derives the ledger sequence number from the transaction TOID.
+func (t Transaction) GetLedgerNumber() uint32 {
+	return uint32(t.ToID >> TOIDLedgerShift)
 }
 
 type TransactionWithCursor struct {
@@ -204,6 +218,17 @@ type Operation struct {
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
+}
+
+// GetLedgerNumber derives the ledger sequence number from the operation TOID.
+func (o Operation) GetLedgerNumber() uint32 {
+	return uint32(o.ID >> TOIDLedgerShift)
+}
+
+// GetTxID derives the transaction TOID from the operation ID.
+// This masks out the lower 12 bits (operation order) to get the transaction ID.
+func (o Operation) GetTxID() int64 {
+	return o.ID &^ TOIDOperationMask
 }
 
 type OperationWithCursor struct {
@@ -323,6 +348,30 @@ type StateChange struct {
 	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
+}
+
+// GetLedgerNumber derives the ledger sequence number from the state change TOID.
+func (sc StateChange) GetLedgerNumber() uint32 {
+	return uint32(sc.ToID >> TOIDLedgerShift)
+}
+
+// GetOperationID returns the operation ID if this state change is associated with an operation.
+// Returns 0 for fee-related state changes (where to_id has no operation order bits set).
+func (sc StateChange) GetOperationID() int64 {
+	if sc.ToID&TOIDOperationMask != 0 {
+		return sc.ToID
+	}
+	return 0
+}
+
+// HasOperation returns true if this state change is associated with an operation.
+func (sc StateChange) HasOperation() bool {
+	return sc.ToID&TOIDOperationMask != 0
+}
+
+// GetTxID derives the transaction TOID from the state change TOID.
+func (sc StateChange) GetTxID() int64 {
+	return sc.ToID &^ TOIDOperationMask
 }
 
 type StateChangeWithCursor struct {
