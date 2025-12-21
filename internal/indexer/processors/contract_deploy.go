@@ -44,7 +44,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *operat
 	invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
 
 	opID := op.ID()
-	builder := NewStateChangeBuilder(op.Transaction.Ledger.LedgerSequence(), op.LedgerClosed.Unix(), op.Transaction.Hash.HexString(), op.TransactionID(), p.metricsService).
+	builder := NewStateChangeBuilder(op.LedgerClosed.Unix(), op.TransactionID(), p.metricsService).
 		WithOperationID(opID).
 		WithCategory(types.StateChangeCategoryAccount).
 		WithReason(types.StateChangeReasonCreate)

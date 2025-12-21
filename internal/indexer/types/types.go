@@ -496,19 +496,9 @@ func (sc StateChange) GetReason() StateChangeReason {
 	return *sc.StateChangeReason
 }
 
-// GetIngestedAt returns when this state change was processed by the indexer.
-func (sc StateChange) GetIngestedAt() time.Time {
-	return sc.IngestedAt
-}
-
 // GetLedgerCreatedAt returns when the ledger containing this state change was created.
 func (sc StateChange) GetLedgerCreatedAt() time.Time {
 	return sc.LedgerCreatedAt
-}
-
-// GetLedgerNumber returns the ledger sequence number where this state change occurred.
-func (sc StateChange) GetLedgerNumber() uint32 {
-	return sc.LedgerNumber
 }
 
 // GetAccount returns the account affected by this state change.

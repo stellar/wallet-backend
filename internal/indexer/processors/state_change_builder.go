@@ -17,15 +17,14 @@ type StateChangeBuilder struct {
 	metricsService MetricsServiceInterface
 }
 
-// NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
+// NewStateChangeBuilder creates a new builder with base state change fields.
+// txID is the transaction TOID, used as the default ToID for fee-based state changes.
+// For operation-based state changes, call WithOperationID() to override ToID.
+func NewStateChangeBuilder(ledgerCloseTime int64, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
-			LedgerNumber:    ledgerNumber,
+			ToID:            txID,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
-			IngestedAt:      time.Now(),
-			TxHash:          txHash,
-			TxID:            txID,
 		},
 		metricsService: metricsService,
 	}
@@ -128,21 +127,16 @@ func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *
 	return b
 }
 
-// WithOperationID sets the operation ID
+// WithOperationID sets the ToID to the operation ID for operation-based state changes.
+// This overrides the default txID set in the constructor.
 func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
-	b.base.OperationID = operationID
+	b.base.ToID = operationID
 	return b
 }
 
-// Build returns the constructed state change
+// Build returns the constructed state change.
 func (b *StateChangeBuilder) Build() types.StateChange {
-	if b.base.OperationID != 0 {
-		b.base.ToID = b.base.OperationID
-	} else {
-		b.base.ToID = b.base.TxID
-	}
 	b.base.SortKey = b.generateSortKey()
-
 	return b.base
 }
 
