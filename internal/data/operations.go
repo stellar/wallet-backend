@@ -79,30 +79,33 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
+// Uses JOIN with transactions table since tx_hash is not stored in operations table.
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 	queryBuilder := strings.Builder{}
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all operations from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
-	// This guarantees that each transaction gets at most 'limit' operations, providing
-	// more balanced and predictable pagination across multiple transactions.
+	// transactions, we use ROW_NUMBER() with PARTITION BY t.hash to limit results per transaction.
+	// Uses JOIN with transactions table via TOID derivation: (o.id & ~4095) = t.to_id
 	query := `
 		WITH
 			inputs (tx_hash) AS (
 				SELECT * FROM UNNEST($1::text[])
 			),
-			
+
 			ranked_operations_per_tx_hash AS (
 				SELECT
 					o.*,
-					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
-				FROM 
+					t.hash as tx_hash,
+					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY o.id %s) AS rn
+				FROM
 					operations o
-				JOIN 
-					inputs i ON o.tx_hash = i.tx_hash
+				JOIN
+					transactions t ON (o.id & ~4095) = t.to_id
+				JOIN
+					inputs i ON t.hash = i.tx_hash
 			)
-		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+		SELECT %s, id as cursor, tx_hash FROM ranked_operations_per_tx_hash
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -128,28 +131,34 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 }
 
 // BatchGetByTxHash gets operations for a single transaction with pagination support.
+// Uses JOIN with transactions table since tx_hash is not stored in operations table.
 func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
+	// JOIN with transactions table via TOID derivation: (o.id & ~4095) = t.to_id
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, o.id as cursor, t.hash as tx_hash
+		FROM operations o
+		JOIN transactions t ON (o.id & ~4095) = t.to_id
+		WHERE t.hash = $1`, columns))
 
 	args := []interface{}{txHash}
 	argIndex := 2
 
 	if cursor != nil {
 		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id < $%d", argIndex))
+			queryBuilder.WriteString(fmt.Sprintf(" AND o.id < $%d", argIndex))
 		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id > $%d", argIndex))
+			queryBuilder.WriteString(fmt.Sprintf(" AND o.id > $%d", argIndex))
 		}
 		args = append(args, *cursor)
 		argIndex++
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY id DESC")
+		queryBuilder.WriteString(" ORDER BY o.id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY id ASC")
+		queryBuilder.WriteString(" ORDER BY o.id ASC")
 	}
 
 	if limit != nil {
