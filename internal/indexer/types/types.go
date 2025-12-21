@@ -230,7 +230,8 @@ func (o Operation) GetTxID() int64 {
 
 type OperationWithCursor struct {
 	Operation
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor int64  `json:"cursor,omitempty" db:"cursor"`
+	TxHash string `json:"txHash,omitempty" db:"tx_hash"` // Populated via JOIN with transactions table, not stored
 }
 
 type OperationWithStateChangeID struct {
@@ -368,7 +369,9 @@ func (sc StateChange) GetTxID() int64 {
 
 type StateChangeWithCursor struct {
 	StateChange
-	Cursor StateChangeCursor `db:"cursor"`
+	Cursor      StateChangeCursor `db:"cursor"`
+	TxHash      string            `db:"tx_hash"`      // Populated via JOIN with transactions table, not stored
+	OperationID int64             `db:"operation_id"` // Derived from ToID for non-fee state changes
 }
 
 type StateChangeCursor struct {
