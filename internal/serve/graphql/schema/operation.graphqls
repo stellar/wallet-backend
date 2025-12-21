@@ -4,6 +4,7 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
+  ledgerNumber:    UInt32! @goField(forceResolver: true)
   ledgerCreatedAt: Time!
 
   # GraphQL Relationships - these fields use resolvers

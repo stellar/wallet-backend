@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -71,7 +70,6 @@ type ComplexityRoot struct {
 	AccountChange struct {
 		Account         func(childComplexity int) int
 		FunderAddress   func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
@@ -83,7 +81,6 @@ type ComplexityRoot struct {
 	BalanceAuthorizationChange struct {
 		Account         func(childComplexity int) int
 		Flags           func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
@@ -113,7 +110,6 @@ type ComplexityRoot struct {
 	FlagsChange struct {
 		Account         func(childComplexity int) int
 		Flags           func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
@@ -124,7 +120,6 @@ type ComplexityRoot struct {
 
 	MetadataChange struct {
 		Account         func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
@@ -150,7 +145,6 @@ type ComplexityRoot struct {
 	Operation struct {
 		Accounts        func(childComplexity int) int
 		ID              func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		OperationType   func(childComplexity int) int
@@ -193,7 +187,6 @@ type ComplexityRoot struct {
 
 	ReservesChange struct {
 		Account          func(childComplexity int) int
-		IngestedAt       func(childComplexity int) int
 		KeyValue         func(childComplexity int) int
 		LedgerCreatedAt  func(childComplexity int) int
 		LedgerNumber     func(childComplexity int) int
@@ -227,7 +220,6 @@ type ComplexityRoot struct {
 
 	SignerChange struct {
 		Account         func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
@@ -240,7 +232,6 @@ type ComplexityRoot struct {
 
 	SignerThresholdsChange struct {
 		Account         func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
@@ -253,7 +244,6 @@ type ComplexityRoot struct {
 	StandardBalanceChange struct {
 		Account         func(childComplexity int) int
 		Amount          func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
@@ -277,7 +267,6 @@ type ComplexityRoot struct {
 		Accounts        func(childComplexity int) int
 		EnvelopeXDR     func(childComplexity int) int
 		Hash            func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		MetaXDR         func(childComplexity int) int
@@ -313,7 +302,6 @@ type ComplexityRoot struct {
 
 	TrustlineChange struct {
 		Account         func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
 		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
@@ -335,6 +323,7 @@ type AccountResolver interface {
 type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.AccountStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error)
@@ -344,6 +333,7 @@ type AccountChangeResolver interface {
 type BalanceAuthorizationChangeResolver interface {
 	Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error)
@@ -355,6 +345,7 @@ type BalanceAuthorizationChangeResolver interface {
 type FlagsChangeResolver interface {
 	Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.FlagsStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error)
@@ -364,6 +355,7 @@ type FlagsChangeResolver interface {
 type MetadataChangeResolver interface {
 	Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.MetadataStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Operation, error)
@@ -377,6 +369,8 @@ type MutationResolver interface {
 	CreateFeeBumpTransaction(ctx context.Context, input CreateFeeBumpTransactionInput) (*CreateFeeBumpTransactionPayload, error)
 }
 type OperationResolver interface {
+	LedgerNumber(ctx context.Context, obj *types.Operation) (uint32, error)
+
 	Transaction(ctx context.Context, obj *types.Operation) (*types.Transaction, error)
 	Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -393,6 +387,7 @@ type QueryResolver interface {
 type ReservesChangeResolver interface {
 	Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.ReservesStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error)
@@ -404,6 +399,7 @@ type ReservesChangeResolver interface {
 type SignerChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.SignerStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Operation, error)
@@ -414,6 +410,7 @@ type SignerChangeResolver interface {
 type SignerThresholdsChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Operation, error)
@@ -423,6 +420,7 @@ type SignerThresholdsChangeResolver interface {
 type StandardBalanceChangeResolver interface {
 	Type(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Operation, error)
@@ -431,6 +429,8 @@ type StandardBalanceChangeResolver interface {
 	Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
 }
 type TransactionResolver interface {
+	LedgerNumber(ctx context.Context, obj *types.Transaction) (uint32, error)
+
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -438,6 +438,7 @@ type TransactionResolver interface {
 type TrustlineChangeResolver interface {
 	Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error)
+	LedgerNumber(ctx context.Context, obj *types.TrustlineStateChangeModel) (uint32, error)
 
 	Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error)
@@ -523,13 +524,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.AccountChange.FunderAddress(childComplexity), true
 
-	case "AccountChange.ingestedAt":
-		if e.complexity.AccountChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.AccountChange.IngestedAt(childComplexity), true
-
 	case "AccountChange.ledgerCreatedAt":
 		if e.complexity.AccountChange.LedgerCreatedAt == nil {
 			break
@@ -585,13 +579,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.BalanceAuthorizationChange.Flags(childComplexity), true
-
-	case "BalanceAuthorizationChange.ingestedAt":
-		if e.complexity.BalanceAuthorizationChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.BalanceAuthorizationChange.IngestedAt(childComplexity), true
 
 	case "BalanceAuthorizationChange.keyValue":
 		if e.complexity.BalanceAuthorizationChange.KeyValue == nil {
@@ -712,13 +699,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.FlagsChange.Flags(childComplexity), true
 
-	case "FlagsChange.ingestedAt":
-		if e.complexity.FlagsChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.FlagsChange.IngestedAt(childComplexity), true
-
 	case "FlagsChange.ledgerCreatedAt":
 		if e.complexity.FlagsChange.LedgerCreatedAt == nil {
 			break
@@ -767,13 +747,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.MetadataChange.Account(childComplexity), true
-
-	case "MetadataChange.ingestedAt":
-		if e.complexity.MetadataChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.MetadataChange.IngestedAt(childComplexity), true
 
 	case "MetadataChange.keyValue":
 		if e.complexity.MetadataChange.KeyValue == nil {
@@ -906,13 +879,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Operation.ID(childComplexity), true
-
-	case "Operation.ingestedAt":
-		if e.complexity.Operation.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.Operation.IngestedAt(childComplexity), true
 
 	case "Operation.ledgerCreatedAt":
 		if e.complexity.Operation.LedgerCreatedAt == nil {
@@ -1122,13 +1088,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ReservesChange.Account(childComplexity), true
 
-	case "ReservesChange.ingestedAt":
-		if e.complexity.ReservesChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.ReservesChange.IngestedAt(childComplexity), true
-
 	case "ReservesChange.keyValue":
 		if e.complexity.ReservesChange.KeyValue == nil {
 			break
@@ -1297,13 +1256,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SignerChange.Account(childComplexity), true
 
-	case "SignerChange.ingestedAt":
-		if e.complexity.SignerChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.SignerChange.IngestedAt(childComplexity), true
-
 	case "SignerChange.ledgerCreatedAt":
 		if e.complexity.SignerChange.LedgerCreatedAt == nil {
 			break
@@ -1367,13 +1319,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SignerThresholdsChange.Account(childComplexity), true
 
-	case "SignerThresholdsChange.ingestedAt":
-		if e.complexity.SignerThresholdsChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.SignerThresholdsChange.IngestedAt(childComplexity), true
-
 	case "SignerThresholdsChange.ledgerCreatedAt":
 		if e.complexity.SignerThresholdsChange.LedgerCreatedAt == nil {
 			break
@@ -1436,13 +1381,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StandardBalanceChange.Amount(childComplexity), true
-
-	case "StandardBalanceChange.ingestedAt":
-		if e.complexity.StandardBalanceChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.StandardBalanceChange.IngestedAt(childComplexity), true
 
 	case "StandardBalanceChange.ledgerCreatedAt":
 		if e.complexity.StandardBalanceChange.LedgerCreatedAt == nil {
@@ -1541,13 +1479,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Transaction.Hash(childComplexity), true
-
-	case "Transaction.ingestedAt":
-		if e.complexity.Transaction.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.Transaction.IngestedAt(childComplexity), true
 
 	case "Transaction.ledgerCreatedAt":
 		if e.complexity.Transaction.LedgerCreatedAt == nil {
@@ -1719,13 +1650,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.TrustlineChange.Account(childComplexity), true
-
-	case "TrustlineChange.ingestedAt":
-		if e.complexity.TrustlineChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.TrustlineChange.IngestedAt(childComplexity), true
 
 	case "TrustlineChange.keyValue":
 		if e.complexity.TrustlineChange.KeyValue == nil {
@@ -2168,17 +2092,16 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
-  ledgerNumber:    UInt32!
+  ledgerNumber:    UInt32! @goField(forceResolver: true)
   ledgerCreatedAt: Time!
-  ingestedAt:      Time!
-  
-  # GraphQL Relationships - these fields use resolvers  
+
+  # GraphQL Relationships - these fields use resolvers
   # Parent transaction
   transaction: Transaction! @goField(forceResolver: true)
-  
+
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)
-  
+
   # Related state changes - uses resolver to fetch associated changes
   stateChanges(first: Int, after: String, last: Int, before: String):    StateChangeConnection
 }
@@ -2252,12 +2175,11 @@ scalar UInt32
 scalar Int64
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
-interface BaseStateChange {           
+interface BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
 
   # GraphQL Relationships - these fields use resolvers
   # Related account
@@ -2265,7 +2187,7 @@ interface BaseStateChange {
 
   # Related operation - nullable since fee state changes do not have operations associated with them
   operation:                  Operation @goField(forceResolver: true)
-  
+
   # Related transaction
   transaction:                Transaction! @goField(forceResolver: true)
 }
@@ -2273,23 +2195,21 @@ interface BaseStateChange {
 type StandardBalanceChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
+  tokenId:                    String!
   amount:                     String!
 }
 
 type AccountChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2300,9 +2220,8 @@ type AccountChange implements BaseStateChange {
 type SignerChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2314,9 +2233,8 @@ type SignerChange implements BaseStateChange {
 type SignerThresholdsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2327,9 +2245,8 @@ type SignerThresholdsChange implements BaseStateChange {
 type MetadataChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2340,9 +2257,8 @@ type MetadataChange implements BaseStateChange {
 type FlagsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2353,9 +2269,8 @@ type FlagsChange implements BaseStateChange {
 type TrustlineChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2368,9 +2283,8 @@ type TrustlineChange implements BaseStateChange {
 type ReservesChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2383,9 +2297,8 @@ type ReservesChange implements BaseStateChange{
 type BalanceAuthorizationChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
+  ledgerNumber:               UInt32! @goField(forceResolver: true)
   ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
@@ -2402,18 +2315,17 @@ type Transaction{
   envelopeXdr:     String
   resultXdr:       String!
   metaXdr:         String
-  ledgerNumber:    UInt32!
+  ledgerNumber:    UInt32! @goField(forceResolver: true)
   ledgerCreatedAt: Time!
-  ingestedAt:      Time!
-  
+
   # GraphQL Relationships - these fields require resolvers
   # @goField(forceResolver: true) tells gqlgen to always generate a resolver
   # even if the Go struct has a matching field
   operations(first: Int, after: String, last: Int, before: String):     OperationConnection
-  
+
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)
-  
+
   # Related state changes - uses resolver to fetch associated changes
   stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
 }
@@ -3749,8 +3661,8 @@ func (ec *executionContext) fieldContext_AccountChange_reason(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountChange_ingestedAt(ctx, field)
+func (ec *executionContext) _AccountChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3763,7 +3675,7 @@ func (ec *executionContext) _AccountChange_ingestedAt(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.AccountChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3775,19 +3687,19 @@ func (ec *executionContext) _AccountChange_ingestedAt(ctx context.Context, field
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AccountChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -3832,50 +3744,6 @@ func (ec *executionContext) fieldContext_AccountChange_ledgerCreatedAt(_ context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _AccountChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_AccountChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "AccountChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -3981,8 +3849,6 @@ func (ec *executionContext) fieldContext_AccountChange_operation(_ context.Conte
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -4047,8 +3913,6 @@ func (ec *executionContext) fieldContext_AccountChange_transaction(_ context.Con
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -4191,8 +4055,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_reason(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationChange_ingestedAt(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4205,7 +4069,7 @@ func (ec *executionContext) _BalanceAuthorizationChange_ingestedAt(ctx context.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.BalanceAuthorizationChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4217,19 +4081,19 @@ func (ec *executionContext) _BalanceAuthorizationChange_ingestedAt(ctx context.C
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BalanceAuthorizationChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4274,50 +4138,6 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ledgerCreate
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceAuthorizationChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4423,8 +4243,6 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_operation(_ 
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -4489,8 +4307,6 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_transaction(
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -5023,8 +4839,8 @@ func (ec *executionContext) fieldContext_FlagsChange_reason(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsChange_ingestedAt(ctx, field)
+func (ec *executionContext) _FlagsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5037,7 +4853,7 @@ func (ec *executionContext) _FlagsChange_ingestedAt(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.FlagsChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5049,19 +4865,19 @@ func (ec *executionContext) _FlagsChange_ingestedAt(ctx context.Context, field g
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FlagsChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5106,50 +4922,6 @@ func (ec *executionContext) fieldContext_FlagsChange_ledgerCreatedAt(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _FlagsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_FlagsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "FlagsChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5255,8 +5027,6 @@ func (ec *executionContext) fieldContext_FlagsChange_operation(_ context.Context
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -5321,8 +5091,6 @@ func (ec *executionContext) fieldContext_FlagsChange_transaction(_ context.Conte
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -5468,8 +5236,8 @@ func (ec *executionContext) fieldContext_MetadataChange_reason(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataChange_ingestedAt(ctx, field)
+func (ec *executionContext) _MetadataChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5482,7 +5250,7 @@ func (ec *executionContext) _MetadataChange_ingestedAt(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.MetadataChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5494,19 +5262,19 @@ func (ec *executionContext) _MetadataChange_ingestedAt(ctx context.Context, fiel
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "MetadataChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5551,50 +5319,6 @@ func (ec *executionContext) fieldContext_MetadataChange_ledgerCreatedAt(_ contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _MetadataChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_MetadataChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MetadataChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5700,8 +5424,6 @@ func (ec *executionContext) fieldContext_MetadataChange_operation(_ context.Cont
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -5766,8 +5488,6 @@ func (ec *executionContext) fieldContext_MetadataChange_transaction(_ context.Co
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -6349,7 +6069,7 @@ func (ec *executionContext) _Operation_ledgerNumber(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
+		return ec.resolvers.Operation().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -6370,8 +6090,8 @@ func (ec *executionContext) fieldContext_Operation_ledgerNumber(_ context.Contex
 	fc = &graphql.FieldContext{
 		Object:     "Operation",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
@@ -6411,50 +6131,6 @@ func (ec *executionContext) _Operation_ledgerCreatedAt(ctx context.Context, fiel
 }
 
 func (ec *executionContext) fieldContext_Operation_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Operation",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Operation_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.Operation) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Operation_ingestedAt(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(time.Time)
-	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Operation_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Operation",
 		Field:      field,
@@ -6518,8 +6194,6 @@ func (ec *executionContext) fieldContext_Operation_transaction(_ context.Context
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -6792,8 +6466,6 @@ func (ec *executionContext) fieldContext_OperationEdge_node(_ context.Context, f
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -7069,8 +6741,6 @@ func (ec *executionContext) fieldContext_Query_transactionByHash(ctx context.Con
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -7319,8 +6989,6 @@ func (ec *executionContext) fieldContext_Query_operationById(ctx context.Context
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -7772,8 +7440,8 @@ func (ec *executionContext) fieldContext_ReservesChange_reason(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesChange_ingestedAt(ctx, field)
+func (ec *executionContext) _ReservesChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7786,7 +7454,7 @@ func (ec *executionContext) _ReservesChange_ingestedAt(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.ReservesChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7798,19 +7466,19 @@ func (ec *executionContext) _ReservesChange_ingestedAt(ctx context.Context, fiel
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ReservesChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7855,50 +7523,6 @@ func (ec *executionContext) fieldContext_ReservesChange_ledgerCreatedAt(_ contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ReservesChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_ReservesChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ReservesChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8004,8 +7628,6 @@ func (ec *executionContext) fieldContext_ReservesChange_operation(_ context.Cont
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -8070,8 +7692,6 @@ func (ec *executionContext) fieldContext_ReservesChange_transaction(_ context.Co
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -8912,8 +8532,8 @@ func (ec *executionContext) fieldContext_SignerChange_reason(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerChange_ingestedAt(ctx, field)
+func (ec *executionContext) _SignerChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8926,7 +8546,7 @@ func (ec *executionContext) _SignerChange_ingestedAt(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.SignerChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8938,19 +8558,19 @@ func (ec *executionContext) _SignerChange_ingestedAt(ctx context.Context, field 
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8995,50 +8615,6 @@ func (ec *executionContext) fieldContext_SignerChange_ledgerCreatedAt(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SignerChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SignerChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SignerChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9144,8 +8720,6 @@ func (ec *executionContext) fieldContext_SignerChange_operation(_ context.Contex
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -9210,8 +8784,6 @@ func (ec *executionContext) fieldContext_SignerChange_transaction(_ context.Cont
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -9395,8 +8967,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_reason(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsChange_ingestedAt(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9409,7 +8981,7 @@ func (ec *executionContext) _SignerThresholdsChange_ingestedAt(ctx context.Conte
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.SignerThresholdsChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9421,19 +8993,19 @@ func (ec *executionContext) _SignerThresholdsChange_ingestedAt(ctx context.Conte
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerThresholdsChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9478,50 +9050,6 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_ledgerCreatedAt(
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SignerThresholdsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SignerThresholdsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9627,8 +9155,6 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_operation(_ cont
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -9693,8 +9219,6 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_transaction(_ co
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -9840,8 +9364,8 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_reason(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _StandardBalanceChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_StandardBalanceChange_ingestedAt(ctx, field)
+func (ec *executionContext) _StandardBalanceChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9854,7 +9378,7 @@ func (ec *executionContext) _StandardBalanceChange_ingestedAt(ctx context.Contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.StandardBalanceChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9866,19 +9390,19 @@ func (ec *executionContext) _StandardBalanceChange_ingestedAt(ctx context.Contex
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_StandardBalanceChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_StandardBalanceChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StandardBalanceChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9923,50 +9447,6 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_ledgerCreatedAt(_
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _StandardBalanceChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_StandardBalanceChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_StandardBalanceChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "StandardBalanceChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10072,8 +9552,6 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_operation(_ conte
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -10138,8 +9616,6 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_transaction(_ con
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -10611,7 +10087,7 @@ func (ec *executionContext) _Transaction_ledgerNumber(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
+		return ec.resolvers.Transaction().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -10632,8 +10108,8 @@ func (ec *executionContext) fieldContext_Transaction_ledgerNumber(_ context.Cont
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
@@ -10673,50 +10149,6 @@ func (ec *executionContext) _Transaction_ledgerCreatedAt(ctx context.Context, fi
 }
 
 func (ec *executionContext) fieldContext_Transaction_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Transaction",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Transaction_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Transaction_ingestedAt(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(time.Time)
-	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Transaction_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
@@ -11048,8 +10480,6 @@ func (ec *executionContext) fieldContext_TransactionEdge_node(_ context.Context,
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -11723,8 +11153,8 @@ func (ec *executionContext) fieldContext_TrustlineChange_reason(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineChange_ingestedAt(ctx, field)
+func (ec *executionContext) _TrustlineChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -11737,7 +11167,7 @@ func (ec *executionContext) _TrustlineChange_ingestedAt(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
+		return ec.resolvers.TrustlineChange().LedgerNumber(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -11749,19 +11179,19 @@ func (ec *executionContext) _TrustlineChange_ingestedAt(ctx context.Context, fie
 		}
 		return graphql.Null
 	}
-	res := resTmp.(time.Time)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "TrustlineChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -11806,50 +11236,6 @@ func (ec *executionContext) fieldContext_TrustlineChange_ledgerCreatedAt(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _TrustlineChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_TrustlineChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "TrustlineChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -11955,8 +11341,6 @@ func (ec *executionContext) fieldContext_TrustlineChange_operation(_ context.Con
 				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
 			case "transaction":
 				return ec.fieldContext_Operation_transaction(ctx, field)
 			case "accounts":
@@ -12021,8 +11405,6 @@ func (ec *executionContext) fieldContext_TrustlineChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
 				return ec.fieldContext_Transaction_operations(ctx, field)
 			case "accounts":
@@ -14704,18 +14086,44 @@ func (ec *executionContext) _AccountChange(ctx context.Context, sel ast.Selectio
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._AccountChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._AccountChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._AccountChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._AccountChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -14963,18 +14371,44 @@ func (ec *executionContext) _BalanceAuthorizationChange(ctx context.Context, sel
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._BalanceAuthorizationChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BalanceAuthorizationChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._BalanceAuthorizationChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._BalanceAuthorizationChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -15425,18 +14859,44 @@ func (ec *executionContext) _FlagsChange(ctx context.Context, sel ast.SelectionS
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._FlagsChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._FlagsChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._FlagsChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._FlagsChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -15687,18 +15147,44 @@ func (ec *executionContext) _MetadataChange(ctx context.Context, sel ast.Selecti
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._MetadataChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._MetadataChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._MetadataChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._MetadataChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -16012,17 +15498,43 @@ func (ec *executionContext) _Operation(ctx context.Context, sel ast.SelectionSet
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._Operation_ledgerNumber(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Operation_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Operation_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ingestedAt":
-			out.Values[i] = ec._Operation_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -16594,18 +16106,44 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._ReservesChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ReservesChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._ReservesChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._ReservesChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -17057,18 +16595,44 @@ func (ec *executionContext) _SignerChange(ctx context.Context, sel ast.Selection
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._SignerChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._SignerChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._SignerChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -17349,18 +16913,44 @@ func (ec *executionContext) _SignerThresholdsChange(ctx context.Context, sel ast
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._SignerThresholdsChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerThresholdsChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._SignerThresholdsChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._SignerThresholdsChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -17611,18 +17201,44 @@ func (ec *executionContext) _StandardBalanceChange(ctx context.Context, sel ast.
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._StandardBalanceChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._StandardBalanceChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._StandardBalanceChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -17934,17 +17550,43 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 		case "metaXdr":
 			out.Values[i] = ec._Transaction_metaXdr(ctx, field, obj)
 		case "ledgerNumber":
-			out.Values[i] = ec._Transaction_ledgerNumber(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Transaction_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ingestedAt":
-			out.Values[i] = ec._Transaction_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -18332,18 +17974,44 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._TrustlineChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "ledgerNumber":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TrustlineChange_ledgerNumber(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._TrustlineChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._TrustlineChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}

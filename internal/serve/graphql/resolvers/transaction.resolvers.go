@@ -15,6 +15,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+func (r *transactionResolver) LedgerNumber(ctx context.Context, obj *types.Transaction) (uint32, error) {
+	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+}
+
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
@@ -127,3 +132,15 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 func (r *Resolver) Transaction() graphql1.TransactionResolver { return &transactionResolver{r} }
 
 type transactionResolver struct{ *Resolver }
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *transactionResolver) IngestedAt(ctx context.Context, obj *types.Transaction) (*time.Time, error) {
+	panic(fmt.Errorf("not implemented: IngestedAt - ingestedAt"))
+}
+*/
