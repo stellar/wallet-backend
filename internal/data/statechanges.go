@@ -176,13 +176,10 @@ func (m *StateChangeModel) BatchInsert(
 	// Flatten the state changes into parallel slices
 	stateChangeOrders := make([]int64, len(stateChanges))
 	toIDs := make([]int64, len(stateChanges))
-	categories := make([]string, len(stateChanges))
-	reasons := make([]*string, len(stateChanges))
+	categories := make([]int16, len(stateChanges))
+	reasons := make([]*int16, len(stateChanges))
 	ledgerCreatedAts := make([]time.Time, len(stateChanges))
-	ledgerNumbers := make([]int, len(stateChanges))
 	accountIDs := make([]string, len(stateChanges))
-	operationIDs := make([]int64, len(stateChanges))
-	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
 	offerIDs := make([]*string, len(stateChanges))
@@ -201,16 +198,13 @@ func (m *StateChangeModel) BatchInsert(
 	for i, sc := range stateChanges {
 		stateChangeOrders[i] = sc.StateChangeOrder
 		toIDs[i] = sc.ToID
-		categories[i] = string(sc.StateChangeCategory)
+		categories[i] = sc.StateChangeCategory.ToInt16()
 		ledgerCreatedAts[i] = sc.LedgerCreatedAt
-		ledgerNumbers[i] = int(sc.LedgerNumber)
 		accountIDs[i] = sc.AccountID
-		operationIDs[i] = sc.OperationID
-		txHashes[i] = sc.TxHash
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {
-			reason := string(*sc.StateChangeReason)
+			reason := sc.StateChangeReason.ToInt16()
 			reasons[i] = &reason
 		}
 		if sc.TokenID.Valid {
@@ -263,39 +257,34 @@ func (m *StateChangeModel) BatchInsert(
 			SELECT
 				UNNEST($1::bigint[]) AS state_change_order,
 				UNNEST($2::bigint[]) AS to_id,
-				UNNEST($3::text[]) AS state_change_category,
-				UNNEST($4::text[]) AS state_change_reason,
+				UNNEST($3::smallint[]) AS state_change_category,
+				UNNEST($4::smallint[]) AS state_change_reason,
 				UNNEST($5::timestamptz[]) AS ledger_created_at,
-				UNNEST($6::integer[]) AS ledger_number,
-				UNNEST($7::text[]) AS account_id,
-				UNNEST($8::bigint[]) AS operation_id,
-				UNNEST($9::text[]) AS tx_hash,
-				UNNEST($10::text[]) AS token_id,
-				UNNEST($11::text[]) AS amount,
-				UNNEST($12::text[]) AS offer_id,
-				UNNEST($13::text[]) AS signer_account_id,
-				UNNEST($14::text[]) AS spender_account_id,
-				UNNEST($15::text[]) AS sponsored_account_id,
-				UNNEST($16::text[]) AS sponsor_account_id,
-				UNNEST($17::text[]) AS deployer_account_id,
-				UNNEST($18::text[]) AS funder_account_id,
-				UNNEST($19::jsonb[]) AS signer_weights,
-				UNNEST($20::jsonb[]) AS thresholds,
-				UNNEST($21::jsonb[]) AS trustline_limit,
-				UNNEST($22::jsonb[]) AS flags,
-				UNNEST($23::jsonb[]) AS key_value
+				UNNEST($6::text[]) AS account_id,
+				UNNEST($7::text[]) AS token_id,
+				UNNEST($8::text[]) AS amount,
+				UNNEST($9::text[]) AS offer_id,
+				UNNEST($10::text[]) AS signer_account_id,
+				UNNEST($11::text[]) AS spender_account_id,
+				UNNEST($12::text[]) AS sponsored_account_id,
+				UNNEST($13::text[]) AS sponsor_account_id,
+				UNNEST($14::text[]) AS deployer_account_id,
+				UNNEST($15::text[]) AS funder_account_id,
+				UNNEST($16::jsonb[]) AS signer_weights,
+				UNNEST($17::jsonb[]) AS thresholds,
+				UNNEST($18::jsonb[]) AS trustline_limit,
+				UNNEST($19::jsonb[]) AS flags,
+				UNNEST($20::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
-				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				offer_id, signer_account_id,
+				account_id, token_id, amount, offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, funder_account_id, signer_weights, thresholds, trustline_limit, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
-				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
-				sc.offer_id, sc.signer_account_id,
+				sc.account_id, sc.token_id, sc.amount, sc.offer_id, sc.signer_account_id,
 				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
 				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
 			FROM input_data sc
@@ -313,10 +302,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(categories),
 		pq.Array(reasons),
 		pq.Array(ledgerCreatedAts),
-		pq.Array(ledgerNumbers),
 		pq.Array(accountIDs),
-		pq.Array(operationIDs),
-		pq.Array(txHashes),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
 		pq.Array(offerIDs),
@@ -349,12 +335,12 @@ func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}
 }
 
-// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
+// pgtypeInt2FromReasonPtr converts *types.StateChangeReason to pgtype.Int2 for efficient binary COPY.
+func pgtypeInt2FromReasonPtr(r *types.StateChangeReason) pgtype.Int2 {
 	if r == nil {
-		return pgtype.Text{Valid: false}
+		return pgtype.Int2{Valid: false}
 	}
-	return pgtype.Text{String: string(*r), Valid: true}
+	return pgtype.Int2{Int16: r.ToInt16(), Valid: true}
 }
 
 // jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
@@ -397,23 +383,20 @@ func (m *StateChangeModel) BatchCopy(
 		pgx.Identifier{"state_changes"},
 		[]string{
 			"to_id", "state_change_order", "state_change_category", "state_change_reason",
-			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
-			"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
-			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+			"ledger_created_at", "account_id", "token_id", "amount", "offer_id",
+			"signer_account_id", "spender_account_id", "sponsored_account_id", "sponsor_account_id",
+			"deployer_account_id", "funder_account_id", "signer_weights", "thresholds",
+			"trustline_limit", "flags", "key_value",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
-				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReasonPtr(sc.StateChangeReason),
+				pgtype.Int2{Int16: sc.StateChangeCategory.ToInt16(), Valid: true},
+				pgtypeInt2FromReasonPtr(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				pgtype.Text{String: sc.AccountID, Valid: true},
-				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				pgtype.Text{String: sc.TxHash, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
 				pgtypeTextFromNullString(sc.OfferID),
