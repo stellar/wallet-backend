@@ -24,42 +24,49 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
+// txHash filter uses JOIN with transactions table since tx_hash column was removed from state_changes.
+// operationID filter uses to_id directly since for operation-related state changes, to_id = operation_id.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	args := []interface{}{accountAddress}
 	argIndex := 2
 
-	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes
-		WHERE account_id = $1
-	`, columns))
-
-	// Add transaction hash filter if provided
+	// Use JOIN with transactions table when txHash filter is provided
 	if txHash != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND tx_hash = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(`
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order"
+			FROM state_changes sc
+			JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
+			WHERE sc.account_id = $1 AND t.hash = $%d
+		`, columns, argIndex))
 		args = append(args, *txHash)
 		argIndex++
+	} else {
+		queryBuilder.WriteString(fmt.Sprintf(`
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order"
+			FROM state_changes sc
+			WHERE sc.account_id = $1
+		`, columns))
 	}
 
-	// Add operation ID filter if provided
+	// Add operation ID filter if provided (to_id = operation_id for operation-related state changes)
 	if operationID != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND operation_id = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.to_id = $%d", argIndex))
 		args = append(args, *operationID)
 		argIndex++
 	}
 
 	// Add category filter if provided
 	if category != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_category = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_category = $%d", argIndex))
 		args = append(args, *category)
 		argIndex++
 	}
 
 	// Add reason filter if provided
 	if reason != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_reason = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_reason = $%d", argIndex))
 		args = append(args, *reason)
 		argIndex++
 	}
@@ -68,25 +75,24 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < $%d OR (to_id = $%d AND state_change_order < $%d))
+				AND (sc.to_id < $%d OR (sc.to_id = $%d AND sc.state_change_order < $%d))
 			`, argIndex, argIndex, argIndex+1))
 			args = append(args, cursor.ToID, cursor.StateChangeOrder)
 			argIndex += 2
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > $%d OR (to_id = $%d AND state_change_order > $%d))
+				AND (sc.to_id > $%d OR (sc.to_id = $%d AND sc.state_change_order > $%d))
 			`, argIndex, argIndex, argIndex+1))
 			args = append(args, cursor.ToID, cursor.StateChangeOrder)
 			argIndex += 2
 		}
 	}
 
-	// TODO: Extract the ordering code to separate function in utils and use everywhere
 	// Add ordering
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id DESC, sc.state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id ASC, sc.state_change_order ASC")
 	}
 
 	// Add limit using parameterized query
