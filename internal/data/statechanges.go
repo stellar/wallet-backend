@@ -547,13 +547,15 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 }
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// For operation-related state changes, to_id IS the operation_id
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE operation_id = $1
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", to_id as operation_id
+		FROM state_changes
+		WHERE to_id = $1
 	`, columns))
 
 	args := []interface{}{operationID}
@@ -602,30 +604,31 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 }
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-operation pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
-	// This guarantees that each operation gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple operations.
+	// operations, we use ROW_NUMBER() with PARTITION BY to_id to limit results per operation.
+	// For operation-related state changes, to_id IS the operation_id.
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (operation_id) AS (
 				SELECT * FROM UNNEST($1::bigint[])
 			),
-			
+
 			ranked_state_changes_per_operation_id AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
-				FROM 
+					sc.to_id as operation_id,
+					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM
 					state_changes sc
-				JOIN 
-					inputs i ON sc.operation_id = i.operation_id
+				JOIN
+					inputs i ON sc.to_id = i.operation_id
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", operation_id FROM ranked_state_changes_per_operation_id
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
