@@ -104,12 +104,11 @@ func TestAccountModel_Insert(t *testing.T) {
 		err = m.Insert(ctx, address)
 		require.NoError(t, err)
 
-		var dbAddress sql.NullString
-		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", address)
+		var dbAddress types.StellarAddress
+		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", types.StellarAddress(address))
 		require.NoError(t, err)
 
-		assert.True(t, dbAddress.Valid)
-		assert.Equal(t, address, dbAddress.String)
+		assert.Equal(t, address, string(dbAddress))
 	})
 
 	t.Run("duplicate insert fails", func(t *testing.T) {
@@ -167,7 +166,7 @@ func TestAccountModel_Delete(t *testing.T) {
 		delErr := m.Delete(ctx, address)
 		require.NoError(t, delErr)
 
-		var dbAddress sql.NullString
+		var dbAddress types.StellarAddress
 		getErr := m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
 		assert.ErrorIs(t, getErr, sql.ErrNoRows)
 	})
@@ -257,7 +256,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links (uses tx_id which references to_id)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_id, account_id) VALUES (1, $1), (2, $2)", address1, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_id, account_id) VALUES (1, $1), (2, $2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash function
@@ -311,7 +310,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)", operationID1, address1, operationID2, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)", operationID1, types.StellarAddress(address1), operationID2, types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID function
@@ -409,7 +408,7 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 		) VALUES
 		($1, $2, 1, 4, NOW(), $3),
 		($4, $5, 1, 3, NOW(), $6)
-	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
+	`, toID1, stateChangeOrder1, types.StellarAddress(address1), toID2, stateChangeOrder2, types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeIDs function

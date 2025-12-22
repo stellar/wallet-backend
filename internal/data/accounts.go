@@ -114,10 +114,16 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) (
 		return []string{}, nil
 	}
 
+	// Convert to [][]byte for pq.Array (BYTEA array)
+	addressBytes := make([][]byte, len(accountIDs))
+	for i, id := range accountIDs {
+		addressBytes[i] = bytesFromStellarAddress(types.StellarAddress(id))
+	}
+
 	const query = `SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)`
 	start := time.Now()
-	existingAccounts := []string{}
-	err := m.DB.SelectContext(ctx, &existingAccounts, query, pq.Array(accountIDs))
+	var existingAccounts []types.StellarAddress
+	err := m.DB.SelectContext(ctx, &existingAccounts, query, pq.Array(addressBytes))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByIDs", "accounts", len(accountIDs))
@@ -126,7 +132,13 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) (
 		return nil, fmt.Errorf("batch getting accounts by IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByIDs", "accounts")
-	return existingAccounts, nil
+
+	// Convert back to string slice
+	result := make([]string, len(existingAccounts))
+	for i, addr := range existingAccounts {
+		result[i] = string(addr)
+	}
+	return result, nil
 }
 
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
@@ -134,15 +146,13 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) (
 func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
 	const query = `
 		SELECT
-			EXISTS(
-				SELECT stellar_address FROM accounts WHERE stellar_address = $1
-				UNION
-				SELECT public_key FROM channel_accounts WHERE public_key = $1
-			)
+			EXISTS(SELECT 1 FROM accounts WHERE stellar_address = $1)
+			OR
+			EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $2)
 	`
 	var exists bool
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &exists, query, address)
+	err := m.DB.GetContext(ctx, &exists, query, types.StellarAddress(address), address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "accounts", duration)
 	if err != nil {
