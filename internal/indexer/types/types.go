@@ -353,19 +353,18 @@ type StateChange struct {
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	AccountID           string              `json:"accountId,omitempty" db:"account_id"`
-	// Removed: IngestedAt, LedgerNumber (derive via GetLedgerNumber()),
-	//          OperationID (derive via GetOperationID()), TxHash (derive via GetTxID())
-	// Nullable fields:
-	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
-	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
-	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
-	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	// Account/contract ID fields stored as BYTEA (33 bytes: version byte + 32-byte public key):
+	AccountID          StellarAddress         `json:"accountId,omitempty" db:"account_id"`
+	TokenID            NullableStellarAddress `json:"tokenId,omitempty" db:"token_id"`
+	SignerAccountID    NullableStellarAddress `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SpenderAccountID   NullableStellarAddress `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	SponsoredAccountID NullableStellarAddress `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID   NullableStellarAddress `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID  NullableStellarAddress `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID    NullableStellarAddress `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	// Nullable text fields:
+	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
+	OfferID sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	// Nullable JSONB fields:
 	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
 	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
