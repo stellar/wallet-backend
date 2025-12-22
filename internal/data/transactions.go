@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -205,8 +206,11 @@ func (m *TransactionModel) BatchInsert(
 	for txHash, addresses := range stellarAddressesByTxHash {
 		toID := hashToToID[txHash]
 		for address := range addresses.Iter() {
-			txIDs = append(txIDs, toID)
-			stellarAddresses = append(stellarAddresses, bytesFromAddressString(address))
+			addressBytes := bytesFromAddressString(address)
+			if addressBytes != nil {
+				txIDs = append(txIDs, toID)
+				stellarAddresses = append(stellarAddresses, addressBytes)
+			}
 		}
 	}
 
@@ -334,7 +338,12 @@ func (m *TransactionModel) BatchCopy(
 		for txHash, addresses := range stellarAddressesByTxHash {
 			txIDPgtype := pgtype.Int8{Int64: hashToToID[txHash], Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txIDPgtype, bytesFromAddressString(addr)})
+				addressBytes := bytesFromAddressString(addr)
+				if addressBytes != nil {
+					taRows = append(taRows, []any{txIDPgtype, addressBytes})
+				} else {
+					log.Printf("Invalid address: %s", addr)
+				}
 			}
 		}
 

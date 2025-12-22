@@ -197,7 +197,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			// Verify the account links
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
+					OperationID int64                `db:"operation_id"`
 					AccountID   types.StellarAddress `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
@@ -367,8 +367,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   types.StellarAddress	 `db:"account_id"`
+					OperationID int64                `db:"operation_id"`
+					AccountID   types.StellarAddress `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
