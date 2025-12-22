@@ -12,6 +12,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -39,8 +40,14 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 	})
 
 	t.Run("returns existing accounts only", func(t *testing.T) {
-		// Insert some test accounts
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", "account1", "account2")
+		// Insert some test accounts with valid addresses
+		addr1 := keypair.MustRandom().Address()
+		addr2 := keypair.MustRandom().Address()
+		nonExistent1 := keypair.MustRandom().Address()
+		nonExistent2 := keypair.MustRandom().Address()
+
+		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
+			types.StellarAddress(addr1), types.StellarAddress(addr2))
 		require.NoError(t, err)
 
 		// Test with mix of existing and non-existing accounts
@@ -48,15 +55,15 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "accounts").Return().Once()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
 
-		result, err := accountModel.BatchGetByIDs(ctx, []string{"account1", "nonexistent", "account2", "another_nonexistent"})
+		result, err := accountModel.BatchGetByIDs(ctx, []string{addr1, nonExistent1, addr2, nonExistent2})
 		require.NoError(t, err)
 
 		// Should only return the existing accounts
 		assert.Len(t, result, 2)
-		assert.Contains(t, result, "account1")
-		assert.Contains(t, result, "account2")
-		assert.NotContains(t, result, "nonexistent")
-		assert.NotContains(t, result, "another_nonexistent")
+		assert.Contains(t, result, addr1)
+		assert.Contains(t, result, addr2)
+		assert.NotContains(t, result, nonExistent1)
+		assert.NotContains(t, result, nonExistent2)
 	})
 
 	t.Run("returns empty when no accounts exist", func(t *testing.T) {
@@ -151,7 +158,7 @@ func TestAccountModel_Delete(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 		require.NoError(t, insertErr)
 		rowAffected, rowErr := result.RowsAffected()
 		require.NoError(t, rowErr)
@@ -205,7 +212,7 @@ func TestAccountModelGet(t *testing.T) {
 	address := keypair.MustRandom().Address()
 
 	// Insert test account
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 	rowAffected, err := result.RowsAffected()
 	require.NoError(t, err)
@@ -214,7 +221,7 @@ func TestAccountModelGet(t *testing.T) {
 	// Test Get function
 	account, err := m.Get(ctx, address)
 	require.NoError(t, err)
-	assert.Equal(t, address, account.StellarAddress)
+	assert.Equal(t, address, string(account.StellarAddress))
 }
 
 func TestAccountModelBatchGetByTxHashes(t *testing.T) {
@@ -242,7 +249,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	txHash2 := "tx2"
 
 	// Insert test accounts
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first (to_id encodes ledger via TOID)
@@ -292,7 +299,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	operationID2 := int64(456)
 
 	// Insert test accounts
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first (to_id encodes ledger via TOID)
@@ -345,7 +352,7 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, isFeeBumpEligible)
 
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 	rowAffected, err := result.RowsAffected()
 	require.NoError(t, err)
@@ -383,7 +390,7 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	stateChangeOrder2 := int64(1)
 
 	// Insert test accounts
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first (to_id encodes ledger via TOID)

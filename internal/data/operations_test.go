@@ -56,7 +56,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first

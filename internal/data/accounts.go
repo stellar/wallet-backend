@@ -35,7 +35,7 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 	const query = `SELECT * FROM accounts WHERE stellar_address = $1`
 	var account types.Account
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &account, query, address)
+	err := m.DB.GetContext(ctx, &account, query, types.StellarAddress(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Get", "accounts", duration)
 	if err != nil {
@@ -49,8 +49,8 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
 	const query = `SELECT stellar_address FROM accounts`
 	start := time.Now()
-	accounts := []string{}
-	err := m.DB.SelectContext(ctx, &accounts, query)
+	var addresses []types.StellarAddress
+	err := m.DB.SelectContext(ctx, &addresses, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "accounts", duration)
 	if err != nil {
@@ -58,13 +58,18 @@ func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("getting all accounts: %w", err)
 	}
 	m.MetricsService.IncDBQuery("GetAll", "accounts")
+	// Convert StellarAddress slice to string slice
+	accounts := make([]string, len(addresses))
+	for i, addr := range addresses {
+		accounts[i] = string(addr)
+	}
 	return accounts, nil
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1)`
 	start := time.Now()
-	_, err := m.DB.ExecContext(ctx, query, address)
+	_, err := m.DB.ExecContext(ctx, query, types.StellarAddress(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Insert", "accounts", duration)
 	if err != nil {
@@ -81,7 +86,7 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
 	start := time.Now()
-	result, err := m.DB.ExecContext(ctx, query, address)
+	result, err := m.DB.ExecContext(ctx, query, types.StellarAddress(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Delete", "accounts", duration)
 	if err != nil {
