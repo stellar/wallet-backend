@@ -436,16 +436,16 @@ func (m *StateChangeModel) BatchCopy(
 		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
 	}
-	if int(copyCount) != len(stateChanges) {
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
+	if int(copyCount) != len(validStateChanges) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(validStateChanges), copyCount)
 	}
 
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(validStateChanges))
 	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
 
-	return len(stateChanges), nil
+	return len(validStateChanges), nil
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.
