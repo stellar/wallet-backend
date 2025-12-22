@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // testModel is a sample struct used for testing getDBColumns and prepareColumnsWithID

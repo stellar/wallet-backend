@@ -83,8 +83,8 @@ type ContractChange struct {
 }
 
 type Account struct {
-	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
-	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
+	StellarAddress StellarAddress `json:"address,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time      `json:"createdAt,omitempty" db:"created_at"`
 }
 
 type AccountWithTxHash struct {

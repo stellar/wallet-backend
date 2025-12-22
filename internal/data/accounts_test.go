@@ -261,7 +261,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	// Verify accounts are returned with correct tx_hash
 	addressSet := make(map[string]string)
 	for _, acc := range accounts {
-		addressSet[acc.StellarAddress] = acc.TxHash
+		addressSet[string(acc.StellarAddress)] = acc.TxHash
 	}
 	assert.Equal(t, txHash1, addressSet[address1])
 	assert.Equal(t, txHash2, addressSet[address2])
@@ -315,7 +315,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	// Verify accounts are returned with correct operation_id
 	addressSet := make(map[string]int64)
 	for _, acc := range accounts {
-		addressSet[acc.StellarAddress] = acc.OperationID
+		addressSet[string(acc.StellarAddress)] = acc.OperationID
 	}
 	assert.Equal(t, operationID1, addressSet[address1])
 	assert.Equal(t, operationID2, addressSet[address2])
@@ -415,7 +415,7 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	// Verify accounts are returned with correct state_change_id
 	addressSet := make(map[string]string)
 	for _, acc := range accounts {
-		addressSet[acc.StellarAddress] = acc.StateChangeID
+		addressSet[string(acc.StellarAddress)] = acc.StateChangeID
 	}
 	assert.Equal(t, "100-1", addressSet[address1])
 	assert.Equal(t, "200-1", addressSet[address2])

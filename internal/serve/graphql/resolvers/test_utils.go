@@ -96,7 +96,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
-				AccountID:           types.StellarAddress(parentAccount.StellarAddress),
+				AccountID:           parentAccount.StellarAddress,
 				LedgerCreatedAt:     time.Now(),
 			})
 		}
@@ -109,7 +109,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			AccountID:           types.StellarAddress(parentAccount.StellarAddress),
+			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
 		})
 	}
@@ -128,7 +128,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO transactions_accounts (tx_id, account_id) VALUES ($1, $2)`,
-				txn.ToID, types.StellarAddress(parentAccount.StellarAddress))
+				txn.ToID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 
@@ -140,7 +140,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
-				op.ID, types.StellarAddress(parentAccount.StellarAddress))
+				op.ID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 
