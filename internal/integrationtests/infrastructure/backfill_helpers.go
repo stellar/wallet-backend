@@ -82,13 +82,14 @@ func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAd
 	defer db.Close() //nolint:errcheck
 
 	var exists bool
+	// ledger_number derived from id using TOID: (id >> 32)::integer
 	query := `
 		SELECT EXISTS (
 			SELECT 1 FROM operations o
 			INNER JOIN operations_accounts oa ON o.id = oa.operation_id
 			WHERE oa.account_id = $1
 			AND o.operation_type = $2
-			AND o.ledger_number BETWEEN $3 AND $4
+			AND (o.id >> 32)::integer BETWEEN $3 AND $4
 		)
 	`
 	err = db.QueryRowContext(ctx, query, accountAddr, opType, startLedger, endLedger).Scan(&exists)
@@ -112,12 +113,13 @@ func (s *SharedContainers) GetTransactionAccountLinkCount(ctx context.Context, a
 	defer db.Close() //nolint:errcheck
 
 	var count int
+	// transactions_accounts uses tx_id (not tx_hash), ledger_number derived from to_id using TOID
 	query := `
 		SELECT COUNT(*)
 		FROM transactions_accounts ta
-		INNER JOIN transactions t ON ta.tx_hash = t.hash
+		INNER JOIN transactions t ON ta.tx_id = t.to_id
 		WHERE ta.account_id = $1
-		AND t.ledger_number BETWEEN $2 AND $3
+		AND (t.to_id >> 32)::integer BETWEEN $2 AND $3
 	`
 	err = db.QueryRowContext(ctx, query, accountAddr, startLedger, endLedger).Scan(&count)
 	if err != nil {
@@ -140,7 +142,8 @@ func (s *SharedContainers) GetStateChangeCountForLedgerRange(ctx context.Context
 	defer db.Close() //nolint:errcheck
 
 	var count int
-	query := `SELECT COUNT(*) FROM state_changes WHERE ledger_number BETWEEN $1 AND $2`
+	// ledger_number derived from to_id using TOID: (to_id >> 32)::integer
+	query := `SELECT COUNT(*) FROM state_changes WHERE (to_id >> 32)::integer BETWEEN $1 AND $2`
 	err = db.QueryRowContext(ctx, query, startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting state changes: %w", err)
@@ -166,9 +169,9 @@ func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, e
 	// Then compare with expected count to find gaps
 	var distinctLedgers int
 	query := `
-		SELECT COUNT(DISTINCT ledger_number)
+		SELECT COUNT(DISTINCT (to_id >> 32)::integer)
 		FROM transactions
-		WHERE ledger_number BETWEEN $1 AND $2
+		WHERE (to_id >> 32)::integer BETWEEN $1 AND $2
 	`
 	err = db.QueryRowContext(ctx, query, startLedger, endLedger).Scan(&distinctLedgers)
 	if err != nil {
@@ -180,9 +183,9 @@ func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, e
 	var gapCount int
 	gapQuery := `
 		WITH ledger_sequence AS (
-			SELECT DISTINCT ledger_number
+			SELECT DISTINCT (to_id >> 32)::integer as ledger_number
 			FROM transactions
-			WHERE ledger_number BETWEEN $1 AND $2
+			WHERE (to_id >> 32)::integer BETWEEN $1 AND $2
 			ORDER BY ledger_number
 		),
 		gaps AS (
