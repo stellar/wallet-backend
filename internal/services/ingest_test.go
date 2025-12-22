@@ -484,6 +484,8 @@ func Test_BackfillMode_Validation(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
 			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("SetBackfillElapsed", mock.AnythingOfType("string"), mock.AnythingOfType("float64")).Return().Maybe()
+			mockMetricsService.On("IncBackfillBatchesFailed", mock.AnythingOfType("string")).Return().Maybe()
 			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
 			defer mockMetricsService.AssertExpectations(t)
