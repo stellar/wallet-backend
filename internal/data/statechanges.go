@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -373,6 +374,16 @@ func (m *StateChangeModel) BatchCopy(
 	}
 
 	start := time.Now()
+
+	sort.Slice(stateChanges, func(i, j int) bool {
+		if stateChanges[i].LedgerCreatedAt.Equal(stateChanges[j].LedgerCreatedAt) {
+			if stateChanges[i].ToID == stateChanges[j].ToID {
+				return stateChanges[i].StateChangeOrder > stateChanges[j].StateChangeOrder
+			}
+			return stateChanges[i].ToID > stateChanges[j].ToID
+		}
+		return stateChanges[i].LedgerCreatedAt.After(stateChanges[j].LedgerCreatedAt)
+	})
 
 	var validStateChanges []types.StateChange
 	for _, sc := range stateChanges {

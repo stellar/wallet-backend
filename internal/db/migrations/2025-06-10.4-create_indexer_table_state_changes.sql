@@ -31,13 +31,17 @@ CREATE TABLE state_changes (
     thresholds JSONB,
     trustline_limit JSONB,
     PRIMARY KEY (to_id, state_change_order)
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, to_id, state_change_order'
 );
 
 -- Index for state_changes JOIN to transactions
 -- Supports: JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
 CREATE INDEX idx_state_changes_tx_to_id ON state_changes ((to_id & ~4095));
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
 
 -- +migrate Down
 

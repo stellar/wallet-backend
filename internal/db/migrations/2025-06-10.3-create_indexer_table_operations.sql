@@ -19,7 +19,6 @@ CREATE TABLE operations (
 -- Index for state_changes JOIN to transactions
 -- Supports: JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
 CREATE INDEX idx_operations_tx_to_id ON operations ((id & ~4095));
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
