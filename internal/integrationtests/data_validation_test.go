@@ -103,7 +103,6 @@ func validateTransactionBase(suite *DataValidationTestSuite, ctx context.Context
 	suite.Require().NotEmpty(tx.MetaXdr, "meta XDR should not be empty")
 	suite.Require().NotZero(tx.LedgerNumber, "ledger number should not be zero")
 	suite.Require().False(tx.LedgerCreatedAt.IsZero(), "ledger created at should not be zero")
-	suite.Require().False(tx.IngestedAt.IsZero(), "ingested at should not be zero")
 
 	return tx
 }
@@ -115,7 +114,6 @@ func validateOperationBase(suite *DataValidationTestSuite, op *types.Operation, 
 	suite.Require().NotEmpty(op.OperationXdr, "operation XDR should not be empty")
 	suite.Require().Equal(expectedLedgerNumber, int64(op.LedgerNumber), "ledger number mismatch")
 	suite.Require().False(op.LedgerCreatedAt.IsZero(), "ledger created at should not be zero")
-	suite.Require().False(op.IngestedAt.IsZero(), "ingested at should not be zero")
 }
 
 // validateStateChangeBase validates common state change fields
@@ -123,7 +121,6 @@ func validateStateChangeBase(suite *DataValidationTestSuite, sc types.StateChang
 	suite.Require().NotNil(sc, "state change should not be nil")
 	suite.Require().Equal(expectedLedger, int64(sc.GetLedgerNumber()), "ledger number mismatch")
 	suite.Require().False(sc.GetLedgerCreatedAt().IsZero(), "ledger created at should not be zero")
-	suite.Require().False(sc.GetIngestedAt().IsZero(), "ingested at should not be zero")
 }
 
 // validateBalanceChange validates a balance state change

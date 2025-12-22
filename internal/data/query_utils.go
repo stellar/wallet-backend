@@ -115,7 +115,12 @@ func prepareColumnsWithID(columns string, model any, prefix string, idColumns ..
 		dbColumns = getDBColumns(model)
 	} else {
 		dbColumns = set.NewSet[string]()
-		dbColumns.Add(columns)
+		for _, col := range strings.Split(columns, ",") {
+			trimmed := strings.TrimSpace(col)
+			if trimmed != "" {
+				dbColumns.Add(trimmed)
+			}
+		}
 	}
 
 	if prefix != "" {
