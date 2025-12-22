@@ -165,7 +165,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		allParticipants = allParticipants.Union(opParticipants.Participants)
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants.Add(stateChange.AccountID)
+		allParticipants.Add(string(stateChange.AccountID))
 	}
 
 	// Insert transaction participants
@@ -192,7 +192,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		switch stateChange.StateChangeCategory {
 		case types.StateChangeCategoryTrustline:
 			trustlineChange := types.TrustlineChange{
-				AccountID:    stateChange.AccountID,
+				AccountID:    string(stateChange.AccountID),
 				OperationID:  stateChange.GetOperationID(),
 				Asset:        stateChange.TrustlineAsset,
 				LedgerNumber: tx.Ledger.LedgerSequence(),
@@ -211,12 +211,12 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			// Only store contract changes when:
 			// - Account is C-address, OR
 			// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
-			accountIsContract := isContractAddress(stateChange.AccountID)
+			accountIsContract := isContractAddress(string(stateChange.AccountID))
 			tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
 
 			if accountIsContract || !tokenIsSACOrNative {
 				contractChange := types.ContractChange{
-					AccountID:    stateChange.AccountID,
+					AccountID:    string(stateChange.AccountID),
 					OperationID:  stateChange.GetOperationID(),
 					ContractID:   stateChange.TokenID.String,
 					LedgerNumber: tx.Ledger.LedgerSequence(),

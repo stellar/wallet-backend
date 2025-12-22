@@ -62,32 +62,32 @@ func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
 
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
-	b.base.AccountID = accountID
+	b.base.AccountID = types.StellarAddress(accountID)
 	return b
 }
 
 // WithSigner sets the signer and the weights
 func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *StateChangeBuilder {
-	b.base.SignerAccountID = utils.SQLNullString(signer)
+	b.base.SignerAccountID = types.NewNullableStellarAddress(signer)
 	b.base.SignerWeights = types.NullableJSONB(weights)
 	return b
 }
 
 // WithDeployer sets the deployer account ID, usually associated with a contract deployment.
 func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
-	b.base.DeployerAccountID = utils.SQLNullString(deployer)
+	b.base.DeployerAccountID = types.NewNullableStellarAddress(deployer)
 	return b
 }
 
 // WithFunder sets the funder account ID
 func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
-	b.base.FunderAccountID = utils.SQLNullString(funder)
+	b.base.FunderAccountID = types.NewNullableStellarAddress(funder)
 	return b
 }
 
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
-	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	b.base.SponsorAccountID = types.NewNullableStellarAddress(sponsor)
 	return b
 }
 
@@ -105,7 +105,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 
 // WithToken sets the token ID using the contract address
 func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
-	b.base.TokenID = utils.SQLNullString(contractAddress)
+	b.base.TokenID = types.NewNullableStellarAddress(contractAddress)
 	return b
 }
 
@@ -123,7 +123,7 @@ func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateC
 
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
-	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
+	b.base.SponsoredAccountID = types.NewNullableStellarAddress(sponsoredAccountID)
 	return b
 }
 
