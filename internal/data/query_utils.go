@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	set "github.com/deckarep/golang-set/v2"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 type SortOrder string
@@ -157,4 +159,32 @@ func addIDColumn(columns set.Set[string], prefix string, idColumn string) set.Se
 		columns.Add(columnToAdd)
 	}
 	return columns
+}
+
+// bytesFromStellarAddress converts StellarAddress to []byte for pgx CopyFrom.
+// Returns 33 bytes: [version_byte][32-byte_public_key].
+func bytesFromStellarAddress(s types.StellarAddress) []byte {
+	if s == "" {
+		return nil
+	}
+	val, err := s.Value()
+	if err != nil || val == nil {
+		return nil
+	}
+	return val.([]byte)
+}
+
+// bytesFromNullableStellarAddress converts NullableStellarAddress to []byte for pgx CopyFrom.
+// Returns 33 bytes or nil if not valid.
+func bytesFromNullableStellarAddress(n types.NullableStellarAddress) []byte {
+	if !n.Valid {
+		return nil
+	}
+	return bytesFromStellarAddress(types.StellarAddress(n.String))
+}
+
+// bytesFromAddressString converts a string address (G.../C...) to []byte for pgx CopyFrom.
+// Returns 33 bytes: [version_byte][32-byte_public_key].
+func bytesFromAddressString(address string) []byte {
+	return bytesFromStellarAddress(types.StellarAddress(address))
 }
