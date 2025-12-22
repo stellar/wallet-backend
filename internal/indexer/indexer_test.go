@@ -176,12 +176,12 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			{ToID: 1, AccountID: "alice", SortKey: "1-1"},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 2, AccountID: "charlie", SortKey: "1-2"},
+			{ToID: 1, AccountID: "charlie", SortKey: "1-2"},
 		}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-			{ToID: 3, AccountID: "dave", SortKey: "0-1"},
+			{ToID: 0, AccountID: "dave", SortKey: "0-1"},
 		}, nil)
 
 		// Create indexer
@@ -568,8 +568,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
 			{ToID: 1, AccountID: "alice", SortKey: "1-1"},
-			{ToID: 2, AccountID: "alice", SortKey: "1-2"},
-			{ToID: 3, AccountID: "alice", SortKey: "1-3"},
+			{ToID: 1, AccountID: "alice", SortKey: "1-2"},
+			{ToID: 1, AccountID: "alice", SortKey: "1-3"},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
@@ -605,13 +605,13 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		// Verify second state change
 		assert.Equal(t, "alice", stateChanges[1].AccountID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[1].ToID)
 		assert.Equal(t, int64(1), stateChanges[1].GetOperationID())
 		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
 
 		// Verify third state change
 		assert.Equal(t, "alice", stateChanges[2].AccountID)
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(1), stateChanges[2].ToID)
 		assert.Equal(t, int64(1), stateChanges[2].GetOperationID())
 		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
 
@@ -649,12 +649,12 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			{ToID: 1, AccountID: "alice"},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 2, AccountID: "bob"},
+			{ToID: 1, AccountID: "bob"},
 		}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-			{ToID: 3, AccountID: "charlie"},
+			{ToID: 0, AccountID: "charlie"},
 		}, nil)
 
 		// Create indexer
@@ -683,11 +683,11 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 				assert.Equal(t, int64(1), sc.GetOperationID())
 				foundAlice = true
 			case "bob":
-				assert.Equal(t, int64(2), sc.ToID)
+				assert.Equal(t, int64(1), sc.ToID)
 				assert.Equal(t, int64(1), sc.GetOperationID())
 				foundBob = true
 			case "charlie":
-				assert.Equal(t, int64(3), sc.ToID)
+				assert.Equal(t, int64(0), sc.ToID)
 				assert.Equal(t, int64(0), sc.GetOperationID())
 				foundCharlie = true
 			}

@@ -135,7 +135,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		for _, op := range ops {
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at) VALUES ($1, $2, $3, $4)`,
-				op.ID, op.OperationType, op.OperationXDR, op.LedgerCreatedAt)
+				op.ID, op.OperationType.ToInt16(), op.OperationXDR, op.LedgerCreatedAt)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
@@ -147,7 +147,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		for _, sc := range stateChanges {
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, account_id, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.AccountID, sc.LedgerCreatedAt)
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory.ToInt16(), sc.StateChangeReason.ToInt16(), sc.AccountID, sc.LedgerCreatedAt)
 			require.NoError(t, err)
 		}
 		return nil
