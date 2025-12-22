@@ -466,7 +466,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			(8193, 1, 3, 7, $1, $2),
 			(12289, 1, 1, 3, $1, $2),
 			(12290, 1, 3, 7, $1, $2)
-	`, now, address)
+	`, now, bytesFromAddressString(address))
 	require.NoError(t, err)
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
@@ -486,7 +486,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, "tx1", sc.TxHash)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -508,7 +508,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(4097), sc.ToID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -532,7 +532,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(4097), sc.ToID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -553,7 +553,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -574,7 +574,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -597,7 +597,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -625,7 +625,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			assert.Equal(t, int64(4097), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -708,7 +708,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 			(1, 1, 1, $1, $2),
 			(2, 1, 1, $1, $2),
 			(3, 1, 1, $1, $2)
-	`, now, address)
+	`, now, bytesFromAddressString(address))
 	require.NoError(t, err)
 
 	// Test GetAll without limit
@@ -764,7 +764,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 			(8194, 1, 1, $1, $2),
 			(8195, 1, 1, $1, $2),
 			(12289, 1, 1, $1, $2)
-	`, now, address)
+	`, now, bytesFromAddressString(address))
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -974,7 +974,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 			(123, 1, 1, $1, $2),
 			(456, 1, 1, $1, $2),
 			(123, 2, 1, $1, $2)
-	`, now, address)
+	`, now, bytesFromAddressString(address))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
@@ -1038,7 +1038,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 			(4098, 1, 1, $1, $2),
 			(4099, 1, 1, $1, $2),
 			(8193, 1, 1, $1, $2)
-	`, now, address)
+	`, now, bytesFromAddressString(address))
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single transaction", func(t *testing.T) {
