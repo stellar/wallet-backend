@@ -44,7 +44,7 @@ func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.Acco
 
 // FunderAddress is the resolver for the funderAddress field.
 func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.FunderAccountID), nil
+	return r.resolveNullableStellarAddress(obj.FunderAccountID), nil
 }
 
 // Type is the resolver for the type field.
@@ -80,7 +80,7 @@ func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, ob
 
 // TokenID is the resolver for the tokenId field.
 func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+	return r.resolveNullableStellarAddress(obj.TokenID), nil
 }
 
 // Flags is the resolver for the flags field.
@@ -198,12 +198,12 @@ func (r *reservesChangeResolver) Transaction(ctx context.Context, obj *types.Res
 
 // SponsoredAddress is the resolver for the sponsoredAddress field.
 func (r *reservesChangeResolver) SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsoredAccountID), nil
+	return r.resolveNullableStellarAddress(obj.SponsoredAccountID), nil
 }
 
 // SponsorAddress is the resolver for the sponsorAddress field.
 func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsorAccountID), nil
+	return r.resolveNullableStellarAddress(obj.SponsorAccountID), nil
 }
 
 // KeyValue is the resolver for the keyValue field.
@@ -244,7 +244,7 @@ func (r *signerChangeResolver) Transaction(ctx context.Context, obj *types.Signe
 
 // SignerAddress is the resolver for the signerAddress field.
 func (r *signerChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SignerAccountID), nil
+	return r.resolveNullableStellarAddress(obj.SignerAccountID), nil
 }
 
 // SignerWeights is the resolver for the signerWeights field.
@@ -321,7 +321,7 @@ func (r *standardBalanceChangeResolver) Transaction(ctx context.Context, obj *ty
 
 // TokenID is the resolver for the tokenId field.
 func (r *standardBalanceChangeResolver) TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TokenID), nil
+	return r.resolveRequiredStellarAddress(obj.TokenID), nil
 }
 
 // Amount is the resolver for the amount field.
@@ -362,7 +362,7 @@ func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.Tr
 
 // TokenID is the resolver for the tokenId field.
 func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+	return r.resolveNullableStellarAddress(obj.TokenID), nil
 }
 
 // Limit is the resolver for the limit field.

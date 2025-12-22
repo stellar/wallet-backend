@@ -70,9 +70,9 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 // Shared field resolver functions
 // These functions handle common field resolution patterns to avoid duplication
 
-// resolveNullableString resolves nullable string fields from the database
+// resolveNullableStellarAddress resolves nullable Stellar address fields from the database
 // Returns pointer to string if valid, nil if null
-func (r *Resolver) resolveNullableString(field sql.NullString) *string {
+func (r *Resolver) resolveNullableStellarAddress(field types.NullableStellarAddress) *string {
 	if field.Valid {
 		return &field.String
 	}
@@ -82,6 +82,15 @@ func (r *Resolver) resolveNullableString(field sql.NullString) *string {
 // resolveRequiredString resolves required string fields from the database
 // Returns empty string if null to satisfy non-nullable GraphQL fields
 func (r *Resolver) resolveRequiredString(field sql.NullString) string {
+	if field.Valid {
+		return field.String
+	}
+	return ""
+}
+
+// resolveRequiredStellarAddress resolves required Stellar address fields from the database
+// Returns empty string if null to satisfy non-nullable GraphQL fields
+func (r *Resolver) resolveRequiredStellarAddress(field types.NullableStellarAddress) string {
 	if field.Valid {
 		return field.String
 	}

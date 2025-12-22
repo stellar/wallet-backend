@@ -25,7 +25,7 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	t.Run("all valid", func(t *testing.T) {
 		obj := &types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
-				TokenID: sql.NullString{String: "token1", Valid: true},
+				TokenID: types.NewNullableStellarAddress("token1"),
 				Amount:  sql.NullString{String: "100.5", Valid: true},
 			},
 		}
