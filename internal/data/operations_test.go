@@ -198,7 +198,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
 					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					AccountID   types.StellarAddress `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -206,7 +206,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids for O(1) lookups
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each operation has its expected account links
@@ -368,7 +368,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
 					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					AccountID   types.StellarAddress	 `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -376,7 +376,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each expected operation has its account links

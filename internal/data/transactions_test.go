@@ -182,7 +182,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
 					TxID      int64  `db:"tx_id"`
-					AccountID string `db:"account_id"`
+					AccountID types.StellarAddress `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_id, account_id FROM transactions_accounts ORDER BY tx_id, account_id")
 				require.NoError(t, err)
@@ -197,7 +197,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 				accountLinksMap := make(map[string][]string)
 				for _, link := range accountLinks {
 					txHash := txIDToHash[link.TxID]
-					accountLinksMap[txHash] = append(accountLinksMap[txHash], link.AccountID)
+					accountLinksMap[txHash] = append(accountLinksMap[txHash], string(link.AccountID))
 				}
 
 				// Verify each transaction has its expected account links
@@ -350,7 +350,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			if len(tc.stellarAddressesByHash) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
 					TxID      int64  `db:"tx_id"`
-					AccountID string `db:"account_id"`
+					AccountID types.StellarAddress `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_id, account_id FROM transactions_accounts ORDER BY tx_id, account_id")
 				require.NoError(t, err)
@@ -365,7 +365,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 				accountLinksMap := make(map[string][]string)
 				for _, link := range accountLinks {
 					txHash := txIDToHash[link.TxID]
-					accountLinksMap[txHash] = append(accountLinksMap[txHash], link.AccountID)
+					accountLinksMap[txHash] = append(accountLinksMap[txHash], string(link.AccountID))
 				}
 
 				// Verify each expected transaction has its account links

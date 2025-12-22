@@ -278,11 +278,11 @@ func (m *OperationModel) BatchInsert(
 
 	// 2. Flatten the stellarAddressesByOpID into parallel slices
 	var opIDs []int64
-	var stellarAddresses []string
+	var stellarAddresses [][]byte
 	for opID, addresses := range stellarAddressesByOpID {
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
-			stellarAddresses = append(stellarAddresses, address)
+			stellarAddresses = append(stellarAddresses, bytesFromAddressString(address))
 		}
 	}
 
@@ -315,7 +315,7 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($5::bigint[]) AS op_id,
-				UNNEST($6::text[]) AS account_id
+				UNNEST($6::bytea[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -398,7 +398,7 @@ func (m *OperationModel) BatchCopy(
 		for opID, addresses := range stellarAddressesByOpID {
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				oaRows = append(oaRows, []any{opIDPgtype, bytesFromAddressString(addr)})
 			}
 		}
 
