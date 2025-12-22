@@ -30,7 +30,7 @@ CREATE TABLE state_changes (
     funder_account_id BYTEA,
     thresholds JSONB,
     trustline_limit JSONB,
-    PRIMARY KEY (to_id, state_change_order)
+    PRIMARY KEY (to_id, state_change_order, ledger_created_at)
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',

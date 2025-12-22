@@ -43,10 +43,10 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
-		if err != nil {
-			return fmt.Errorf("populating account tokens cache: %w", err)
-		}
+		// err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		// if err != nil {
+		// 	return fmt.Errorf("populating account tokens cache: %w", err)
+		// }
 
 		err := m.initializeCursors(ctx, startLedger)
 		if err != nil {

@@ -4,12 +4,14 @@
 -- Primary key changed from hash to to_id (TOID) for storage efficiency.
 -- ledger_number can be derived from to_id using: (to_id >> 32)::integer
 CREATE TABLE transactions (
-    to_id BIGINT PRIMARY KEY,
-    hash TEXT NOT NULL UNIQUE,
+    to_id BIGINT,
+    hash TEXT NOT NULL,
     envelope_xdr TEXT,
     result_xdr TEXT,
     meta_xdr TEXT,
-    ledger_created_at TIMESTAMPTZ NOT NULL
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (to_id, ledger_created_at),
+    UNIQUE (hash, ledger_created_at)
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
@@ -22,10 +24,10 @@ CREATE INDEX idx_transactions_hash ON transactions(hash);
 -- Table: transactions_accounts
 -- Uses tx_id (BIGINT) instead of tx_hash (TEXT) for storage efficiency.
 CREATE TABLE transactions_accounts (
-    tx_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
+    tx_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, tx_id)
+    PRIMARY KEY (account_id, tx_id, ledger_created_at)
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
