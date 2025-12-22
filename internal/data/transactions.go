@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -301,6 +302,13 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
+			return txs[i].ToID > txs[j].ToID
+		}
+		return txs[i].LedgerCreatedAt.After(txs[j].LedgerCreatedAt)
+	})
+
 	// COPY transactions using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -334,24 +342,45 @@ func (m *TransactionModel) BatchCopy(
 			hashToToID[t.Hash] = t.ToID
 		}
 
-		var taRows [][]any
+		type taRow struct {
+			txID int64
+			accountID []byte
+			ledgerCreatedAt time.Time
+		}
+		var taRows []taRow
 		for txHash, addresses := range stellarAddressesByTxHash {
-			txIDPgtype := pgtype.Int8{Int64: hashToToID[txHash], Valid: true}
 			for _, addr := range addresses.ToSlice() {
 				addressBytes := bytesFromAddressString(addr)
 				if addressBytes != nil {
-					taRows = append(taRows, []any{txIDPgtype, addressBytes})
+					taRows = append(taRows, taRow{
+						hashToToID[txHash],
+						addressBytes,
+						txs[hashToToID[txHash]].LedgerCreatedAt,
+					})
 				} else {
 					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
 				}
 			}
 		}
 
+		sort.Slice(taRows, func(i, j int) bool {
+			if taRows[i].ledgerCreatedAt.Equal(taRows[j].ledgerCreatedAt) {
+				return taRows[i].txID > taRows[j].txID
+			}
+			return taRows[i].ledgerCreatedAt.After(taRows[j].ledgerCreatedAt)
+		})
+
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_id", "account_id"},
-			pgx.CopyFromRows(taRows),
+			[]string{"tx_id", "account_id", "ledger_created_at"},
+			pgx.CopyFromSlice(len(taRows), func(i int) ([]any, error) {
+				return []any{
+					pgtype.Int8{Int64: taRows[i].txID, Valid: true},
+					taRows[i].accountID,
+					pgtype.Timestamptz{Time: taRows[i].ledgerCreatedAt, Valid: true},
+				}, nil
+			}),
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))

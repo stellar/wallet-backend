@@ -10,10 +10,14 @@ CREATE TABLE transactions (
     result_xdr TEXT,
     meta_xdr TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, to_id'
 );
 
 CREATE INDEX idx_transactions_hash ON transactions(hash);
-CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_at);
 
 -- Table: transactions_accounts
 -- Uses tx_id (BIGINT) instead of tx_hash (TEXT) for storage efficiency.
@@ -21,6 +25,11 @@ CREATE TABLE transactions_accounts (
     tx_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
     account_id BYTEA NOT NULL,
     PRIMARY KEY (account_id, tx_id)
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, tx_id'
 );
 
 -- +migrate Down
