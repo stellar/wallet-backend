@@ -257,13 +257,14 @@ func TestAddIDColumn(t *testing.T) {
 func TestBuildGetByAccountAddressQuery(t *testing.T) {
 	limit := int32(10)
 	cursor := int64(100)
+	// Use a valid Stellar address for testing
+	testAddress := "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
 
 	tests := []struct {
 		name           string
 		config         paginatedQueryConfig
 		wantContains   []string
 		wantArgsLen    int
-		wantFirstArg   string
 		wantNotContain []string
 	}{
 		{
@@ -274,7 +275,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				JoinTable:      "operations_accounts",
 				JoinCondition:  "operations_accounts.operation_id = operations.id",
 				Columns:        "operations.id, operations.operation_type",
-				AccountAddress: "GABC123",
+				AccountAddress: testAddress,
 				OrderBy:        ASC,
 			},
 			wantContains: []string{
@@ -284,8 +285,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				"WHERE operations_accounts.account_id = $1",
 				"ORDER BY operations.id ASC",
 			},
-			wantArgsLen:  1,
-			wantFirstArg: "GABC123",
+			wantArgsLen: 1,
 		},
 		{
 			name: "query with limit",
@@ -295,7 +295,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				JoinTable:      "operations_accounts",
 				JoinCondition:  "operations_accounts.operation_id = operations.id",
 				Columns:        "operations.id",
-				AccountAddress: "GABC123",
+				AccountAddress: testAddress,
 				Limit:          &limit,
 				OrderBy:        ASC,
 			},
@@ -312,7 +312,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				JoinTable:      "operations_accounts",
 				JoinCondition:  "operations_accounts.operation_id = operations.id",
 				Columns:        "operations.id",
-				AccountAddress: "GABC123",
+				AccountAddress: testAddress,
 				Cursor:         &cursor,
 				OrderBy:        ASC,
 			},
@@ -329,7 +329,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				JoinTable:      "operations_accounts",
 				JoinCondition:  "operations_accounts.operation_id = operations.id",
 				Columns:        "operations.id",
-				AccountAddress: "GABC123",
+				AccountAddress: testAddress,
 				Cursor:         &cursor,
 				OrderBy:        DESC,
 			},
@@ -348,7 +348,7 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 				JoinTable:      "transactions_accounts",
 				JoinCondition:  "transactions_accounts.tx_id = transactions.to_id",
 				Columns:        "transactions.to_id",
-				AccountAddress: "GABC123",
+				AccountAddress: testAddress,
 				OrderBy:        DESC,
 			},
 			wantContains: []string{
@@ -358,6 +358,9 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 			wantArgsLen: 1,
 		},
 	}
+
+	// Expected BYTEA representation of testAddress
+	expectedFirstArg := bytesFromAddressString(testAddress)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,9 +375,8 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 			}
 
 			require.Len(t, args, tc.wantArgsLen)
-			if tc.wantFirstArg != "" {
-				assert.Equal(t, tc.wantFirstArg, args[0])
-			}
+			// First argument should always be the account address as BYTEA
+			assert.Equal(t, expectedFirstArg, args[0], "first argument should be BYTEA representation of account address")
 		})
 	}
 }

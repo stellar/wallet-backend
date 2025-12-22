@@ -731,11 +731,11 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	// Create test operations_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations_accounts (operation_id, account_id)
-		VALUES 
+		VALUES
 			(1, $1),
 			(2, $1),
 			(3, $2)
-	`, address1, address2)
+	`, bytesFromAddressString(address1), bytesFromAddressString(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
