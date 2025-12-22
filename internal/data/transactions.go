@@ -349,7 +349,7 @@ func (m *TransactionModel) BatchCopy(
 		}
 		var taRows []taRow
 		for txHash, addresses := range stellarAddressesByTxHash {
-			for _, addr := range addresses.ToSlice() {
+			for addr := range addresses.Iter() {
 				addressBytes := bytesFromAddressString(addr)
 				if addressBytes != nil {
 					taRows = append(taRows, taRow{

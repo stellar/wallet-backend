@@ -24,6 +24,7 @@ CREATE INDEX idx_transactions_hash ON transactions(hash);
 CREATE TABLE transactions_accounts (
     tx_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
     account_id BYTEA NOT NULL,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (account_id, tx_id)
 ) WITH (
     timescaledb.hypertable,

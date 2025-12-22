@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -370,6 +371,14 @@ func (m *OperationModel) BatchCopy(
 
 	start := time.Now()
 
+	// Sort operations by ledger_created_at for batch insertion
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
+			return operations[i].ID > operations[j].ID
+		}
+		return operations[i].LedgerCreatedAt.After(operations[j].LedgerCreatedAt)
+	})
+
 	// COPY operations using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -395,23 +404,44 @@ func (m *OperationModel) BatchCopy(
 
 	// COPY operations_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByOpID) > 0 {
-		var oaRows [][]any
+		type oaRow struct {
+			opID int64
+			addr []byte
+			ledgerCreatedAt time.Time
+		}
+		var oaRows []oaRow
 		for opID, addresses := range stellarAddressesByOpID {
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
+			for addr := range addresses.Iter() {
 				if bytesFromAddressString(addr) != nil {
-					oaRows = append(oaRows, []any{opIDPgtype, bytesFromAddressString(addr)})
+					oaRows = append(oaRows, oaRow{
+						opID: opID,
+						addr: bytesFromAddressString(addr),
+						ledgerCreatedAt: operations[opID].LedgerCreatedAt,
+					})
 				} else {
 					log.Printf("Invalid address for op_id: %d, address: %s", opID, addr)
 				}
 			}
 		}
 
+		sort.Slice(oaRows, func(i, j int) bool {
+			if oaRows[i].ledgerCreatedAt.Equal(oaRows[j].ledgerCreatedAt) {
+				return oaRows[i].opID > oaRows[j].opID
+			}
+			return oaRows[i].ledgerCreatedAt.After(oaRows[j].ledgerCreatedAt)
+		})
+
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
 			[]string{"operation_id", "account_id"},
-			pgx.CopyFromRows(oaRows),
+			pgx.CopyFromSlice(len(oaRows), func(i int) ([]any, error) {
+				return []any{
+					pgtype.Int8{Int64: oaRows[i].opID, Valid: true},
+					oaRows[i].addr,
+					pgtype.Timestamptz{Time: oaRows[i].ledgerCreatedAt, Valid: true},
+				}, nil
+			}),
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))

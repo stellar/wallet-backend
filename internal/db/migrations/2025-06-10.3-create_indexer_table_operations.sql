@@ -9,6 +9,11 @@ CREATE TABLE operations (
     operation_type SMALLINT NOT NULL,
     operation_xdr TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, id'
 );
 
 -- Index for state_changes JOIN to transactions
@@ -20,7 +25,13 @@ CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
     account_id BYTEA NOT NULL,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (account_id, operation_id)
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, operation_id'
 );
 
 -- +migrate Down
