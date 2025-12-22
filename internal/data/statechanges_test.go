@@ -380,11 +380,11 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -440,27 +440,32 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions
+	// Create test transactions with proper TOID values (multiples of 4096)
+	// TOID encoding: to_id & ~4095 gives the transaction base TOID
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1),
+			('tx3', 12288, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes with different categories and reasons
 	// state_change_category: 1=BALANCE, 3=SIGNER
 	// state_change_reason: 4=CREDIT, 3=DEBIT, 7=ADD
+	// State changes use to_id where (to_id & ~4095) = parent_tx.to_id
+	// tx1 (to_id=4096): state changes at 4097, 4098
+	// tx2 (to_id=8192): state change at 8193
+	// tx3 (to_id=12288): state changes at 12289, 12290
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, account_id)
 		VALUES
-			(1, 1, 1, 4, $1, $2),
-			(2, 1, 1, 3, $1, $2),
-			(3, 1, 3, 7, $1, $2),
-			(4, 1, 1, 3, $1, $2),
-			(5, 1, 3, 7, $1, $2)
+			(4097, 1, 1, 4, $1, $2),
+			(4098, 1, 1, 3, $1, $2),
+			(8193, 1, 3, 7, $1, $2),
+			(12289, 1, 1, 3, $1, $2),
+			(12290, 1, 3, 7, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -496,12 +501,13 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		operationID := int64(123)
+		// Filter by operation ID 4097 (belongs to tx1, state change with to_id=4097)
+		operationID := int64(4097)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
-		assert.Len(t, stateChanges, 2)
+		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(4097), sc.ToID)
 			assert.Equal(t, address, sc.AccountID)
 		}
 	})
@@ -517,15 +523,15 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Filter by tx1 and operation ID 4097 (which belongs to tx1)
 		txHash := "tx1"
-		operationID := int64(123)
+		operationID := int64(4097)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
 		// Should get only state changes that match BOTH filters
-		assert.Len(t, stateChanges, 2)
+		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(4097), sc.ToID)
 			assert.Equal(t, address, sc.AccountID)
 		}
 	})
@@ -686,11 +692,11 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -733,11 +739,11 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -946,11 +952,11 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -1008,10 +1014,10 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -1110,8 +1116,8 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 	accountID := keypair.MustRandom().Address()
 	now := time.Now()
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES ($1, 1, 'env', 'res', 'meta', $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)
@@ -1175,8 +1181,8 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 	accountID := keypair.MustRandom().Address()
 	now := time.Now()
 	_, err = conn.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES ($1, 1, 'env', 'res', 'meta', $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)

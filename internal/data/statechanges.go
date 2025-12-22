@@ -57,17 +57,19 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		argIndex++
 	}
 
-	// Add category filter if provided
+	// Add category filter if provided (convert string to SMALLINT for query)
 	if category != nil {
+		categoryInt := types.StateChangeCategory(*category).ToInt16()
 		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_category = $%d", argIndex))
-		args = append(args, *category)
+		args = append(args, categoryInt)
 		argIndex++
 	}
 
-	// Add reason filter if provided
+	// Add reason filter if provided (convert string to SMALLINT for query)
 	if reason != nil {
+		reasonInt := types.StateChangeReason(*reason).ToInt16()
 		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_reason = $%d", argIndex))
-		args = append(args, *reason)
+		args = append(args, reasonInt)
 		argIndex++
 	}
 

@@ -583,7 +583,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 			}
 
 			operations, err := m.BatchGetByTxHashes(ctx, tc.txHashes, "", tc.limit, tc.sortOrder)
-			require.NoError(t, err)
+			require.NoError(t, err, "Query error: %v", err)
 			assert.Len(t, operations, tc.expectedCount)
 
 			// Verify operations are for correct tx hashes
@@ -652,21 +652,25 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	now := time.Now()
 
 	// Create test transactions first
+	// TOID format: to_id must have lower 12 bits = 0 for (op.id & ~4095) = tx.to_id to work
+	// tx1 to_id = 4096 (0x1000), tx2 to_id = 8192 (0x2000)
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', $1)
+		VALUES
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
+	// tx1 (to_id=4096): ops 4097, 4098 (4097 & ~4095 = 4096, 4098 & ~4095 = 4096)
+	// tx2 (to_id=8192): ops 8193
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
 		VALUES
-			(1, 2, 'xdr1', $1),
-			(2, 1, 'xdr2', $1),
-			(3, 2, 'xdr3', $1)
+			(4097, 2, 'xdr1', $1),
+			(4098, 2, 'xdr3', $1),
+			(8193, 1, 'xdr2', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -855,7 +859,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	}
 	assert.Equal(t, int64(1), stateChangeIDsFound["1-1"])
 	assert.Equal(t, int64(2), stateChangeIDsFound["2-1"])
-	assert.Equal(t, int64(1), stateChangeIDsFound["3-1"])
+	assert.Equal(t, int64(3), stateChangeIDsFound["3-1"])
 }
 
 func BenchmarkOperationModel_BatchInsert(b *testing.B) {

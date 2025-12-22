@@ -81,7 +81,8 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
 // Uses JOIN with transactions table since tx_hash is not stored in operations table.
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	// No prefix for outer SELECT since we're selecting from the CTE, not the table directly
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all operations from just a few
@@ -95,13 +96,13 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 
 			ranked_operations_per_tx_hash AS (
 				SELECT
-					o.*,
+					operations.*,
 					t.hash as tx_hash,
-					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY o.id %s) AS rn
+					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY operations.id %s) AS rn
 				FROM
-					operations o
+					operations
 				JOIN
-					transactions t ON (o.id & ~4095) = t.to_id
+					transactions t ON (operations.id & ~4095) = t.to_id
 				JOIN
 					inputs i ON t.hash = i.tx_hash
 			)

@@ -12,8 +12,8 @@ CREATE TABLE transactions (
     ledger_created_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_at);
 CREATE INDEX idx_transactions_hash ON transactions(hash);
+CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_at);
 
 -- Table: transactions_accounts
 -- Uses tx_id (BIGINT) instead of tx_hash (TEXT) for storage efficiency.

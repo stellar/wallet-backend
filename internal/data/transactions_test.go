@@ -181,16 +181,23 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			// Verify the account links
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
-					TxHash    string `db:"tx_hash"`
+					TxID      int64  `db:"tx_id"`
 					AccountID string `db:"account_id"`
 				}
-				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_hash, account_id FROM transactions_accounts ORDER BY tx_hash, account_id")
+				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_id, account_id FROM transactions_accounts ORDER BY tx_id, account_id")
 				require.NoError(t, err)
+
+				// Build tx_id -> tx_hash mapping from test transactions
+				txIDToHash := make(map[int64]string)
+				for _, tx := range tc.txs {
+					txIDToHash[tx.ToID] = tx.Hash
+				}
 
 				// Create a map of tx_hash -> set of account_ids for O(1) lookups
 				accountLinksMap := make(map[string][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.TxHash] = append(accountLinksMap[link.TxHash], link.AccountID)
+					txHash := txIDToHash[link.TxID]
+					accountLinksMap[txHash] = append(accountLinksMap[txHash], link.AccountID)
 				}
 
 				// Verify each transaction has its expected account links
@@ -342,16 +349,23 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByHash) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					TxHash    string `db:"tx_hash"`
+					TxID      int64  `db:"tx_id"`
 					AccountID string `db:"account_id"`
 				}
-				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_hash, account_id FROM transactions_accounts ORDER BY tx_hash, account_id")
+				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_id, account_id FROM transactions_accounts ORDER BY tx_id, account_id")
 				require.NoError(t, err)
+
+				// Build tx_id -> tx_hash mapping from test transactions
+				txIDToHash := make(map[int64]string)
+				for _, tx := range tc.txs {
+					txIDToHash[tx.ToID] = tx.Hash
+				}
 
 				// Create a map of tx_hash -> set of account_ids
 				accountLinksMap := make(map[string][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.TxHash] = append(accountLinksMap[link.TxHash], link.AccountID)
+					txHash := txIDToHash[link.TxID]
+					accountLinksMap[txHash] = append(accountLinksMap[txHash], link.AccountID)
 				}
 
 				// Verify each expected transaction has its account links
@@ -387,8 +401,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	// Create test transaction
 	txHash := "test_tx_hash"
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'envelope', 'result', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES ($1, 1, 'envelope', 'result', 'meta', $2)
 	`, txHash, now)
 	require.NoError(t, err)
 
@@ -423,11 +437,11 @@ func TestTransactionModel_GetAll(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -476,21 +490,21 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
-	// Create test transactions_accounts links
+	// Create test transactions_accounts links (tx_id references transactions.to_id)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions_accounts (tx_hash, account_id)
+		INSERT INTO transactions_accounts (tx_id, account_id)
 		VALUES
-			('tx1', $1),
-			('tx2', $1),
-			('tx3', $2)
+			(1, $1),
+			(2, $1),
+			(3, $2)
 	`, address1, address2)
 	require.NoError(t, err)
 
@@ -526,26 +540,37 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
+	// Note: id encodes tx via TOID - operation 1,3 belong to tx with to_id=1, operation 2 belongs to tx with to_id=2
+	// Operation's parent tx is derived via: (operation_id & ~4095)
+	// tx1 has to_id=1, tx2 has to_id=2, tx3 has to_id=3
+	// For operation to belong to tx1 (to_id=1), we need (operation_id & ~4095) = 1
+	// This means operation_id should be 1 (since 1 & ~4095 = 1 for small values)
+	// Actually, TOID encoding: tx_to_id is the higher bits, operation index is lower 12 bits
+	// For proper encoding: operation_id = (tx_to_id << 12) | op_index_in_tx
+	// tx1 (to_id=1): operations at id = 1*4096 + 1 = 4097, 1*4096 + 2 = 4098
+	// tx2 (to_id=2): operations at id = 2*4096 + 1 = 8193
+	// Using simple IDs that match tx to_id for test simplicity (TOID derivation: id & ~4095)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 3, $1)
+			(4097, 1, 'xdr1', $1),
+			(8193, 0, 'xdr2', $1),
+			(4098, 1, 'xdr3', $1)
 	`, now)
 	require.NoError(t, err)
 
-	// Test BatchGetByOperationID
-	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{1, 2, 3}, "")
+	// Test BatchGetByOperationIDs
+	// Operations 4097 and 4098 belong to tx1 (to_id=1), operation 8193 belongs to tx2 (to_id=2)
+	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193, 4098}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -554,9 +579,9 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	for _, tx := range transactions {
 		operationIDsFound[tx.OperationID] = tx.Hash
 	}
-	assert.Equal(t, "tx1", operationIDsFound[1])
-	assert.Equal(t, "tx2", operationIDsFound[2])
-	assert.Equal(t, "tx1", operationIDsFound[3])
+	assert.Equal(t, "tx1", operationIDsFound[4097])
+	assert.Equal(t, "tx2", operationIDsFound[8193])
+	assert.Equal(t, "tx1", operationIDsFound[4098])
 }
 
 func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
@@ -587,11 +612,11 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 

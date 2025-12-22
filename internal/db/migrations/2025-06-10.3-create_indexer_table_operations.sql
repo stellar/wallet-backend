@@ -11,7 +11,6 @@ CREATE TABLE operations (
     ledger_created_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX idx_operations_operation_type ON operations(operation_type);
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
 -- Table: operations_accounts

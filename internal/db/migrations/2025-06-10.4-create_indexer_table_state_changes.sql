@@ -33,6 +33,7 @@ CREATE TABLE state_changes (
     PRIMARY KEY (to_id, state_change_order)
 );
 
+CREATE INDEX idx_state_changes_to_id ON state_changes(to_id);
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
 
