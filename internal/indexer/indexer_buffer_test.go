@@ -12,14 +12,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func buildStateChange(toID int64, reason types.StateChangeReason, accountID string, txHash string, operationID int64) types.StateChange {
+func buildStateChange(toID int64, reason types.StateChangeReason, accountID string) types.StateChange {
 	return types.StateChange{
 		ToID:                toID,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           accountID,
-		TxHash:              txHash,
-		OperationID:         operationID,
 		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
 }
@@ -149,7 +147,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
+		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
@@ -167,7 +165,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
+		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
@@ -199,18 +197,18 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
-		op1 := types.Operation{ID: 3, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 4, TxHash: tx2.Hash}
-		op3 := types.Operation{ID: 5, TxHash: tx2.Hash}
+		op1 := types.Operation{ID: 3}
+		op2 := types.Operation{ID: 4}
+		op3 := types.Operation{ID: 5}
 		indexerBuffer.PushOperation("someone", op1, tx1)
 		indexerBuffer.PushOperation("someone", op2, tx2)
 
-		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", tx1.Hash, op1.ID)
-		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", tx2.Hash, op2.ID)
-		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", tx2.Hash, op3.ID)
+		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice")
+		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice")
+		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve")
 		// These are fee state changes, so they don't have an operation ID.
-		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
-		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
+		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob")
+		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob")
 
 		indexerBuffer.PushStateChange(tx1, op1, sc1)
 		indexerBuffer.PushStateChange(tx2, op2, sc2)
@@ -259,8 +257,8 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 	t.Run("🟢 returns all unique transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", LedgerNumber: 100}
-		tx2 := types.Transaction{Hash: "tx_hash_2", LedgerNumber: 101}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 100 << 32}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 101 << 32}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx2)
@@ -294,8 +292,8 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
 
 		indexerBuffer.PushOperation("alice", op1, tx1)
 		indexerBuffer.PushOperation("bob", op2, tx1)
@@ -312,8 +310,8 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
 
 		indexerBuffer.PushOperation("alice", op1, tx1)
 		indexerBuffer.PushOperation("bob", op1, tx1)
@@ -330,7 +328,7 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
+		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
@@ -370,8 +368,8 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "tx_hash_1"}
-		op1 := types.Operation{ID: 1, TxHash: tx.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx.Hash}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
 
 		indexerBuffer.PushOperation("alice", op1, tx)
 		indexerBuffer.PushOperation("bob", op2, tx)
@@ -385,11 +383,11 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
+		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob", OperationID: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie", OperationID: 0} // fee change
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie"} // fee change
 
 		indexerBuffer.PushStateChange(tx, op, sc1)
 		indexerBuffer.PushStateChange(tx, op, sc2)
@@ -403,8 +401,8 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
-		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "dave", OperationID: 1}
+		op := types.Operation{ID: 1}
+		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "dave"}
 
 		// Add participants from different sources
 		indexerBuffer.PushTransaction("alice", tx)
@@ -466,8 +464,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
 
 		buffer1.PushOperation("alice", op1, tx1)
 		buffer2.PushOperation("bob", op2, tx1)
@@ -490,7 +488,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
-		op := types.Operation{ID: 1, TxHash: tx.Hash}
+		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
@@ -513,7 +511,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
 		tx2 := types.Transaction{Hash: "tx_hash_2"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
+		op1 := types.Operation{ID: 1}
 
 		// Buffer1 has tx1 with alice
 		buffer1.PushTransaction("alice", tx1)
@@ -545,7 +543,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
+		op1 := types.Operation{ID: 1}
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
 
 		buffer2.PushTransaction("alice", tx1)
@@ -609,10 +607,10 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx2.Hash}
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob", OperationID: 2}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
 
 		// Buffer1
 		buffer1.PushTransaction("alice", tx1)

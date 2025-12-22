@@ -23,9 +23,8 @@ type BaseStateChange interface {
 	IsBaseStateChange()
 	GetType() types.StateChangeCategory
 	GetReason() types.StateChangeReason
-	GetIngestedAt() time.Time
-	GetLedgerCreatedAt() time.Time
 	GetLedgerNumber() uint32
+	GetLedgerCreatedAt() time.Time
 	GetAccount() *types.Account
 	GetOperation() *types.Operation
 	GetTransaction() *types.Transaction

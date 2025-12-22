@@ -92,7 +92,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService)
+	builder := NewStateChangeBuilder(ledgerCloseTime, txID, p.metricsService)
 
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)

@@ -156,9 +156,7 @@ func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *operation_processor.Tran
 func assertStateChangeEqual(t *testing.T, want types.StateChange, got types.StateChange) {
 	t.Helper()
 
-	gotV2 := got
-	gotV2.IngestedAt = want.IngestedAt
-	assert.Equal(t, want, gotV2)
+	assert.Equal(t, want, got)
 }
 
 // assertStateChangesElementsMatch compares two slices of state changes and fails if they are not equal.

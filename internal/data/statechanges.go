@@ -24,43 +24,54 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
+// txHash filter uses JOIN with transactions table since tx_hash column was removed from state_changes.
+// operationID filter uses to_id directly since for operation-related state changes, to_id = operation_id.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	args := []interface{}{accountAddress}
 	argIndex := 2
 
-	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes
-		WHERE account_id = $1
-	`, columns))
-
-	// Add transaction hash filter if provided
+	// Use JOIN with transactions table when txHash filter is provided
 	if txHash != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND tx_hash = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(`
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order",
+				t.hash as tx_hash, sc.to_id as operation_id
+			FROM state_changes sc
+			JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
+			WHERE sc.account_id = $1 AND t.hash = $%d
+		`, columns, argIndex))
 		args = append(args, *txHash)
 		argIndex++
+	} else {
+		queryBuilder.WriteString(fmt.Sprintf(`
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order",
+				'' as tx_hash, sc.to_id as operation_id
+			FROM state_changes sc
+			WHERE sc.account_id = $1
+		`, columns))
 	}
 
-	// Add operation ID filter if provided
+	// Add operation ID filter if provided (to_id = operation_id for operation-related state changes)
 	if operationID != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND operation_id = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.to_id = $%d", argIndex))
 		args = append(args, *operationID)
 		argIndex++
 	}
 
-	// Add category filter if provided
+	// Add category filter if provided (convert string to SMALLINT for query)
 	if category != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_category = $%d", argIndex))
-		args = append(args, *category)
+		categoryInt := types.StateChangeCategory(*category).ToInt16()
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_category = $%d", argIndex))
+		args = append(args, categoryInt)
 		argIndex++
 	}
 
-	// Add reason filter if provided
+	// Add reason filter if provided (convert string to SMALLINT for query)
 	if reason != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_reason = $%d", argIndex))
-		args = append(args, *reason)
+		reasonInt := types.StateChangeReason(*reason).ToInt16()
+		queryBuilder.WriteString(fmt.Sprintf(" AND sc.state_change_reason = $%d", argIndex))
+		args = append(args, reasonInt)
 		argIndex++
 	}
 
@@ -68,25 +79,24 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < $%d OR (to_id = $%d AND state_change_order < $%d))
+				AND (sc.to_id < $%d OR (sc.to_id = $%d AND sc.state_change_order < $%d))
 			`, argIndex, argIndex, argIndex+1))
 			args = append(args, cursor.ToID, cursor.StateChangeOrder)
 			argIndex += 2
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > $%d OR (to_id = $%d AND state_change_order > $%d))
+				AND (sc.to_id > $%d OR (sc.to_id = $%d AND sc.state_change_order > $%d))
 			`, argIndex, argIndex, argIndex+1))
 			args = append(args, cursor.ToID, cursor.StateChangeOrder)
 			argIndex += 2
 		}
 	}
 
-	// TODO: Extract the ordering code to separate function in utils and use everywhere
 	// Add ordering
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id DESC, sc.state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id ASC, sc.state_change_order ASC")
 	}
 
 	// Add limit using parameterized query
@@ -176,13 +186,10 @@ func (m *StateChangeModel) BatchInsert(
 	// Flatten the state changes into parallel slices
 	stateChangeOrders := make([]int64, len(stateChanges))
 	toIDs := make([]int64, len(stateChanges))
-	categories := make([]string, len(stateChanges))
-	reasons := make([]*string, len(stateChanges))
+	categories := make([]int16, len(stateChanges))
+	reasons := make([]*int16, len(stateChanges))
 	ledgerCreatedAts := make([]time.Time, len(stateChanges))
-	ledgerNumbers := make([]int, len(stateChanges))
 	accountIDs := make([]string, len(stateChanges))
-	operationIDs := make([]int64, len(stateChanges))
-	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
 	offerIDs := make([]*string, len(stateChanges))
@@ -201,16 +208,13 @@ func (m *StateChangeModel) BatchInsert(
 	for i, sc := range stateChanges {
 		stateChangeOrders[i] = sc.StateChangeOrder
 		toIDs[i] = sc.ToID
-		categories[i] = string(sc.StateChangeCategory)
+		categories[i] = sc.StateChangeCategory.ToInt16()
 		ledgerCreatedAts[i] = sc.LedgerCreatedAt
-		ledgerNumbers[i] = int(sc.LedgerNumber)
 		accountIDs[i] = sc.AccountID
-		operationIDs[i] = sc.OperationID
-		txHashes[i] = sc.TxHash
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {
-			reason := string(*sc.StateChangeReason)
+			reason := sc.StateChangeReason.ToInt16()
 			reasons[i] = &reason
 		}
 		if sc.TokenID.Valid {
@@ -263,39 +267,34 @@ func (m *StateChangeModel) BatchInsert(
 			SELECT
 				UNNEST($1::bigint[]) AS state_change_order,
 				UNNEST($2::bigint[]) AS to_id,
-				UNNEST($3::text[]) AS state_change_category,
-				UNNEST($4::text[]) AS state_change_reason,
+				UNNEST($3::smallint[]) AS state_change_category,
+				UNNEST($4::smallint[]) AS state_change_reason,
 				UNNEST($5::timestamptz[]) AS ledger_created_at,
-				UNNEST($6::integer[]) AS ledger_number,
-				UNNEST($7::text[]) AS account_id,
-				UNNEST($8::bigint[]) AS operation_id,
-				UNNEST($9::text[]) AS tx_hash,
-				UNNEST($10::text[]) AS token_id,
-				UNNEST($11::text[]) AS amount,
-				UNNEST($12::text[]) AS offer_id,
-				UNNEST($13::text[]) AS signer_account_id,
-				UNNEST($14::text[]) AS spender_account_id,
-				UNNEST($15::text[]) AS sponsored_account_id,
-				UNNEST($16::text[]) AS sponsor_account_id,
-				UNNEST($17::text[]) AS deployer_account_id,
-				UNNEST($18::text[]) AS funder_account_id,
-				UNNEST($19::jsonb[]) AS signer_weights,
-				UNNEST($20::jsonb[]) AS thresholds,
-				UNNEST($21::jsonb[]) AS trustline_limit,
-				UNNEST($22::jsonb[]) AS flags,
-				UNNEST($23::jsonb[]) AS key_value
+				UNNEST($6::text[]) AS account_id,
+				UNNEST($7::text[]) AS token_id,
+				UNNEST($8::text[]) AS amount,
+				UNNEST($9::text[]) AS offer_id,
+				UNNEST($10::text[]) AS signer_account_id,
+				UNNEST($11::text[]) AS spender_account_id,
+				UNNEST($12::text[]) AS sponsored_account_id,
+				UNNEST($13::text[]) AS sponsor_account_id,
+				UNNEST($14::text[]) AS deployer_account_id,
+				UNNEST($15::text[]) AS funder_account_id,
+				UNNEST($16::jsonb[]) AS signer_weights,
+				UNNEST($17::jsonb[]) AS thresholds,
+				UNNEST($18::jsonb[]) AS trustline_limit,
+				UNNEST($19::jsonb[]) AS flags,
+				UNNEST($20::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
-				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				offer_id, signer_account_id,
+				account_id, token_id, amount, offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, funder_account_id, signer_weights, thresholds, trustline_limit, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
-				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
-				sc.offer_id, sc.signer_account_id,
+				sc.account_id, sc.token_id, sc.amount, sc.offer_id, sc.signer_account_id,
 				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
 				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
 			FROM input_data sc
@@ -313,10 +312,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(categories),
 		pq.Array(reasons),
 		pq.Array(ledgerCreatedAts),
-		pq.Array(ledgerNumbers),
 		pq.Array(accountIDs),
-		pq.Array(operationIDs),
-		pq.Array(txHashes),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
 		pq.Array(offerIDs),
@@ -349,12 +345,12 @@ func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}
 }
 
-// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
+// pgtypeInt2FromReasonPtr converts *types.StateChangeReason to pgtype.Int2 for efficient binary COPY.
+func pgtypeInt2FromReasonPtr(r *types.StateChangeReason) pgtype.Int2 {
 	if r == nil {
-		return pgtype.Text{Valid: false}
+		return pgtype.Int2{Valid: false}
 	}
-	return pgtype.Text{String: string(*r), Valid: true}
+	return pgtype.Int2{Int16: r.ToInt16(), Valid: true}
 }
 
 // jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
@@ -397,23 +393,20 @@ func (m *StateChangeModel) BatchCopy(
 		pgx.Identifier{"state_changes"},
 		[]string{
 			"to_id", "state_change_order", "state_change_category", "state_change_reason",
-			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
-			"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
-			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+			"ledger_created_at", "account_id", "token_id", "amount", "offer_id",
+			"signer_account_id", "spender_account_id", "sponsored_account_id", "sponsor_account_id",
+			"deployer_account_id", "funder_account_id", "signer_weights", "thresholds",
+			"trustline_limit", "flags", "key_value",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
-				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReasonPtr(sc.StateChangeReason),
+				pgtype.Int2{Int16: sc.StateChangeCategory.ToInt16(), Valid: true},
+				pgtypeInt2FromReasonPtr(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				pgtype.Text{String: sc.AccountID, Valid: true},
-				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				pgtype.Text{String: sc.TxHash, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
 				pgtypeTextFromNullString(sc.OfferID),
@@ -448,13 +441,16 @@ func (m *StateChangeModel) BatchCopy(
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.
+// Uses JOIN with transactions table since tx_hash column was removed from state_changes.
 func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// JOIN with transactions table via TOID derivation: (sc.to_id & ~4095) = t.to_id
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE tx_hash = $1
+		SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order", t.hash as tx_hash
+		FROM state_changes sc
+		JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
+		WHERE t.hash = $1
 	`, columns))
 
 	args := []interface{}{txHash}
@@ -463,19 +459,19 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+				AND (sc.to_id < %d OR (sc.to_id = %d AND sc.state_change_order < %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+				AND (sc.to_id > %d OR (sc.to_id = %d AND sc.state_change_order > %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		}
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id DESC, sc.state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY sc.to_id ASC, sc.state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
@@ -503,30 +499,34 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
+// Uses JOIN with transactions table since tx_hash column was removed from state_changes.
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
-	// This guarantees that each transaction gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple transactions.
+	// transactions, we use ROW_NUMBER() with PARTITION BY t.hash to limit results per transaction.
+	// Uses JOIN with transactions table via TOID derivation: (sc.to_id & ~4095) = t.to_id
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (tx_hash) AS (
 				SELECT * FROM UNNEST($1::text[])
 			),
-			
+
 			ranked_state_changes_per_tx_hash AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
-				FROM 
+					t.hash as tx_hash,
+					sc.to_id as operation_id,
+					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM
 					state_changes sc
-				JOIN 
-					inputs i ON sc.tx_hash = i.tx_hash
+				JOIN
+					transactions t ON (sc.to_id & ~4095) = t.to_id
+				JOIN
+					inputs i ON t.hash = i.tx_hash
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_tx_hash
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", tx_hash, operation_id FROM ranked_state_changes_per_tx_hash
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
@@ -552,13 +552,15 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 }
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// For operation-related state changes, to_id IS the operation_id
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE operation_id = $1
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", to_id as operation_id
+		FROM state_changes
+		WHERE to_id = $1
 	`, columns))
 
 	args := []interface{}{operationID}
@@ -607,30 +609,31 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 }
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-operation pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
-	// This guarantees that each operation gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple operations.
+	// operations, we use ROW_NUMBER() with PARTITION BY to_id to limit results per operation.
+	// For operation-related state changes, to_id IS the operation_id.
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (operation_id) AS (
 				SELECT * FROM UNNEST($1::bigint[])
 			),
-			
+
 			ranked_state_changes_per_operation_id AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
-				FROM 
+					sc.to_id as operation_id,
+					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM
 					state_changes sc
-				JOIN 
-					inputs i ON sc.operation_id = i.operation_id
+				JOIN
+					inputs i ON sc.to_id = i.operation_id
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", operation_id FROM ranked_state_changes_per_operation_id
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))

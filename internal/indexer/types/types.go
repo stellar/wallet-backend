@@ -41,6 +41,15 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
+// TOID (Total Order ID) derivation constants.
+// TOID structure from SEP-0035: [ledger_sequence (32 bits)][tx_order (20 bits)][op_order (12 bits)]
+const (
+	// TOIDOperationMask is used to extract operation order from TOID (lower 12 bits)
+	TOIDOperationMask = int64(4095) // 0xFFF - 12 bits for operation order
+	// TOIDLedgerShift is the number of bits to shift to get ledger sequence
+	TOIDLedgerShift = 32
+)
+
 type ContractType string
 
 const (
@@ -89,14 +98,13 @@ type AccountWithOperationID struct {
 }
 
 type Transaction struct {
-	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
+	Hash            string    `json:"hash,omitempty" db:"hash"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
-	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Removed: LedgerNumber (derive via GetLedgerNumber()), IngestedAt
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
@@ -105,6 +113,11 @@ type Transaction struct {
 	// or the transaction hash for regular transactions.
 	// This field is transient and not stored in the database.
 	InnerTransactionHash string `json:"innerTransactionHash,omitempty" db:"-"`
+}
+
+// GetLedgerNumber derives the ledger sequence number from the transaction TOID.
+func (t Transaction) GetLedgerNumber() uint32 {
+	return uint32(t.ToID >> TOIDLedgerShift)
 }
 
 type TransactionWithCursor struct {
@@ -192,23 +205,46 @@ const (
 	OperationTypeRestoreFootprint              OperationType = "RESTORE_FOOTPRINT"
 )
 
+// Scan implements sql.Scanner for reading SMALLINT from DB into OperationType.
+func (o *OperationType) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for OperationType, got %T", value)
+	}
+	*o = OperationTypeFromInt16(int16(v))
+	return nil
+}
+
 type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
-	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Removed: LedgerNumber (derive via GetLedgerNumber()), TxHash (derive via GetTxID()), IngestedAt
 	// Relationships:
-	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
+// GetLedgerNumber derives the ledger sequence number from the operation TOID.
+func (o Operation) GetLedgerNumber() uint32 {
+	return uint32(o.ID >> TOIDLedgerShift)
+}
+
+// GetTxID derives the transaction TOID from the operation ID.
+// This masks out the lower 12 bits (operation order) to get the transaction ID.
+func (o Operation) GetTxID() int64 {
+	return o.ID &^ TOIDOperationMask
+}
+
 type OperationWithCursor struct {
 	Operation
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor int64  `json:"cursor,omitempty" db:"cursor"`
+	TxHash string `json:"txHash,omitempty" db:"tx_hash"` // Populated via JOIN with transactions table, not stored
 }
 
 type OperationWithStateChangeID struct {
@@ -259,6 +295,32 @@ const (
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// Scan implements sql.Scanner for reading SMALLINT from DB into StateChangeCategory.
+func (c *StateChangeCategory) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for StateChangeCategory, got %T", value)
+	}
+	*c = StateChangeCategoryFromInt16(int16(v))
+	return nil
+}
+
+// Scan implements sql.Scanner for reading SMALLINT from DB into StateChangeReason.
+func (r *StateChangeReason) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for StateChangeReason, got %T", value)
+	}
+	*r = StateChangeReasonFromInt16(int16(v))
+	return nil
+}
+
 // StateChange represents a unified database model for all types of blockchain state changes.
 //
 // DESIGN RATIONALE:
@@ -290,9 +352,10 @@ type StateChange struct {
 	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
-	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	AccountID           string              `json:"accountId,omitempty" db:"account_id"`
+	// Removed: IngestedAt, LedgerNumber (derive via GetLedgerNumber()),
+	//          OperationID (derive via GetOperationID()), TxHash (derive via GetTxID())
 	// Nullable fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
@@ -303,31 +366,51 @@ type StateChange struct {
 	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
 	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
-	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
+	// Nullable JSONB fields:
 	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
 	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
 	TrustlineLimit NullableJSONB `json:"trustlineLimit,omitempty" db:"trustline_limit"`
 	Flags          NullableJSON  `json:"flags,omitempty" db:"flags"`
 	KeyValue       NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
-	// Relationships:
-	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	// Relationships (populated via resolvers, not DB):
 	Account     *Account     `json:"account,omitempty"`
-	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
-	// Internal IDs used for sorting state changes within an operation.
-	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string
-	TrustlineAsset string `json:"-"`
-	// Internal only: used for filtering contract changes and identifying token type
-	ContractType ContractType `json:"-"`
+	// Internal fields used for sorting and processing:
+	SortKey        string       `json:"-"`
+	TrustlineAsset string       `json:"-"` // code:issuer formatted asset string
+	ContractType   ContractType `json:"-"` // used for filtering contract changes
+}
+
+// GetLedgerNumber derives the ledger sequence number from the state change TOID.
+func (sc StateChange) GetLedgerNumber() uint32 {
+	return uint32(sc.ToID >> TOIDLedgerShift)
+}
+
+// GetOperationID returns the operation ID if this state change is associated with an operation.
+// Returns 0 for fee-related state changes (where to_id has no operation order bits set).
+func (sc StateChange) GetOperationID() int64 {
+	if sc.ToID&TOIDOperationMask != 0 {
+		return sc.ToID
+	}
+	return 0
+}
+
+// HasOperation returns true if this state change is associated with an operation.
+func (sc StateChange) HasOperation() bool {
+	return sc.ToID&TOIDOperationMask != 0
+}
+
+// GetTxID derives the transaction TOID from the state change TOID.
+func (sc StateChange) GetTxID() int64 {
+	return sc.ToID &^ TOIDOperationMask
 }
 
 type StateChangeWithCursor struct {
 	StateChange
-	Cursor StateChangeCursor `db:"cursor"`
+	Cursor      StateChangeCursor `db:"cursor"`
+	TxHash      string            `db:"tx_hash"`      // Populated via JOIN with transactions table, not stored
+	OperationID int64             `db:"operation_id"` // Derived from ToID for non-fee state changes
 }
 
 type StateChangeCursor struct {
@@ -455,19 +538,9 @@ func (sc StateChange) GetReason() StateChangeReason {
 	return *sc.StateChangeReason
 }
 
-// GetIngestedAt returns when this state change was processed by the indexer.
-func (sc StateChange) GetIngestedAt() time.Time {
-	return sc.IngestedAt
-}
-
 // GetLedgerCreatedAt returns when the ledger containing this state change was created.
 func (sc StateChange) GetLedgerCreatedAt() time.Time {
 	return sc.LedgerCreatedAt
-}
-
-// GetLedgerNumber returns the ledger sequence number where this state change occurred.
-func (sc StateChange) GetLedgerNumber() uint32 {
-	return sc.LedgerNumber
 }
 
 // GetAccount returns the account affected by this state change.

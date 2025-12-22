@@ -15,6 +15,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the operation TOID.
+func (r *operationResolver) LedgerNumber(ctx context.Context, obj *types.Operation) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Transaction is the resolver for the transaction field.
 // This is a field resolver - it resolves the "transaction" field on an Operation object
 // gqlgen calls this when a GraphQL query requests the transaction field on an Operation

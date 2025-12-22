@@ -79,30 +79,34 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
+// Uses JOIN with transactions table since tx_hash is not stored in operations table.
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	// No prefix for outer SELECT since we're selecting from the CTE, not the table directly
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all operations from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
-	// This guarantees that each transaction gets at most 'limit' operations, providing
-	// more balanced and predictable pagination across multiple transactions.
+	// transactions, we use ROW_NUMBER() with PARTITION BY t.hash to limit results per transaction.
+	// Uses JOIN with transactions table via TOID derivation: (o.id & ~4095) = t.to_id
 	query := `
 		WITH
 			inputs (tx_hash) AS (
 				SELECT * FROM UNNEST($1::text[])
 			),
-			
+
 			ranked_operations_per_tx_hash AS (
 				SELECT
-					o.*,
-					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
-				FROM 
-					operations o
-				JOIN 
-					inputs i ON o.tx_hash = i.tx_hash
+					operations.*,
+					t.hash as tx_hash,
+					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY operations.id %s) AS rn
+				FROM
+					operations
+				JOIN
+					transactions t ON (operations.id & ~4095) = t.to_id
+				JOIN
+					inputs i ON t.hash = i.tx_hash
 			)
-		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+		SELECT %s, id as cursor, tx_hash FROM ranked_operations_per_tx_hash
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -128,28 +132,34 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 }
 
 // BatchGetByTxHash gets operations for a single transaction with pagination support.
+// Uses JOIN with transactions table since tx_hash is not stored in operations table.
 func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
+	// JOIN with transactions table via TOID derivation: (o.id & ~4095) = t.to_id
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, o.id as cursor, t.hash as tx_hash
+		FROM operations o
+		JOIN transactions t ON (o.id & ~4095) = t.to_id
+		WHERE t.hash = $1`, columns))
 
 	args := []interface{}{txHash}
 	argIndex := 2
 
 	if cursor != nil {
 		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id < $%d", argIndex))
+			queryBuilder.WriteString(fmt.Sprintf(" AND o.id < $%d", argIndex))
 		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id > $%d", argIndex))
+			queryBuilder.WriteString(fmt.Sprintf(" AND o.id > $%d", argIndex))
 		}
 		args = append(args, *cursor)
 		argIndex++
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY id DESC")
+		queryBuilder.WriteString(" ORDER BY o.id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY id ASC")
+		queryBuilder.WriteString(" ORDER BY o.id ASC")
 	}
 
 	if limit != nil {
@@ -206,8 +216,9 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
+// For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
@@ -216,12 +227,14 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
 	}
 
+	// JOIN condition: for operation-related state changes, to_id IS the operation ID.
+	// We filter only state changes that have operations (to_id & 4095 != 0).
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
-		FROM operations
-		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
-		ORDER BY operations.ledger_created_at DESC
+		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) AS state_change_id
+		FROM operations o
+		INNER JOIN state_changes sc ON o.id = sc.to_id AND (sc.to_id & 4095) != 0
+		WHERE (sc.to_id, sc.state_change_order) IN (%s)
+		ORDER BY o.ledger_created_at DESC
 	`, columns, strings.Join(tuples, ", "))
 
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
@@ -252,18 +265,14 @@ func (m *OperationModel) BatchInsert(
 
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
-	txHashes := make([]string, len(operations))
-	operationTypes := make([]string, len(operations))
+	operationTypes := make([]int16, len(operations))
 	operationXDRs := make([]string, len(operations))
-	ledgerNumbers := make([]uint32, len(operations))
 	ledgerCreatedAts := make([]time.Time, len(operations))
 
 	for i, op := range operations {
 		ids[i] = op.ID
-		txHashes[i] = op.TxHash
-		operationTypes[i] = string(op.OperationType)
+		operationTypes[i] = op.OperationType.ToInt16()
 		operationXDRs[i] = op.OperationXDR
-		ledgerNumbers[i] = op.LedgerNumber
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
 	}
 
@@ -283,17 +292,15 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations
 	inserted_operations AS (
 		INSERT INTO operations
-			(id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+			(id, operation_type, operation_xdr, ledger_created_at)
 		SELECT
-			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.ledger_number, o.ledger_created_at
+			o.id, o.operation_type, o.operation_xdr, o.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::text[]) AS tx_hash,
-				UNNEST($3::text[]) AS operation_type,
-				UNNEST($4::text[]) AS operation_xdr,
-				UNNEST($5::bigint[]) AS ledger_number,
-				UNNEST($6::timestamptz[]) AS ledger_created_at
+				UNNEST($2::smallint[]) AS operation_type,
+				UNNEST($3::text[]) AS operation_xdr,
+				UNNEST($4::timestamptz[]) AS ledger_created_at
 		) o
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id
@@ -307,8 +314,8 @@ func (m *OperationModel) BatchInsert(
 			oa.op_id, oa.account_id
 		FROM (
 			SELECT
-				UNNEST($7::bigint[]) AS op_id,
-				UNNEST($8::text[]) AS account_id
+				UNNEST($5::bigint[]) AS op_id,
+				UNNEST($6::text[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -321,10 +328,8 @@ func (m *OperationModel) BatchInsert(
 	var insertedIDs []int64
 	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
 		pq.Array(ids),
-		pq.Array(txHashes),
 		pq.Array(operationTypes),
 		pq.Array(operationXDRs),
-		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),
@@ -368,15 +373,13 @@ func (m *OperationModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"operations"},
-		[]string{"id", "tx_hash", "operation_type", "operation_xdr", "ledger_number", "ledger_created_at"},
+		[]string{"id", "operation_type", "operation_xdr", "ledger_created_at"},
 		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
 			op := operations[i]
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
-				pgtype.Text{String: op.TxHash, Valid: true},
-				pgtype.Text{String: string(op.OperationType), Valid: true},
+				pgtype.Int2{Int16: op.OperationType.ToInt16(), Valid: true},
 				pgtype.Text{String: op.OperationXDR, Valid: true},
-				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: op.LedgerCreatedAt, Valid: true},
 			}, nil
 		}),

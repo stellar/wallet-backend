@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -290,10 +291,11 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				require.NoError(t, err)
 				// Insert transactions for 100-200 (no gaps)
 				for ledger := uint32(100); ledger <= 200; ledger++ {
+					toID := toid.New(int32(ledger), 0, 0).ToInt64()
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						"hash"+string(rune(ledger)), ledger, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", ledger), toID)
 					require.NoError(t, err)
 				}
 			},
@@ -313,10 +315,11 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				require.NoError(t, err)
 				// Insert transactions for 100-200 (no gaps)
 				for ledger := uint32(100); ledger <= 200; ledger++ {
+					toID := toid.New(int32(ledger), 0, 0).ToInt64()
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						"hash"+string(rune(ledger)), ledger, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", ledger), toID)
 					require.NoError(t, err)
 				}
 			},
@@ -334,17 +337,19 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				require.NoError(t, err)
 				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
 				for ledger := uint32(100); ledger <= 120; ledger++ {
+					toID := toid.New(int32(ledger), 0, 0).ToInt64()
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						"hash"+string(rune(ledger)), ledger, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", ledger), toID)
 					require.NoError(t, err)
 				}
 				for ledger := uint32(150); ledger <= 200; ledger++ {
+					toID := toid.New(int32(ledger), 0, 0).ToInt64()
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						"hash"+string(rune(ledger)), ledger, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", ledger), toID)
 					require.NoError(t, err)
 				}
 			},

@@ -129,8 +129,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		return nil, fmt.Errorf("generating inner hash hex: %w", err)
 	}
 
-	ledgerSequence := transaction.Ledger.LedgerSequence()
-	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
+	transactionID := toid.New(int32(transaction.Ledger.LedgerSequence()), int32(transaction.Index), 0).ToInt64()
 
 	return &types.Transaction{
 		ToID:                 transactionID,
@@ -139,7 +138,6 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		EnvelopeXDR:          envelopeXDR,
 		ResultXDR:            resultXDR,
 		MetaXDR:              metaXDR,
-		LedgerNumber:         ledgerSequence,
 		InnerTransactionHash: innerTxHash,
 	}, nil
 }
@@ -155,7 +153,5 @@ func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, 
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    xdrOpStr,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
-		LedgerNumber:    transaction.Ledger.LedgerSequence(),
-		TxHash:          transaction.Hash.HexString(),
 	}, nil
 }

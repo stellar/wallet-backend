@@ -193,7 +193,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		case types.StateChangeCategoryTrustline:
 			trustlineChange := types.TrustlineChange{
 				AccountID:    stateChange.AccountID,
-				OperationID:  stateChange.OperationID,
+				OperationID:  stateChange.GetOperationID(),
 				Asset:        stateChange.TrustlineAsset,
 				LedgerNumber: tx.Ledger.LedgerSequence(),
 			}
@@ -217,7 +217,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			if accountIsContract || !tokenIsSACOrNative {
 				contractChange := types.ContractChange{
 					AccountID:    stateChange.AccountID,
-					OperationID:  stateChange.OperationID,
+					OperationID:  stateChange.GetOperationID(),
 					ContractID:   stateChange.TokenID.String,
 					LedgerNumber: tx.Ledger.LedgerSequence(),
 					ContractType: stateChange.ContractType,
@@ -237,9 +237,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		sc := &stateChanges[idx]
 
 		// State changes are 1-indexed within an operation/transaction.
-		if sc.OperationID != 0 {
-			perOpIdx[sc.OperationID]++
-			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
+		opID := sc.GetOperationID()
+		if opID != 0 {
+			perOpIdx[opID]++
+			sc.StateChangeOrder = int64(perOpIdx[opID])
 		} else {
 			sc.StateChangeOrder = 1
 		}
@@ -254,15 +255,16 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 		// Get the correct operation for this state change
 		var operation types.Operation
-		if stateChange.OperationID != 0 {
-			correctOp := operationsMap[stateChange.OperationID]
+		opID := stateChange.GetOperationID()
+		if opID != 0 {
+			correctOp := operationsMap[opID]
 			if correctOp == nil {
-				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", stateChange.OperationID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeOrder))
+				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", opID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeOrder))
 				continue
 			}
 			operation = *correctOp
 		}
-		// For fee state changes (OperationID == 0), operation remains zero value
+		// For fee state changes (opID == 0), operation remains zero value
 		buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 

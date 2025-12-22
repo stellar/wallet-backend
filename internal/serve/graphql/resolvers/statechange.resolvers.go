@@ -21,6 +21,12 @@ func (r *accountChangeResolver) Reason(ctx context.Context, obj *types.AccountSt
 	return *obj.StateChangeReason, nil
 }
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *accountChangeResolver) LedgerNumber(ctx context.Context, obj *types.AccountStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Account is the resolver for the account field.
 func (r *accountChangeResolver) Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -49,6 +55,12 @@ func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *type
 // Reason is the resolver for the reason field.
 func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error) {
 	return *obj.StateChangeReason, nil
+}
+
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *balanceAuthorizationChangeResolver) LedgerNumber(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -91,6 +103,12 @@ func (r *flagsChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateC
 	return *obj.StateChangeReason, nil
 }
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *flagsChangeResolver) LedgerNumber(ctx context.Context, obj *types.FlagsStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Account is the resolver for the account field.
 func (r *flagsChangeResolver) Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -121,6 +139,12 @@ func (r *metadataChangeResolver) Reason(ctx context.Context, obj *types.Metadata
 	return *obj.StateChangeReason, nil
 }
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *metadataChangeResolver) LedgerNumber(ctx context.Context, obj *types.MetadataStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Account is the resolver for the account field.
 func (r *metadataChangeResolver) Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -149,6 +173,12 @@ func (r *reservesChangeResolver) Type(ctx context.Context, obj *types.ReservesSt
 // Reason is the resolver for the reason field.
 func (r *reservesChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
 	return *obj.StateChangeReason, nil
+}
+
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *reservesChangeResolver) LedgerNumber(ctx context.Context, obj *types.ReservesStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -191,6 +221,12 @@ func (r *signerChangeResolver) Reason(ctx context.Context, obj *types.SignerStat
 	return *obj.StateChangeReason, nil
 }
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *signerChangeResolver) LedgerNumber(ctx context.Context, obj *types.SignerStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Account is the resolver for the account field.
 func (r *signerChangeResolver) Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -226,6 +262,12 @@ func (r *signerThresholdsChangeResolver) Reason(ctx context.Context, obj *types.
 	return *obj.StateChangeReason, nil
 }
 
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *signerThresholdsChangeResolver) LedgerNumber(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
+}
+
 // Account is the resolver for the account field.
 func (r *signerThresholdsChangeResolver) Account(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -254,6 +296,12 @@ func (r *standardBalanceChangeResolver) Type(ctx context.Context, obj *types.Sta
 // Reason is the resolver for the reason field.
 func (r *standardBalanceChangeResolver) Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error) {
 	return *obj.StateChangeReason, nil
+}
+
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *standardBalanceChangeResolver) LedgerNumber(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -289,6 +337,12 @@ func (r *trustlineChangeResolver) Type(ctx context.Context, obj *types.Trustline
 // Reason is the resolver for the reason field.
 func (r *trustlineChangeResolver) Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error) {
 	return *obj.StateChangeReason, nil
+}
+
+// LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
+func (r *trustlineChangeResolver) LedgerNumber(ctx context.Context, obj *types.TrustlineStateChangeModel) (uint32, error) {
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.

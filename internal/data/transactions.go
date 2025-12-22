@@ -84,11 +84,12 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
 	// Build paginated query using shared utility
+	// Note: transactions_accounts.tx_id references transactions.to_id (TOID)
 	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
 		TableName:      "transactions",
 		CursorColumn:   "to_id",
 		JoinTable:      "transactions_accounts",
-		JoinCondition:  "transactions_accounts.tx_hash = transactions.hash",
+		JoinCondition:  "transactions_accounts.tx_id = transactions.to_id",
 		Columns:        columns,
 		AccountAddress: accountAddress,
 		Limit:          limit,
@@ -110,13 +111,14 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+// Uses JOIN with transactions table via TOID derivation since tx_hash column was removed from operations.
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON o.tx_hash = transactions.hash 
+		ON (o.id & ~4095) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
@@ -132,7 +134,8 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 	return transactions, nil
 }
 
-// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
+// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes.
+// Uses JOIN with transactions table via TOID derivation since tx_hash column was removed from state_changes.
 func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
@@ -146,7 +149,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
 		FROM transactions
-		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
+		INNER JOIN state_changes sc ON (sc.to_id & ~4095) = transactions.to_id
 		WHERE (sc.to_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
@@ -182,24 +185,27 @@ func (m *TransactionModel) BatchInsert(
 	envelopeXDRs := make([]*string, len(txs))
 	resultXDRs := make([]string, len(txs))
 	metaXDRs := make([]*string, len(txs))
-	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
+	// Build hash->toID mapping for transactions_accounts
+	hashToToID := make(map[string]int64, len(txs))
 	for i, t := range txs {
 		hashes[i] = t.Hash
 		toIDs[i] = t.ToID
 		envelopeXDRs[i] = t.EnvelopeXDR
 		resultXDRs[i] = t.ResultXDR
 		metaXDRs[i] = t.MetaXDR
-		ledgerNumbers[i] = int(t.LedgerNumber)
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
+		hashToToID[t.Hash] = t.ToID
 	}
 
-	// 2. Flatten the stellarAddressesByTxHash into parallel slices
-	var txHashes, stellarAddresses []string
+	// 2. Flatten the stellarAddressesByTxHash into parallel slices (use tx_id instead of tx_hash)
+	var txIDs []int64
+	var stellarAddresses []string
 	for txHash, addresses := range stellarAddressesByTxHash {
+		toID := hashToToID[txHash]
 		for address := range addresses.Iter() {
-			txHashes = append(txHashes, txHash)
+			txIDs = append(txIDs, toID)
 			stellarAddresses = append(stellarAddresses, address)
 		}
 	}
@@ -210,9 +216,9 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions
 	inserted_transactions AS (
 		INSERT INTO transactions
-			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		SELECT
-			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
+			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::text[]) AS hash,
@@ -220,23 +226,22 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($3::text[]) AS envelope_xdr,
 				UNNEST($4::text[]) AS result_xdr,
 				UNNEST($5::text[]) AS meta_xdr,
-				UNNEST($6::bigint[]) AS ledger_number,
-				UNNEST($7::timestamptz[]) AS ledger_created_at
+				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) t
 		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
 	),
 
-	-- Insert transactions_accounts links
+	-- Insert transactions_accounts links (tx_id references transactions.to_id)
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_hash, account_id)
+			(tx_id, account_id)
 		SELECT
-			ta.tx_hash, ta.account_id
+			ta.tx_id, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($7::bigint[]) AS tx_id,
+				UNNEST($8::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -253,9 +258,8 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(envelopeXDRs),
 		pq.Array(resultXDRs),
 		pq.Array(metaXDRs),
-		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
-		pq.Array(txHashes),
+		pq.Array(txIDs),
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
@@ -297,7 +301,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_number", "ledger_created_at"},
+		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_created_at"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			return []any{
@@ -306,7 +310,6 @@ func (m *TransactionModel) BatchCopy(
 				pgtypeTextFromPtr(tx.EnvelopeXDR),
 				pgtype.Text{String: tx.ResultXDR, Valid: true},
 				pgtypeTextFromPtr(tx.MetaXDR),
-				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
 			}, nil
 		}),
@@ -320,19 +323,25 @@ func (m *TransactionModel) BatchCopy(
 	}
 
 	// COPY transactions_accounts using pgx binary format with native pgtype types
+	// Build hash->toID mapping for tx_id lookup
 	if len(stellarAddressesByTxHash) > 0 {
+		hashToToID := make(map[string]int64, len(txs))
+		for _, t := range txs {
+			hashToToID[t.Hash] = t.ToID
+		}
+
 		var taRows [][]any
 		for txHash, addresses := range stellarAddressesByTxHash {
-			txHashPgtype := pgtype.Text{String: txHash, Valid: true}
+			txIDPgtype := pgtype.Int8{Int64: hashToToID[txHash], Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txHashPgtype, pgtype.Text{String: addr, Valid: true}})
+				taRows = append(taRows, []any{txIDPgtype, pgtype.Text{String: addr, Valid: true}})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_hash", "account_id"},
+			[]string{"tx_id", "account_id"},
 			pgx.CopyFromRows(taRows),
 		)
 		if err != nil {

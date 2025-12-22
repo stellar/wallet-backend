@@ -246,7 +246,7 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	b.stateChanges = append(b.stateChanges, stateChange)
 	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
 	// Fee changes dont have an operation ID associated with them
-	if stateChange.OperationID != 0 {
+	if stateChange.GetOperationID() != 0 {
 		b.pushOperationUnsafe(stateChange.AccountID, &operation)
 	}
 }

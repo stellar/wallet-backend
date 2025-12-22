@@ -64,7 +64,6 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	}
 
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
-	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
 	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 
@@ -81,7 +80,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {

@@ -21,7 +21,7 @@ import (
 
 // generateTestOperations creates n test operations for benchmarking.
 // It also returns the transaction hash used and a map of operation IDs to addresses.
-func generateTestOperations(n int, txHash string, startID int64) ([]*types.Operation, map[int64]set.Set[string]) {
+func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64]set.Set[string]) {
 	ops := make([]*types.Operation, n)
 	addressesByOpID := make(map[int64]set.Set[string])
 	now := time.Now()
@@ -32,10 +32,8 @@ func generateTestOperations(n int, txHash string, startID int64) ([]*types.Opera
 
 		ops[i] = &types.Operation{
 			ID:              opID,
-			TxHash:          txHash,
 			OperationType:   types.OperationTypePayment,
 			OperationXDR:    fmt.Sprintf("operation_xdr_%d", i),
-			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
 		addressesByOpID[opID] = set.NewSet(address)
@@ -70,7 +68,6 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		EnvelopeXDR:     &envelope1,
 		ResultXDR:       "result1",
 		MetaXDR:         &meta1,
-		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
@@ -79,7 +76,6 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		EnvelopeXDR:     &envelope2,
 		ResultXDR:       "result2",
 		MetaXDR:         &meta2,
-		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
 
@@ -95,14 +91,12 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 
 	op1 := types.Operation{
 		ID:              1,
-		TxHash:          tx1.Hash,
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "operation1",
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              2,
-		TxHash:          tx2.Hash,
 		OperationType:   types.OperationTypeCreateAccount,
 		OperationXDR:    "operation2",
 		LedgerCreatedAt: now,
@@ -253,7 +247,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		EnvelopeXDR:     &envelope1,
 		ResultXDR:       "result1",
 		MetaXDR:         &meta1,
-		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
@@ -262,7 +255,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		EnvelopeXDR:     &envelope2,
 		ResultXDR:       "result2",
 		MetaXDR:         &meta2,
-		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
 
@@ -278,14 +270,12 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 
 	op1 := types.Operation{
 		ID:              1,
-		TxHash:          tx1.Hash,
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "operation1",
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              2,
-		TxHash:          tx2.Hash,
 		OperationType:   types.OperationTypeCreateAccount,
 		OperationXDR:    "operation2",
 		LedgerCreatedAt: now,
@@ -421,21 +411,21 @@ func TestOperationModel_GetAll(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(1, 2, 'xdr1', $1),
+			(2, 1, 'xdr2', $1),
+			(3, 2, 'xdr3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -467,25 +457,32 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	now := time.Now()
 
 	// Create test transactions first
+	// TOID format: to_id = (ledger << 32) | (tx_order << 12), lower 12 bits = 0
+	// tx1 to_id = 4096 (0x1000), tx2 to_id = 8192 (0x2000), tx3 to_id = 12288 (0x3000)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1),
+			('tx3', 12288, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations - multiple operations per transaction to test ranking
+	// Operation IDs encode the transaction via TOID: (ledger << 32) | (tx_order << 12) | op_order
+	// (o.id & ~4095) = t.to_id for JOIN to work
+	// tx1 (to_id=4096): ops 4097, 4098, 4099
+	// tx2 (to_id=8192): ops 8193, 8194
+	// tx3 (to_id=12288): ops 12289
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 3, $1),
-			(4, 'tx1', 'manage_offer', 'xdr4', 4, $1),
-			(5, 'tx2', 'payment', 'xdr5', 5, $1),
-			(6, 'tx3', 'trust_line', 'xdr6', 6, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(4097, 2, 'xdr1', $1),
+			(4098, 1, 'xdr2', $1),
+			(4099, 2, 'xdr3', $1),
+			(8193, 4, 'xdr4', $1),
+			(8194, 2, 'xdr5', $1),
+			(12289, 7, 'xdr6', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -586,7 +583,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 			}
 
 			operations, err := m.BatchGetByTxHashes(ctx, tc.txHashes, "", tc.limit, tc.sortOrder)
-			require.NoError(t, err)
+			require.NoError(t, err, "Query error: %v", err)
 			assert.Len(t, operations, tc.expectedCount)
 
 			// Verify operations are for correct tx hashes
@@ -655,21 +652,25 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	now := time.Now()
 
 	// Create test transactions first
+	// TOID format: to_id must have lower 12 bits = 0 for (op.id & ~4095) = tx.to_id to work
+	// tx1 to_id = 4096 (0x1000), tx2 to_id = 8192 (0x2000)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+		VALUES
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
+	// tx1 (to_id=4096): ops 4097, 4098 (4097 & ~4095 = 4096, 4098 & ~4095 = 4096)
+	// tx2 (to_id=8192): ops 8193
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 3, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(4097, 2, 'xdr1', $1),
+			(4098, 2, 'xdr3', $1),
+			(8193, 1, 'xdr2', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -709,21 +710,21 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(1, 2, 'xdr1', $1),
+			(2, 1, 'xdr2', $1),
+			(3, 2, 'xdr3', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -757,19 +758,19 @@ func TestOperationModel_GetByID(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(1, 2, 'xdr1', $1),
+			(2, 1, 'xdr2', $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -786,9 +787,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 1, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), operation.ID)
-	assert.Equal(t, "tx1", operation.TxHash)
 	assert.Equal(t, "xdr1", operation.OperationXDR)
-	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
 
@@ -820,31 +819,31 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx1', 1, 'env1', 'res1', 'meta1', $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
+		VALUES
+			(1, 2, 'xdr1', $1),
+			(2, 1, 'xdr2', $1),
+			(3, 2, 'xdr3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
-			(1, 1, 'credit', $1, 1, $2, 1, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 2, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 1, 'tx3')
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, account_id)
+		VALUES
+			(1, 1, 1, $1, $2),
+			(2, 1, 3, $1, $2),
+			(3, 1, 1, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -860,7 +859,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	}
 	assert.Equal(t, int64(1), stateChangeIDsFound["1-1"])
 	assert.Equal(t, int64(2), stateChangeIDsFound["2-1"])
-	assert.Equal(t, int64(1), stateChangeIDsFound["3-1"])
+	assert.Equal(t, int64(3), stateChangeIDsFound["3-1"])
 }
 
 func BenchmarkOperationModel_BatchInsert(b *testing.B) {
@@ -888,7 +887,7 @@ func BenchmarkOperationModel_BatchInsert(b *testing.B) {
 	const txHash = "benchmark_tx_hash"
 	now := time.Now()
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
 	`, txHash, now)
 	if err != nil {
@@ -907,7 +906,7 @@ func BenchmarkOperationModel_BatchInsert(b *testing.B) {
 				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
 				dbConnectionPool.ExecContext(ctx, "TRUNCATE operations, operations_accounts CASCADE")
 				// Generate fresh test data for each iteration
-				ops, addressesByOpID := generateTestOperations(size, txHash, int64(i*size))
+				ops, addressesByOpID := generateTestOperations(size, int64(i*size))
 				b.StartTimer()
 
 				_, err := m.BatchInsert(ctx, nil, ops, addressesByOpID)
@@ -952,7 +951,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 	const txHash = "benchmark_tx_hash"
 	now := time.Now()
 	_, err = conn.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
 	`, txHash, now)
 	if err != nil {
@@ -974,7 +973,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				ops, addressesByOpID := generateTestOperations(size, txHash, int64(i*size))
+				ops, addressesByOpID := generateTestOperations(size, int64(i*size))
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)
