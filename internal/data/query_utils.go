@@ -108,16 +108,21 @@ func getDBColumns(model any) set.Set[string] {
 	return dbColumns
 }
 
-// PrepareColumnsWithID ensures that the specified ID column is always included in the column list
+// PrepareColumnsWithID ensures that the specified ID column is always included in the column list.
+// When columns is provided, it filters out any columns that don't exist in the model to prevent
+// invalid column references when joining tables (e.g., tx_hash from OperationWithCursor which
+// comes from a JOIN, not from the operations table itself).
 func prepareColumnsWithID(columns string, model any, prefix string, idColumns ...string) string {
+	modelColumns := getDBColumns(model)
 	var dbColumns set.Set[string]
 	if columns == "" {
-		dbColumns = getDBColumns(model)
+		dbColumns = modelColumns
 	} else {
 		dbColumns = set.NewSet[string]()
 		for _, col := range strings.Split(columns, ",") {
 			trimmed := strings.TrimSpace(col)
-			if trimmed != "" {
+			// Only include columns that exist in the model
+			if trimmed != "" && modelColumns.Contains(trimmed) {
 				dbColumns.Add(trimmed)
 			}
 		}
