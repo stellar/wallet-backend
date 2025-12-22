@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -373,6 +374,27 @@ func (m *StateChangeModel) BatchCopy(
 
 	start := time.Now()
 
+	var validStateChanges []types.StateChange
+	for _, sc := range stateChanges {
+		accountID := bytesFromStellarAddress(sc.AccountID)
+		if accountID != nil {
+			validStateChanges = append(validStateChanges, sc)
+		} else {
+			log.Printf("Skipping state change with invalid account ID: %s (to_id=%d, order=%d)",
+				sc.AccountID, sc.ToID, sc.StateChangeOrder)
+		}
+	}
+
+	if len(validStateChanges) == 0 {
+		log.Printf("All %d state changes had invalid account IDs, skipping batch", len(stateChanges))
+		return 0, nil
+	}
+
+	if len(validStateChanges) < len(stateChanges) {
+		log.Printf("Filtered out %d invalid state changes, proceeding with %d valid ones",
+			len(stateChanges)-len(validStateChanges), len(validStateChanges))
+	}
+
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -384,8 +406,8 @@ func (m *StateChangeModel) BatchCopy(
 			"deployer_account_id", "funder_account_id", "signer_weights", "thresholds",
 			"trustline_limit", "flags", "key_value",
 		},
-		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
-			sc := stateChanges[i]
+		pgx.CopyFromSlice(len(validStateChanges), func(i int) ([]any, error) {
+			sc := validStateChanges[i]
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},

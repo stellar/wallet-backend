@@ -342,7 +342,7 @@ func (m *TransactionModel) BatchCopy(
 				if addressBytes != nil {
 					taRows = append(taRows, []any{txIDPgtype, addressBytes})
 				} else {
-					log.Printf("Invalid address: %s", addr)
+					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
 				}
 			}
 		}

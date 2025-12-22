@@ -63,6 +63,13 @@ func (s StellarAddress) Value() (driver.Value, error) {
 		return result, nil
 	}
 
+	if decoded, err := strkey.Decode(strkey.VersionByteMuxedAccount, address); err == nil {
+		result := make([]byte, 33)
+		result[0] = byte(strkey.VersionByteMuxedAccount)
+		copy(result[1:], decoded)
+		return result, nil
+	}
+
 	// Try contract (C...)
 	if decoded, err := strkey.Decode(strkey.VersionByteContract, address); err == nil {
 		result := make([]byte, 33)

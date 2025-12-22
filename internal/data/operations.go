@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -398,7 +399,11 @@ func (m *OperationModel) BatchCopy(
 		for opID, addresses := range stellarAddressesByOpID {
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, bytesFromAddressString(addr)})
+				if bytesFromAddressString(addr) != nil {
+					oaRows = append(oaRows, []any{opIDPgtype, bytesFromAddressString(addr)})
+				} else {
+					log.Printf("Invalid address for op_id: %d, address: %s", opID, addr)
+				}
 			}
 		}
 
