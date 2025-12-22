@@ -19,7 +19,7 @@ CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_a
 -- Uses tx_id (BIGINT) instead of tx_hash (TEXT) for storage efficiency.
 CREATE TABLE transactions_accounts (
     tx_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     PRIMARY KEY (account_id, tx_id)
 );
 
