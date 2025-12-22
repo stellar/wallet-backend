@@ -43,7 +43,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		assert.Equal(t, "result1", tx.ResultXDR)
 		require.NotNil(t, tx.MetaXDR)
 		assert.Equal(t, "meta1", *tx.MetaXDR)
-		assert.Equal(t, uint32(1), tx.GetLedgerNumber())
+		assert.Equal(t, uint32(1000), tx.GetLedgerNumber())
 	})
 
 	t.Run("non-existent hash", func(t *testing.T) {
