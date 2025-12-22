@@ -30,7 +30,7 @@ type StateChangeModel struct {
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
-	args := []interface{}{bytesFromAddressString(accountAddress)}
+	args := []interface{}{types.StellarAddress(accountAddress)}
 	argIndex := 2
 
 	// Use JOIN with transactions table when txHash filter is provided

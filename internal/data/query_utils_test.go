@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -359,8 +360,8 @@ func TestBuildGetByAccountAddressQuery(t *testing.T) {
 		},
 	}
 
-	// Expected BYTEA representation of testAddress
-	expectedFirstArg := bytesFromAddressString(testAddress)
+	// Expected first arg is a StellarAddress (driver.Valuer will convert to BYTEA)
+	expectedFirstArg := types.StellarAddress(testAddress)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

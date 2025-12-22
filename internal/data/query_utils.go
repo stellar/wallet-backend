@@ -56,7 +56,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 		config.JoinCondition,
 		config.JoinTable,
 		argIndex))
-	args = append(args, bytesFromAddressString(config.AccountAddress))
+	args = append(args, types.StellarAddress(config.AccountAddress))
 	argIndex++
 
 	// Add cursor condition if provided

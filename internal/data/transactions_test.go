@@ -505,7 +505,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 			(1, $1),
 			(2, $1),
 			(3, $2)
-	`, bytesFromAddressString(address1), bytesFromAddressString(address2))
+	`, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount

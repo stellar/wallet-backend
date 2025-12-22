@@ -395,7 +395,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 			(1, 1, 1, $1, $2),
 			(2, 1, 3, $1, $2),
 			(3, 1, 1, $1, $3)
-	`, now, bytesFromAddressString(address1), bytesFromAddressString(address2))
+	`, now, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -466,7 +466,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			(8193, 1, 3, 7, $1, $2),
 			(12289, 1, 1, 3, $1, $2),
 			(12290, 1, 3, 7, $1, $2)
-	`, now, bytesFromAddressString(address))
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
@@ -708,7 +708,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 			(1, 1, 1, $1, $2),
 			(2, 1, 1, $1, $2),
 			(3, 1, 1, $1, $2)
-	`, now, bytesFromAddressString(address))
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Test GetAll without limit
@@ -764,7 +764,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 			(8194, 1, 1, $1, $2),
 			(8195, 1, 1, $1, $2),
 			(12289, 1, 1, $1, $2)
-	`, now, bytesFromAddressString(address))
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -974,7 +974,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 			(123, 1, 1, $1, $2),
 			(456, 1, 1, $1, $2),
 			(123, 2, 1, $1, $2)
-	`, now, bytesFromAddressString(address))
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
@@ -1038,7 +1038,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 			(4098, 1, 1, $1, $2),
 			(4099, 1, 1, $1, $2),
 			(8193, 1, 1, $1, $2)
-	`, now, bytesFromAddressString(address))
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single transaction", func(t *testing.T) {
