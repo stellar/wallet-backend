@@ -284,33 +284,33 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[1].StateChangeReason)
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)
+		assert.Equal(t, types.StellarAddress("GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX"), changes[1].AccountID)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[2].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[2].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[2].AccountID)
+		assert.Equal(t, types.StellarAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"), changes[2].AccountID)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[2].SponsorAccountID.String)
 
 		// Updating sponsorship creates 4 state changes - one for the new sponsor, one for the former sponsor, and two for the target account
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[3].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSponsor, *changes[3].StateChangeReason)
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[3].AccountID)
+		assert.Equal(t, types.StellarAddress("GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX"), changes[3].AccountID)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[4].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[4].StateChangeReason)
-		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[4].AccountID)
+		assert.Equal(t, types.StellarAddress("GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A"), changes[4].AccountID)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[5].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSponsor, *changes[5].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[5].AccountID)
+		assert.Equal(t, types.StellarAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"), changes[5].AccountID)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[5].SponsorAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[6].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[6].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[6].AccountID)
+		assert.Equal(t, types.StellarAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"), changes[6].AccountID)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[6].SponsorAccountID.String)
 	})
 	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
