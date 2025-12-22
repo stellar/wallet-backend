@@ -17,7 +17,6 @@ const (
 		metaXdr
 		ledgerNumber
 		ledgerCreatedAt
-		ingestedAt
 	`
 
 	defaultOperationFields = `
@@ -26,7 +25,6 @@ const (
 		operationXdr
 		ledgerNumber
 		ledgerCreatedAt
-		ingestedAt
 	`
 
 	defaultAccountFields = `
@@ -38,7 +36,6 @@ const (
 		__typename
 		type
 		reason
-		ingestedAt
 		ledgerCreatedAt
 		ledgerNumber
 		account {
