@@ -371,6 +371,11 @@ func (m *OperationModel) BatchCopy(
 
 	start := time.Now()
 
+	opCreatedAtByHash := make(map[int64]time.Time)
+	for _, op := range operations {
+		opCreatedAtByHash[op.ID] = op.LedgerCreatedAt
+	}
+
 	// Sort operations by ledger_created_at for batch insertion
 	sort.Slice(operations, func(i, j int) bool {
 		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
@@ -416,7 +421,7 @@ func (m *OperationModel) BatchCopy(
 					oaRows = append(oaRows, oaRow{
 						opID: opID,
 						addr: bytesFromAddressString(addr),
-						ledgerCreatedAt: operations[opID].LedgerCreatedAt,
+						ledgerCreatedAt: opCreatedAtByHash[opID],
 					})
 				} else {
 					log.Printf("Invalid address for op_id: %d, address: %s", opID, addr)
@@ -434,7 +439,7 @@ func (m *OperationModel) BatchCopy(
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
-			[]string{"operation_id", "account_id"},
+			[]string{"operation_id", "account_id", "ledger_created_at"},
 			pgx.CopyFromSlice(len(oaRows), func(i int) ([]any, error) {
 				return []any{
 					pgtype.Int8{Int64: oaRows[i].opID, Valid: true},

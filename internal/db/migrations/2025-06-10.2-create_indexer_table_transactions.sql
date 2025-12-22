@@ -9,9 +9,7 @@ CREATE TABLE transactions (
     envelope_xdr TEXT,
     result_xdr TEXT,
     meta_xdr TEXT,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (to_id, ledger_created_at),
-    UNIQUE (hash, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
@@ -26,8 +24,7 @@ CREATE INDEX idx_transactions_hash ON transactions(hash);
 CREATE TABLE transactions_accounts (
     tx_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, tx_id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',

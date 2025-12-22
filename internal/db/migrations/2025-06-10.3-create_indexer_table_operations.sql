@@ -8,8 +8,7 @@ CREATE TABLE operations (
     id BIGINT,
     operation_type SMALLINT NOT NULL,
     operation_xdr TEXT,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',
@@ -25,8 +24,7 @@ CREATE INDEX idx_operations_tx_to_id ON operations ((id & ~4095));
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, operation_id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     timescaledb.hypertable,
     timescaledb.partition_column = 'ledger_created_at',

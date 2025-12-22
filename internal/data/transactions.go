@@ -302,6 +302,17 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
+	txDataByHash := make(map[string]struct {
+		toID            int64
+		ledgerCreatedAt time.Time
+	})
+	for _, tx := range txs {
+		txDataByHash[tx.Hash] = struct {
+			toID            int64
+			ledgerCreatedAt time.Time
+		}{tx.ToID, tx.LedgerCreatedAt}
+	}
+
 	sort.Slice(txs, func(i, j int) bool {
 		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
 			return txs[i].ToID > txs[j].ToID
@@ -337,11 +348,6 @@ func (m *TransactionModel) BatchCopy(
 	// COPY transactions_accounts using pgx binary format with native pgtype types
 	// Build hash->toID mapping for tx_id lookup
 	if len(stellarAddressesByTxHash) > 0 {
-		hashToToID := make(map[string]int64, len(txs))
-		for _, t := range txs {
-			hashToToID[t.Hash] = t.ToID
-		}
-
 		type taRow struct {
 			txID int64
 			accountID []byte
@@ -353,9 +359,9 @@ func (m *TransactionModel) BatchCopy(
 				addressBytes := bytesFromAddressString(addr)
 				if addressBytes != nil {
 					taRows = append(taRows, taRow{
-						hashToToID[txHash],
+						txDataByHash[txHash].toID,
 						addressBytes,
-						txs[hashToToID[txHash]].LedgerCreatedAt,
+						txDataByHash[txHash].ledgerCreatedAt,
 					})
 				} else {
 					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
