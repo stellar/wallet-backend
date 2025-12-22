@@ -110,7 +110,7 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 
 	// Verify CREATE_ACCOUNT operations for funded accounts exist in backfilled range
 	for _, accountAddr := range testAccounts {
-		hasOp, opErr := containers.HasOperationForAccount(ctx, accountAddr, "CREATE_ACCOUNT", firstCheckpoint, backfillEndLedger)
+		hasOp, opErr := containers.HasOperationForAccount(ctx, accountAddr, 1, firstCheckpoint, backfillEndLedger)
 		suite.Require().NoError(opErr, "failed to check CREATE_ACCOUNT operation for account %s", accountAddr)
 		suite.Assert().True(hasOp,
 			"should have CREATE_ACCOUNT operation for account %s in backfilled range", accountAddr)
@@ -121,7 +121,7 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 	// Verify CHANGE_TRUST operations for trustlines exist
 	hasTrustOp, err := containers.HasOperationForAccount(ctx,
 		containers.GetBalanceTestAccount1KeyPair(ctx).Address(),
-		"CHANGE_TRUST", firstCheckpoint, backfillEndLedger)
+		7, firstCheckpoint, backfillEndLedger)
 	suite.Require().NoError(err, "failed to check CHANGE_TRUST operation")
 	suite.Assert().True(hasTrustOp, "should have CHANGE_TRUST operation for USDC trustline")
 

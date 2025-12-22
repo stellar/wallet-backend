@@ -70,7 +70,7 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 }
 
 // HasOperationForAccount checks if an operation of a specific type exists for an account in a ledger range.
-func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAddr, opType string, startLedger, endLedger uint32) (bool, error) {
+func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAddr string, opType int, startLedger, endLedger uint32) (bool, error) {
 	dbURL, err := s.GetWalletDBConnectionString(ctx)
 	if err != nil {
 		return false, fmt.Errorf("getting database connection string: %w", err)
