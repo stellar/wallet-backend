@@ -153,16 +153,16 @@ func TestAccountModel_Delete(t *testing.T) {
 		address := keypair.MustRandom().Address()
 		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 		require.NoError(t, insertErr)
-		rowAffected, err := result.RowsAffected()
-		require.NoError(t, err)
+		rowAffected, rowErr := result.RowsAffected()
+		require.NoError(t, rowErr)
 		require.Equal(t, int64(1), rowAffected)
 
-		err = m.Delete(ctx, address)
-		require.NoError(t, err)
+		delErr := m.Delete(ctx, address)
+		require.NoError(t, delErr)
 
 		var dbAddress sql.NullString
-		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
-		assert.ErrorIs(t, err, sql.ErrNoRows)
+		getErr := m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
+		assert.ErrorIs(t, getErr, sql.ErrNoRows)
 	})
 
 	t.Run("delete non-existent account fails", func(t *testing.T) {
@@ -245,12 +245,12 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 1, 'env1', 'res1', 'meta1', 1, NOW()), ($2, 2, 'env2', 'res2', 'meta2', 2, NOW())", txHash1, txHash2)
+	// Insert test transactions first (to_id encodes ledger via TOID)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at) VALUES ($1, 1, 'env1', 'res1', 'meta1', NOW()), ($2, 2, 'env2', 'res2', 'meta2', NOW())", txHash1, txHash2)
 	require.NoError(t, err)
 
-	// Insert test transactions_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_hash, account_id) VALUES ($1, $2), ($3, $4)", txHash1, address1, txHash2, address2)
+	// Insert test transactions_accounts links (uses tx_id which references to_id)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_id, account_id) VALUES (1, $1), (2, $2)", address1, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash function
@@ -295,12 +295,12 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', 2, NOW())")
+	// Insert test transactions first (to_id encodes ledger via TOID)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', NOW())")
 	require.NoError(t, err)
 
-	// Insert test operations first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES ($1, 'tx1', 'payment', 'xdr1', 1, NOW()), ($2, 'tx2', 'payment', 'xdr2', 2	, NOW())", operationID1, operationID2)
+	// Insert test operations first (operation_type is SMALLINT: 2=PAYMENT)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at) VALUES ($1, 2, 'xdr1', NOW()), ($2, 2, 'xdr2', NOW())", operationID1, operationID2)
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links
@@ -386,12 +386,12 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', 2, NOW())")
+	// Insert test transactions first (to_id encodes ledger via TOID)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', NOW())")
 	require.NoError(t, err)
 
-	// Insert test operations first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at) VALUES (1, 'payment', 'xdr1', NOW()), (2, 'payment', 'xdr2', NOW())")
+	// Insert test operations first (operation_type is SMALLINT: 2=PAYMENT)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at) VALUES (1, 2, 'xdr1', NOW()), (2, 2, 'xdr2', NOW())")
 	require.NoError(t, err)
 
 	// Insert test state changes that reference the accounts

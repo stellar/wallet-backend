@@ -150,10 +150,12 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 
 // BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
 func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
+	// Join with transactions to get tx_hash from hash column (tx_id is now BIGINT referencing to_id)
 	query := `
-		SELECT account_id AS stellar_address, tx_hash
-		FROM transactions_accounts
-		WHERE tx_hash = ANY($1)`
+		SELECT ta.account_id AS stellar_address, t.hash AS tx_hash
+		FROM transactions_accounts ta
+		JOIN transactions t ON ta.tx_id = t.to_id
+		WHERE t.hash = ANY($1)`
 	var accounts []*types.AccountWithTxHash
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))

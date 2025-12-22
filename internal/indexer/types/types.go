@@ -205,6 +205,19 @@ const (
 	OperationTypeRestoreFootprint              OperationType = "RESTORE_FOOTPRINT"
 )
 
+// Scan implements sql.Scanner for reading SMALLINT from DB into OperationType.
+func (o *OperationType) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for OperationType, got %T", value)
+	}
+	*o = OperationTypeFromInt16(int16(v))
+	return nil
+}
+
 type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`

@@ -73,12 +73,13 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx db.Transaction, c
 }
 
 func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {
+	// Derive ledger_number from to_id using TOID structure: (to_id >> 32)::integer
 	const query = `
 		SELECT gap_start, gap_end FROM (
 			SELECT
 				ledger_number + 1 AS gap_start,
 				LEAD(ledger_number) OVER (ORDER BY ledger_number) - 1 AS gap_end
-			FROM (SELECT DISTINCT ledger_number FROM transactions) t
+			FROM (SELECT DISTINCT (to_id >> 32)::integer AS ledger_number FROM transactions) t
 		) gaps
 		WHERE gap_start <= gap_end
 		ORDER BY gap_start

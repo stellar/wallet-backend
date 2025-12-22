@@ -123,8 +123,8 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			}
 
 			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
-				if err := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
-					return err
+				if updateErr := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); updateErr != nil {
+					return updateErr
 				}
 				return nil
 			})
@@ -228,11 +228,13 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			name: "returns_empty_when_no_gaps",
 			setupDB: func(t *testing.T) {
 				// Insert consecutive ledgers: 100, 101, 102
+				// to_id encodes ledger via TOID: ledger << 32
 				for i, ledger := range []uint32{100, 101, 102} {
+					toID := int64(ledger) << 32
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						fmt.Sprintf("hash%d", i), i+1, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", i), toID)
 					require.NoError(t, err)
 				}
 			},
@@ -242,11 +244,13 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			name: "returns_single_gap",
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100 and 105, creating gap 101-104
+				// to_id encodes ledger via TOID: ledger << 32
 				for i, ledger := range []uint32{100, 105} {
+					toID := int64(ledger) << 32
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						fmt.Sprintf("hash%d", i), i+1, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", i), toID)
 					require.NoError(t, err)
 				}
 			},
@@ -258,11 +262,13 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			name: "returns_multiple_gaps",
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100, 105, 110, creating gaps 101-104 and 106-109
+				// to_id encodes ledger via TOID: ledger << 32
 				for i, ledger := range []uint32{100, 105, 110} {
+					toID := int64(ledger) << 32
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						fmt.Sprintf("hash%d", i), i+1, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", i), toID)
 					require.NoError(t, err)
 				}
 			},
@@ -275,11 +281,13 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			name: "handles_single_ledger_gap",
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100 and 102, creating gap of just 101
+				// to_id encodes ledger via TOID: ledger << 32
 				for i, ledger := range []uint32{100, 102} {
+					toID := int64(ledger) << 32
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
-						fmt.Sprintf("hash%d", i), i+1, ledger)
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', NOW())`,
+						fmt.Sprintf("hash%d", i), toID)
 					require.NoError(t, err)
 				}
 			},

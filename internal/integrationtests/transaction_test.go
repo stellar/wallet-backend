@@ -232,10 +232,10 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	for _, useCase := range claimAndClawbackUseCases {
 		uc := useCase
 		group.Submit(func() {
-			builtTxResponse, err := suite.testEnv.WBClient.BuildTransaction(ctx, uc.RequestedTransaction)
-			if err != nil {
+			builtTxResponse, buildErr := suite.testEnv.WBClient.BuildTransaction(ctx, uc.RequestedTransaction)
+			if buildErr != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to build transaction for %s: %w", uc.Name(), err))
+				errs = append(errs, fmt.Errorf("failed to build transaction for %s: %w", uc.Name(), buildErr))
 				mu.Unlock()
 				return
 			}

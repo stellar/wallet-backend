@@ -104,10 +104,10 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert simulation result if provided
 	var simulationResult *entities.RPCSimulateTransactionResult
 	if input.SimulationResult != nil {
-		convertedSimulationResult, err := convertSimulationResult(input.SimulationResult)
-		if err != nil {
+		convertedSimulationResult, convErr := convertSimulationResult(input.SimulationResult)
+		if convErr != nil {
 			return nil, &gqlerror.Error{
-				Message: err.Error(),
+				Message: convErr.Error(),
 				Extensions: map[string]any{
 					"code": "INVALID_SIMULATION_RESULT",
 				},

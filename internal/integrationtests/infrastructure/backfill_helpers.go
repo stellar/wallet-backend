@@ -52,12 +52,14 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 	defer db.Close() //nolint:errcheck
 
 	var count int
+	// to_id encodes ledger via TOID: (to_id >> 32)::integer
+	// transactions_accounts.tx_id references transactions.to_id
 	query := `
 		SELECT COUNT(DISTINCT t.hash)
 		FROM transactions t
-		INNER JOIN transactions_accounts ta ON t.hash = ta.tx_hash
+		INNER JOIN transactions_accounts ta ON t.to_id = ta.tx_id
 		WHERE ta.account_id = $1
-		AND t.ledger_number BETWEEN $2 AND $3
+		AND (t.to_id >> 32)::integer BETWEEN $2 AND $3
 	`
 	err = db.QueryRowContext(ctx, query, accountAddr, startLedger, endLedger).Scan(&count)
 	if err != nil {

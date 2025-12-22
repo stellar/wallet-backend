@@ -55,8 +55,8 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 	backfillContainer, err := containers.StartBackfillContainer(ctx, firstCheckpoint, backfillEndLedger)
 	suite.Require().NoError(err, "failed to start backfill container")
 	defer func() {
-		if err := backfillContainer.Terminate(ctx); err != nil {
-			log.Ctx(ctx).Warnf("Failed to terminate backfill container: %v", err)
+		if termErr := backfillContainer.Terminate(ctx); termErr != nil {
+			log.Ctx(ctx).Warnf("Failed to terminate backfill container: %v", termErr)
 		}
 	}()
 
@@ -100,8 +100,8 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 
 	// Verify transactions exist for funded accounts in the backfilled range
 	for _, accountAddr := range testAccounts {
-		txCount, err := containers.GetTransactionCountForAccount(ctx, accountAddr, firstCheckpoint, backfillEndLedger)
-		suite.Require().NoError(err, "failed to get transaction count for account %s", accountAddr)
+		txCount, txCountErr := containers.GetTransactionCountForAccount(ctx, accountAddr, firstCheckpoint, backfillEndLedger)
+		suite.Require().NoError(txCountErr, "failed to get transaction count for account %s", accountAddr)
 		suite.Assert().Greater(txCount, 0,
 			"should have transactions for account %s in backfilled range", accountAddr)
 	}
@@ -110,8 +110,8 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 
 	// Verify CREATE_ACCOUNT operations for funded accounts exist in backfilled range
 	for _, accountAddr := range testAccounts {
-		hasOp, err := containers.HasOperationForAccount(ctx, accountAddr, "CREATE_ACCOUNT", firstCheckpoint, backfillEndLedger)
-		suite.Require().NoError(err, "failed to check CREATE_ACCOUNT operation for account %s", accountAddr)
+		hasOp, opErr := containers.HasOperationForAccount(ctx, accountAddr, "CREATE_ACCOUNT", firstCheckpoint, backfillEndLedger)
+		suite.Require().NoError(opErr, "failed to check CREATE_ACCOUNT operation for account %s", accountAddr)
 		suite.Assert().True(hasOp,
 			"should have CREATE_ACCOUNT operation for account %s in backfilled range", accountAddr)
 	}

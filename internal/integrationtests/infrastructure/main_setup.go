@@ -289,7 +289,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 	}
 
 	// Wait for ingest to catch up with RPC before starting API
-	if err := s.waitForIngestSync(ctx); err != nil {
+	if err = s.waitForIngestSync(ctx); err != nil {
 		return fmt.Errorf("waiting for ingest sync: %w", err)
 	}
 
