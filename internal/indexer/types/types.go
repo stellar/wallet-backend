@@ -282,6 +282,32 @@ const (
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// Scan implements sql.Scanner for reading SMALLINT from DB into StateChangeCategory.
+func (c *StateChangeCategory) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for StateChangeCategory, got %T", value)
+	}
+	*c = StateChangeCategoryFromInt16(int16(v))
+	return nil
+}
+
+// Scan implements sql.Scanner for reading SMALLINT from DB into StateChangeReason.
+func (r *StateChangeReason) Scan(value any) error {
+	if value == nil {
+		return nil
+	}
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("expected int64 for StateChangeReason, got %T", value)
+	}
+	*r = StateChangeReasonFromInt16(int16(v))
+	return nil
+}
+
 // StateChange represents a unified database model for all types of blockchain state changes.
 //
 // DESIGN RATIONALE:

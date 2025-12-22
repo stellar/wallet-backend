@@ -43,7 +43,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		assert.Equal(t, "result1", tx.ResultXDR)
 		require.NotNil(t, tx.MetaXDR)
 		assert.Equal(t, "meta1", *tx.MetaXDR)
-		assert.Equal(t, uint32(1), tx.LedgerNumber)
+		assert.Equal(t, uint32(1), tx.GetLedgerNumber())
 	})
 
 	t.Run("non-existent hash", func(t *testing.T) {
@@ -443,8 +443,7 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
 		assert.Equal(t, "opxdr1", op.OperationXDR)
-		assert.Equal(t, "tx1", op.TxHash)
-		assert.Equal(t, uint32(1), op.LedgerNumber)
+		assert.Equal(t, uint32(1000), op.GetLedgerNumber()) // Derived from TOID
 	})
 
 	t.Run("non-existent ID", func(t *testing.T) {

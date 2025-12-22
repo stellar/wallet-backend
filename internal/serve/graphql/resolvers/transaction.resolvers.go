@@ -16,8 +16,9 @@ import (
 )
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the transaction TOID.
 func (r *transactionResolver) LedgerNumber(ctx context.Context, obj *types.Transaction) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Operations is the resolver for the operations field.

@@ -6,7 +6,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -23,8 +22,9 @@ func (r *accountChangeResolver) Reason(ctx context.Context, obj *types.AccountSt
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *accountChangeResolver) LedgerNumber(ctx context.Context, obj *types.AccountStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -58,8 +58,9 @@ func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *ty
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *balanceAuthorizationChangeResolver) LedgerNumber(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -103,8 +104,9 @@ func (r *flagsChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateC
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *flagsChangeResolver) LedgerNumber(ctx context.Context, obj *types.FlagsStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -138,8 +140,9 @@ func (r *metadataChangeResolver) Reason(ctx context.Context, obj *types.Metadata
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *metadataChangeResolver) LedgerNumber(ctx context.Context, obj *types.MetadataStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -173,8 +176,9 @@ func (r *reservesChangeResolver) Reason(ctx context.Context, obj *types.Reserves
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *reservesChangeResolver) LedgerNumber(ctx context.Context, obj *types.ReservesStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -218,8 +222,9 @@ func (r *signerChangeResolver) Reason(ctx context.Context, obj *types.SignerStat
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *signerChangeResolver) LedgerNumber(ctx context.Context, obj *types.SignerStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -258,8 +263,9 @@ func (r *signerThresholdsChangeResolver) Reason(ctx context.Context, obj *types.
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *signerThresholdsChangeResolver) LedgerNumber(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -293,8 +299,9 @@ func (r *standardBalanceChangeResolver) Reason(ctx context.Context, obj *types.S
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *standardBalanceChangeResolver) LedgerNumber(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -333,8 +340,9 @@ func (r *trustlineChangeResolver) Reason(ctx context.Context, obj *types.Trustli
 }
 
 // LedgerNumber is the resolver for the ledgerNumber field.
+// Derives the ledger sequence number from the state change TOID.
 func (r *trustlineChangeResolver) LedgerNumber(ctx context.Context, obj *types.TrustlineStateChangeModel) (uint32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return obj.GetLedgerNumber(), nil
 }
 
 // Account is the resolver for the account field.
@@ -406,12 +414,14 @@ func (r *Resolver) TrustlineChange() graphql1.TrustlineChangeResolver {
 	return &trustlineChangeResolver{r}
 }
 
-type accountChangeResolver struct{ *Resolver }
-type balanceAuthorizationChangeResolver struct{ *Resolver }
-type flagsChangeResolver struct{ *Resolver }
-type metadataChangeResolver struct{ *Resolver }
-type reservesChangeResolver struct{ *Resolver }
-type signerChangeResolver struct{ *Resolver }
-type signerThresholdsChangeResolver struct{ *Resolver }
-type standardBalanceChangeResolver struct{ *Resolver }
-type trustlineChangeResolver struct{ *Resolver }
+type (
+	accountChangeResolver              struct{ *Resolver }
+	balanceAuthorizationChangeResolver struct{ *Resolver }
+	flagsChangeResolver                struct{ *Resolver }
+	metadataChangeResolver             struct{ *Resolver }
+	reservesChangeResolver             struct{ *Resolver }
+	signerChangeResolver               struct{ *Resolver }
+	signerThresholdsChangeResolver     struct{ *Resolver }
+	standardBalanceChangeResolver      struct{ *Resolver }
+	trustlineChangeResolver            struct{ *Resolver }
+)

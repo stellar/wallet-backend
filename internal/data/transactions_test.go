@@ -38,7 +38,6 @@ func generateTestTransactions(n int, startToID int64) ([]*types.Transaction, map
 			EnvelopeXDR:     &envelope,
 			ResultXDR:       result,
 			MetaXDR:         &meta,
-			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
 		addressesByHash[hash] = set.NewSet(address)
@@ -72,7 +71,6 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		EnvelopeXDR:     &envelope1,
 		ResultXDR:       "result1",
 		MetaXDR:         &meta1,
-		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
@@ -81,7 +79,6 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		EnvelopeXDR:     &envelope2,
 		ResultXDR:       "result2",
 		MetaXDR:         &meta2,
-		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
 
@@ -233,7 +230,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		EnvelopeXDR:     &envelope1,
 		ResultXDR:       "result1",
 		MetaXDR:         &meta1,
-		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
@@ -242,7 +238,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		EnvelopeXDR:     &envelope2,
 		ResultXDR:       "result2",
 		MetaXDR:         &meta2,
-		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
 	// Transaction with nullable fields (nil envelope and meta)
@@ -252,7 +247,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		EnvelopeXDR:     nil,
 		ResultXDR:       "result3",
 		MetaXDR:         nil,
-		LedgerNumber:    3,
 		LedgerCreatedAt: now,
 	}
 
@@ -601,13 +595,14 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	`, now)
 	require.NoError(t, err)
 
-	// Create test state changes
+	// Create test state changes (state_change_category: 1=BALANCE)
+	// to_id maps to transactions via (to_id & ~4095) = tx.to_id
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, account_id)
 		VALUES
-			(1, 1, 'credit', $1, 1, $2, 1, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 2, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 3, 'tx1')
+			(1, 1, 1, $1, $2),
+			(2, 1, 1, $1, $2),
+			(3, 1, 1, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 

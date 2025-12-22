@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"

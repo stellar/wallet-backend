@@ -391,17 +391,17 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test operations first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES (1, 'tx1', 'payment', 'xdr1', 1, NOW()), (2, 'tx2', 'payment', 'xdr2', 2, NOW())")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at) VALUES (1, 'payment', 'xdr1', NOW()), (2, 'payment', 'xdr2', NOW())")
 	require.NoError(t, err)
 
 	// Insert test state changes that reference the accounts
+	// state_change_category: 1=BALANCE, state_change_reason: 4=CREDIT, 3=DEBIT
 	_, err = m.DB.ExecContext(ctx, `
 		INSERT INTO state_changes (
-			to_id, state_change_order, state_change_category, ledger_created_at,
-			ledger_number, account_id, operation_id, tx_hash
+			to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, account_id
 		) VALUES
-		($1, $2, 'CREDIT', NOW(), 1, $3, 1, 'tx1'),
-		($4, $5, 'DEBIT', NOW(), 2, $6, 2, 'tx2')
+		($1, $2, 1, 4, NOW(), $3),
+		($4, $5, 1, 3, NOW(), $6)
 	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
 	require.NoError(t, err)
 
