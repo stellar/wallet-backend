@@ -111,13 +111,14 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+// Uses JOIN with transactions table via TOID derivation since tx_hash column was removed from operations.
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON o.tx_hash = transactions.hash 
+		ON (o.id & ~4095) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
@@ -133,7 +134,8 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 	return transactions, nil
 }
 
-// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
+// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes.
+// Uses JOIN with transactions table via TOID derivation since tx_hash column was removed from state_changes.
 func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
@@ -147,7 +149,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
 		FROM transactions
-		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
+		INNER JOIN state_changes sc ON (sc.to_id & ~4095) = transactions.to_id
 		WHERE (sc.to_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 

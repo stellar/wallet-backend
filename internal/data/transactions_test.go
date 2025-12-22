@@ -538,27 +538,21 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions
+	// Create test transactions with proper TOID values (multiples of 4096)
+	// TOID encoding: operation_id & ~4095 gives the transaction base TOID
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
+			('tx1', 4096, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 8192, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 12288, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test operations
-	// Note: id encodes tx via TOID - operation 1,3 belong to tx with to_id=1, operation 2 belongs to tx with to_id=2
-	// Operation's parent tx is derived via: (operation_id & ~4095)
-	// tx1 has to_id=1, tx2 has to_id=2, tx3 has to_id=3
-	// For operation to belong to tx1 (to_id=1), we need (operation_id & ~4095) = 1
-	// This means operation_id should be 1 (since 1 & ~4095 = 1 for small values)
-	// Actually, TOID encoding: tx_to_id is the higher bits, operation index is lower 12 bits
-	// For proper encoding: operation_id = (tx_to_id << 12) | op_index_in_tx
-	// tx1 (to_id=1): operations at id = 1*4096 + 1 = 4097, 1*4096 + 2 = 4098
-	// tx2 (to_id=2): operations at id = 2*4096 + 1 = 8193
-	// Using simple IDs that match tx to_id for test simplicity (TOID derivation: id & ~4095)
+	// TOID encoding: operation_id & ~4095 = tx_to_id
+	// tx1 (to_id=4096): operations at id = 4097, 4098
+	// tx2 (to_id=8192): operations at id = 8193
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, ledger_created_at)
 		VALUES
@@ -569,7 +563,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationIDs
-	// Operations 4097 and 4098 belong to tx1 (to_id=1), operation 8193 belongs to tx2 (to_id=2)
+	// Operations 4097 and 4098 belong to tx1 (to_id=4096), operation 8193 belongs to tx2 (to_id=8192)
 	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193, 4098}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
@@ -610,29 +604,33 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions
+	// Create test transactions with proper TOID values (multiples of 4096)
+	// TOID encoding: state_change.to_id & ~4095 gives the transaction base TOID
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', $1)
+			('tx1', 4096, 'envelope1', 'result1', 'meta1', $1),
+			('tx2', 8192, 'envelope2', 'result2', 'meta2', $1),
+			('tx3', 12288, 'envelope3', 'result3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes (state_change_category: 1=BALANCE)
-	// to_id maps to transactions via (to_id & ~4095) = tx.to_id
+	// TOID encoding: state_change.to_id & ~4095 = tx.to_id
+	// tx1 (to_id=4096): state changes at 4097, 4099
+	// tx2 (to_id=8192): state change at 8193
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, account_id)
 		VALUES
-			(1, 1, 1, $1, $2),
-			(2, 1, 1, $1, $2),
-			(3, 1, 1, $1, $2)
+			(4097, 1, 1, $1, $2),
+			(8193, 1, 1, $1, $2),
+			(4099, 1, 1, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 
-	// Test BatchGetByStateChangeID
-	transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{1, 2, 3}, []int64{1, 1, 1}, "")
+	// Test BatchGetByStateChangeIDs
+	// State changes 4097 and 4099 belong to tx1 (to_id=4096), state change 8193 belongs to tx2 (to_id=8192)
+	transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{4097, 8193, 4099}, []int64{1, 1, 1}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -641,9 +639,9 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	for _, tx := range transactions {
 		stateChangeIDsFound[tx.StateChangeID] = tx.Hash
 	}
-	assert.Equal(t, "tx1", stateChangeIDsFound["1-1"])
-	assert.Equal(t, "tx2", stateChangeIDsFound["2-1"])
-	assert.Equal(t, "tx1", stateChangeIDsFound["3-1"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["4097-1"])
+	assert.Equal(t, "tx2", stateChangeIDsFound["8193-1"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["4099-1"])
 }
 
 func BenchmarkTransactionModel_BatchInsert(b *testing.B) {

@@ -35,7 +35,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	// Use JOIN with transactions table when txHash filter is provided
 	if txHash != nil {
 		queryBuilder.WriteString(fmt.Sprintf(`
-			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order"
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order",
+				t.hash as tx_hash, sc.to_id as operation_id
 			FROM state_changes sc
 			JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
 			WHERE sc.account_id = $1 AND t.hash = $%d
@@ -44,7 +45,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		argIndex++
 	} else {
 		queryBuilder.WriteString(fmt.Sprintf(`
-			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order"
+			SELECT %s, sc.to_id as "cursor.cursor_to_id", sc.state_change_order as "cursor.cursor_state_change_order",
+				'' as tx_hash, sc.to_id as operation_id
 			FROM state_changes sc
 			WHERE sc.account_id = $1
 		`, columns))
@@ -499,7 +501,7 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
 // Uses JOIN with transactions table since tx_hash column was removed from state_changes.
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
@@ -515,6 +517,7 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 				SELECT
 					sc.*,
 					t.hash as tx_hash,
+					sc.to_id as operation_id,
 					ROW_NUMBER() OVER (PARTITION BY t.hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
 				FROM
 					state_changes sc
@@ -523,7 +526,7 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 				JOIN
 					inputs i ON t.hash = i.tx_hash
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", tx_hash FROM ranked_state_changes_per_tx_hash
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order", tx_hash, operation_id FROM ranked_state_changes_per_tx_hash
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
@@ -608,7 +611,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
 // For operation-related state changes, to_id equals the operation ID (when to_id & 4095 != 0).
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-operation pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few

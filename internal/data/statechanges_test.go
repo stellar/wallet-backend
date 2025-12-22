@@ -612,8 +612,9 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Filter by tx1 (to_id=4096), operationID 4097 (which belongs to tx1 and is BALANCE, CREDIT)
 		txHash := "tx1"
-		operationID := int64(123)
+		operationID := int64(4097)
 		category := "BALANCE"
 		reason := "CREDIT"
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC)
@@ -621,7 +622,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, "tx1", sc.TxHash)
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(4097), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID)
@@ -737,28 +738,32 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first with proper TOID values (multiples of 4096)
+	// TOID encoding: state_change.to_id & ~4095 gives the transaction base TOID
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 'res1', 'meta1', $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', $1)
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1),
+			('tx3', 12288, 'env3', 'res3', 'meta3', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes - multiple state changes per transaction to test ranking
 	// state_change_category: 1=BALANCE
+	// tx1 (to_id=4096): state changes at 4097, 4098, 4099 (3 state changes)
+	// tx2 (to_id=8192): state changes at 8193, 8194, 8195 (3 state changes)
+	// tx3 (to_id=12288): state change at 12289 (1 state change)
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, account_id)
 		VALUES
-			(1, 1, 1, $1, $2),
-			(2, 1, 1, $1, $2),
-			(3, 1, 1, $1, $2),
-			(4, 1, 1, $1, $2),
-			(5, 1, 1, $1, $2),
-			(6, 1, 1, $1, $2),
-			(7, 1, 1, $1, $2)
+			(4097, 1, 1, $1, $2),
+			(4098, 1, 1, $1, $2),
+			(4099, 1, 1, $1, $2),
+			(8193, 1, 1, $1, $2),
+			(8194, 1, 1, $1, $2),
+			(8195, 1, 1, $1, $2),
+			(12289, 1, 1, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -1012,25 +1017,27 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first with proper TOID values (multiples of 4096)
+	// TOID encoding: state_change.to_id & ~4095 gives the transaction base TOID
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 'res1', 'meta1', $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', $1)
+			('tx1', 4096, 'env1', 'res1', 'meta1', $1),
+			('tx2', 8192, 'env2', 'res2', 'meta2', $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes for tx1 and tx2
-	// to_id encodes tx via masking: tx1 has to_id=1 (tx base), tx2 has to_id=2 (tx base)
+	// tx1 (to_id=4096): state changes at 4097, 4098, 4099 (3 state changes)
+	// tx2 (to_id=8192): state change at 8193 (1 state change)
 	// For state changes: to_id & ~4095 = tx_to_id
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, account_id)
 		VALUES
-			(1, 1, 1, $1, $2),
-			(1, 2, 1, $1, $2),
-			(1, 3, 1, $1, $2),
-			(2, 1, 1, $1, $2)
+			(4097, 1, 1, $1, $2),
+			(4098, 1, 1, $1, $2),
+			(4099, 1, 1, $1, $2),
+			(8193, 1, 1, $1, $2)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -1045,9 +1052,9 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 		}
 
 		// Verify ordering (ASC by to_id, state_change_order)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(4097), stateChanges[0].ToID)
+		assert.Equal(t, int64(4098), stateChanges[1].ToID)
+		assert.Equal(t, int64(4099), stateChanges[2].ToID)
 	})
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
@@ -1056,20 +1063,20 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(4097), stateChanges[0].ToID)
+		assert.Equal(t, int64(4098), stateChanges[1].ToID)
 	})
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
-		cursor := &types.StateChangeCursor{ToID: 1, StateChangeOrder: 1}
+		cursor := &types.StateChangeCursor{ToID: 4097, StateChangeOrder: 1}
 		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		// Should get results after cursor (to_id=1, state_change_order=1)
-		assert.Equal(t, int64(2), stateChanges[0].ToID)
-		assert.Equal(t, int64(3), stateChanges[1].ToID)
+		// Should get results after cursor (to_id=4097, state_change_order=1)
+		assert.Equal(t, int64(4098), stateChanges[0].ToID)
+		assert.Equal(t, int64(4099), stateChanges[1].ToID)
 	})
 
 	t.Run("get state changes with DESC ordering", func(t *testing.T) {
@@ -1078,9 +1085,9 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 
 		// Verify ordering (results should be in ASC order after DESC query transformation)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(4097), stateChanges[0].ToID)
+		assert.Equal(t, int64(4098), stateChanges[1].ToID)
+		assert.Equal(t, int64(4099), stateChanges[2].ToID)
 	})
 
 	t.Run("no state changes for non-existent transaction", func(t *testing.T) {
