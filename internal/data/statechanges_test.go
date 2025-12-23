@@ -34,17 +34,17 @@ func generateTestStateChanges(n int, accountID string, startToID int64) []types.
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &reason,
 			LedgerCreatedAt:     now,
-			AccountID:           accountID,
+			AccountID:           types.StellarAddress(accountID),
 			// sql.NullString fields
-			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			TokenID:            types.NewNullableStellarAddress(fmt.Sprintf("token_%d", i)),
 			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
 			OfferID:            sql.NullString{String: fmt.Sprintf("offer_%d", i), Valid: true},
-			SignerAccountID:    sql.NullString{String: fmt.Sprintf("GSIGNER%032d", i), Valid: true},
-			SpenderAccountID:   sql.NullString{String: fmt.Sprintf("GSPENDER%031d", i), Valid: true},
-			SponsoredAccountID: sql.NullString{String: fmt.Sprintf("GSPONSORED%028d", i), Valid: true},
-			SponsorAccountID:   sql.NullString{String: fmt.Sprintf("GSPONSOR%030d", i), Valid: true},
-			DeployerAccountID:  sql.NullString{String: fmt.Sprintf("GDEPLOYER%029d", i), Valid: true},
-			FunderAccountID:    sql.NullString{String: fmt.Sprintf("GFUNDER%031d", i), Valid: true},
+			SignerAccountID:    types.NewNullableStellarAddress(fmt.Sprintf("GSIGNER%032d", i)),
+			SpenderAccountID:   types.NewNullableStellarAddress(fmt.Sprintf("GSPENDER%031d", i)),
+			SponsoredAccountID: types.NewNullableStellarAddress(fmt.Sprintf("GSPONSORED%028d", i)),
+			SponsorAccountID:   types.NewNullableStellarAddress(fmt.Sprintf("GSPONSOR%030d", i)),
+			DeployerAccountID:  types.NewNullableStellarAddress(fmt.Sprintf("GDEPLOYER%029d", i)),
+			FunderAccountID:    types.NewNullableStellarAddress(fmt.Sprintf("GFUNDER%031d", i)),
 			// JSONB fields
 			SignerWeights:  types.NullableJSONB{"weight": i + 1, "key": fmt.Sprintf("signer_%d", i)},
 			Thresholds:     types.NullableJSONB{"low": 1, "med": 2, "high": 3},
@@ -70,8 +70,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	// Create test data
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
@@ -109,8 +108,8 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
-		AccountID:           kp1.Address(),
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		AccountID:           types.StellarAddress(kp1.Address()),
+		TokenID:             types.NewNullableStellarAddress("token1"),
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
@@ -119,7 +118,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
-		AccountID:           kp2.Address(),
+		AccountID:           types.StellarAddress(kp2.Address()),
 	}
 
 	testCases := []struct {
@@ -216,8 +215,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
@@ -255,8 +253,8 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
-		AccountID:           kp1.Address(),
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		AccountID:           types.StellarAddress(kp1.Address()),
+		TokenID:             types.NewNullableStellarAddress("token1"),
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
@@ -265,7 +263,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
-		AccountID:           kp2.Address(),
+		AccountID:           types.StellarAddress(kp2.Address()),
 	}
 	// State change with nullable JSONB fields
 	sc3 := types.StateChange{
@@ -274,7 +272,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeCategory: types.StateChangeCategorySigner,
 		StateChangeReason:   nil,
 		LedgerCreatedAt:     now,
-		AccountID:           kp1.Address(),
+		AccountID:           types.StellarAddress(kp1.Address()),
 		SignerWeights:       types.NullableJSONB{"weight": 10},
 		Thresholds:          types.NullableJSONB{"low": 1, "med": 2, "high": 3},
 	}
@@ -375,7 +373,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Create test transactions first
@@ -395,7 +393,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 			(1, 1, 1, $1, $2),
 			(2, 1, 3, $1, $2),
 			(3, 1, 1, $1, $3)
-	`, now, address1, address2)
+	`, now, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -413,7 +411,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 	for _, sc := range stateChanges {
-		assert.Equal(t, address1, sc.AccountID)
+		assert.Equal(t, address1, string(sc.AccountID))
 	}
 
 	// Test BatchGetByAccount for address2
@@ -421,7 +419,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 1)
 	for _, sc := range stateChanges {
-		assert.Equal(t, address2, sc.AccountID)
+		assert.Equal(t, address2, string(sc.AccountID))
 	}
 }
 
@@ -437,7 +435,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions with proper TOID values (multiples of 4096)
@@ -466,7 +464,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			(8193, 1, 3, 7, $1, $2),
 			(12289, 1, 1, 3, $1, $2),
 			(12290, 1, 3, 7, $1, $2)
-	`, now, address)
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
@@ -486,7 +484,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, "tx1", sc.TxHash)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -508,7 +506,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(4097), sc.ToID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -532,7 +530,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(4097), sc.ToID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -553,7 +551,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -574,7 +572,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -597,7 +595,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -625,7 +623,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			assert.Equal(t, int64(4097), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, string(sc.AccountID))
 		}
 	})
 
@@ -688,7 +686,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions first
@@ -708,7 +706,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 			(1, 1, 1, $1, $2),
 			(2, 1, 1, $1, $2),
 			(3, 1, 1, $1, $2)
-	`, now, address)
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Test GetAll without limit
@@ -735,7 +733,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions first with proper TOID values (multiples of 4096)
@@ -764,7 +762,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 			(8194, 1, 1, $1, $2),
 			(8195, 1, 1, $1, $2),
 			(12289, 1, 1, $1, $2)
-	`, now, address)
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -952,7 +950,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions first
@@ -974,7 +972,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 			(123, 1, 1, $1, $2),
 			(456, 1, 1, $1, $2),
 			(123, 2, 1, $1, $2)
-	`, now, address)
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
@@ -1014,7 +1012,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions first with proper TOID values (multiples of 4096)
@@ -1038,7 +1036,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 			(4098, 1, 1, $1, $2),
 			(4099, 1, 1, $1, $2),
 			(8193, 1, 1, $1, $2)
-	`, now, address)
+	`, now, types.StellarAddress(address))
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single transaction", func(t *testing.T) {

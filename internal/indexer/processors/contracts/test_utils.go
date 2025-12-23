@@ -622,7 +622,7 @@ func createInvalidBalanceMapTx(contractAccount, admin string, asset xdr.Asset, i
 		BuildContract()
 }
 
-func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
+func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount types.StellarAddress, expectedContractID string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)

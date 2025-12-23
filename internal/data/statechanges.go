@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ type StateChangeModel struct {
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
-	args := []interface{}{accountAddress}
+	args := []interface{}{types.StellarAddress(accountAddress)}
 	argIndex := 2
 
 	// Use JOIN with transactions table when txHash filter is provided
@@ -189,16 +190,16 @@ func (m *StateChangeModel) BatchInsert(
 	categories := make([]int16, len(stateChanges))
 	reasons := make([]*int16, len(stateChanges))
 	ledgerCreatedAts := make([]time.Time, len(stateChanges))
-	accountIDs := make([]string, len(stateChanges))
-	tokenIDs := make([]*string, len(stateChanges))
+	accountIDs := make([][]byte, len(stateChanges))
+	tokenIDs := make([][]byte, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
 	offerIDs := make([]*string, len(stateChanges))
-	signerAccountIDs := make([]*string, len(stateChanges))
-	spenderAccountIDs := make([]*string, len(stateChanges))
-	sponsoredAccountIDs := make([]*string, len(stateChanges))
-	sponsorAccountIDs := make([]*string, len(stateChanges))
-	deployerAccountIDs := make([]*string, len(stateChanges))
-	funderAccountIDs := make([]*string, len(stateChanges))
+	signerAccountIDs := make([][]byte, len(stateChanges))
+	spenderAccountIDs := make([][]byte, len(stateChanges))
+	sponsoredAccountIDs := make([][]byte, len(stateChanges))
+	sponsorAccountIDs := make([][]byte, len(stateChanges))
+	deployerAccountIDs := make([][]byte, len(stateChanges))
+	funderAccountIDs := make([][]byte, len(stateChanges))
 	signerWeights := make([]*types.NullableJSONB, len(stateChanges))
 	thresholds := make([]*types.NullableJSONB, len(stateChanges))
 	trustlineLimits := make([]*types.NullableJSONB, len(stateChanges))
@@ -210,40 +211,26 @@ func (m *StateChangeModel) BatchInsert(
 		toIDs[i] = sc.ToID
 		categories[i] = sc.StateChangeCategory.ToInt16()
 		ledgerCreatedAts[i] = sc.LedgerCreatedAt
-		accountIDs[i] = sc.AccountID
+		accountIDs[i] = bytesFromStellarAddress(sc.AccountID)
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {
 			reason := sc.StateChangeReason.ToInt16()
 			reasons[i] = &reason
 		}
-		if sc.TokenID.Valid {
-			tokenIDs[i] = &sc.TokenID.String
-		}
+		tokenIDs[i] = bytesFromNullableStellarAddress(sc.TokenID)
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
 		}
 		if sc.OfferID.Valid {
 			offerIDs[i] = &sc.OfferID.String
 		}
-		if sc.SignerAccountID.Valid {
-			signerAccountIDs[i] = &sc.SignerAccountID.String
-		}
-		if sc.SpenderAccountID.Valid {
-			spenderAccountIDs[i] = &sc.SpenderAccountID.String
-		}
-		if sc.SponsoredAccountID.Valid {
-			sponsoredAccountIDs[i] = &sc.SponsoredAccountID.String
-		}
-		if sc.SponsorAccountID.Valid {
-			sponsorAccountIDs[i] = &sc.SponsorAccountID.String
-		}
-		if sc.DeployerAccountID.Valid {
-			deployerAccountIDs[i] = &sc.DeployerAccountID.String
-		}
-		if sc.FunderAccountID.Valid {
-			funderAccountIDs[i] = &sc.FunderAccountID.String
-		}
+		signerAccountIDs[i] = bytesFromNullableStellarAddress(sc.SignerAccountID)
+		spenderAccountIDs[i] = bytesFromNullableStellarAddress(sc.SpenderAccountID)
+		sponsoredAccountIDs[i] = bytesFromNullableStellarAddress(sc.SponsoredAccountID)
+		sponsorAccountIDs[i] = bytesFromNullableStellarAddress(sc.SponsorAccountID)
+		deployerAccountIDs[i] = bytesFromNullableStellarAddress(sc.DeployerAccountID)
+		funderAccountIDs[i] = bytesFromNullableStellarAddress(sc.FunderAccountID)
 		if sc.SignerWeights != nil {
 			signerWeights[i] = &sc.SignerWeights
 		}
@@ -270,16 +257,16 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($3::smallint[]) AS state_change_category,
 				UNNEST($4::smallint[]) AS state_change_reason,
 				UNNEST($5::timestamptz[]) AS ledger_created_at,
-				UNNEST($6::text[]) AS account_id,
-				UNNEST($7::text[]) AS token_id,
+				UNNEST($6::bytea[]) AS account_id,
+				UNNEST($7::bytea[]) AS token_id,
 				UNNEST($8::text[]) AS amount,
 				UNNEST($9::text[]) AS offer_id,
-				UNNEST($10::text[]) AS signer_account_id,
-				UNNEST($11::text[]) AS spender_account_id,
-				UNNEST($12::text[]) AS sponsored_account_id,
-				UNNEST($13::text[]) AS sponsor_account_id,
-				UNNEST($14::text[]) AS deployer_account_id,
-				UNNEST($15::text[]) AS funder_account_id,
+				UNNEST($10::bytea[]) AS signer_account_id,
+				UNNEST($11::bytea[]) AS spender_account_id,
+				UNNEST($12::bytea[]) AS sponsored_account_id,
+				UNNEST($13::bytea[]) AS sponsor_account_id,
+				UNNEST($14::bytea[]) AS deployer_account_id,
+				UNNEST($15::bytea[]) AS funder_account_id,
 				UNNEST($16::jsonb[]) AS signer_weights,
 				UNNEST($17::jsonb[]) AS thresholds,
 				UNNEST($18::jsonb[]) AS trustline_limit,
@@ -387,6 +374,27 @@ func (m *StateChangeModel) BatchCopy(
 
 	start := time.Now()
 
+	var validStateChanges []types.StateChange
+	for _, sc := range stateChanges {
+		accountID := bytesFromStellarAddress(sc.AccountID)
+		if accountID != nil {
+			validStateChanges = append(validStateChanges, sc)
+		} else {
+			log.Printf("Skipping state change with invalid account ID: %s (to_id=%d, order=%d)",
+				sc.AccountID, sc.ToID, sc.StateChangeOrder)
+		}
+	}
+
+	if len(validStateChanges) == 0 {
+		log.Printf("All %d state changes had invalid account IDs, skipping batch", len(stateChanges))
+		return 0, nil
+	}
+
+	if len(validStateChanges) < len(stateChanges) {
+		log.Printf("Filtered out %d invalid state changes, proceeding with %d valid ones",
+			len(stateChanges)-len(validStateChanges), len(validStateChanges))
+	}
+
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -398,24 +406,24 @@ func (m *StateChangeModel) BatchCopy(
 			"deployer_account_id", "funder_account_id", "signer_weights", "thresholds",
 			"trustline_limit", "flags", "key_value",
 		},
-		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
-			sc := stateChanges[i]
+		pgx.CopyFromSlice(len(validStateChanges), func(i int) ([]any, error) {
+			sc := validStateChanges[i]
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
 				pgtype.Int2{Int16: sc.StateChangeCategory.ToInt16(), Valid: true},
 				pgtypeInt2FromReasonPtr(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Text{String: sc.AccountID, Valid: true},
-				pgtypeTextFromNullString(sc.TokenID),
+				bytesFromStellarAddress(sc.AccountID),
+				bytesFromNullableStellarAddress(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
 				pgtypeTextFromNullString(sc.OfferID),
-				pgtypeTextFromNullString(sc.SignerAccountID),
-				pgtypeTextFromNullString(sc.SpenderAccountID),
-				pgtypeTextFromNullString(sc.SponsoredAccountID),
-				pgtypeTextFromNullString(sc.SponsorAccountID),
-				pgtypeTextFromNullString(sc.DeployerAccountID),
-				pgtypeTextFromNullString(sc.FunderAccountID),
+				bytesFromNullableStellarAddress(sc.SignerAccountID),
+				bytesFromNullableStellarAddress(sc.SpenderAccountID),
+				bytesFromNullableStellarAddress(sc.SponsoredAccountID),
+				bytesFromNullableStellarAddress(sc.SponsorAccountID),
+				bytesFromNullableStellarAddress(sc.DeployerAccountID),
+				bytesFromNullableStellarAddress(sc.FunderAccountID),
 				jsonbFromMap(sc.SignerWeights),
 				jsonbFromMap(sc.Thresholds),
 				jsonbFromMap(sc.TrustlineLimit),
@@ -428,16 +436,16 @@ func (m *StateChangeModel) BatchCopy(
 		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
 	}
-	if int(copyCount) != len(stateChanges) {
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
+	if int(copyCount) != len(validStateChanges) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(validStateChanges), copyCount)
 	}
 
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(validStateChanges))
 	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
 
-	return len(stateChanges), nil
+	return len(validStateChanges), nil
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.

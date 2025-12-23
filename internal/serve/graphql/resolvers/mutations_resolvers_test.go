@@ -75,7 +75,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		}
 
 		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			Address: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S",
 		}
 
 		mockService.On("RegisterAccount", ctx, input.Address).Return(nil)
@@ -86,7 +86,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.True(t, result.Success)
 		assert.NotNil(t, result.Account)
-		assert.Equal(t, input.Address, result.Account.StellarAddress)
+		assert.Equal(t, input.Address, string(result.Account.StellarAddress))
 
 		mockService.AssertExpectations(t)
 	})
@@ -102,7 +102,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		}
 
 		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			Address: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S",
 		}
 
 		mockService.On("RegisterAccount", ctx, input.Address).Return(errors.New("registration failed"))
@@ -127,7 +127,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		}
 
 		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			Address: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S",
 		}
 
 		mockService.On("RegisterAccount", ctx, input.Address).Return(data.ErrAccountAlreadyExists)

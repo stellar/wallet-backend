@@ -17,7 +17,7 @@ func buildStateChange(toID int64, reason types.StateChangeReason, accountID stri
 		ToID:                toID,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
-		AccountID:           accountID,
+		AccountID:           types.StellarAddress(accountID),
 		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
 }
@@ -330,9 +330,9 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: types.StellarAddress("alice")}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: types.StellarAddress("bob")}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: types.StellarAddress("charlie")}
 
 		indexerBuffer.PushStateChange(tx, op, sc1)
 		indexerBuffer.PushStateChange(tx, op, sc2)
@@ -385,9 +385,9 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie"} // fee change
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: types.StellarAddress("alice")}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: types.StellarAddress("bob")}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: types.StellarAddress("charlie")} // fee change
 
 		indexerBuffer.PushStateChange(tx, op, sc1)
 		indexerBuffer.PushStateChange(tx, op, sc2)
@@ -402,7 +402,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 
 		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op := types.Operation{ID: 1}
-		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "dave"}
+		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: types.StellarAddress("dave")}
 
 		// Add participants from different sources
 		indexerBuffer.PushTransaction("alice", tx)
@@ -490,8 +490,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: types.StellarAddress("alice")}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: types.StellarAddress("bob")}
 
 		buffer1.PushStateChange(tx, op, sc1)
 		buffer2.PushStateChange(tx, op, sc2)
@@ -609,8 +609,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: types.StellarAddress("alice")}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: types.StellarAddress("bob")}
 
 		// Buffer1
 		buffer1.PushTransaction("alice", tx1)

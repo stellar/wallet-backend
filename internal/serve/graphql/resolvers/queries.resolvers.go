@@ -71,7 +71,7 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 	acc, err := r.models.Account.Get(ctx, address)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return &types.Account{StellarAddress: address}, nil
+			return &types.Account{StellarAddress: types.StellarAddress(address)}, nil
 		}
 		return nil, err
 	}

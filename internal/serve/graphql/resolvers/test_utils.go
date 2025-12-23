@@ -48,7 +48,7 @@ func ptr[T any](v T) *T {
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := types.StellarAddress("GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S")
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
 	opIdx := 1
@@ -96,7 +96,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
-				AccountID:           parentAccount.StellarAddress,
+				AccountID:           parentAccount,
 				LedgerCreatedAt:     time.Now(),
 			})
 		}
@@ -109,7 +109,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			AccountID:           parentAccount.StellarAddress,
+			AccountID:           parentAccount,
 			LedgerCreatedAt:     time.Now(),
 		})
 	}
@@ -117,7 +117,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO accounts (stellar_address) VALUES ($1)`,
-			parentAccount.StellarAddress)
+			parentAccount)
 		require.NoError(t, err)
 
 		for _, txn := range txns {
@@ -128,7 +128,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO transactions_accounts (tx_id, account_id) VALUES ($1, $2)`,
-				txn.ToID, parentAccount.StellarAddress)
+				txn.ToID, parentAccount)
 			require.NoError(t, err)
 		}
 
@@ -140,7 +140,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
-				op.ID, parentAccount.StellarAddress)
+				op.ID, parentAccount)
 			require.NoError(t, err)
 		}
 

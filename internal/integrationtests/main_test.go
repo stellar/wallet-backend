@@ -49,6 +49,10 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	if t.Failed() {
+		t.Fatal("CatchupTestSuite failed, skipping remaining tests")
+	}
+
 	// Phase 1: Validate balances from checkpoint before fixture transactions
 	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
