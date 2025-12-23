@@ -16,6 +16,8 @@ const (
 	SetOpAdd    RedisOperation = "SADD"
 	SetOpRemove RedisOperation = "SREM"
 	OpSet       RedisOperation = "SET"
+	OpHSet      RedisOperation = "HSET"
+	OpHDel      RedisOperation = "HDEL"
 )
 
 // RedisPipelineOperation represents a single set operation to be executed in a pipeline.
@@ -24,6 +26,7 @@ type RedisPipelineOperation struct {
 	Key     string
 	Members []string
 	Value   string
+	Field   string
 }
 
 // RedisStore provides generic Redis operations for caching.
@@ -79,6 +82,41 @@ func (r *RedisStore) Set(ctx context.Context, key, value string) error {
 	return nil
 }
 
+// HSet stores a string value at a key.
+func (r *RedisStore) HSet(ctx context.Context, key, field, value string) error {
+	if err := r.client.HSet(ctx, key, field, value).Err(); err != nil {
+		return fmt.Errorf("setting key %s: %w", key, err)
+	}
+	return nil
+}
+
+// HGet retrieves the value of a field in a hash stored at key.
+func (r *RedisStore) HGet(ctx context.Context, key string, field string) (string, error) {
+	val, err := r.client.HGet(ctx, key, field).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil // Key doesn't exist
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting key %s: %w", key, err)
+	}
+	return val, nil
+}
+
+func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (map[string]string, error) {
+	vals, err := r.client.HMGet(ctx, key, fields...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("getting key %s: %w", key, err)
+	}
+
+	result := make(map[string]string)
+	for i, field := range fields {
+		if vals[i] != nil {
+			result[field] = vals[i].(string)
+		}
+	}
+	return result, nil
+}
+
 // ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
 // This reduces network round trips and improves performance when processing many operations.
 // Returns an error if any operation in the pipeline fails.
@@ -96,6 +134,10 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 			pipe.SRem(ctx, op.Key, op.Members)
 		case OpSet:
 			pipe.Set(ctx, op.Key, op.Value, 0)
+		case OpHSet:
+			pipe.HSet(ctx, op.Key, op.Field, op.Value)
+		case OpHDel:
+			pipe.HDel(ctx, op.Key, op.Field)
 		default:
 			return fmt.Errorf("unsupported set operation: %s", op.Op)
 		}

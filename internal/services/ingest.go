@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"sort"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -511,11 +510,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 
 	if !m.backfillMode {
 		trustlineChanges := indexerBuffer.GetTrustlineChanges()
-		// Insert trustline changes in the ascending order of operation IDs using batch processing
-		sort.Slice(trustlineChanges, func(i, j int) bool {
-			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-		})
-
 		contractChanges := indexerBuffer.GetContractChanges()
 
 		// Process all trustline and contract changes in a single batch using Redis pipelining
