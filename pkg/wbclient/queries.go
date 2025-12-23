@@ -387,10 +387,8 @@ func buildOperationStateChangesQuery() string {
 	`, stateChangeFragments)
 }
 
-// buildBalancesByAccountAddressQuery builds the GraphQL query for fetching account balances
-func buildBalancesByAccountAddressQuery() string {
-	// Balance fragments for all concrete balance types
-	balanceFragments := `
+// balanceFragments contains GraphQL fragments for all concrete balance types
+const balanceFragments = `
 		__typename
 		balance
 		tokenId
@@ -419,10 +417,28 @@ func buildBalancesByAccountAddressQuery() string {
 			decimals
 		}
 	`
+
+// buildBalancesByAccountAddressQuery builds the GraphQL query for fetching account balances
+func buildBalancesByAccountAddressQuery() string {
 	return fmt.Sprintf(`
 		query BalancesByAccountAddress($address: String!) {
 			balancesByAccountAddress(address: $address) {
 				%s
+			}
+		}
+	`, balanceFragments)
+}
+
+// buildBalancesByAccountAddressesQuery builds the GraphQL query for fetching balances for multiple accounts
+func buildBalancesByAccountAddressesQuery() string {
+	return fmt.Sprintf(`
+		query BalancesByAccountAddresses($addresses: [String!]!) {
+			balancesByAccountAddresses(addresses: $addresses) {
+				address
+				balances {
+					%s
+				}
+				error
 			}
 		}
 	`, balanceFragments)

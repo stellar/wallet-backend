@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -30,6 +31,12 @@ import (
 const (
 	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 )
+
+// ResolverConfig holds configuration values for the GraphQL resolver.
+type ResolverConfig struct {
+	MaxAccountsPerBalancesQuery int
+	MaxWorkerPoolSize           int
+}
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
@@ -50,12 +57,20 @@ type Resolver struct {
 	accountTokenService services.AccountTokenService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
+	// pool provides parallel processing capabilities for batch operations
+	pool pond.Pool
+	// config holds resolver-specific configuration values
+	config ResolverConfig
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+	poolSize := config.MaxWorkerPoolSize
+	if poolSize <= 0 {
+		poolSize = 100 // default fallback
+	}
 	return &Resolver{
 		models:              models,
 		accountService:      accountService,
@@ -64,6 +79,8 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		rpcService:          rpcService,
 		accountTokenService: accountTokenService,
 		metricsService:      metricsService,
+		pool:                pond.NewPool(poolSize),
+		config:              config,
 	}
 }
 
