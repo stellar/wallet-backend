@@ -63,9 +63,12 @@ type Indexer struct {
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
+	skipTxMeta             bool
+	skipTxEnvelope         bool
+	networkPassphrase      string
 }
 
-func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface) *Indexer {
+func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
@@ -74,8 +77,11 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
 			contract_processors.NewSACEventsProcessor(networkPassphrase, metricsService),
 		},
-		pool:           pool,
-		metricsService: metricsService,
+		pool:              pool,
+		metricsService:    metricsService,
+		skipTxMeta:        skipTxMeta,
+		skipTxEnvelope:    skipTxEnvelope,
+		networkPassphrase: networkPassphrase,
 	}
 }
 
@@ -146,7 +152,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&tx)
+	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope, i.networkPassphrase)
 	if err != nil {
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}
@@ -240,6 +246,11 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 	// Insert state changes
 	for _, stateChange := range stateChanges {
+		// Skip empty state changes (no account to associate with)
+		if stateChange.AccountID == "" {
+			continue
+		}
+
 		// Get the correct operation for this state change
 		var operation types.Operation
 		if stateChange.OperationID != 0 {

@@ -474,7 +474,6 @@ func (s *accountTokenService) enrichContractTypes(
 	for wasmHash, contractCode := range contractCodesByWasmHash {
 		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
 		if err != nil {
-			log.Ctx(ctx).Warnf("Failed to validate contract code for WASM hash %s: %v", wasmHash.HexString(), err)
 			continue
 		}
 		if contractType == types.ContractTypeUnknown {

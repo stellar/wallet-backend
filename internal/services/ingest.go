@@ -80,6 +80,8 @@ func NewIngestService(
 	network string,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
+	skipTxMeta bool,
+	skipTxEnvelope bool,
 	enableParticipantFiltering bool,
 ) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
@@ -100,7 +102,7 @@ func NewIngestService(
 		metricsService:             metricsService,
 		networkPassphrase:          networkPassphrase,
 		getLedgersLimit:            getLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
+		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta, skipTxEnvelope),
 		archive:                    archive,
 		backfillMode:               false,
 		enableParticipantFiltering: enableParticipantFiltering,
@@ -265,10 +267,9 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 }
 
 // processLedger processes a single ledger through all ingestion phases.
-// Phase 1: Get transactions and collect data using Indexer (parallel within ledger)
-// Phase 2: Fetch existing accounts for participants (single DB call)
-// Phase 3: Process transactions and populate buffer using Indexer (parallel within ledger)
-// Phase 4: Insert all data into DB
+// Phase 1: Get transactions from ledger
+// Phase 2: Process transactions using Indexer (parallel within ledger)
+// Phase 3: Insert all data into DB
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
@@ -278,15 +279,17 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	if err != nil {
 		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
+	m.metricsService.ObserveIngestionPhaseDuration("get_transactions", time.Since(start).Seconds())
 
-	// Phase 2: Process transactions and populate buffer (combined collection + processing)
+	// Phase 2: Process transactions using Indexer (parallel within ledger)
+	start = time.Now()
 	buffer := indexer.NewIndexerBuffer()
 	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
 	if err != nil {
 		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
 	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
-	m.metricsService.ObserveIngestionPhaseDuration("process_transactions", time.Since(start).Seconds())
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
 
 	// Phase 3: Insert all data into DB
 	start = time.Now()
@@ -449,7 +452,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d transactions", len(insertedHashes))
+			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 		}
 
 		// 2.2. Insert operations
@@ -458,7 +461,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d operations", len(insertedOpIDs))
+			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 		}
 
 		// 2.3. Insert state changes
@@ -489,7 +492,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 				}
 			}
 
-			log.Ctx(ctx).Infof("✅ inserted %d state changes", len(insertedStateChangeIDs))
+			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 
 		// 3. Unlock channel accounts.
@@ -546,7 +549,17 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 
 	innerTxHashes := make([]string, 0, len(txs))
 	for _, tx := range txs {
-		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		if tx.InnerTransactionHash != "" {
+			innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
+			continue
+		}
+
+		// Fallback for cases where InnerTransactionHash might not be populated (though it should be)
+		// Skip transactions without envelope XDR (when skip-tx-envelope is enabled)
+		if tx.EnvelopeXDR == nil {
+			continue
+		}
+		innerTxHash, err := m.extractInnerTxHash(*tx.EnvelopeXDR)
 		if err != nil {
 			return fmt.Errorf("extracting inner tx hash: %w", err)
 		}

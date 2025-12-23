@@ -70,10 +70,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeRPC),
+			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
 			Required:    false,
 		},
 		{
@@ -81,7 +81,23 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Path to TOML config file for datastore backend. Required when ledger-backend-type is 'datastore'",
 			OptType:     types.String,
 			ConfigKey:   &cfg.DatastoreConfigPath,
-			FlagDefault: "",
+			FlagDefault: "config/datastore-pubnet.toml",
+			Required:    false,
+		},
+		{
+			Name:        "skip-tx-meta",
+			Usage:       "Skip storing transaction metadata (meta_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxMeta,
+			FlagDefault: true,
+			Required:    false,
+		},
+		{
+			Name:        "skip-tx-envelope",
+			Usage:       "Skip storing transaction envelope (envelope_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxEnvelope,
+			FlagDefault: true,
 			Required:    false,
 		},
 		{
