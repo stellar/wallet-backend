@@ -124,6 +124,10 @@ type BalancesByAccountAddressData struct {
 	BalancesByAccountAddress []json.RawMessage `json:"balancesByAccountAddress"`
 }
 
+type BalancesByAccountAddressesData struct {
+	BalancesByAccountAddresses []*types.AccountBalances `json:"balancesByAccountAddresses"`
+}
+
 // QueryOptions allows clients to specify which fields to fetch for each entity type
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch
@@ -652,6 +656,19 @@ func (c *Client) GetBalancesByAccountAddress(ctx context.Context, address string
 	}
 
 	return balances, nil
+}
+
+func (c *Client) GetBalancesByAccountAddresses(ctx context.Context, addresses []string) ([]*types.AccountBalances, error) {
+	variables := map[string]any{
+		"addresses": addresses,
+	}
+
+	data, err := executeGraphQL[BalancesByAccountAddressesData](c, ctx, buildBalancesByAccountAddressesQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.BalancesByAccountAddresses, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {

@@ -195,7 +195,6 @@ func (b *IndexerBuffer) PushOperation(participant string, operation types.Operat
 }
 
 // GetOperations returns all unique operations from the canonical storage.
-// Returns values (not pointers) for API compatibility.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	b.mu.RLock()
