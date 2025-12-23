@@ -36,6 +36,7 @@ const (
 type ResolverConfig struct {
 	MaxAccountsPerBalancesQuery int
 	MaxWorkerPoolSize           int
+	EnableParticipantFiltering  bool
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")

@@ -130,7 +130,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		prometheus.HistogramOpts{
 			Name:    "ingestion_duration_seconds",
 			Help:    "Duration of ledger ingestion",
-			Buckets: []float64{0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.3, 0.5, 1, 2, 5},
+			Buckets: []float64{0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 10},
 		},
 		[]string{},
 	)
@@ -294,7 +294,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 	m.stateChangesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "state_changes_total",
+			Name: "ingestion_state_changes_total",
 			Help: "Total number of state changes persisted to database by type and category",
 		},
 		[]string{"type", "category"},
@@ -305,7 +305,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		prometheus.HistogramOpts{
 			Name:    "ingestion_phase_duration_seconds",
 			Help:    "Duration of each ingestion phase",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 5, 10, 30, 60, 120},
+			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 10, 30, 60},
 		},
 		[]string{"phase"},
 	)

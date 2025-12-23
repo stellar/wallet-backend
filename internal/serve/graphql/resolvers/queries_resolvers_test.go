@@ -38,9 +38,11 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "tx1", tx.Hash)
 		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
-		assert.Equal(t, "envelope1", tx.EnvelopeXDR)
+		require.NotNil(t, tx.EnvelopeXDR)
+		assert.Equal(t, "envelope1", *tx.EnvelopeXDR)
 		assert.Equal(t, "result1", tx.ResultXDR)
-		assert.Equal(t, "meta1", tx.MetaXDR)
+		require.NotNil(t, tx.MetaXDR)
+		assert.Equal(t, "meta1", *tx.MetaXDR)
 		assert.Equal(t, uint32(1), tx.LedgerNumber)
 	})
 
@@ -240,8 +242,9 @@ func TestQueryResolver_Account(t *testing.T) {
 
 	t.Run("non-existent account", func(t *testing.T) {
 		acc, err := resolver.AccountByAddress(testCtx, "non-existent-account")
-		require.Error(t, err)
-		assert.Nil(t, acc)
+		require.NoError(t, err)
+		assert.NotNil(t, acc)
+		assert.Equal(t, "non-existent-account", acc.StellarAddress)
 	})
 
 	t.Run("empty address", func(t *testing.T) {

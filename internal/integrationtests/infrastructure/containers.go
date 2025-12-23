@@ -381,6 +381,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 // createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
 func createWalletBackendIngestContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -403,6 +404,11 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"ARCHIVE_URL":                      "http://stellar-core:1570",
 			"CHECKPOINT_FREQUENCY":             "8",
 			"GET_LEDGERS_LIMIT":                "200",
+			"SKIP_TX_META":                     "false",
+			"SKIP_TX_ENVELOPE":                 "false",
+			"LEDGER_BACKEND_TYPE":              "rpc",
+			"START_LEDGER":                     "0",
+			"END_LEDGER":                       "0",
 			"NETWORK_PASSPHRASE":               networkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
@@ -413,6 +419,10 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"REDIS_PORT":                              "6379",
 		},
 		Networks: []string{testNetwork.Name},
+	}
+
+	for k, v := range extraEnv {
+		containerRequest.Env[k] = v
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

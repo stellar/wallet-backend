@@ -288,3 +288,14 @@ func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) 
 	opts = append(opts, AWSOptions(&scOpts.AWSRegion, &scOpts.KMSKeyARN, false)...)
 	return opts
 }
+
+func EnableParticipantFilteringOption(configKey *bool) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "enable-participant-filtering",
+		Usage:       "When enabled, only store transactions, operations, and state changes for pre-registered accounts. When disabled (default), store all data.",
+		OptType:     types.Bool,
+		ConfigKey:   configKey,
+		FlagDefault: false,
+		Required:    false,
+	}
+}
