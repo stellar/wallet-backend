@@ -114,11 +114,6 @@ func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []
 	if err != nil {
 		return nil, fmt.Errorf("inserting trustline assets: %w", err)
 	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			panic(err)
-		}
-	}()
 
 	for rows.Next() {
 		var id int64
@@ -127,6 +122,9 @@ func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []
 			return nil, fmt.Errorf("scanning inserted trustline asset: %w", err)
 		}
 		result[code+":"+issuer] = id
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("closing rows: %w", err)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
