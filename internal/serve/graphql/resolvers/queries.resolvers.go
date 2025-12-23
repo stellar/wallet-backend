@@ -72,6 +72,12 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 	acc, err := r.models.Account.Get(ctx, address)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			// If the participant filtering has been enabled and this account is not registered, we return an error.
+			if r.config.EnableParticipantFiltering {
+				return nil, fmt.Errorf("account not found")
+			}
+
+			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
 			return &types.Account{StellarAddress: address}, nil
 		}
 		return nil, err

@@ -36,6 +36,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
+		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
@@ -98,14 +99,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			OptType:     types.Bool,
 			ConfigKey:   &cfg.SkipTxEnvelope,
 			FlagDefault: true,
-			Required:    false,
-		},
-		{
-			Name:        "enable-participant-filtering",
-			Usage:       "When enabled, only store transactions, operations, and state changes for pre-registered accounts. When disabled (default), store all data.",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.EnableParticipantFiltering,
-			FlagDefault: false,
 			Required:    false,
 		},
 	}

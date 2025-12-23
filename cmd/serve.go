@@ -39,6 +39,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.MaxGraphQLWorkerPoolSizeOption(&cfg.MaxGraphQLWorkerPoolSize),
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
+		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
