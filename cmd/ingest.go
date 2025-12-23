@@ -70,7 +70,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
 			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
