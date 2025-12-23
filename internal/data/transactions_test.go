@@ -370,6 +370,79 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	}
 }
 
+func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	kp1 := keypair.MustRandom()
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address())
+	require.NoError(t, err)
+
+	meta := "meta1"
+	envelope := "envelope1"
+	tx1 := types.Transaction{
+		Hash:            "tx_duplicate_test",
+		ToID:            100,
+		EnvelopeXDR:     &envelope,
+		ResultXDR:       "result1",
+		MetaXDR:         &meta,
+		LedgerNumber:    1,
+		LedgerCreatedAt: now,
+	}
+
+	// Pre-insert the transaction using BatchInsert (which uses ON CONFLICT DO NOTHING)
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	require.NoError(t, err)
+	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1}, map[string]set.Set[string]{
+		tx1.Hash: set.NewSet(kp1.Address()),
+	})
+	require.NoError(t, err)
+
+	// Verify the transaction was inserted
+	var count int
+	err = dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM transactions WHERE hash = $1", tx1.Hash)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	// Now try to insert the same transaction using BatchCopy - this should FAIL
+	// because COPY does not support ON CONFLICT handling
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncDBQueryError", "BatchCopy", "transactions", mock.Anything).Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+
+	_, err = m.BatchCopy(ctx, pgxTx, []*types.Transaction{&tx1}, map[string]set.Set[string]{
+		tx1.Hash: set.NewSet(kp1.Address()),
+	})
+
+	// BatchCopy should fail with a unique constraint violation
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pgx CopyFrom transactions: ERROR: duplicate key value violates unique constraint \"transactions_pkey\"")
+
+	// Rollback the failed transaction
+	require.NoError(t, pgxTx.Rollback(ctx))
+}
+
 func TestTransactionModel_GetByHash(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

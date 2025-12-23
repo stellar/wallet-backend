@@ -281,6 +281,11 @@ func (m *TransactionModel) BatchInsert(
 // BatchCopy inserts transactions using pgx's binary COPY protocol.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+//
+// IMPORTANT: Unlike BatchInsert which uses ON CONFLICT DO NOTHING, BatchCopy will FAIL
+// if any duplicate records exist. The PostgreSQL COPY protocol does not support conflict
+// handling. Callers must ensure no duplicates exist before calling this method, or handle
+// the unique constraint violation error appropriately.
 func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,

@@ -399,6 +399,83 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	}
 }
 
+func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test accounts
+	kp1 := keypair.MustRandom()
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address())
+	require.NoError(t, err)
+
+	// Create a parent transaction that the operation will reference
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ('tx_for_dup_test', 1, 'env', 'res', 'meta', 1, $1)
+	`, now)
+	require.NoError(t, err)
+
+	op1 := types.Operation{
+		ID:              999,
+		TxHash:          "tx_for_dup_test",
+		OperationType:   types.OperationTypePayment,
+		OperationXDR:    "operation_xdr_dup_test",
+		LedgerNumber:    1,
+		LedgerCreatedAt: now,
+	}
+
+	// Pre-insert the operation using BatchInsert (which uses ON CONFLICT DO NOTHING)
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	require.NoError(t, err)
+	opModel := &OperationModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
+	_, err = opModel.BatchInsert(ctx, nil, []*types.Operation{&op1}, map[int64]set.Set[string]{
+		op1.ID: set.NewSet(kp1.Address()),
+	})
+	require.NoError(t, err)
+
+	// Verify the operation was inserted
+	var count int
+	err = dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM operations WHERE id = $1", op1.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	// Now try to insert the same operation using BatchCopy - this should FAIL
+	// because COPY does not support ON CONFLICT handling
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncDBQueryError", "BatchCopy", "operations", mock.Anything).Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+
+	_, err = m.BatchCopy(ctx, pgxTx, []*types.Operation{&op1}, map[int64]set.Set[string]{
+		op1.ID: set.NewSet(kp1.Address()),
+	})
+
+	// BatchCopy should fail with a unique constraint violation
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pgx CopyFrom operations: ERROR: duplicate key value violates unique constraint \"operations_pkey\"")
+
+	// Rollback the failed transaction
+	require.NoError(t, pgxTx.Rollback(ctx))
+}
+
 func TestOperationModel_GetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
