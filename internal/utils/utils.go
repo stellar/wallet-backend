@@ -188,6 +188,13 @@ func IsContractAddress(address string) bool {
 	return err == nil
 }
 
+// IsValidStellarAddress checks if the address is a valid Stellar account (G...) or contract (C...) address
+func IsValidStellarAddress(address string) bool {
+	_, errAccount := strkey.Decode(strkey.VersionByteAccountID, address)
+	_, errContract := strkey.Decode(strkey.VersionByteContract, address)
+	return errAccount == nil || errContract == nil
+}
+
 // DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.
 func DeferredClose(ctx context.Context, closer io.Closer, errMsg string) {
 	if err := closer.Close(); err != nil {
