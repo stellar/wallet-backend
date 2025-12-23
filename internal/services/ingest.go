@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -31,8 +32,6 @@ import (
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
-	// BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
-	BackfillBatchSize uint32 = 250
 	// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
 	// to avoid racing with live finalization during parallel processing.
 	HistoricalBufferLedgers uint32 = 5
@@ -71,6 +70,10 @@ type IngestServiceConfig struct {
 	SkipTxMeta                 bool
 	SkipTxEnvelope             bool
 	EnableParticipantFiltering bool
+	BackfillWorkers            int
+	BackfillBatchSize          int
+	BackfillDBInsertBatchSize  int
+	CatchupThreshold           int
 }
 
 // BackfillBatch represents a contiguous range of ledgers to process as a unit.
@@ -144,6 +147,9 @@ type ingestService struct {
 	archive                    historyarchive.ArchiveInterface
 	enableParticipantFiltering bool
 	backfillPool               pond.Pool
+	backfillBatchSize          uint32
+	backfillDBInsertBatchSize  uint32
+	catchupThreshold           uint32
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -151,7 +157,13 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	backfillPool := pond.NewPool(0)
+	// Create backfill pool with bounded size to control memory usage.
+	// Default to NumCPU if not specified.
+	backfillWorkers := cfg.BackfillWorkers
+	if backfillWorkers <= 0 {
+		backfillWorkers = runtime.NumCPU()
+	}
+	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
@@ -174,6 +186,9 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		archive:                    cfg.Archive,
 		enableParticipantFiltering: cfg.EnableParticipantFiltering,
 		backfillPool:               backfillPool,
+		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:           uint32(cfg.CatchupThreshold),
 	}, nil
 }
 
@@ -185,7 +200,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	case IngestionModeLive:
 		return m.startLiveIngestion(ctx)
 	case IngestionModeBackfill:
-		return m.startBackfilling(ctx, startLedger, endLedger)
+		return m.startBackfilling(ctx, startLedger, endLedger, BackfillModeHistorical)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
@@ -290,9 +305,9 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 // filteredIngestionData holds the filtered data for ingestion
 type filteredIngestionData struct {
-	txs            []types.Transaction
+	txs            []*types.Transaction
 	txParticipants map[string]set.Set[string]
-	ops            []types.Operation
+	ops            []*types.Operation
 	opParticipants map[int64]set.Set[string]
 	stateChanges   []types.StateChange
 }
@@ -302,9 +317,9 @@ type filteredIngestionData struct {
 // If a transaction/operation has ANY registered participant, it is included with ALL its participants.
 func (m *ingestService) filterByRegisteredAccounts(
 	ctx context.Context,
-	txs []types.Transaction,
+	txs []*types.Transaction,
 	txParticipants map[string]set.Set[string],
-	ops []types.Operation,
+	ops []*types.Operation,
 	opParticipants map[int64]set.Set[string],
 	stateChanges []types.StateChange,
 	allParticipants []string,
@@ -329,7 +344,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredTxs := make([]types.Transaction, 0, txHashesToInclude.Cardinality())
+	filteredTxs := make([]*types.Transaction, 0, txHashesToInclude.Cardinality())
 	filteredTxParticipants := make(map[string]set.Set[string])
 	for _, tx := range txs {
 		if txHashesToInclude.Contains(tx.Hash) {
@@ -349,7 +364,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredOps := make([]types.Operation, 0, opIDsToInclude.Cardinality())
+	filteredOps := make([]*types.Operation, 0, opIDsToInclude.Cardinality())
 	filteredOpParticipants := make(map[int64]set.Set[string])
 	for _, op := range ops {
 		if opIDsToInclude.Contains(op.ID) {
@@ -434,7 +449,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, txs []types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -447,7 +462,7 @@ func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transact
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, ops []types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
 	if len(ops) == 0 {
 		return nil
 	}
@@ -491,7 +506,7 @@ func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChang
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txs []types.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}

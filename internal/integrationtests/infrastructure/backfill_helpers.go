@@ -147,6 +147,59 @@ func (s *SharedContainers) GetStateChangeCountForLedgerRange(ctx context.Context
 	return count, nil
 }
 
+// GetLedgerGapCount counts the number of missing ledgers (gaps) in the transactions table
+// within the specified ledger range. Returns 0 if there are no gaps.
+func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, endLedger uint32) (int, error) {
+	dbURL, err := s.GetWalletDBConnectionString(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("getting database connection string: %w", err)
+	}
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return 0, fmt.Errorf("opening database connection: %w", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	// Count the number of distinct ledgers that have transactions in the range
+	// Then compare with expected count to find gaps
+	var distinctLedgers int
+	query := `
+		SELECT COUNT(DISTINCT ledger_number)
+		FROM transactions
+		WHERE ledger_number BETWEEN $1 AND $2
+	`
+	err = db.QueryRowContext(ctx, query, startLedger, endLedger).Scan(&distinctLedgers)
+	if err != nil {
+		return 0, fmt.Errorf("counting distinct ledgers: %w", err)
+	}
+
+	// Note: Not all ledgers will have transactions, so we can't simply compare
+	// against expected range. Instead, use window function to find actual gaps.
+	var gapCount int
+	gapQuery := `
+		WITH ledger_sequence AS (
+			SELECT DISTINCT ledger_number
+			FROM transactions
+			WHERE ledger_number BETWEEN $1 AND $2
+			ORDER BY ledger_number
+		),
+		gaps AS (
+			SELECT
+				ledger_number,
+				LEAD(ledger_number) OVER (ORDER BY ledger_number) AS next_ledger,
+				LEAD(ledger_number) OVER (ORDER BY ledger_number) - ledger_number - 1 AS gap_size
+			FROM ledger_sequence
+		)
+		SELECT COALESCE(SUM(gap_size), 0) FROM gaps WHERE gap_size > 0
+	`
+	err = db.QueryRowContext(ctx, gapQuery, startLedger, endLedger).Scan(&gapCount)
+	if err != nil {
+		return 0, fmt.Errorf("counting ledger gaps: %w", err)
+	}
+
+	return gapCount, nil
+}
+
 // WaitForBackfillCompletion polls until the oldest_ingest_ledger cursor reaches the expected value.
 func (s *SharedContainers) WaitForBackfillCompletion(ctx context.Context, expectedOldestLedger uint32, timeout time.Duration) error {
 	ticker := time.NewTicker(2 * time.Second)
