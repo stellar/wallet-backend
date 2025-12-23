@@ -93,7 +93,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, accounts, 1)
-		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", accounts[0].StellarAddress)
+		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", string(accounts[0].StellarAddress))
 	})
 
 	t.Run("nil operation panics", func(t *testing.T) {
