@@ -9,7 +9,6 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	migrate "github.com/rubenv/sql-migrate"
-	"github.com/stellar/go/support/db/dbtest"
 	"github.com/stellar/go/support/db/schema"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -21,7 +20,7 @@ import (
 type DB struct {
 	DSN       string
 	container testcontainers.Container
-	t         *testing.T
+	t         testing.TB
 }
 
 func (db *DB) Close() {
@@ -39,11 +38,12 @@ func (db *DB) Open() *sqlx.DB {
 	return conn
 }
 
-func Open(t *testing.T) *DB {
+// openContainer creates and starts a TimescaleDB container for testing.
+func openContainer(tb testing.TB, image string) *DB {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "timescale/timescaledb:latest-pg14",
+		Image:        image,
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":             "postgres",
@@ -61,25 +61,35 @@ func Open(t *testing.T) *DB {
 		ContainerRequest: req,
 		Started:          true,
 	})
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		if container != nil {
-			if err := container.Terminate(ctx); err != nil {
-				t.Logf("Warning: failed to terminate container in cleanup: %v", err)
+			if termErr := container.Terminate(ctx); termErr != nil {
+				tb.Logf("Warning: failed to terminate container in cleanup: %v", termErr)
 			}
 		}
 	})
 
 	host, err := container.Host(ctx)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	port, err := container.MappedPort(ctx, "5432")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	dsn := fmt.Sprintf("postgres://postgres:postgres@%s:%s/testdb?sslmode=disable", host, port.Port())
 
-	conn, err := sqlx.Open("postgres", dsn)
+	return &DB{
+		DSN:       dsn,
+		container: container,
+		t:         tb,
+	}
+}
+
+func Open(t *testing.T) *DB {
+	db := openContainer(t, "timescale/timescaledb:latest-pg17")
+
+	conn, err := sqlx.Open("postgres", db.DSN)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -88,72 +98,25 @@ func Open(t *testing.T) *DB {
 	_, err = schema.Migrate(conn.DB, m, migrateDirection, 0)
 	require.NoError(t, err)
 
-	return &DB{
-		DSN:       dsn,
-		container: container,
-		t:         t,
-	}
+	return db
 }
 
 func OpenWithoutMigrations(t *testing.T) *DB {
-	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "timescale/timescaledb:latest-pg17",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":             "postgres",
-			"POSTGRES_PASSWORD":         "postgres",
-			"POSTGRES_DB":               "testdb",
-			"POSTGRES_HOST_AUTH_METHOD": "trust",
-		},
-		WaitingFor: wait.ForAll(
-			wait.ForListeningPort("5432/tcp"),
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		if container != nil {
-			if err := container.Terminate(ctx); err != nil {
-				t.Logf("Warning: failed to terminate container in cleanup: %v", err)
-			}
-		}
-	})
-
-	host, err := container.Host(ctx)
-	require.NoError(t, err)
-
-	port, err := container.MappedPort(ctx, "5432")
-	require.NoError(t, err)
-
-	dsn := fmt.Sprintf("postgres://postgres:postgres@%s:%s/testdb?sslmode=disable", host, port.Port())
-
-	return &DB{
-		DSN:       dsn,
-		container: container,
-		t:         t,
-	}
+	return openContainer(t, "timescale/timescaledb:latest-pg17")
 }
 
 // OpenB opens a test database for benchmarks with migrations applied.
-func OpenB(b *testing.B) *dbtest.DB {
-	db := dbtest.Postgres(b)
-	conn := db.Open()
+func OpenB(b *testing.B) *DB {
+	db := openContainer(b, "timescale/timescaledb:latest-pg17")
+
+	conn, err := sqlx.Open("postgres", db.DSN)
+	require.NoError(b, err)
 	defer conn.Close()
 
 	migrateDirection := schema.MigrateUp
 	m := migrate.HttpFileSystemMigrationSource{FileSystem: http.FS(migrations.FS)}
-	_, err := schema.Migrate(conn.DB, m, migrateDirection, 0)
-	if err != nil {
-		b.Fatal(err)
-	}
+	_, err = schema.Migrate(conn.DB, m, migrateDirection, 0)
+	require.NoError(b, err)
 
 	return db
 }
