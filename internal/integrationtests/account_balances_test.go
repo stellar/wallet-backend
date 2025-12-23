@@ -185,6 +185,71 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	}
 }
 
+// TestCheckpoint_MultiAccount_FetchesAllBalances verifies that multiple accounts can be fetched
+// in a single request and returns balances in the same order as input addresses.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_MultiAccount_FetchesAllBalances() {
+	addresses := []string{
+		suite.testEnv.BalanceTestAccount1KP.Address(),
+		suite.testEnv.BalanceTestAccount2KP.Address(),
+		suite.testEnv.HolderContractAddress,
+	}
+
+	results, err := suite.testEnv.WBClient.GetBalancesByAccountAddresses(
+		context.Background(),
+		addresses,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(results)
+	suite.Require().Len(results, 3, "Expected 3 results, one for each address")
+
+	// Verify results are in the same order as input addresses
+	suite.Require().Equal(addresses[0], results[0].Address)
+	suite.Require().Equal(addresses[1], results[1].Address)
+	suite.Require().Equal(addresses[2], results[2].Address)
+
+	// Verify no errors for any account
+	suite.Require().Nil(results[0].Error, "Account 1 should not have an error")
+	suite.Require().Nil(results[1].Error, "Account 2 should not have an error")
+	suite.Require().Nil(results[2].Error, "Holder contract should not have an error")
+
+	// Verify Account 1 has 4 balances (native, USDC, EURC, SEP-41)
+	suite.Require().Len(results[0].Balances, 4, "Account 1 should have 4 balances")
+
+	// Verify Account 2 has 2 balances (native, USDC)
+	suite.Require().Len(results[1].Balances, 2, "Account 2 should have 2 balances")
+
+	// Verify Holder Contract has 2 balances (USDC SAC, SEP-41)
+	suite.Require().Len(results[2].Balances, 2, "Holder contract should have 2 balances")
+}
+
+// TestCheckpoint_MultiAccount_EmptyAddressesReturnsError verifies that an empty addresses array
+// returns an appropriate error.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_MultiAccount_EmptyAddressesReturnsError() {
+	_, err := suite.testEnv.WBClient.GetBalancesByAccountAddresses(
+		context.Background(),
+		[]string{},
+	)
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "empty")
+}
+
+// TestCheckpoint_MultiAccount_ExceedsMaxLimitReturnsError verifies that exceeding the maximum
+// number of addresses returns an appropriate error.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_MultiAccount_ExceedsMaxLimitReturnsError() {
+	// Create 101 addresses to exceed the typical max limit
+	addresses := make([]string, 101)
+	for i := range addresses {
+		addresses[i] = suite.testEnv.BalanceTestAccount1KP.Address()
+	}
+
+	_, err := suite.testEnv.WBClient.GetBalancesByAccountAddresses(
+		context.Background(),
+		addresses,
+	)
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "maximum")
+}
+
 // AccountBalancesAfterLiveIngestionTestSuite validates that balances are correctly calculated
 // after fixture transactions are submitted and processed by the live ingestion pipeline. These new transactions
 // will lead to new tokens being inserted into the token cache and new balances being calculated.
@@ -349,4 +414,41 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
 	}
+}
+
+// TestLiveIngestion_MultiAccount_FetchesUpdatedBalances verifies that multiple accounts
+// can be fetched in a single request and returns the updated balances after fixture transactions.
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_MultiAccount_FetchesUpdatedBalances() {
+	addresses := []string{
+		suite.testEnv.BalanceTestAccount1KP.Address(),
+		suite.testEnv.BalanceTestAccount2KP.Address(),
+		suite.testEnv.HolderContractAddress,
+	}
+
+	results, err := suite.testEnv.WBClient.GetBalancesByAccountAddresses(
+		context.Background(),
+		addresses,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(results)
+	suite.Require().Len(results, 3, "Expected 3 results, one for each address")
+
+	// Verify results are in the same order as input addresses
+	suite.Require().Equal(addresses[0], results[0].Address)
+	suite.Require().Equal(addresses[1], results[1].Address)
+	suite.Require().Equal(addresses[2], results[2].Address)
+
+	// Verify no errors for any account
+	suite.Require().Nil(results[0].Error, "Account 1 should not have an error")
+	suite.Require().Nil(results[1].Error, "Account 2 should not have an error")
+	suite.Require().Nil(results[2].Error, "Holder contract should not have an error")
+
+	// Verify Account 1 has 4 balances (native, USDC, EURC, SEP-41)
+	suite.Require().Len(results[0].Balances, 4, "Account 1 should have 4 balances")
+
+	// Verify Account 2 has 4 balances after fixture transactions (native, USDC, EURC, SEP-41)
+	suite.Require().Len(results[1].Balances, 4, "Account 2 should have 4 balances after fixture transactions")
+
+	// Verify Holder Contract has 3 balances after fixture transactions (USDC SAC, SEP-41, EURC SAC)
+	suite.Require().Len(results[2].Balances, 3, "Holder contract should have 3 balances after fixture transactions")
 }

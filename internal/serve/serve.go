@@ -51,6 +51,7 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
+	EnableParticipantFiltering  bool
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -59,34 +60,41 @@ type Configs struct {
 	BaseFee                            int
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+
 	// RPC
 	RPCURL string
 
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit      int
+	MaxAccountsPerBalancesQuery int
+	MaxGraphQLWorkerPoolSize    int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
 
 type handlerDeps struct {
-	Models              *data.Models
-	Port                int
-	DatabaseURL         string
-	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
-	NetworkPassphrase   string
+	Models                     *data.Models
+	Port                       int
+	DatabaseURL                string
+	RequestAuthVerifier        auth.HTTPRequestVerifier
+	SupportedAssets            []entities.Asset
+	NetworkPassphrase          string
+	EnableParticipantFiltering bool
 
 	// Services
-
 	AccountService      services.AccountService
 	FeeBumpService      services.FeeBumpService
 	MetricsService      metrics.MetricsService
 	TransactionService  services.TransactionService
 	RPCService          services.RPCService
 	AccountTokenService services.AccountTokenService
+
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit      int
+	MaxAccountsPerBalancesQuery int
+	MaxGraphQLWorkerPoolSize    int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -193,18 +201,20 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:                 models,
-		RequestAuthVerifier:    requestAuthVerifier,
-		SupportedAssets:        cfg.SupportedAssets,
-		AccountService:         accountService,
-		FeeBumpService:         feeBumpService,
-		MetricsService:         metricsService,
-		RPCService:             rpcService,
-		AccountTokenService:    accountTokenService,
-		AppTracker:             cfg.AppTracker,
-		NetworkPassphrase:      cfg.NetworkPassphrase,
-		TransactionService:     txService,
-		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
+		Models:                      models,
+		RequestAuthVerifier:         requestAuthVerifier,
+		SupportedAssets:             cfg.SupportedAssets,
+		AccountService:              accountService,
+		FeeBumpService:              feeBumpService,
+		MetricsService:              metricsService,
+		RPCService:                  rpcService,
+		AccountTokenService:         accountTokenService,
+		AppTracker:                  cfg.AppTracker,
+		NetworkPassphrase:           cfg.NetworkPassphrase,
+		TransactionService:          txService,
+		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
+		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
+		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 
@@ -244,7 +254,20 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.RPCService, deps.AccountTokenService, deps.MetricsService)
+			resolver := resolvers.NewResolver(
+				deps.Models,
+				deps.AccountService,
+				deps.TransactionService,
+				deps.FeeBumpService,
+				deps.RPCService,
+				deps.AccountTokenService,
+				deps.MetricsService,
+				resolvers.ResolverConfig{
+					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
+					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
+					EnableParticipantFiltering:  deps.EnableParticipantFiltering,
+				},
+			)
 
 			config := generated.Config{
 				Resolvers: resolver,

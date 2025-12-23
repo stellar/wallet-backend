@@ -36,6 +36,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
+		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "ingestion-mode",
 			Usage:       "What mode to run ingestion in - live or backfill",
@@ -110,7 +111,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
 			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
@@ -138,14 +139,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			OptType:     types.Bool,
 			ConfigKey:   &cfg.SkipTxEnvelope,
 			FlagDefault: true,
-			Required:    false,
-		},
-		{
-			Name:        "enable-participant-filtering",
-			Usage:       "When enabled, only store transactions, operations, and state changes for pre-registered accounts. When disabled (default), store all data.",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.EnableParticipantFiltering,
-			FlagDefault: false,
 			Required:    false,
 		},
 	}
