@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func TestAccountRegister(t *testing.T) {
@@ -42,12 +43,11 @@ func TestAccountRegister(t *testing.T) {
 		err = accountService.RegisterAccount(ctx, address)
 		require.NoError(t, err)
 
-		var dbAddress sql.NullString
-		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", address)
+		var dbAddress types.StellarAddress
+		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", types.StellarAddress(address))
 		require.NoError(t, err)
 
-		assert.True(t, dbAddress.Valid)
-		assert.Equal(t, address, dbAddress.String)
+		assert.Equal(t, address, string(dbAddress))
 	})
 
 	t.Run("duplicate registration fails", func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestAccountDeregister(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, err := dbConnectionPool.ExecContext(ctx, "Insert INTO accounts (stellar_address) VALUES ($1)", address)
+		result, err := dbConnectionPool.ExecContext(ctx, "Insert INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 		require.NoError(t, err)
 		rowAffected, err := result.RowsAffected()
 		require.NoError(t, err)
