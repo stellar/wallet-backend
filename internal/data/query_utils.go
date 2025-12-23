@@ -1,11 +1,15 @@
 package data
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 type SortOrder string
@@ -31,6 +35,39 @@ type paginatedQueryConfig struct {
 	Limit          *int32
 	Cursor         *int64
 	OrderBy        SortOrder
+}
+
+// pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
+	return pgtype.Text{String: ns.String, Valid: ns.Valid}
+}
+
+// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
+	if r == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: string(*r), Valid: true}
+}
+
+// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
+// pgx automatically handles map[string]any → JSONB conversion.
+func jsonbFromMap(m types.NullableJSONB) any {
+	if m == nil {
+		return nil
+	}
+	// Return the map directly; pgx handles JSON marshaling automatically
+	return map[string]any(m)
+}
+
+// jsonbFromSlice converts types.NullableJSON to any for pgx CopyFrom.
+// pgx automatically handles []string → JSONB conversion.
+func jsonbFromSlice(s types.NullableJSON) any {
+	if s == nil {
+		return nil
+	}
+	// Return the slice directly; pgx handles JSON marshaling automatically
+	return []string(s)
 }
 
 // BuildPaginatedQuery constructs a paginated SQL query with cursor-based pagination

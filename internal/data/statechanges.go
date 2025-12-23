@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -342,39 +341,6 @@ func (m *StateChangeModel) BatchInsert(
 	m.MetricsService.IncDBQuery("BatchInsert", "state_changes")
 
 	return insertedIDs, nil
-}
-
-// pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
-	return pgtype.Text{String: ns.String, Valid: ns.Valid}
-}
-
-// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
-	if r == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: string(*r), Valid: true}
-}
-
-// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
-// pgx automatically handles map[string]any → JSONB conversion.
-func jsonbFromMap(m types.NullableJSONB) any {
-	if m == nil {
-		return nil
-	}
-	// Return the map directly; pgx handles JSON marshaling automatically
-	return map[string]any(m)
-}
-
-// jsonbFromSlice converts types.NullableJSON to any for pgx CopyFrom.
-// pgx automatically handles []string → JSONB conversion.
-func jsonbFromSlice(s types.NullableJSON) any {
-	if s == nil {
-		return nil
-	}
-	// Return the slice directly; pgx handles JSON marshaling automatically
-	return []string(s)
 }
 
 // BatchCopy inserts state changes using pgx's binary COPY protocol.
