@@ -271,20 +271,25 @@ func (m *OperationModel) BatchInsert(
 	operationXDRs := make([]string, len(operations))
 	ledgerCreatedAts := make([]time.Time, len(operations))
 
+	// Build opID -> ledgerCreatedAt mapping for operations_accounts
+	opIDToLedgerCreatedAt := make(map[int64]time.Time, len(operations))
 	for i, op := range operations {
 		ids[i] = op.ID
 		operationTypes[i] = op.OperationType.ToInt16()
 		operationXDRs[i] = op.OperationXDR
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
+		opIDToLedgerCreatedAt[op.ID] = op.LedgerCreatedAt
 	}
 
 	// 2. Flatten the stellarAddressesByOpID into parallel slices
 	var opIDs []int64
 	var stellarAddresses [][]byte
+	var oaLedgerCreatedAts []time.Time
 	for opID, addresses := range stellarAddressesByOpID {
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
 			stellarAddresses = append(stellarAddresses, bytesFromAddressString(address))
+			oaLedgerCreatedAts = append(oaLedgerCreatedAts, opIDToLedgerCreatedAt[opID])
 		}
 	}
 
@@ -304,22 +309,21 @@ func (m *OperationModel) BatchInsert(
 				UNNEST($3::text[]) AS operation_xdr,
 				UNNEST($4::timestamptz[]) AS ledger_created_at
 		) o
-		ON CONFLICT (id) DO NOTHING
 		RETURNING id
 	),
 
 	-- Insert operations_accounts links
 	inserted_operations_accounts AS (
 		INSERT INTO operations_accounts
-			(operation_id, account_id)
+			(operation_id, account_id, ledger_created_at)
 		SELECT
-			oa.op_id, oa.account_id
+			oa.op_id, oa.account_id, oa.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($5::bigint[]) AS op_id,
-				UNNEST($6::bytea[]) AS account_id
+				UNNEST($6::bytea[]) AS account_id,
+				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) oa
-		ON CONFLICT DO NOTHING
 	)
 
 	-- Return the IDs of successfully inserted operations
@@ -335,6 +339,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),
+		pq.Array(oaLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"operations", "operations_accounts"} {

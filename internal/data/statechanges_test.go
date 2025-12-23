@@ -150,7 +150,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟡duplicate_state_change",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)}, // Now duplicates are inserted
 		},
 	}
 

@@ -189,8 +189,11 @@ func (m *TransactionModel) BatchInsert(
 	metaXDRs := make([]*string, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
-	// Build hash->toID mapping for transactions_accounts
-	hashToToID := make(map[string]int64, len(txs))
+	// Build hash->toID and ledgerCreatedAt mapping for transactions_accounts
+	hashToTxData := make(map[string]struct {
+		toID            int64
+		ledgerCreatedAt time.Time
+	}, len(txs))
 	for i, t := range txs {
 		hashes[i] = t.Hash
 		toIDs[i] = t.ToID
@@ -198,19 +201,24 @@ func (m *TransactionModel) BatchInsert(
 		resultXDRs[i] = t.ResultXDR
 		metaXDRs[i] = t.MetaXDR
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
-		hashToToID[t.Hash] = t.ToID
+		hashToTxData[t.Hash] = struct {
+			toID            int64
+			ledgerCreatedAt time.Time
+		}{t.ToID, t.LedgerCreatedAt}
 	}
 
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices (use tx_id instead of tx_hash)
 	var txIDs []int64
 	var stellarAddresses [][]byte
+	var taLedgerCreatedAts []time.Time
 	for txHash, addresses := range stellarAddressesByTxHash {
-		toID := hashToToID[txHash]
+		txData := hashToTxData[txHash]
 		for address := range addresses.Iter() {
 			addressBytes := bytesFromAddressString(address)
 			if addressBytes != nil {
-				txIDs = append(txIDs, toID)
+				txIDs = append(txIDs, txData.toID)
 				stellarAddresses = append(stellarAddresses, addressBytes)
+				taLedgerCreatedAts = append(taLedgerCreatedAts, txData.ledgerCreatedAt)
 			}
 		}
 	}
@@ -233,22 +241,21 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($5::text[]) AS meta_xdr,
 				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) t
-		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
 	),
 
 	-- Insert transactions_accounts links (tx_id references transactions.to_id)
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_id, account_id)
+			(tx_id, account_id, ledger_created_at)
 		SELECT
-			ta.tx_id, ta.account_id
+			ta.tx_id, ta.account_id, ta.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS tx_id,
-				UNNEST($8::bytea[]) AS account_id
+				UNNEST($8::bytea[]) AS account_id,
+				UNNEST($9::timestamptz[]) AS ledger_created_at
 		) ta
-		ON CONFLICT DO NOTHING
 	)
 
 	-- Return the hashes of successfully inserted transactions
@@ -266,6 +273,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(txIDs),
 		pq.Array(stellarAddresses),
+		pq.Array(taLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {

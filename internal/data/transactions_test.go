@@ -124,7 +124,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			stellarAddressesByHash: map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address())},
 			wantAccountLinks:       map[string][]string{tx1.Hash: {kp1.Address()}},
 			wantErrContains:        "",
-			wantHashes:             []string{tx1.Hash},
+			wantHashes:             []string{tx1.Hash, tx1.Hash}, // Now duplicates are inserted
 		},
 	}
 
@@ -498,11 +498,11 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions_accounts links (tx_id references transactions.to_id)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions_accounts (tx_id, account_id)
+		INSERT INTO transactions_accounts (tx_id, account_id, ledger_created_at)
 		VALUES
-			(1, $1),
-			(2, $1),
-			(3, $2)
+			(1, $1, NOW()),
+			(2, $1, NOW()),
+			(3, $2, NOW())
 	`, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 

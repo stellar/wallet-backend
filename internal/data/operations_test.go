@@ -144,7 +144,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
 			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address()}},
 			wantErrContains:        "",
-			wantIDs:                []int64{op1.ID},
+			wantIDs:                []int64{op1.ID, op1.ID}, // Now duplicates are inserted
 		},
 	}
 
@@ -728,11 +728,11 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	// Create test operations_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations_accounts (operation_id, account_id)
+		INSERT INTO operations_accounts (operation_id, account_id, ledger_created_at)
 		VALUES
-			(1, $1),
-			(2, $1),
-			(3, $2)
+			(1, $1, NOW()),
+			(2, $1, NOW()),
+			(3, $2, NOW())
 	`, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
@@ -886,7 +886,7 @@ func BenchmarkOperationModel_BatchInsert(b *testing.B) {
 	now := time.Now()
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		VALUES ($1, 1, 'env', 'res', 'meta', $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)
@@ -950,7 +950,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 	now := time.Now()
 	_, err = conn.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		VALUES ($1, 1, 'env', 'res', 'meta', $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)
