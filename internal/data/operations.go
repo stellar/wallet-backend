@@ -410,8 +410,8 @@ func (m *OperationModel) BatchCopy(
 	// COPY operations_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByOpID) > 0 {
 		type oaRow struct {
-			opID int64
-			addr []byte
+			opID            int64
+			addr            []byte
 			ledgerCreatedAt time.Time
 		}
 		var oaRows []oaRow
@@ -419,8 +419,8 @@ func (m *OperationModel) BatchCopy(
 			for addr := range addresses.Iter() {
 				if bytesFromAddressString(addr) != nil {
 					oaRows = append(oaRows, oaRow{
-						opID: opID,
-						addr: bytesFromAddressString(addr),
+						opID:            opID,
+						addr:            bytesFromAddressString(addr),
 						ledgerCreatedAt: opCreatedAtByHash[opID],
 					})
 				} else {

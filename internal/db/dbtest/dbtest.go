@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
 	"github.com/jmoiron/sqlx"
 
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stellar/go/support/db/dbtest"
 	"github.com/stellar/go/support/db/schema"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db/migrations"
 )

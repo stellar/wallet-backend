@@ -349,8 +349,8 @@ func (m *TransactionModel) BatchCopy(
 	// Build hash->toID mapping for tx_id lookup
 	if len(stellarAddressesByTxHash) > 0 {
 		type taRow struct {
-			txID int64
-			accountID []byte
+			txID            int64
+			accountID       []byte
 			ledgerCreatedAt time.Time
 		}
 		var taRows []taRow
