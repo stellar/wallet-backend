@@ -52,6 +52,14 @@ type MetricsService interface {
 	IncGraphQLField(operationName, fieldName string, success bool)
 	ObserveGraphQLComplexity(operationName string, complexity int)
 	IncGraphQLError(operationName, errorType string)
+	// Backfill Metrics - all methods require instance ID
+	IncBackfillBatchesCompleted(instance string)
+	IncBackfillBatchesFailed(instance string)
+	ObserveBackfillPhaseDuration(instance string, phase string, duration float64)
+	IncBackfillLedgersProcessed(instance string, count int)
+	IncBackfillTransactionsProcessed(instance string, count int)
+	IncBackfillOperationsProcessed(instance string, count int)
+	SetBackfillElapsed(instance string, seconds float64)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -112,6 +120,25 @@ type metricsService struct {
 	graphqlFieldsTotal   *prometheus.CounterVec
 	graphqlComplexity    *prometheus.SummaryVec
 	graphqlErrorsTotal   *prometheus.CounterVec
+
+	// Backfill Metrics (Progress) - all GaugeVec with instance label
+	backfillBatchesTotal     *prometheus.GaugeVec
+	backfillBatchesCompleted *prometheus.GaugeVec
+	backfillBatchesFailed    *prometheus.GaugeVec
+
+	// Backfill Metrics (Phase Durations)
+	backfillPhaseDuration *prometheus.HistogramVec
+
+	// Backfill Metrics (Counters) - all CounterVec with instance label
+	backfillLedgersProcessed      *prometheus.CounterVec
+	backfillTransactionsProcessed *prometheus.CounterVec
+	backfillOperationsProcessed   *prometheus.CounterVec
+	backfillRetriesTotal          *prometheus.CounterVec
+
+	// Backfill Metrics (Performance) - HistogramVec with instance label
+	backfillBatchSize             *prometheus.HistogramVec
+	backfillBatchLedgersProcessed *prometheus.HistogramVec
+	backfillElapsed               *prometheus.GaugeVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -381,6 +408,94 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"operation_name", "error_type"},
 	)
+	// Backfill Progress Gauges (with backfill_instance label to avoid conflict with Prometheus's instance label)
+	m.backfillBatchesTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "backfill_batches_total",
+			Help: "Total number of batches to process in this backfill instance",
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillBatchesCompleted = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "backfill_batches_completed",
+			Help: "Number of batches successfully completed in this backfill instance",
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillBatchesFailed = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "backfill_batches_failed",
+			Help: "Number of batches that failed in this backfill instance",
+		},
+		[]string{"backfill_instance"},
+	)
+
+	// Backfill Phase Duration (with backfill_instance AND phase labels)
+	// Exponential buckets: 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8 seconds
+	m.backfillPhaseDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "backfill_phase_duration_seconds",
+			Help:    "Duration of each backfill phase",
+			Buckets: prometheus.ExponentialBuckets(0.1, 2, 12),
+		},
+		[]string{"backfill_instance", "phase"},
+	)
+
+	// Backfill Counters (with backfill_instance label)
+	m.backfillLedgersProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "backfill_ledgers_processed_total",
+			Help: "Total ledgers processed during backfill",
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillTransactionsProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "backfill_transactions_processed_total",
+			Help: "Total transactions processed during backfill",
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillOperationsProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "backfill_operations_processed_total",
+			Help: "Total operations processed during backfill",
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillRetriesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "backfill_retries_total",
+			Help: "Total number of retry attempts for ledger fetch during backfill",
+		},
+		[]string{"backfill_instance"},
+	)
+
+	// Backfill Performance Metrics (with backfill_instance label)
+	m.backfillBatchSize = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "backfill_batch_size",
+			Help:    "Number of ledgers per batch in backfill",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 10), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillBatchLedgersProcessed = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "backfill_batch_ledgers_processed",
+			Help:    "Actual ledgers processed per batch in backfill",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 10), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
+		},
+		[]string{"backfill_instance"},
+	)
+	m.backfillElapsed = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "backfill_elapsed_seconds",
+			Help: "Elapsed time of current/completed backfill job in seconds",
+		},
+		[]string{"backfill_instance"},
+	)
 
 	m.registerMetrics()
 	return m
@@ -424,6 +539,21 @@ func (m *metricsService) registerMetrics() {
 		m.graphqlFieldsTotal,
 		m.graphqlComplexity,
 		m.graphqlErrorsTotal,
+		// Backfill Progress
+		m.backfillBatchesTotal,
+		m.backfillBatchesCompleted,
+		m.backfillBatchesFailed,
+		// Backfill Phases
+		m.backfillPhaseDuration,
+		// Backfill Counters
+		m.backfillLedgersProcessed,
+		m.backfillTransactionsProcessed,
+		m.backfillOperationsProcessed,
+		m.backfillRetriesTotal,
+		// Backfill Performance
+		m.backfillBatchSize,
+		m.backfillBatchLedgersProcessed,
+		m.backfillElapsed,
 	)
 }
 
@@ -658,4 +788,33 @@ func (m *metricsService) ObserveGraphQLComplexity(operationName string, complexi
 
 func (m *metricsService) IncGraphQLError(operationName, errorType string) {
 	m.graphqlErrorsTotal.WithLabelValues(operationName, errorType).Inc()
+}
+
+// Backfill Metrics
+func (m *metricsService) IncBackfillBatchesCompleted(instance string) {
+	m.backfillBatchesCompleted.WithLabelValues(instance).Inc()
+}
+
+func (m *metricsService) IncBackfillBatchesFailed(instance string) {
+	m.backfillBatchesFailed.WithLabelValues(instance).Inc()
+}
+
+func (m *metricsService) ObserveBackfillPhaseDuration(instance string, phase string, duration float64) {
+	m.backfillPhaseDuration.WithLabelValues(instance, phase).Observe(duration)
+}
+
+func (m *metricsService) IncBackfillLedgersProcessed(instance string, count int) {
+	m.backfillLedgersProcessed.WithLabelValues(instance).Add(float64(count))
+}
+
+func (m *metricsService) IncBackfillTransactionsProcessed(instance string, count int) {
+	m.backfillTransactionsProcessed.WithLabelValues(instance).Add(float64(count))
+}
+
+func (m *metricsService) IncBackfillOperationsProcessed(instance string, count int) {
+	m.backfillOperationsProcessed.WithLabelValues(instance).Add(float64(count))
+}
+
+func (m *metricsService) SetBackfillElapsed(instance string, seconds float64) {
+	m.backfillElapsed.WithLabelValues(instance).Set(seconds)
 }
