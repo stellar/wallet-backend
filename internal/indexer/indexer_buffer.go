@@ -127,13 +127,13 @@ func (b *IndexerBuffer) GetNumberOfOperations() int {
 
 // GetTransactions returns all unique transactions.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetTransactions() []types.Transaction {
+func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	txs := make([]types.Transaction, 0, len(b.txByHash))
+	txs := make([]*types.Transaction, 0, len(b.txByHash))
 	for _, txPtr := range b.txByHash {
-		txs = append(txs, *txPtr)
+		txs = append(txs, txPtr)
 	}
 
 	return txs
@@ -195,15 +195,14 @@ func (b *IndexerBuffer) PushOperation(participant string, operation types.Operat
 }
 
 // GetOperations returns all unique operations from the canonical storage.
-// Returns values (not pointers) for API compatibility.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetOperations() []types.Operation {
+func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ops := make([]types.Operation, 0, len(b.opByID))
+	ops := make([]*types.Operation, 0, len(b.opByID))
 	for _, opPtr := range b.opByID {
-		ops = append(ops, *opPtr)
+		ops = append(ops, opPtr)
 	}
 	return ops
 }
@@ -260,7 +259,17 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	return b.stateChanges
 }
 
-// MergeBuffer merges another IndexerBuffer into this buffer. This is used to combine
+// GetAllParticipants returns all unique participants (Stellar addresses) that have been
+// recorded during transaction, operation, and state change processing.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetAllParticipants() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.allParticipants.ToSlice()
+}
+
+// Merge merges another IndexerBuffer into this buffer. This is used to combine
 // per-ledger or per-transaction buffers into a single buffer for batch DB insertion.
 //
 // MERGE STRATEGY:
@@ -280,7 +289,7 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // Zero temporary allocations - uses direct map/set manipulation.
 //
 // Thread-safe: acquires write lock on this buffer, read lock on other buffer.
-func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
+func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -296,24 +305,28 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
 	for txHash, otherParticipants := range otherBuffer.participantsByTxHash {
-		if _, exists := b.participantsByTxHash[txHash]; !exists {
-			b.participantsByTxHash[txHash] = set.NewSet[string]()
-		}
-		// Iterate other's set, add participants from OUR txByHash
-		for participant := range otherParticipants.Iter() {
-			b.participantsByTxHash[txHash].Add(participant) // O(1) Add
+		if existing, exists := b.participantsByTxHash[txHash]; exists {
+			// Merge into existing set - iterate and add (Union creates new set)
+			for participant := range otherParticipants.Iter() {
+				existing.Add(participant)
+			}
+		} else {
+			// Clone the set instead of creating empty + iterating
+			b.participantsByTxHash[txHash] = otherParticipants.Clone()
 		}
 	}
 
 	// Merge operations (canonical storage)
 	maps.Copy(b.opByID, otherBuffer.opByID)
 	for opID, otherParticipants := range otherBuffer.participantsByOpID {
-		if _, exists := b.participantsByOpID[opID]; !exists {
-			b.participantsByOpID[opID] = set.NewSet[string]()
-		}
-		// Iterate other's set, add canonical pointers from OUR opByID
-		for participant := range otherParticipants.Iter() {
-			b.participantsByOpID[opID].Add(participant) // O(1) Add
+		if existing, exists := b.participantsByOpID[opID]; exists {
+			// Merge into existing set - iterate and add (Union creates new set)
+			for participant := range otherParticipants.Iter() {
+				existing.Add(participant)
+			}
+		} else {
+			// Clone the set instead of creating empty + iterating
+			b.participantsByOpID[opID] = otherParticipants.Clone()
 		}
 	}
 
@@ -332,12 +345,24 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 	}
 }
 
-// GetAllParticipants returns all unique participants (Stellar addresses) that have been
-// recorded during transaction, operation, and state change processing.
-// Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAllParticipants() []string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+// Clear resets the buffer to its initial empty state while preserving allocated capacity.
+// Use this to reuse the buffer after flushing data to the database during backfill.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	return b.allParticipants.ToSlice()
+	// Clear maps (keep allocated backing arrays)
+	clear(b.txByHash)
+	clear(b.participantsByTxHash)
+	clear(b.opByID)
+	clear(b.participantsByOpID)
+
+	// Reset slices (reuse underlying arrays by slicing to zero)
+	b.stateChanges = b.stateChanges[:0]
+	b.trustlineChanges = b.trustlineChanges[:0]
+	b.contractChanges = b.contractChanges[:0]
+
+	// Clear all participants set
+	b.allParticipants.Clear()
 }

@@ -6,22 +6,22 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -30,6 +30,88 @@ import (
 )
 
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
+
+const (
+	// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
+	// to avoid racing with live finalization during parallel processing.
+	HistoricalBufferLedgers uint32 = 5
+	// maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
+	maxLedgerFetchRetries = 10
+	// maxRetryBackoff is the maximum backoff duration between retry attempts.
+	maxRetryBackoff = 30 * time.Second
+	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
+	IngestionModeLive = "live"
+	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
+	IngestionModeBackfill = "backfill"
+)
+
+// LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
+// Each batch needs its own backend because LedgerBackend is not thread-safe.
+type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
+
+// IngestServiceConfig holds the configuration for creating an IngestService.
+type IngestServiceConfig struct {
+	IngestionMode              string
+	Models                     *data.Models
+	LatestLedgerCursorName     string
+	OldestLedgerCursorName     string
+	AppTracker                 apptracker.AppTracker
+	RPCService                 RPCService
+	LedgerBackend              ledgerbackend.LedgerBackend
+	LedgerBackendFactory       LedgerBackendFactory
+	ChannelAccountStore        store.ChannelAccountStore
+	AccountTokenService        AccountTokenService
+	ContractMetadataService    ContractMetadataService
+	MetricsService             metrics.MetricsService
+	GetLedgersLimit            int
+	Network                    string
+	NetworkPassphrase          string
+	Archive                    historyarchive.ArchiveInterface
+	SkipTxMeta                 bool
+	SkipTxEnvelope             bool
+	EnableParticipantFiltering bool
+	BackfillWorkers            int
+	BackfillBatchSize          int
+	BackfillDBInsertBatchSize  int
+	CatchupThreshold           int
+}
+
+// BackfillBatch represents a contiguous range of ledgers to process as a unit.
+type BackfillBatch struct {
+	StartLedger uint32
+	EndLedger   uint32
+}
+
+// BackfillResult tracks the outcome of processing a single batch.
+type BackfillResult struct {
+	Batch        BackfillBatch
+	LedgersCount int
+	Duration     time.Duration
+	Error        error
+}
+
+// batchAnalysis holds the aggregated results from processing multiple backfill batches.
+type batchAnalysis struct {
+	failedBatches []BackfillBatch
+	successCount  int
+	totalLedgers  int
+}
+
+// analyzeBatchResults aggregates backfill batch results and logs any failures.
+func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
+	var analysis batchAnalysis
+	for _, result := range results {
+		if result.Error != nil {
+			analysis.failedBatches = append(analysis.failedBatches, result.Batch)
+			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			analysis.successCount++
+			analysis.totalLedgers += result.LedgersCount
+		}
+	}
+	return analysis
+}
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
@@ -46,13 +128,15 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
+	ingestionMode              string
 	models                     *data.Models
-	ledgerCursorName           string
-	accountTokensCursorName    string
+	latestLedgerCursorName     string
+	oldestLedgerCursorName     string
 	advisoryLockID             int
 	appTracker                 apptracker.AppTracker
 	rpcService                 RPCService
 	ledgerBackend              ledgerbackend.LedgerBackend
+	ledgerBackendFactory       LedgerBackendFactory
 	chAccStore                 store.ChannelAccountStore
 	accountTokenService        AccountTokenService
 	contractMetadataService    ContractMetadataService
@@ -61,215 +145,106 @@ type ingestService struct {
 	getLedgersLimit            int
 	ledgerIndexer              *indexer.Indexer
 	archive                    historyarchive.ArchiveInterface
-	backfillMode               bool
 	enableParticipantFiltering bool
+	backfillPool               pond.Pool
+	backfillBatchSize          uint32
+	backfillDBInsertBatchSize  uint32
+	catchupThreshold           uint32
 }
 
-func NewIngestService(
-	models *data.Models,
-	ledgerCursorName string,
-	accountTokensCursorName string,
-	appTracker apptracker.AppTracker,
-	rpcService RPCService,
-	ledgerBackend ledgerbackend.LedgerBackend,
-	chAccStore store.ChannelAccountStore,
-	accountTokenService AccountTokenService,
-	contractMetadataService ContractMetadataService,
-	metricsService metrics.MetricsService,
-	getLedgersLimit int,
-	network string,
-	networkPassphrase string,
-	archive historyarchive.ArchiveInterface,
-	skipTxMeta bool,
-	skipTxEnvelope bool,
-	enableParticipantFiltering bool,
-) (*ingestService, error) {
+func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+
+	// Create backfill pool with bounded size to control memory usage.
+	// Default to NumCPU if not specified.
+	backfillWorkers := cfg.BackfillWorkers
+	if backfillWorkers <= 0 {
+		backfillWorkers = runtime.NumCPU()
+	}
+	backfillPool := pond.NewPool(backfillWorkers)
+	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
-		models:                     models,
-		ledgerCursorName:           ledgerCursorName,
-		accountTokensCursorName:    accountTokensCursorName,
-		advisoryLockID:             generateAdvisoryLockID(network),
-		appTracker:                 appTracker,
-		rpcService:                 rpcService,
-		ledgerBackend:              ledgerBackend,
-		chAccStore:                 chAccStore,
-		accountTokenService:        accountTokenService,
-		contractMetadataService:    contractMetadataService,
-		metricsService:             metricsService,
-		networkPassphrase:          networkPassphrase,
-		getLedgersLimit:            getLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta, skipTxEnvelope),
-		archive:                    archive,
-		backfillMode:               false,
-		enableParticipantFiltering: enableParticipantFiltering,
+		ingestionMode:              cfg.IngestionMode,
+		models:                     cfg.Models,
+		latestLedgerCursorName:     cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
+		appTracker:                 cfg.AppTracker,
+		rpcService:                 cfg.RPCService,
+		ledgerBackend:              cfg.LedgerBackend,
+		ledgerBackendFactory:       cfg.LedgerBackendFactory,
+		chAccStore:                 cfg.ChannelAccountStore,
+		accountTokenService:        cfg.AccountTokenService,
+		contractMetadataService:    cfg.ContractMetadataService,
+		metricsService:             cfg.MetricsService,
+		networkPassphrase:          cfg.NetworkPassphrase,
+		getLedgersLimit:            cfg.GetLedgersLimit,
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		archive:                    cfg.Archive,
+		enableParticipantFiltering: cfg.EnableParticipantFiltering,
+		backfillPool:               backfillPool,
+		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:           uint32(cfg.CatchupThreshold),
 	}, nil
 }
 
+// Run starts the ingestion service in the configured mode (live or backfill).
+// For live mode, startLedger and endLedger are ignored and ingestion runs continuously from the last checkpoint.
+// For backfill mode, processes ledgers in the range [startLedger, endLedger].
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
-	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-		return fmt.Errorf("acquiring advisory lock: %w", err)
-	} else if !lockAcquired {
-		return errors.New("advisory lock not acquired")
+	switch m.ingestionMode {
+	case IngestionModeLive:
+		return m.startLiveIngestion(ctx)
+	case IngestionModeBackfill:
+		return m.startBackfilling(ctx, startLedger, endLedger, BackfillModeHistorical)
+	default:
+		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
-	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-			err = fmt.Errorf("releasing advisory lock: %w", err)
-			log.Ctx(ctx).Error(err)
-		}
-	}()
-
-	// Check if account tokens cache is populated
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.ledgerCursorName)
-	if err != nil {
-		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
-	}
-
-	// If latestIngestedLedger == 0, then its an empty db. In that case, we get the latest checkpoint ledger
-	// and start from there.
-	if latestIngestedLedger == 0 {
-		startLedger, err = m.calculateCheckpointLedger(startLedger)
-		if err != nil {
-			return fmt.Errorf("calculating checkpoint ledger: %w", err)
-		}
-
-		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
-
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
-		}
-	} else {
-		// If we already have data ingested currently, then we check the start ledger value supplied by the user.
-		// If it is 0 or beyond the current ingested ledger, we just start from where we left off.
-		if startLedger == 0 || startLedger >= latestIngestedLedger {
-			startLedger = latestIngestedLedger + 1
-		} else {
-			// If start ledger is some value less than latest ingested ledger, we go into backfilling mode. In this mode
-			// we dont update the account token cache (since it is already populated with recent checkpoint ledger) and we dont
-			// update the latest ledger ingested cursor.
-			// NOTE: Currently we dont have the functionality of detecting gaps and intelligently backfilling so we would process the same
-			// ledgers again during backfilling. However the db insertions have ON CONFLICT DO NOTHING, so we would not do repeated insertions
-			m.backfillMode = true
-		}
-	}
-
-	// Prepare backend range
-	err = m.prepareBackendRange(ctx, startLedger, endLedger)
-	if err != nil {
-		return fmt.Errorf("preparing backend range: %w", err)
-	}
-
-	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for endLedger == 0 || currentLedger < endLedger {
-		ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
-		if ledgerErr != nil {
-			if endLedger > 0 && currentLedger > endLedger {
-				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-				return nil
-			}
-			log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		totalStart := time.Now()
-		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-		}
-
-		// Update cursor only for live ingestion
-		if !m.backfillMode {
-			err := m.updateCursor(ctx, currentLedger)
-			if err != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
-			}
-		}
-		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(1)
-
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
-		currentLedger++
-
-		// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
-		// false. This is because when backfilling data, we are not updating the latest ledger cursor
-		// and not processing any account token cache changes. Remember that the account token cache was
-		// already populated using a more recent checkpoint ledger so we dont need to process older data.
-		if m.backfillMode && currentLedger > latestIngestedLedger {
-			m.backfillMode = false
-		}
-		if endLedger > 0 && currentLedger > endLedger {
-			log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-			return nil
-		}
-	}
-	return nil
 }
 
-func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
-	cursorStart := time.Now()
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+// getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
+// It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
+func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
 		}
-		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("updating cursors: %w", err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
-	return nil
-}
 
-// prepareBackendRange prepares the ledger backend with the appropriate range type.
-// Returns the operating mode (live streaming vs backfill).
-func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
-	var ledgerRange ledgerbackend.Range
-	if endLedger == 0 {
-		ledgerRange = ledgerbackend.UnboundedRange(startLedger)
-		log.Ctx(ctx).Infof("Prepared backend with unbounded range starting from ledger %d", startLedger)
-	} else {
-		ledgerRange = ledgerbackend.BoundedRange(startLedger, endLedger)
-		log.Ctx(ctx).Infof("Prepared backend with bounded range [%d, %d]", startLedger, endLedger)
-	}
-
-	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
-	}
-	return nil
-}
-
-// calculateCheckpointLedger determines the appropriate checkpoint ledger for account token cache population.
-// If startLedger is 0, it returns the latest checkpoint from the archive.
-// If startLedger is specified, it returns startLedger if it's a checkpoint, otherwise the previous checkpoint.
-func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, error) {
-	archiveManager := m.archive.GetCheckpointManager()
-
-	if startLedger == 0 {
-		// Get latest checkpoint from archive
-		latestLedger, err := m.archive.GetLatestLedgerSequence()
-		if err != nil {
-			return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
+		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
+		if err == nil {
+			return ledgerMeta, nil
 		}
-		return latestLedger, nil
-	}
+		lastErr = err
 
-	// For specified startLedger, use it if it's a checkpoint, otherwise use previous checkpoint
-	if archiveManager.IsCheckpoint(startLedger) {
-		return startLedger, nil
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxRetryBackoff {
+			backoff = maxRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
+
+		select {
+		case <-ctx.Done():
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
 	}
-	return archiveManager.PrevCheckpoint(startLedger), nil
+	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
 // processLedger processes a single ledger through all ingestion phases.
 // Phase 1: Get transactions from ledger
 // Phase 2: Process transactions using Indexer (parallel within ledger)
 // Phase 3: Insert all data into DB
+// Note: Live ingestion includes Redis cache updates and channel account unlocks,
+// while backfill mode skips these operations (determined by m.ingestionMode).
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
@@ -298,7 +273,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
 
-	// Metrics
+	// Record transaction and operation processing metrics
 	m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
 	m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
 
@@ -330,9 +305,9 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 // filteredIngestionData holds the filtered data for ingestion
 type filteredIngestionData struct {
-	txs            []types.Transaction
+	txs            []*types.Transaction
 	txParticipants map[string]set.Set[string]
-	ops            []types.Operation
+	ops            []*types.Operation
 	opParticipants map[int64]set.Set[string]
 	stateChanges   []types.StateChange
 }
@@ -342,9 +317,9 @@ type filteredIngestionData struct {
 // If a transaction/operation has ANY registered participant, it is included with ALL its participants.
 func (m *ingestService) filterByRegisteredAccounts(
 	ctx context.Context,
-	txs []types.Transaction,
+	txs []*types.Transaction,
 	txParticipants map[string]set.Set[string],
-	ops []types.Operation,
+	ops []*types.Operation,
 	opParticipants map[int64]set.Set[string],
 	stateChanges []types.StateChange,
 	allParticipants []string,
@@ -369,7 +344,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredTxs := make([]types.Transaction, 0, txHashesToInclude.Cardinality())
+	filteredTxs := make([]*types.Transaction, 0, txHashesToInclude.Cardinality())
 	filteredTxParticipants := make(map[string]set.Set[string])
 	for _, tx := range txs {
 		if txHashesToInclude.Contains(tx.Hash) {
@@ -389,7 +364,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 		}
 	}
 
-	filteredOps := make([]types.Operation, 0, opIDsToInclude.Cardinality())
+	filteredOps := make([]*types.Operation, 0, opIDsToInclude.Cardinality())
 	filteredOpParticipants := make(map[int64]set.Set[string])
 	for _, op := range ops {
 		if opIDsToInclude.Contains(op.ID) {
@@ -442,107 +417,106 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		stateChanges = filtered.stateChanges
 	}
 
-	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		// NOTE: No BatchInsert(accounts) - accounts table only has registered accounts
-
-		// 2. Insert queries
-		// 2.1. Insert transactions
-		if len(txs) > 0 {
-			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, txParticipants)
-			if err != nil {
-				return fmt.Errorf("batch inserting transactions: %w", err)
-			}
-			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
+	// Use pgx transaction for BatchCopy operations (binary COPY protocol)
+	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning pgx transaction: %w", err)
+	}
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
 		}
+	}()
 
-		// 2.2. Insert operations
-		if len(ops) > 0 {
-			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, opParticipants)
-			if err != nil {
-				return fmt.Errorf("batch inserting operations: %w", err)
-			}
-			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
-		}
-
-		// 2.3. Insert state changes
-		if len(stateChanges) > 0 {
-			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
-			if err != nil {
-				return fmt.Errorf("batch inserting state changes: %w", err)
-			}
-
-			// Count state changes by type and category
-			typeCategoryCount := make(map[string]map[string]int)
-			for _, sc := range stateChanges {
-				category := string(sc.StateChangeCategory)
-				scType := ""
-				if sc.StateChangeReason != nil {
-					scType = string(*sc.StateChangeReason)
-				}
-
-				if typeCategoryCount[scType] == nil {
-					typeCategoryCount[scType] = make(map[string]int)
-				}
-				typeCategoryCount[scType][category]++
-			}
-
-			for scType, categories := range typeCategoryCount {
-				for category, count := range categories {
-					m.metricsService.IncStateChanges(scType, category, count)
-				}
-			}
-
-			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
-		}
-
-		// 3. Unlock channel accounts.
-		if !m.backfillMode {
-			err := m.unlockChannelAccounts(ctx, txs)
-			if err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
-		}
-
-		return nil
-	})
-	if dbTxErr != nil {
-		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
+	if err := m.insertTransactions(ctx, pgxTx, txs, txParticipants); err != nil {
+		return err
+	}
+	if err := m.insertOperations(ctx, pgxTx, ops, opParticipants); err != nil {
+		return err
+	}
+	if err := m.insertStateChanges(ctx, pgxTx, stateChanges); err != nil {
+		return err
 	}
 
-	if !m.backfillMode {
-		trustlineChanges := indexerBuffer.GetTrustlineChanges()
-		// Insert trustline changes in the ascending order of operation IDs using batch processing
-		sort.Slice(trustlineChanges, func(i, j int) bool {
-			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-		})
-
-		contractChanges := indexerBuffer.GetContractChanges()
-
-		// Process all trustline and contract changes in a single batch using Redis pipelining
-		if err := m.accountTokenService.ProcessTokenChanges(ctx, trustlineChanges, contractChanges); err != nil {
-			log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
-			return fmt.Errorf("processing trustline changes batch: %w", err)
+	// Unlock channel accounts only during live ingestion (skip for historical backfill)
+	// This is done within the same pgxTx for atomicity - all inserts and unlocks succeed or fail together
+	if m.ingestionMode == IngestionModeLive {
+		if err := m.unlockChannelAccounts(ctx, pgxTx, txs); err != nil {
+			return err
 		}
-		log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
+	}
 
-		// Fetch and store metadata for new SAC/SEP-41 contracts discovered during live ingestion
-		if m.contractMetadataService != nil {
-			newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
-			if len(newContractTypesByID) > 0 {
-				log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
-				if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
-					log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
-					// Don't return error - we don't want to block ingestion for metadata fetch failures
-				}
-			}
-		}
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
+	}
+
+	// Process token changes only during live ingestion (not backfill)
+	if m.ingestionMode == IngestionModeLive {
+		return m.processLiveIngestionTokenChanges(ctx, indexerBuffer)
 	}
 
 	return nil
 }
 
+// insertTransactions batch inserts transactions with their participants into the database.
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
+	if len(txs) == 0 {
+		return nil
+	}
+	insertedCount, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByTxHash)
+	if err != nil {
+		return fmt.Errorf("batch inserting transactions: %w", err)
+	}
+	log.Ctx(ctx).Infof("inserted %d transactions", insertedCount)
+	return nil
+}
+
+// insertOperations batch inserts operations with their participants into the database.
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+	if len(ops) == 0 {
+		return nil
+	}
+	insertedCount, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
+	if err != nil {
+		return fmt.Errorf("batch inserting operations: %w", err)
+	}
+	log.Ctx(ctx).Infof("inserted %d operations", insertedCount)
+	return nil
+}
+
+// insertStateChanges batch inserts state changes and records metrics.
+func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) error {
+	if len(stateChanges) == 0 {
+		return nil
+	}
+	insertedCount, err := m.models.StateChanges.BatchCopy(ctx, pgxTx, stateChanges)
+	if err != nil {
+		return fmt.Errorf("batch inserting state changes: %w", err)
+	}
+	m.recordStateChangeMetrics(stateChanges)
+	log.Ctx(ctx).Infof("inserted %d state changes", insertedCount)
+	return nil
+}
+
+// recordStateChangeMetrics aggregates state changes by reason and category, then records metrics.
+func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChange) {
+	counts := make(map[string]int) // key: "reason|category"
+	for _, sc := range stateChanges {
+		reason := ""
+		if sc.StateChangeReason != nil {
+			reason = string(*sc.StateChangeReason)
+		}
+		key := reason + "|" + string(sc.StateChangeCategory)
+		counts[key]++
+	}
+	for key, count := range counts {
+		parts := strings.SplitN(key, "|", 2)
+		m.metricsService.IncStateChanges(parts[0], parts[1], count)
+	}
+}
+
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -552,7 +526,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
 	}
 
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, innerTxHashes...); err != nil {
 		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
 	} else if affectedRows > 0 {
 		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
@@ -561,55 +535,36 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 	return nil
 }
 
-func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
-	var ledgerTransactions []entities.Transaction
-	var cursor string
-	lastLedgerSeen := ledger
-	for lastLedgerSeen == ledger {
-		getTxnsResp, err := m.rpcService.GetTransactions(ledger, cursor, 50)
-		if err != nil {
-			return []entities.Transaction{}, fmt.Errorf("getTransactions: %w", err)
-		}
-		cursor = getTxnsResp.Cursor
-		for _, tx := range getTxnsResp.Transactions {
-			if tx.Ledger == ledger {
-				ledgerTransactions = append(ledgerTransactions, tx)
-				lastLedgerSeen = tx.Ledger
-			} else {
-				lastLedgerSeen = tx.Ledger
-				break
+// processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
+// This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
+func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, buffer indexer.IndexerBufferInterface) error {
+	trustlineChanges := buffer.GetTrustlineChanges()
+	// Sort trustline changes by operation ID in ascending order
+	sort.Slice(trustlineChanges, func(i, j int) bool {
+		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+	})
+
+	contractChanges := buffer.GetContractChanges()
+
+	// Process all trustline and contract changes in a single batch using Redis pipelining
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, trustlineChanges, contractChanges); err != nil {
+		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+		return fmt.Errorf("processing trustline changes batch: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
+
+	// Fetch and store metadata for new SAC/SEP-41 contracts
+	if m.contractMetadataService != nil {
+		newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
+		if len(newContractTypesByID) > 0 {
+			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
+			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
+				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
+				// Don't return error - we don't want to block ingestion for metadata fetch failures
 			}
 		}
 	}
-	return ledgerTransactions, nil
-}
-
-// extractInnerTxHash takes a transaction XDR string and returns the hash of its inner transaction.
-// For fee bump transactions, it returns the hash of the inner transaction.
-// For regular transactions, it returns the hash of the transaction itself.
-func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
-	if err != nil {
-		return "", fmt.Errorf("deserializing envelope xdr %q: %w", txXDR, err)
-	}
-
-	var innerTx *txnbuild.Transaction
-	feeBumpTx, ok := genericTx.FeeBump()
-	if ok {
-		innerTx = feeBumpTx.InnerTransaction()
-	} else {
-		innerTx, ok = genericTx.Transaction()
-		if !ok {
-			return "", errors.New("transaction is neither fee bump nor inner transaction")
-		}
-	}
-
-	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
-	if err != nil {
-		return "", fmt.Errorf("generating hash hex: %w", err)
-	}
-
-	return innerTxHash, nil
+	return nil
 }
 
 // filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,

@@ -162,3 +162,7 @@ func (m *MockMetricsService) ObserveGraphQLComplexity(operationName string, comp
 func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
 	m.Called(operationName, errorType)
 }
+
+func (m *MockMetricsService) SetOldestLedgerIngested(value float64) {
+	m.Called(value)
+}

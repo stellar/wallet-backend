@@ -7,6 +7,8 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -241,7 +243,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 func (m *OperationModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
-	operations []types.Operation,
+	operations []*types.Operation,
 	stellarAddressesByOpID map[int64]set.Set[string],
 ) ([]int64, error) {
 	if sqlExecuter == nil {
@@ -345,4 +347,81 @@ func (m *OperationModel) BatchInsert(
 	}
 
 	return insertedIDs, nil
+}
+
+// BatchCopy inserts operations using pgx's binary COPY protocol.
+// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
+// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+//
+// IMPORTANT: Unlike BatchInsert which uses ON CONFLICT DO NOTHING, BatchCopy will FAIL
+// if any duplicate records exist. The PostgreSQL COPY protocol does not support conflict
+// handling. Callers must ensure no duplicates exist before calling this method, or handle
+// the unique constraint violation error appropriately.
+func (m *OperationModel) BatchCopy(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	operations []*types.Operation,
+	stellarAddressesByOpID map[int64]set.Set[string],
+) (int, error) {
+	if len(operations) == 0 {
+		return 0, nil
+	}
+
+	start := time.Now()
+
+	// COPY operations using pgx binary format with native pgtype types
+	copyCount, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"operations"},
+		[]string{"id", "tx_hash", "operation_type", "operation_xdr", "ledger_number", "ledger_created_at"},
+		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
+			op := operations[i]
+			return []any{
+				pgtype.Int8{Int64: op.ID, Valid: true},
+				pgtype.Text{String: op.TxHash, Valid: true},
+				pgtype.Text{String: string(op.OperationType), Valid: true},
+				pgtype.Text{String: op.OperationXDR, Valid: true},
+				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
+				pgtype.Timestamptz{Time: op.LedgerCreatedAt, Valid: true},
+			}, nil
+		}),
+	)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("pgx CopyFrom operations: %w", err)
+	}
+	if int(copyCount) != len(operations) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
+	}
+
+	// COPY operations_accounts using pgx binary format with native pgtype types
+	if len(stellarAddressesByOpID) > 0 {
+		var oaRows [][]any
+		for opID, addresses := range stellarAddressesByOpID {
+			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
+			for _, addr := range addresses.ToSlice() {
+				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+			}
+		}
+
+		_, err = pgxTx.CopyFrom(
+			ctx,
+			pgx.Identifier{"operations_accounts"},
+			[]string{"operation_id", "account_id"},
+			pgx.CopyFromRows(oaRows),
+		)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
+		}
+
+		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
+	m.MetricsService.IncDBQuery("BatchCopy", "operations")
+
+	return len(operations), nil
 }

@@ -2,11 +2,11 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,7 +16,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
@@ -24,164 +23,6 @@ import (
 const (
 	defaultGetLedgersLimit = 50
 )
-
-func TestGetLedgerTransactions(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
-	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockLedgerBackend := &LedgerBackendMock{}
-	mockArchive := &HistoryArchiveMock{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false, false, false)
-	require.NoError(t, err)
-	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-
-		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash1",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash2",
-					Ledger: 2,
-				},
-			},
-		}
-		mockRPCService.
-			On("GetTransactions", int64(1), "", 50).
-			Return(rpcGetTransactionsResult, nil).
-			Once()
-
-		txns, err := ingestService.GetLedgerTransactions(1)
-		assert.Equal(t, 1, len(txns))
-		assert.Equal(t, txns[0].Hash, "hash1")
-		assert.NoError(t, err)
-	})
-
-	t.Run("ledger_transactions_split_between_multiple_gettransactions_calls", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-
-		rpcGetTransactionsResult1 := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash1",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash2",
-					Ledger: 1,
-				},
-			},
-		}
-		rpcGetTransactionsResult2 := entities.RPCGetTransactionsResult{
-			Cursor: "51",
-			Transactions: []entities.Transaction{
-				{
-					Status: entities.SuccessStatus,
-					Hash:   "hash3",
-					Ledger: 1,
-				},
-				{
-					Status: entities.FailedStatus,
-					Hash:   "hash4",
-					Ledger: 2,
-				},
-			},
-		}
-
-		mockRPCService.
-			On("GetTransactions", int64(1), "", 50).
-			Return(rpcGetTransactionsResult1, nil).
-			Once()
-
-		mockRPCService.
-			On("GetTransactions", int64(1), "51", 50).
-			Return(rpcGetTransactionsResult2, nil).
-			Once()
-
-		txns, err := ingestService.GetLedgerTransactions(1)
-		assert.Equal(t, 3, len(txns))
-		assert.Equal(t, txns[0].Hash, "hash1")
-		assert.Equal(t, txns[1].Hash, "hash2")
-		assert.Equal(t, txns[2].Hash, "hash3")
-		assert.NoError(t, err)
-	})
-}
-
-func Test_ingestService_extractInnerTxHash(t *testing.T) {
-	networkPassphrase := network.TestNetworkPassphrase
-	sourceAccountKP := keypair.MustRandom()
-	destAccountKP := keypair.MustRandom()
-
-	// Create a simple inner transaction
-	innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: sourceAccountKP.Address(),
-			Sequence:  1,
-		},
-		Operations: []txnbuild.Operation{&txnbuild.CreateAccount{
-			Destination: destAccountKP.Address(),
-			Amount:      "1",
-		}},
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-		IncrementSequenceNum: true,
-		BaseFee:              txnbuild.MinBaseFee,
-	})
-	require.NoError(t, err)
-	innerTx, err = innerTx.Sign(networkPassphrase, sourceAccountKP)
-	require.NoError(t, err)
-
-	innerTxHash, err := innerTx.HashHex(networkPassphrase)
-	require.NoError(t, err)
-	innerTxXDR, err := innerTx.Base64()
-	require.NoError(t, err)
-
-	// Create a fee bump transaction
-	feeBumpAccountKP := keypair.MustRandom()
-	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
-		Inner:      innerTx,
-		FeeAccount: feeBumpAccountKP.Address(),
-		BaseFee:    2 * txnbuild.MinBaseFee,
-	})
-	require.NoError(t, err)
-	feeBumpTx, err = feeBumpTx.Sign(networkPassphrase, feeBumpAccountKP)
-	require.NoError(t, err)
-	feeBumpTxXDR, err := feeBumpTx.Base64()
-	require.NoError(t, err)
-
-	ingestSvc := ingestService{rpcService: &rpcService{networkPassphrase: networkPassphrase}}
-
-	t.Run("🟢inner_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(innerTxXDR)
-		require.NoError(t, err)
-		assert.Equal(t, innerTxHash, gotTxHash)
-	})
-
-	t.Run("🟢fee_bump_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(feeBumpTxXDR)
-		require.NoError(t, err)
-		assert.Equal(t, innerTxHash, gotTxHash)
-	})
-}
 
 func Test_ingestService_getLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
@@ -217,6 +58,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
 			defer mockMetricsService.AssertExpectations(t)
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 			require.NoError(t, err)
@@ -227,7 +69,25 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockArchive := &HistoryArchiveMock{}
-			ingestService, err := NewIngestService(models, "testCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false, false, false)
+			ingestService, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:              IngestionModeLive,
+				Models:                     models,
+				LatestLedgerCursorName:     "testCursor",
+				AppTracker:                 &mockAppTracker,
+				RPCService:                 &mockRPCService,
+				LedgerBackend:              mockLedgerBackend,
+				ChannelAccountStore:        mockChAccStore,
+				AccountTokenService:        nil,
+				ContractMetadataService:    nil,
+				MetricsService:             mockMetricsService,
+				GetLedgersLimit:            defaultGetLedgersLimit,
+				Network:                    network.TestNetworkPassphrase,
+				NetworkPassphrase:          network.TestNetworkPassphrase,
+				Archive:                    mockArchive,
+				SkipTxMeta:                 false,
+				SkipTxEnvelope:             false,
+				EnableParticipantFiltering: false,
+			})
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
@@ -249,6 +109,434 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 						assert.Equal(t, expectedHash, transactions[i].Hash.HexString())
 					}
 				}
+			}
+		})
+	}
+}
+
+func Test_generateAdvisoryLockID(t *testing.T) {
+	testCases := []struct {
+		name     string
+		network  string
+		expected int
+	}{
+		{
+			name:     "testnet_generates_consistent_id",
+			network:  "testnet",
+			expected: generateAdvisoryLockID("testnet"),
+		},
+		{
+			name:     "mainnet_generates_consistent_id",
+			network:  "mainnet",
+			expected: generateAdvisoryLockID("mainnet"),
+		},
+		{
+			name:    "different_networks_generate_different_ids",
+			network: "testnet",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := generateAdvisoryLockID(tc.network)
+
+			if tc.name == "different_networks_generate_different_ids" {
+				mainnetID := generateAdvisoryLockID("mainnet")
+				testnetID := generateAdvisoryLockID("testnet")
+				assert.NotEqual(t, mainnetID, testnetID, "different networks should generate different lock IDs")
+			} else {
+				// Verify consistency - same network should always generate same ID
+				result2 := generateAdvisoryLockID(tc.network)
+				assert.Equal(t, result, result2, "same network should generate same lock ID")
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func Test_ingestService_splitGapsIntoBatches(t *testing.T) {
+	svc := &ingestService{}
+
+	testCases := []struct {
+		name      string
+		gaps      []data.LedgerRange
+		batchSize uint32
+		expected  []BackfillBatch
+	}{
+		{
+			name:      "empty_gaps",
+			gaps:      []data.LedgerRange{},
+			batchSize: 100,
+			expected:  nil,
+		},
+		{
+			name: "single_gap_smaller_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 150},
+			},
+			batchSize: 200,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 150},
+			},
+		},
+		{
+			name: "single_gap_larger_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 399},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+				{StartLedger: 200, EndLedger: 299},
+				{StartLedger: 300, EndLedger: 399},
+			},
+		},
+		{
+			name: "single_gap_exact_batch_size",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 199},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+			},
+		},
+		{
+			name: "multiple_gaps",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 149},
+				{GapStart: 300, GapEnd: 349},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 149},
+				{StartLedger: 300, EndLedger: 349},
+			},
+		},
+		{
+			name: "multiple_gaps_with_splits",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 249},
+				{GapStart: 500, GapEnd: 599},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+				{StartLedger: 200, EndLedger: 249},
+				{StartLedger: 500, EndLedger: 599},
+			},
+		},
+		{
+			name: "single_ledger_gap",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 100},
+			},
+			batchSize: 100,
+			expected: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 100},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc.backfillBatchSize = tc.batchSize
+			result := svc.splitGapsIntoBatches(tc.gaps)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func Test_ingestService_calculateBackfillGaps(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name         string
+		startLedger  uint32
+		endLedger    uint32
+		setupDB      func(t *testing.T)
+		expectedGaps []data.LedgerRange
+	}{
+		{
+			name:        "entirely_before_oldest_ingested_ledger",
+			startLedger: 50,
+			endLedger:   80,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 80},
+			},
+		},
+		{
+			name:        "overlaps_with_oldest_ingested_ledger",
+			startLedger: 50,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions for 100-200 (no gaps)
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 99},
+			},
+		},
+		{
+			name:        "entirely_within_ingested_range_no_gaps",
+			startLedger: 110,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions for 100-200 (no gaps)
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{},
+		},
+		{
+			name:        "entirely_within_ingested_range_with_gaps",
+			startLedger: 110,
+			endLedger:   180,
+			setupDB: func(t *testing.T) {
+				// Set oldest to 100, latest to 200
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				require.NoError(t, err)
+				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
+				for ledger := uint32(100); ledger <= 120; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+				for ledger := uint32(150); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 121, GapEnd: 149},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			mockAppTracker := apptracker.MockAppTracker{}
+			mockRPCService := RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			mockLedgerBackend := &LedgerBackendMock{}
+			mockArchive := &HistoryArchiveMock{}
+
+			svc, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &mockAppTracker,
+				RPCService:             &mockRPCService,
+				LedgerBackend:          mockLedgerBackend,
+				ChannelAccountStore:    mockChAccStore,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                mockArchive,
+				SkipTxMeta:             false,
+				SkipTxEnvelope:         false,
+			})
+			require.NoError(t, err)
+
+			gaps, err := svc.calculateBackfillGaps(ctx, tc.startLedger, tc.endLedger)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedGaps, gaps)
+		})
+	}
+}
+
+func Test_BackfillMode_Validation(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name                  string
+		mode                  BackfillMode
+		startLedger           uint32
+		endLedger             uint32
+		latestIngested        uint32
+		expectValidationError bool
+		errorContains         string
+	}{
+		{
+			name:                  "historical_mode_valid_range",
+			mode:                  BackfillModeHistorical,
+			startLedger:           50,
+			endLedger:             80,
+			latestIngested:        100,
+			expectValidationError: false,
+		},
+		{
+			name:                  "historical_mode_end_exceeds_latest",
+			mode:                  BackfillModeHistorical,
+			startLedger:           50,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: true,
+			errorContains:         "end ledger 150 cannot be greater than latest ingested ledger 100",
+		},
+		{
+			name:                  "catchup_mode_valid_range",
+			mode:                  BackfillModeCatchup,
+			startLedger:           101,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: false,
+		},
+		{
+			name:                  "catchup_mode_start_not_next_ledger",
+			mode:                  BackfillModeCatchup,
+			startLedger:           105,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: true,
+			errorContains:         "catchup must start from ledger 101",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			// Set up latest ingested ledger cursor
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
+				tc.latestIngested)
+			require.NoError(t, err)
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
+				tc.latestIngested)
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			mockAppTracker := apptracker.MockAppTracker{}
+			mockRPCService := RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			mockLedgerBackend := &LedgerBackendMock{}
+			mockArchive := &HistoryArchiveMock{}
+
+			// Create a mock ledger backend factory that returns an error immediately
+			// This allows validation to pass but stops batch processing early
+			mockBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+				return nil, fmt.Errorf("mock backend factory error")
+			}
+
+			svc, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &mockAppTracker,
+				RPCService:             &mockRPCService,
+				LedgerBackend:          mockLedgerBackend,
+				LedgerBackendFactory:   mockBackendFactory,
+				ChannelAccountStore:    mockChAccStore,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                mockArchive,
+				SkipTxMeta:             false,
+				SkipTxEnvelope:         false,
+				BackfillBatchSize:      100,
+			})
+			require.NoError(t, err)
+
+			err = svc.startBackfilling(ctx, tc.startLedger, tc.endLedger, tc.mode)
+			if tc.expectValidationError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				// For valid cases, validation passes but batch processing fails
+				// The error will be wrapped as "backfilling failed: X/Y batches failed"
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "backfilling failed")
+				// Ensure it's NOT a validation error
+				assert.NotContains(t, err.Error(), "cannot be greater than latest ingested ledger")
+				assert.NotContains(t, err.Error(), "catchup must start from ledger")
 			}
 		})
 	}

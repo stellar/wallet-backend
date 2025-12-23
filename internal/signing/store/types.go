@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/stellar/wallet-backend/internal/db"
 )
 
@@ -24,7 +26,7 @@ type ChannelAccountStore interface {
 	GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error)
 	GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error)
 	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error
-	UnassignTxAndUnlockChannelAccounts(ctx context.Context, sqlExec db.SQLExecuter, txHashes ...string) (int64, error)
+	UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error)
 	BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error
 	Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error)
 	Count(ctx context.Context) (int64, error)

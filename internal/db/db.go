@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jmoiron/sqlx"
 	"github.com/stellar/go/support/log"
 )
@@ -17,6 +19,7 @@ type ConnectionPool interface {
 	Ping(ctx context.Context) error
 	SqlDB(ctx context.Context) (*sql.DB, error)
 	SqlxDB(ctx context.Context) (*sqlx.DB, error)
+	PgxPool() *pgxpool.Pool
 }
 
 // Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
@@ -24,11 +27,14 @@ var _ ConnectionPool = (*ConnectionPoolImplementation)(nil)
 
 type ConnectionPoolImplementation struct {
 	*sqlx.DB
+	pgxPool *pgxpool.Pool
 }
 
 const (
 	MaxDBConnIdleTime = 10 * time.Second
 	MaxOpenDBConns    = 30
+	MaxIdleDBConns    = 20              // Keep warm connections ready in the pool
+	MaxDBConnLifetime = 5 * time.Minute // Recycle connections periodically
 )
 
 func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
@@ -38,13 +44,72 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	}
 	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
 	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
+	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
+	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
 
 	err = sqlxDB.Ping()
 	if err != nil {
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
-	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
+	// Create pgx pool for binary COPY operations
+	pgxPool, err := pgxpool.New(context.Background(), dataSourceName)
+	if err != nil {
+		_ = sqlxDB.Close() //nolint:errcheck // Best effort cleanup; primary error is pgx pool creation
+		return nil, fmt.Errorf("error creating pgx pool: %w", err)
+	}
+
+	return &ConnectionPoolImplementation{DB: sqlxDB, pgxPool: pgxPool}, nil
+}
+
+// OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
+// It configures session-level settings (synchronous_commit=off, work_mem=256MB) via the connection
+// string, which are applied to every new connection in the pool.
+// This should ONLY be used for backfill instances, NOT for live ingestion.
+func OpenDBConnectionPoolForBackfill(dataSourceName string) (ConnectionPool, error) {
+	// Append session parameters to connection string for automatic configuration.
+	// URL-encoded: -c synchronous_commit=off -c work_mem=256MB
+	backfillParams := "options=-c%20synchronous_commit%3Doff%20-c%20work_mem%3D256MB"
+
+	separator := "?"
+	if strings.Contains(dataSourceName, "?") {
+		separator = "&"
+	}
+	backfillDSN := dataSourceName + separator + backfillParams
+
+	sqlxDB, err := sqlx.Open("postgres", backfillDSN)
+	if err != nil {
+		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
+	}
+	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
+	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
+	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
+	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
+
+	err = sqlxDB.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("error pinging backfill DB connection pool: %w", err)
+	}
+
+	// Create pgx pool for binary COPY operations with backfill settings
+	pgxPool, err := pgxpool.New(context.Background(), backfillDSN)
+	if err != nil {
+		_ = sqlxDB.Close() //nolint:errcheck // Best effort cleanup; primary error is pgx pool creation
+		return nil, fmt.Errorf("error creating pgx pool for backfill: %w", err)
+	}
+
+	return &ConnectionPoolImplementation{DB: sqlxDB, pgxPool: pgxPool}, nil
+}
+
+// ConfigureBackfillSession sets session_replication_role to 'replica' which disables FK constraint
+// checking. This cannot be set via connection string and requires elevated privileges (superuser
+// or replication role). Call this ONCE at backfill startup after creating the connection pool.
+func ConfigureBackfillSession(ctx context.Context, db ConnectionPool) error {
+	_, err := db.ExecContext(ctx, "SET session_replication_role = 'replica'")
+	if err != nil {
+		return fmt.Errorf("setting session_replication_role: %w", err)
+	}
+	return nil
 }
 
 //nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.BeginTxx method
@@ -63,6 +128,20 @@ func (db *ConnectionPoolImplementation) SqlDB(ctx context.Context) (*sql.DB, err
 
 func (db *ConnectionPoolImplementation) SqlxDB(ctx context.Context) (*sqlx.DB, error) {
 	return db.DB, nil
+}
+
+func (db *ConnectionPoolImplementation) PgxPool() *pgxpool.Pool {
+	return db.pgxPool
+}
+
+// Close closes both the sqlx and pgx pools.
+//
+//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.Close method
+func (db *ConnectionPoolImplementation) Close() error {
+	if db.pgxPool != nil {
+		db.pgxPool.Close()
+	}
+	return db.DB.Close()
 }
 
 // Transaction is an interface that wraps the sqlx.Tx structs methods.

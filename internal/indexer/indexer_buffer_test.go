@@ -45,7 +45,7 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Assert GetAllTransactions
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetTransactions())
+		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
 	})
 
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
@@ -268,7 +268,7 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 
 		allTxs := indexerBuffer.GetTransactions()
 		require.Len(t, allTxs, 2)
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, allTxs)
+		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, allTxs)
 	})
 }
 
@@ -303,7 +303,7 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 
 		allOps := indexerBuffer.GetOperations()
 		require.Len(t, allOps, 2)
-		assert.ElementsMatch(t, []types.Operation{op1, op2}, allOps)
+		assert.ElementsMatch(t, []*types.Operation{&op1, &op2}, allOps)
 	})
 }
 
@@ -428,12 +428,12 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	})
 }
 
-func TestIndexerBuffer_MergeBuffer(t *testing.T) {
+func TestIndexerBuffer_Merge(t *testing.T) {
 	t.Run("🟢 merge empty buffers", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 		assert.Equal(t, 0, buffer1.GetNumberOfTransactions())
 		assert.Len(t, buffer1.GetStateChanges(), 0)
 	})
@@ -448,12 +448,12 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer1.PushTransaction("alice", tx1)
 		buffer2.PushTransaction("bob", tx2)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify transactions
 		allTxs := buffer1.GetTransactions()
 		assert.Len(t, allTxs, 2)
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, allTxs)
+		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, allTxs)
 
 		// Verify transaction participants
 		txParticipants := buffer1.GetTransactionsParticipants()
@@ -472,12 +472,12 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer1.PushOperation("alice", op1, tx1)
 		buffer2.PushOperation("bob", op2, tx1)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify operations
 		allOps := buffer1.GetOperations()
 		assert.Len(t, allOps, 2)
-		assert.ElementsMatch(t, []types.Operation{op1, op2}, allOps)
+		assert.ElementsMatch(t, []*types.Operation{&op1, &op2}, allOps)
 
 		// Verify operation participants
 		opParticipants := buffer1.GetOperationsParticipants()
@@ -498,7 +498,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer1.PushStateChange(tx, op, sc1)
 		buffer2.PushStateChange(tx, op, sc2)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify state changes
 		allStateChanges := buffer1.GetStateChanges()
@@ -524,7 +524,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer2.PushTransaction("charlie", tx2)
 		buffer2.PushOperation("bob", op1, tx1)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify transactions
 		allTxs := buffer1.GetTransactions()
@@ -552,7 +552,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer2.PushOperation("bob", op1, tx1)
 		buffer2.PushStateChange(tx1, op1, sc1)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
 		assert.Len(t, buffer1.GetOperations(), 1)
@@ -566,7 +566,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
 		buffer1.PushTransaction("alice", tx1)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
 	})
@@ -589,12 +589,12 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			buffer1.MergeBuffer(buffer2)
+			buffer1.Merge(buffer2)
 		}()
 
 		go func() {
 			defer wg.Done()
-			buffer1.MergeBuffer(buffer3)
+			buffer1.Merge(buffer3)
 		}()
 
 		wg.Wait()
@@ -624,7 +624,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer2.PushOperation("bob", op2, tx2)
 		buffer2.PushStateChange(tx2, op2, sc2)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify transactions
 		allTxs := buffer1.GetTransactions()
@@ -662,7 +662,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer2.PushTransaction("charlie", tx2)
 		buffer2.PushTransaction("dave", tx2)
 
-		buffer1.MergeBuffer(buffer2)
+		buffer1.Merge(buffer2)
 
 		// Verify all participants merged
 		allParticipants := buffer1.GetAllParticipants()

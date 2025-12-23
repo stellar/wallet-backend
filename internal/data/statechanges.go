@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -339,6 +341,81 @@ func (m *StateChangeModel) BatchInsert(
 	m.MetricsService.IncDBQuery("BatchInsert", "state_changes")
 
 	return insertedIDs, nil
+}
+
+// BatchCopy inserts state changes using pgx's binary COPY protocol.
+// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
+// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+//
+// IMPORTANT: Unlike BatchInsert which uses ON CONFLICT DO NOTHING, BatchCopy will FAIL
+// if any duplicate records exist. The PostgreSQL COPY protocol does not support conflict
+// handling. Callers must ensure no duplicates exist before calling this method, or handle
+// the unique constraint violation error appropriately.
+func (m *StateChangeModel) BatchCopy(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	stateChanges []types.StateChange,
+) (int, error) {
+	if len(stateChanges) == 0 {
+		return 0, nil
+	}
+
+	start := time.Now()
+
+	// COPY state_changes using pgx binary format with native pgtype types
+	copyCount, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"state_changes"},
+		[]string{
+			"to_id", "state_change_order", "state_change_category", "state_change_reason",
+			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
+			"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
+			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
+			"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+		},
+		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
+			sc := stateChanges[i]
+			return []any{
+				pgtype.Int8{Int64: sc.ToID, Valid: true},
+				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
+				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
+				pgtypeTextFromReasonPtr(sc.StateChangeReason),
+				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
+				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
+				pgtype.Text{String: sc.AccountID, Valid: true},
+				pgtype.Int8{Int64: sc.OperationID, Valid: true},
+				pgtype.Text{String: sc.TxHash, Valid: true},
+				pgtypeTextFromNullString(sc.TokenID),
+				pgtypeTextFromNullString(sc.Amount),
+				pgtypeTextFromNullString(sc.OfferID),
+				pgtypeTextFromNullString(sc.SignerAccountID),
+				pgtypeTextFromNullString(sc.SpenderAccountID),
+				pgtypeTextFromNullString(sc.SponsoredAccountID),
+				pgtypeTextFromNullString(sc.SponsorAccountID),
+				pgtypeTextFromNullString(sc.DeployerAccountID),
+				pgtypeTextFromNullString(sc.FunderAccountID),
+				jsonbFromMap(sc.SignerWeights),
+				jsonbFromMap(sc.Thresholds),
+				jsonbFromMap(sc.TrustlineLimit),
+				jsonbFromSlice(sc.Flags),
+				jsonbFromMap(sc.KeyValue),
+			}, nil
+		}),
+	)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopy", "state_changes", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
+	}
+	if int(copyCount) != len(stateChanges) {
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopy", "state_changes", len(stateChanges))
+	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
+
+	return len(stateChanges), nil
 }
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.

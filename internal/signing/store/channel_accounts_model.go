@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -93,11 +94,7 @@ func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, pub
 	return nil
 }
 
-func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, sqlExec db.SQLExecuter, txHashes ...string) (int64, error) {
-	if sqlExec == nil {
-		sqlExec = ca.DB
-	}
-
+func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error) {
 	if len(txHashes) == 0 {
 		return 0, errors.New("txHashes cannot be empty")
 	}
@@ -111,16 +108,12 @@ func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Co
 		WHERE
 			locked_tx_hash = ANY($1)
 	`
-	res, err := sqlExec.ExecContext(ctx, query, pq.Array(txHashes))
+	result, err := pgxTx.Exec(ctx, query, txHashes)
 	if err != nil {
 		return 0, fmt.Errorf("unlocking channel accounts %v: %w", txHashes, err)
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("getting rows affected: %w", err)
-	}
 
-	return rowsAffected, nil
+	return result.RowsAffected(), nil
 }
 
 func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {

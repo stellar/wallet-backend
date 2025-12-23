@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -44,8 +45,8 @@ func (s *ChannelAccountStoreMock) AssignTxToChannelAccount(ctx context.Context, 
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context.Context, sqlExec db.SQLExecuter, txHashes ...string) (int64, error) {
-	_ca := []any{ctx, sqlExec}
+func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error) {
+	_ca := []any{ctx, pgxTx}
 	for _, txHash := range txHashes {
 		_ca = append(_ca, txHash)
 	}
