@@ -91,9 +91,9 @@ type AccountWithOperationID struct {
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
-	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
+	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
-	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
+	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
@@ -101,6 +101,10 @@ type Transaction struct {
 	Operations   []Operation   `json:"operations,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
+	// InnerTransactionHash is the hash of the inner transaction for fee bump transactions,
+	// or the transaction hash for regular transactions.
+	// This field is transient and not stored in the database.
+	InnerTransactionHash string `json:"innerTransactionHash,omitempty" db:"-"`
 }
 
 type TransactionWithCursor struct {

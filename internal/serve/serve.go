@@ -51,6 +51,7 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
+	EnableParticipantFiltering  bool
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -59,6 +60,7 @@ type Configs struct {
 	BaseFee                            int
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+
 	// RPC
 	RPCURL string
 
@@ -72,25 +74,27 @@ type Configs struct {
 }
 
 type handlerDeps struct {
-	Models              *data.Models
-	Port                int
-	DatabaseURL         string
-	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
-	NetworkPassphrase   string
+	Models                     *data.Models
+	Port                       int
+	DatabaseURL                string
+	RequestAuthVerifier        auth.HTTPRequestVerifier
+	SupportedAssets            []entities.Asset
+	NetworkPassphrase          string
+	EnableParticipantFiltering bool
 
 	// Services
-
 	AccountService      services.AccountService
 	FeeBumpService      services.FeeBumpService
 	MetricsService      metrics.MetricsService
 	TransactionService  services.TransactionService
 	RPCService          services.RPCService
 	AccountTokenService services.AccountTokenService
+
 	// GraphQL
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -261,6 +265,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
 					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
+					EnableParticipantFiltering:  deps.EnableParticipantFiltering,
 				},
 			)
 

@@ -124,7 +124,7 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 	s.sponsoredNewAccountKeyPair = keypair.MustRandom()
 
 	// Create and fund all accounts in a single transaction
-	s.createAndFundAccounts(ctx, t, []*keypair.Full{
+	s.CreateAndFundAccounts(ctx, t, []*keypair.Full{
 		s.clientAuthKeyPair,
 		s.primarySourceAccountKeyPair,
 		s.secondarySourceAccountKeyPair,
@@ -261,7 +261,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 // setupWalletBackend initializes wallet-backend database and service containers.
 //
 //nolint:unparam // t kept for API consistency with other setup methods
-func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T) error {
+func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 	var err error
 
 	// Start PostgreSQL for wallet-backend
@@ -279,7 +279,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T)
 	// Start wallet-backend ingest
 	s.WalletBackendContainer = &WalletBackendContainer{}
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
@@ -322,7 +322,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	require.NoError(t, err, "failed to setup contracts")
 
 	// Setup wallet backend
-	err = shared.setupWalletBackend(ctx, t)
+	err = shared.setupWalletBackend(ctx)
 	require.NoError(t, err, "failed to setup wallet backend")
 
 	return shared
@@ -393,6 +393,7 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 
 // TestEnvironment holds all initialized services and clients for integration tests
 type TestEnvironment struct {
+	Containers            *SharedContainers
 	WBClient              *wbclient.Client
 	RPCService            services.RPCService
 	PrimaryAccountKP      *keypair.Full
@@ -528,6 +529,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 	log.Ctx(ctx).Info("✅ Test environment setup complete")
 
 	return &TestEnvironment{
+		Containers:            containers,
 		WBClient:              wbClient,
 		RPCService:            rpcService,
 		PrimaryAccountKP:      primaryAccountKP,

@@ -36,6 +36,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
+		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
@@ -70,10 +71,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeRPC),
+			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
 			Required:    false,
 		},
 		{
@@ -82,6 +83,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			OptType:     types.String,
 			ConfigKey:   &cfg.DatastoreConfigPath,
 			FlagDefault: "config/datastore-pubnet.toml",
+			Required:    false,
+		},
+		{
+			Name:        "skip-tx-meta",
+			Usage:       "Skip storing transaction metadata (meta_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxMeta,
+			FlagDefault: true,
+			Required:    false,
+		},
+		{
+			Name:        "skip-tx-envelope",
+			Usage:       "Skip storing transaction envelope (envelope_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxEnvelope,
+			FlagDefault: true,
 			Required:    false,
 		},
 	}

@@ -29,7 +29,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=api-build /bin/wallet-backend /app/
-COPY --from=api-build /go/bin/dlv /usr/local/bin/
 COPY --from=api-build /src/wallet-backend/config /app/config
 
 # Expose API port and debug port

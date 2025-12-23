@@ -6,6 +6,8 @@ package resolvers
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -64,7 +66,23 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 
 // AccountByAddress is the resolver for the accountByAddress field.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
-	return r.models.Account.Get(ctx, address)
+	if address == "" {
+		return nil, fmt.Errorf("address cannot be empty")
+	}
+	acc, err := r.models.Account.Get(ctx, address)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// If the participant filtering has been enabled and this account is not registered, we return an error.
+			if r.config.EnableParticipantFiltering {
+				return nil, fmt.Errorf("account not found")
+			}
+
+			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
+			return &types.Account{StellarAddress: address}, nil
+		}
+		return nil, err
+	}
+	return acc, nil
 }
 
 // Operations is the resolver for the operations field.
