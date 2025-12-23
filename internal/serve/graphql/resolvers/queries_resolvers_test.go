@@ -235,16 +235,16 @@ func TestQueryResolver_Account(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		acc, err := resolver.AccountByAddress(testCtx, "test-account")
+		acc, err := resolver.AccountByAddress(testCtx, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S")
 		require.NoError(t, err)
-		assert.Equal(t, "test-account", acc.StellarAddress)
+		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", acc.StellarAddress)
 	})
 
 	t.Run("non-existent account", func(t *testing.T) {
-		acc, err := resolver.AccountByAddress(testCtx, "non-existent-account")
+		acc, err := resolver.AccountByAddress(testCtx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 		require.NoError(t, err)
 		assert.NotNil(t, acc)
-		assert.Equal(t, "non-existent-account", acc.StellarAddress)
+		assert.Equal(t, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N", acc.StellarAddress)
 	})
 
 	t.Run("empty address", func(t *testing.T) {

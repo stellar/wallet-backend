@@ -152,7 +152,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 
 		account, err := resolver.Account(ctx, &parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, "test-account", account.StellarAddress)
+		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", account.StellarAddress)
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {

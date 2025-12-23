@@ -17,7 +17,7 @@ import (
 )
 
 func TestAccountResolver_Transactions(t *testing.T) {
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
@@ -106,7 +106,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	})
 
 	t.Run("account with no transactions", func(t *testing.T) {
-		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		nonExistentAccount := &types.Account{StellarAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"}
 		ctx := getTestCtx("transactions", []string{"hash"})
 		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil)
 
@@ -145,7 +145,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 }
 
 func TestAccountResolver_Operations(t *testing.T) {
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "operations").Return()
@@ -246,7 +246,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("account with no operations", func(t *testing.T) {
-		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		nonExistentAccount := &types.Account{StellarAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"}
 		ctx := getTestCtx("operations", []string{"id"})
 		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil, nil, nil)
 
@@ -256,7 +256,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 }
 
 func TestAccountResolver_StateChanges(t *testing.T) {
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
@@ -363,7 +363,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("account with no state changes", func(t *testing.T) {
-		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		nonExistentAccount := &types.Account{StellarAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"}
 		ctx := getTestCtx("state_changes", []string{"to_id", "state_change_order"})
 		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil, nil)
 
@@ -373,7 +373,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 }
 
 func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
@@ -518,7 +518,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 }
 
 func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()

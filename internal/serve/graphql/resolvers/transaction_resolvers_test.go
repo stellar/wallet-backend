@@ -177,7 +177,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, accounts, 1)
-		assert.Equal(t, "test-account", accounts[0].StellarAddress)
+		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", accounts[0].StellarAddress)
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
