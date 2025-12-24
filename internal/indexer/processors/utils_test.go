@@ -106,3 +106,44 @@ func Test_ConvertOperation(t *testing.T) {
 	}
 	assert.Equal(t, wantDataOp, gotDataOp)
 }
+
+func Test_isClaimableBalance(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		expected bool
+	}{
+		{
+			name:     "valid claimable balance ID",
+			id:       "BAAFK3PZYCD4YKOLFNOCJVG2JIHWOBE5NHU5FHY3ESAHMAO3C5RIYGTBDI",
+			expected: true,
+		},
+		{
+			name:     "regular account ID starting with G",
+			id:       "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+			expected: false,
+		},
+		{
+			name:     "liquidity pool ID starting with P",
+			id:       "PAQKWTDZ3PQLV6OB5HZRLJ6BPZAXUZWBQNC6FDZF3EOJF5LNXKN7C5TJ",
+			expected: false,
+		},
+		{
+			name:     "invalid string",
+			id:       "invalid-id",
+			expected: false,
+		},
+		{
+			name:     "empty string",
+			id:       "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isClaimableBalance(tt.id)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
