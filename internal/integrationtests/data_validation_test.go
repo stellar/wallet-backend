@@ -1202,6 +1202,16 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// Validate that no state changes have claimable balance IDs as accounts
+		accountID := edge.Node.GetAccountID()
+		suite.Require().NotEmpty(accountID, "account ID should not be empty")
+
+		// Decode the account ID to check its version byte
+		versionByte, _, err := strkey.DecodeAny(accountID)
+		suite.Require().NoError(err, "account ID should be a valid strkey: %s", accountID)
+		suite.Require().NotEqual(strkey.VersionByteClaimableBalance, versionByte,
+			"state change should not have claimable balance ID as account: %s", accountID)
 	}
 	fmt.Printf("primary account: %s\n", primaryAccount)
 	fmt.Printf("secondary account: %s\n", secondaryAccount)
