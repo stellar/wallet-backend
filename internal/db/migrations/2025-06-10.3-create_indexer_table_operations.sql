@@ -5,22 +5,31 @@
 -- ledger_number removed - can be derived from id using: (id >> 32)::integer
 -- operation_type changed from TEXT to SMALLINT for storage efficiency
 CREATE TABLE operations (
-    id BIGINT PRIMARY KEY,
+    id BIGINT,
     operation_type SMALLINT NOT NULL,
     operation_xdr TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, id'
 );
 
 -- Index for state_changes JOIN to transactions
 -- Supports: JOIN transactions t ON (sc.to_id & ~4095) = t.to_id
 CREATE INDEX idx_operations_tx_to_id ON operations ((id & ~4095));
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
-    operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    PRIMARY KEY (account_id, operation_id)
+    ledger_created_at TIMESTAMPTZ NOT NULL
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.chunk_interval = '1 week',
+    timescaledb.order_by = 'ledger_created_at, operation_id'
 );
 
 -- +migrate Down

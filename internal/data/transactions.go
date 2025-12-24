@@ -3,7 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
-	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -188,8 +188,11 @@ func (m *TransactionModel) BatchInsert(
 	metaXDRs := make([]*string, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
-	// Build hash->toID mapping for transactions_accounts
-	hashToToID := make(map[string]int64, len(txs))
+	// Build hash->toID and ledgerCreatedAt mapping for transactions_accounts
+	hashToTxData := make(map[string]struct {
+		toID            int64
+		ledgerCreatedAt time.Time
+	}, len(txs))
 	for i, t := range txs {
 		hashes[i] = t.Hash
 		toIDs[i] = t.ToID
@@ -197,19 +200,24 @@ func (m *TransactionModel) BatchInsert(
 		resultXDRs[i] = t.ResultXDR
 		metaXDRs[i] = t.MetaXDR
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
-		hashToToID[t.Hash] = t.ToID
+		hashToTxData[t.Hash] = struct {
+			toID            int64
+			ledgerCreatedAt time.Time
+		}{t.ToID, t.LedgerCreatedAt}
 	}
 
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices (use tx_id instead of tx_hash)
 	var txIDs []int64
 	var stellarAddresses [][]byte
+	var taLedgerCreatedAts []time.Time
 	for txHash, addresses := range stellarAddressesByTxHash {
-		toID := hashToToID[txHash]
+		txData := hashToTxData[txHash]
 		for address := range addresses.Iter() {
 			addressBytes := bytesFromAddressString(address)
 			if addressBytes != nil {
-				txIDs = append(txIDs, toID)
+				txIDs = append(txIDs, txData.toID)
 				stellarAddresses = append(stellarAddresses, addressBytes)
+				taLedgerCreatedAts = append(taLedgerCreatedAts, txData.ledgerCreatedAt)
 			}
 		}
 	}
@@ -232,22 +240,21 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($5::text[]) AS meta_xdr,
 				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) t
-		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
 	),
 
 	-- Insert transactions_accounts links (tx_id references transactions.to_id)
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_id, account_id)
+			(tx_id, account_id, ledger_created_at)
 		SELECT
-			ta.tx_id, ta.account_id
+			ta.tx_id, ta.account_id, ta.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS tx_id,
-				UNNEST($8::bytea[]) AS account_id
+				UNNEST($8::bytea[]) AS account_id,
+				UNNEST($9::timestamptz[]) AS ledger_created_at
 		) ta
-		ON CONFLICT DO NOTHING
 	)
 
 	-- Return the hashes of successfully inserted transactions
@@ -265,6 +272,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(txIDs),
 		pq.Array(stellarAddresses),
+		pq.Array(taLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
@@ -301,6 +309,24 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
+	txDataByHash := make(map[string]struct {
+		toID            int64
+		ledgerCreatedAt time.Time
+	})
+	for _, tx := range txs {
+		txDataByHash[tx.Hash] = struct {
+			toID            int64
+			ledgerCreatedAt time.Time
+		}{tx.ToID, tx.LedgerCreatedAt}
+	}
+
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
+			return txs[i].ToID > txs[j].ToID
+		}
+		return txs[i].LedgerCreatedAt.After(txs[j].LedgerCreatedAt)
+	})
+
 	// COPY transactions using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -329,29 +355,45 @@ func (m *TransactionModel) BatchCopy(
 	// COPY transactions_accounts using pgx binary format with native pgtype types
 	// Build hash->toID mapping for tx_id lookup
 	if len(stellarAddressesByTxHash) > 0 {
-		hashToToID := make(map[string]int64, len(txs))
-		for _, t := range txs {
-			hashToToID[t.Hash] = t.ToID
+		type taRow struct {
+			txID            int64
+			accountID       []byte
+			ledgerCreatedAt time.Time
 		}
-
-		var taRows [][]any
+		var taRows []taRow
 		for txHash, addresses := range stellarAddressesByTxHash {
-			txIDPgtype := pgtype.Int8{Int64: hashToToID[txHash], Valid: true}
-			for _, addr := range addresses.ToSlice() {
+			for addr := range addresses.Iter() {
 				addressBytes := bytesFromAddressString(addr)
 				if addressBytes != nil {
-					taRows = append(taRows, []any{txIDPgtype, addressBytes})
+					taRows = append(taRows, taRow{
+						txDataByHash[txHash].toID,
+						addressBytes,
+						txDataByHash[txHash].ledgerCreatedAt,
+					})
 				} else {
-					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
+					continue
 				}
 			}
 		}
 
+		sort.Slice(taRows, func(i, j int) bool {
+			if taRows[i].ledgerCreatedAt.Equal(taRows[j].ledgerCreatedAt) {
+				return taRows[i].txID > taRows[j].txID
+			}
+			return taRows[i].ledgerCreatedAt.After(taRows[j].ledgerCreatedAt)
+		})
+
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_id", "account_id"},
-			pgx.CopyFromRows(taRows),
+			[]string{"tx_id", "account_id", "ledger_created_at"},
+			pgx.CopyFromSlice(len(taRows), func(i int) ([]any, error) {
+				return []any{
+					pgtype.Int8{Int64: taRows[i].txID, Valid: true},
+					taRows[i].accountID,
+					pgtype.Timestamptz{Time: taRows[i].ledgerCreatedAt, Valid: true},
+				}, nil
+			}),
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))

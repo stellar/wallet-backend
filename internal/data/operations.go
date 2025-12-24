@@ -3,7 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
-	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -270,20 +270,25 @@ func (m *OperationModel) BatchInsert(
 	operationXDRs := make([]string, len(operations))
 	ledgerCreatedAts := make([]time.Time, len(operations))
 
+	// Build opID -> ledgerCreatedAt mapping for operations_accounts
+	opIDToLedgerCreatedAt := make(map[int64]time.Time, len(operations))
 	for i, op := range operations {
 		ids[i] = op.ID
 		operationTypes[i] = op.OperationType.ToInt16()
 		operationXDRs[i] = op.OperationXDR
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
+		opIDToLedgerCreatedAt[op.ID] = op.LedgerCreatedAt
 	}
 
 	// 2. Flatten the stellarAddressesByOpID into parallel slices
 	var opIDs []int64
 	var stellarAddresses [][]byte
+	var oaLedgerCreatedAts []time.Time
 	for opID, addresses := range stellarAddressesByOpID {
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
 			stellarAddresses = append(stellarAddresses, bytesFromAddressString(address))
+			oaLedgerCreatedAts = append(oaLedgerCreatedAts, opIDToLedgerCreatedAt[opID])
 		}
 	}
 
@@ -303,22 +308,21 @@ func (m *OperationModel) BatchInsert(
 				UNNEST($3::text[]) AS operation_xdr,
 				UNNEST($4::timestamptz[]) AS ledger_created_at
 		) o
-		ON CONFLICT (id) DO NOTHING
 		RETURNING id
 	),
 
 	-- Insert operations_accounts links
 	inserted_operations_accounts AS (
 		INSERT INTO operations_accounts
-			(operation_id, account_id)
+			(operation_id, account_id, ledger_created_at)
 		SELECT
-			oa.op_id, oa.account_id
+			oa.op_id, oa.account_id, oa.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($5::bigint[]) AS op_id,
-				UNNEST($6::bytea[]) AS account_id
+				UNNEST($6::bytea[]) AS account_id,
+				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) oa
-		ON CONFLICT DO NOTHING
 	)
 
 	-- Return the IDs of successfully inserted operations
@@ -334,6 +338,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),
+		pq.Array(oaLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"operations", "operations_accounts"} {
@@ -370,6 +375,19 @@ func (m *OperationModel) BatchCopy(
 
 	start := time.Now()
 
+	opCreatedAtByHash := make(map[int64]time.Time)
+	for _, op := range operations {
+		opCreatedAtByHash[op.ID] = op.LedgerCreatedAt
+	}
+
+	// Sort operations by ledger_created_at for batch insertion
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
+			return operations[i].ID > operations[j].ID
+		}
+		return operations[i].LedgerCreatedAt.After(operations[j].LedgerCreatedAt)
+	})
+
 	// COPY operations using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -395,23 +413,44 @@ func (m *OperationModel) BatchCopy(
 
 	// COPY operations_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByOpID) > 0 {
-		var oaRows [][]any
+		type oaRow struct {
+			opID            int64
+			addr            []byte
+			ledgerCreatedAt time.Time
+		}
+		var oaRows []oaRow
 		for opID, addresses := range stellarAddressesByOpID {
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
+			for addr := range addresses.Iter() {
 				if bytesFromAddressString(addr) != nil {
-					oaRows = append(oaRows, []any{opIDPgtype, bytesFromAddressString(addr)})
+					oaRows = append(oaRows, oaRow{
+						opID:            opID,
+						addr:            bytesFromAddressString(addr),
+						ledgerCreatedAt: opCreatedAtByHash[opID],
+					})
 				} else {
-					log.Printf("Invalid address for op_id: %d, address: %s", opID, addr)
+					continue
 				}
 			}
 		}
 
+		sort.Slice(oaRows, func(i, j int) bool {
+			if oaRows[i].ledgerCreatedAt.Equal(oaRows[j].ledgerCreatedAt) {
+				return oaRows[i].opID > oaRows[j].opID
+			}
+			return oaRows[i].ledgerCreatedAt.After(oaRows[j].ledgerCreatedAt)
+		})
+
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
-			[]string{"operation_id", "account_id"},
-			pgx.CopyFromRows(oaRows),
+			[]string{"operation_id", "account_id", "ledger_created_at"},
+			pgx.CopyFromSlice(len(oaRows), func(i int) ([]any, error) {
+				return []any{
+					pgtype.Int8{Int64: oaRows[i].opID, Valid: true},
+					oaRows[i].addr,
+					pgtype.Timestamptz{Time: oaRows[i].ledgerCreatedAt, Valid: true},
+				}, nil
+			}),
 		)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))

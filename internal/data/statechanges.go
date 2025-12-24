@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -285,7 +286,6 @@ func (m *StateChangeModel) BatchInsert(
 				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
 				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
 			FROM input_data sc
-			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
 		)
 		SELECT CONCAT(to_id, '-', state_change_order) FROM inserted_state_changes;
@@ -374,14 +374,23 @@ func (m *StateChangeModel) BatchCopy(
 
 	start := time.Now()
 
+	sort.Slice(stateChanges, func(i, j int) bool {
+		if stateChanges[i].LedgerCreatedAt.Equal(stateChanges[j].LedgerCreatedAt) {
+			if stateChanges[i].ToID == stateChanges[j].ToID {
+				return stateChanges[i].StateChangeOrder > stateChanges[j].StateChangeOrder
+			}
+			return stateChanges[i].ToID > stateChanges[j].ToID
+		}
+		return stateChanges[i].LedgerCreatedAt.After(stateChanges[j].LedgerCreatedAt)
+	})
+
 	var validStateChanges []types.StateChange
 	for _, sc := range stateChanges {
 		accountID := bytesFromStellarAddress(sc.AccountID)
 		if accountID != nil {
 			validStateChanges = append(validStateChanges, sc)
 		} else {
-			log.Printf("Skipping state change with invalid account ID: %s (to_id=%d, order=%d)",
-				sc.AccountID, sc.ToID, sc.StateChangeOrder)
+			continue
 		}
 	}
 
