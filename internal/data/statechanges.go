@@ -390,8 +390,7 @@ func (m *StateChangeModel) BatchCopy(
 		if accountID != nil {
 			validStateChanges = append(validStateChanges, sc)
 		} else {
-			log.Printf("Skipping state change with invalid account ID: %s (to_id=%d, order=%d)",
-				sc.AccountID, sc.ToID, sc.StateChangeOrder)
+			continue
 		}
 	}
 

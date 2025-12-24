@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -372,7 +371,7 @@ func (m *TransactionModel) BatchCopy(
 						txDataByHash[txHash].ledgerCreatedAt,
 					})
 				} else {
-					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
+					continue
 				}
 			}
 		}

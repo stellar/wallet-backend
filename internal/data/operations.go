@@ -429,7 +429,7 @@ func (m *OperationModel) BatchCopy(
 						ledgerCreatedAt: opCreatedAtByHash[opID],
 					})
 				} else {
-					log.Printf("Invalid address for op_id: %d, address: %s", opID, addr)
+					continue
 				}
 			}
 		}
