@@ -20,10 +20,11 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
+	"github.com/dgraph-io/ristretto/v2"
+
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
-	"github.com/dgraph-io/ristretto/v2"
 )
 
 const (

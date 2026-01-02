@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/basemachina/gqlgen-complexity-reporter v0.1.2
 	github.com/deckarep/golang-set/v2 v2.8.0
+	github.com/dgraph-io/ristretto/v2 v2.3.0
 	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/docker/go-connections v0.5.0
 	github.com/getsentry/sentry-go v0.34.1
@@ -88,7 +89,6 @@ require (
 	github.com/creachadair/jrpc2 v1.2.0 // indirect
 	github.com/creachadair/mds v0.13.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgraph-io/ristretto/v2 v2.3.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
