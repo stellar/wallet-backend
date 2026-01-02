@@ -1,5 +1,9 @@
 package processors
 
+// This code was originally ported from Stellar Horizon's effects processing implementation.
+// It processes transaction operations and generates effect outputs that align with Horizon's
+// effects API format.
+
 import (
 	"encoding/base64"
 	"fmt"
