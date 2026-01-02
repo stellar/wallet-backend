@@ -87,6 +87,12 @@ type AccountTokenService interface {
 	// using pipelining for performance. This is called by the indexer for each ledger's
 	// state changes during live ingestion.
 	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+
+	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
+	InitializeTrustlineIDByAssetCache(ctx context.Context) error
+
+	// InitializeTrustlineAssetByIDCache initializes the trustline asset by ID cache.
+	InitializeTrustlineAssetByIDCache(ctx context.Context) error
 }
 
 var _ AccountTokenService = (*accountTokenService)(nil)
@@ -335,49 +341,52 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 }
 
 // InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache. This is used for encoding asset strings to IDs during live ingestion.
-func (s *accountTokenService) InitializeTrustlineIDByAssetCache() (*ristretto.Cache[string, int64], error) {
+func (s *accountTokenService) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
 	trustlineIDByAssetCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
 		NumCounters: 1e7,
 		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
 		BufferItems: 64,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+		return fmt.Errorf("initializing trustline ID by asset cache: %w", err)
 	}
 
-	topNAssets, err := s.trustlineAssetModel.GetTopN(context.Background(), numTrustlineAssetsInFrequencyCache)
+	topNAssets, err := s.trustlineAssetModel.GetTopN(ctx, numTrustlineAssetsInFrequencyCache)
 	if err != nil {
-		return nil, fmt.Errorf("getting top N assets: %w", err)
+		return fmt.Errorf("getting top N assets: %w", err)
 	}
 	for _, asset := range topNAssets {
 		key := asset.Code + ":" + asset.Issuer
 		trustlineIDByAssetCache.Set(key, asset.ID, 1)
 	}
 
-	return trustlineIDByAssetCache, nil
+	s.trustlineIDByAsset = trustlineIDByAssetCache
+
+	return nil
 }
 
 // InitializeTrustlineAssetByIDCache initializes the trustline asset by ID cache. This is used for decoding IDs to asset strings during API requests
 // to get an account's trustline assets.
-func (s *accountTokenService) InitializeTrustlineAssetByIDCache() (*ristretto.Cache[int64, string], error) {
+func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
 	trustlineAssetByIDCache, err := ristretto.NewCache(&ristretto.Config[int64, string]{
 		NumCounters: 1e7,
 		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
 		BufferItems: 64,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("initializing trustline asset by ID cache: %w", err)
+		return fmt.Errorf("initializing trustline asset by ID cache: %w", err)
 	}
 
-	topNAssets, err := s.trustlineAssetModel.GetTopN(context.Background(), numTrustlineAssetsInFrequencyCache)
+	topNAssets, err := s.trustlineAssetModel.GetTopN(ctx, numTrustlineAssetsInFrequencyCache)
 	if err != nil {
-		return nil, fmt.Errorf("getting top N assets: %w", err)
+		return fmt.Errorf("getting top N assets: %w", err)
 	}
 	for _, asset := range topNAssets {
 		key := asset.Code + ":" + asset.Issuer
 		trustlineAssetByIDCache.Set(asset.ID, key, 1)
 	}
-	return trustlineAssetByIDCache, nil
+	s.trustlineAssetByID = trustlineAssetByIDCache
+	return nil
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.

@@ -154,6 +154,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
+	accountTokenService.InitializeTrustlineIDByAssetCache(context.Background())
 
 	ingestService, err := services.NewIngestService(
 		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope, cfg.EnableParticipantFiltering)

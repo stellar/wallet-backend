@@ -152,6 +152,16 @@ func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trust
 	return args.Error(0)
 }
 
+func (a *AccountTokenServiceMock) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
+	args := a.Called(ctx)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
+	args := a.Called(ctx)
+	return args.Error(0)
+}
+
 // NewAccountTokenServiceMock creates a new instance of AccountTokenServiceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewAccountTokenServiceMock(t interface {
