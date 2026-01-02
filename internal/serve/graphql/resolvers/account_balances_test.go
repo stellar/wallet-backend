@@ -824,7 +824,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Nil(t, balances)
 	})
 
-	t.Run("error - invalid trustline format will be skipped", func(t *testing.T) {
+	t.Run("error - invalid trustline format causes error", func(t *testing.T) {
 		ctx := context.Background()
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)

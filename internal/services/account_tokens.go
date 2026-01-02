@@ -34,7 +34,9 @@ const (
 	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
 
-	// numTrustlineBuckets is the number of buckets to use for trustline distribution.
+	// numTrustlineBuckets distributes accounts across Redis hashes to avoid hot-key issues.
+	// With ~10M mainnet accounts, 20,000 buckets yields ~500 accounts per bucket on average.
+	// This provides good distribution while keeping the number of Redis keys manageable.
 	numTrustlineBuckets = 20000
 )
 
@@ -295,7 +297,12 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 		}
 	}
 
-	// Convert contract changes to Redis pipeline operations
+	// Convert contract changes to Redis pipeline operations.
+	// Contracts use simple Redis sets with raw contract IDs (C...) rather than the
+	// hash-bucketed varint encoding used for trustlines. This is because:
+	// 1. Contract addresses are already fixed-length (56 chars vs variable trustline strings)
+	// 2. Accounts typically hold fewer contract balances than trustlines
+	// 3. The memory savings from ID encoding would be minimal for fixed-length C addresses
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
 			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
