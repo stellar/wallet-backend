@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stellar/go/keypair"
-	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/require"
@@ -28,7 +27,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, true, 3)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -63,7 +62,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -98,7 +97,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, false, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -132,7 +131,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, true, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -155,7 +154,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -184,7 +183,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineChanges(account, admin, asset, false, false, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -211,7 +210,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithoutTrustlineChanges(account, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -234,7 +233,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithTrustlineCreation(account, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -262,7 +261,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		// Change operation type to something other than InvokeHostFunction
 		op.Body.Type = xdr.OperationTypePayment
 
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -282,7 +281,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createInvalidContractEventTx(account, admin, asset, true)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -302,7 +301,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithMismatchedTrustlineChanges(account, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -321,7 +320,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createInsufficientTopicsTx(account, admin, asset, true)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -340,7 +339,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createNonSACEventTx(account, admin, asset, true)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -364,7 +363,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithContractDataChanges(contractAccount, admin, asset, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -393,7 +392,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithContractDataChanges(contractAccount, admin, asset, false, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -420,7 +419,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithContractDataChanges(contractAccount, admin, asset, true, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -441,7 +440,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithoutContractDataChanges(contractAccount, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -461,7 +460,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithMismatchedContractDataChanges(contractAccount, admin, asset, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -484,7 +483,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createTxWithContractDataCreation(contractAccount, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -510,7 +509,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "wrong_entry_count")
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -531,7 +530,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "missing_authorized_key")
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,
@@ -552,7 +551,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "wrong_authorized_type")
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        networkPassphrase,

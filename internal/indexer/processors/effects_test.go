@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
@@ -38,7 +37,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -103,7 +102,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -147,7 +146,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -187,7 +186,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -232,7 +231,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -271,7 +270,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -338,7 +337,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -384,7 +383,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -427,7 +426,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
