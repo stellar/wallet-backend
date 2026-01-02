@@ -214,25 +214,39 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
 		select {
 		case <-ctx.Done():
+			log.Ctx(ctx).Warnf("Context cancelled during getLedger for ledger %d (attempt %d): %v",
+				ledgerSeq, attempt+1, ctx.Err())
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
 		default:
 		}
 
 		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
 		if err == nil {
+			if attempt > 0 {
+				log.Ctx(ctx).Infof("Successfully fetched ledger %d after %d retries", ledgerSeq, attempt)
+			}
 			return ledgerMeta, nil
 		}
 		lastErr = err
+
+		// Enhanced logging to distinguish context-related errors from S3 errors
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			log.Ctx(ctx).Errorf("Context-related error fetching ledger %d (attempt %d/%d): %v",
+				ledgerSeq, attempt+1, maxLedgerFetchRetries, err)
+		} else {
+			log.Ctx(ctx).Warnf("S3 error fetching ledger %d (attempt %d/%d): %v",
+				ledgerSeq, attempt+1, maxLedgerFetchRetries, err)
+		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxRetryBackoff {
 			backoff = maxRetryBackoff
 		}
-		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
+		log.Ctx(ctx).Warnf("Retrying ledger %d in %v...", ledgerSeq, backoff)
 
 		select {
 		case <-ctx.Done():
+			log.Ctx(ctx).Warnf("Context cancelled during backoff for ledger %d: %v", ledgerSeq, ctx.Err())
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
 		case <-time.After(backoff):
 		}

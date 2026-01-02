@@ -204,14 +204,40 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 }
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
+// Each worker creates one backend and reuses it for its assigned batch to prevent premature
+// context cancellation during S3 prefetching.
 func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch, mode BackfillMode) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
+		// Capture loop variables for goroutine safety
+		index := i
+		batchCopy := batch
+
 		group.Submit(func() {
-			result := m.processSingleBatch(ctx, batch, mode)
-			results[i] = result
+			// Create backend ONCE for this worker, reuse across all its work
+			// This prevents premature context cancellation while S3 downloads are in progress
+			backend, err := m.ledgerBackendFactory(ctx)
+			if err != nil {
+				results[index] = BackfillResult{
+					Batch:    batchCopy,
+					Error:    fmt.Errorf("creating ledger backend: %w", err),
+					Duration: 0,
+				}
+				return
+			}
+			defer func() {
+				// Close backend only when worker is completely done
+				if closeErr := backend.Close(); closeErr != nil {
+					log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v",
+						batchCopy.StartLedger, batchCopy.EndLedger, closeErr)
+				}
+			}()
+
+			// Process the batch with the reused backend
+			result := m.processSingleBatchWithBackend(ctx, backend, batchCopy, mode)
+			results[index] = result
 		})
 	}
 
@@ -221,25 +247,18 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batc
 	return results
 }
 
-// processSingleBatch processes a single backfill batch with its own ledger backend.
-func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBatch, mode BackfillMode) BackfillResult {
+// processSingleBatchWithBackend processes a batch using a provided (reused) backend.
+// This function eliminates the race condition where fast data processing causes backend
+// closure while S3 downloads are still in progress.
+func (m *ingestService) processSingleBatchWithBackend(
+	ctx context.Context,
+	backend ledgerbackend.LedgerBackend,
+	batch BackfillBatch,
+	mode BackfillMode,
+) BackfillResult {
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 	recordMetrics := mode == BackfillModeHistorical
-
-	// Create a new ledger backend for this batch
-	backend, err := m.ledgerBackendFactory(ctx)
-	if err != nil {
-		result.Error = fmt.Errorf("creating ledger backend: %w", err)
-		result.Duration = time.Since(start)
-		return result
-	}
-	defer func() {
-		if closeErr := backend.Close(); closeErr != nil {
-			log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v",
-				batch.StartLedger, batch.EndLedger, closeErr)
-		}
-	}()
 
 	// Prepare the range for this batch
 	ledgerRange := ledgerbackend.BoundedRange(batch.StartLedger, batch.EndLedger)
