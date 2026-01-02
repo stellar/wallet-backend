@@ -39,6 +39,9 @@ const (
 	// With ~10M mainnet accounts, 20,000 buckets yields ~500 accounts per bucket on average.
 	// This provides good distribution while keeping the number of Redis keys manageable.
 	numTrustlineBuckets = 20000
+
+	// numTrustlineAssetsInFrequencyCache is the number of assets to keep in the frequency cache.
+	numTrustlineAssetsInFrequencyCache = 100000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -110,15 +113,7 @@ func NewAccountTokenService(
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	pool pond.Pool,
 ) (AccountTokenService, error) {
-	trustlinesLRUCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
-		NumCounters: 1e7,
-		MaxCost:     100000, // this is the maximum size of our cache
-		BufferItems: 64,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &accountTokenService{
+	service := &accountTokenService{
 		checkpointLedger:        0,
 		archive:                 archive,
 		contractValidator:       contractValidator,
@@ -129,8 +124,14 @@ func NewAccountTokenService(
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
-		trustlinesLRUCache:      trustlinesLRUCache,
-	}, nil
+	}
+
+	trustlinesLRUCache, err := service.initializeTrustlinesFrequencyCache()
+	if err != nil {
+		return nil, fmt.Errorf("initializing trustlines frequency cache: %w", err)
+	}
+	service.trustlinesLRUCache = trustlinesLRUCache
+	return service, nil
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
@@ -336,6 +337,28 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	}
 
 	return nil
+}
+
+// initializeTrustlinesFrequencyCache initializes the trustlines frequency cache.
+func (s *accountTokenService) initializeTrustlinesFrequencyCache() (*ristretto.Cache[string, int64], error) {
+	trustlinesLRUCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
+		NumCounters: 1e7,
+		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initializing trustlines frequency cache: %w", err)
+	}
+
+	topNAssets, err := s.trustlineAssetModel.GetTopNAssets(context.Background(), numTrustlineAssetsInFrequencyCache)
+	if err != nil {
+		return nil, fmt.Errorf("getting top N assets: %w", err)
+	}
+	for _, asset := range topNAssets {
+		key := asset.Code + ":" + asset.Issuer
+		trustlinesLRUCache.Set(key, asset.ID, 1)
+	}
+	return trustlinesLRUCache, nil
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.

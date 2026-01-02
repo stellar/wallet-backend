@@ -18,6 +18,8 @@ type TrustlineAssetModelInterface interface {
 	BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
+	// GetTopNAssets returns the top N assets by frequency.
+	GetTopNAssets(ctx context.Context, n int) ([]*TrustlineAsset, error)
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -151,5 +153,24 @@ func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []int64) ([
 	}
 
 	m.MetricsService.IncDBQuery("BatchGetByIDs", "trustline_assets")
+	return assets, nil
+}
+
+// GetTopNAssets returns the top N assets by frequency.
+func (m *TrustlineAssetModel) GetTopNAssets(ctx context.Context, n int) ([]*TrustlineAsset, error) {
+	const query = `SELECT id, code, issuer, created_at FROM trustline_assets ORDER BY id LIMIT $1`
+
+	start := time.Now()
+	var assets []*TrustlineAsset
+	err := m.DB.SelectContext(ctx, &assets, query, n)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetTopNAssets", "trustline_assets", duration)
+
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetTopNAssets", "trustline_assets", "query_error")
+		return nil, fmt.Errorf("getting top N trustline assets: %w", err)
+	}
+
+	m.MetricsService.IncDBQuery("GetTopNAssets", "trustline_assets")
 	return assets, nil
 }
