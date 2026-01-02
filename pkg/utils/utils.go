@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	xdr3 "github.com/stellar/go-xdr/xdr3"
 )
 
 func OperationXDRToBase64(opXDR xdr.Operation) (string, error) {

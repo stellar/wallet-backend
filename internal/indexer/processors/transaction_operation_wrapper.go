@@ -103,7 +103,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
 	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 	var signerKey string
 	if setOps, ok := operation.Operation.Body.GetSetOptionsOp(); ok && setOps.Signer != nil {
@@ -211,15 +211,23 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 				return nil, err
 			}
 		} else {
-			AddAssetDetails(details, op.Line.ToAsset(), "")
+			if err := AddAssetDetails(details, op.Line.ToAsset(), ""); err != nil {
+				return nil, err
+			}
 			details["trustee"] = details["asset_issuer"]
 		}
-		AddAccountAndMuxedAccountDetails(details, *source, "trustor")
+		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustor"); err != nil {
+			return nil, err
+		}
 		details["limit"] = amount.String(op.Limit)
 	case xdr.OperationTypeAllowTrust:
 		op := operation.Operation.Body.MustAllowTrustOp()
-		AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), "")
-		AddAccountAndMuxedAccountDetails(details, *source, "trustee")
+		if err := AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), ""); err != nil {
+			return nil, err
+		}
+		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustee"); err != nil {
+			return nil, err
+		}
 		details["trustor"] = op.Trustor.Address()
 		details["authorize"] = xdr.TrustLineFlags(op.Authorize).IsAuthorized()
 		authLiabilities := xdr.TrustLineFlags(op.Authorize).IsAuthorizedToMaintainLiabilitiesFlag()
@@ -245,7 +253,9 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		beginSponsorshipOp := operation.findInitatingBeginSponsoringOp()
 		if beginSponsorshipOp != nil {
 			beginSponsorshipSource := beginSponsorshipOp.SourceAccount()
-			AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor")
+			if err := AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor"); err != nil {
+				return nil, err
+			}
 		}
 	case xdr.OperationTypeRevokeSponsorship:
 		op := operation.Operation.Body.MustRevokeSponsorshipOp()
@@ -261,7 +271,9 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 	case xdr.OperationTypeSetTrustLineFlags:
 		op := operation.Operation.Body.MustSetTrustLineFlagsOp()
 		details["trustor"] = op.Trustor.Address()
-		AddAssetDetails(details, op.Asset, "")
+		if err := AddAssetDetails(details, op.Asset, ""); err != nil {
+			return nil, err
+		}
 		if op.SetFlags > 0 {
 			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.SetFlags), "set")
 		}
@@ -283,14 +295,14 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 
 			details["type"] = "invoke_contract"
 
-			contractId, err := invokeArgs.ContractAddress.String()
+			contractID, err := invokeArgs.ContractAddress.String()
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("converting contract address to string: %w", err)
 			}
 
 			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
 			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractId
+			details["contract_id"] = contractID
 			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
 
 			details["parameters"], details["parameters_decoded"] = serializeParameters(args)
@@ -301,10 +313,10 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 
 			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
 			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractIdFromTxEnvelope(transactionEnvelope)
+			details["contract_id"] = contractIDFromTxEnvelope(transactionEnvelope)
 			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
 
-			preimageTypeMap := switchContractIdPreimageType(args.ContractIdPreimage)
+			preimageTypeMap := switchContractIDPreimageType(args.ContractIdPreimage)
 			for key, val := range preimageTypeMap {
 				if _, ok := preimageTypeMap[key]; ok {
 					details[key] = val
@@ -321,7 +333,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 
 			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
 			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractIdFromTxEnvelope(transactionEnvelope)
+			details["contract_id"] = contractIDFromTxEnvelope(transactionEnvelope)
 			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
 
 			// ConstructorArgs is a list of ScVals
@@ -330,7 +342,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 			constructorArgs := args.ConstructorArgs
 			details["parameters"], details["parameters_decoded"] = serializeParameters(constructorArgs)
 
-			preimageTypeMap := switchContractIdPreimageType(args.ContractIdPreimage)
+			preimageTypeMap := switchContractIDPreimageType(args.ContractIdPreimage)
 			for key, val := range preimageTypeMap {
 				if _, ok := preimageTypeMap[key]; ok {
 					details[key] = val
@@ -365,37 +377,43 @@ func getTransactionV1Envelope(transactionEnvelope xdr.TransactionEnvelope) xdr.T
 	return xdr.TransactionV1Envelope{}
 }
 
-func contractIdFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) string {
+func contractIDFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) string {
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		contractId := contractIdFromContractData(ledgerKey)
-		if contractId != "" {
-			return contractId
+		contractID := contractIDFromContractData(ledgerKey)
+		if contractID != "" {
+			return contractID
 		}
 	}
 
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		contractId := contractIdFromContractData(ledgerKey)
-		if contractId != "" {
-			return contractId
+		contractID := contractIDFromContractData(ledgerKey)
+		if contractID != "" {
+			return contractID
 		}
 	}
 
 	return ""
 }
 
-func contractIdFromContractData(ledgerKey xdr.LedgerKey) string {
+func contractIDFromContractData(ledgerKey xdr.LedgerKey) string {
 	contractData, ok := ledgerKey.GetContractData()
 	if !ok {
 		return ""
 	}
-	contractIdHash, ok := contractData.Contract.GetContractId()
+	contractIDHash, ok := contractData.Contract.GetContractId()
 	if !ok {
 		return ""
 	}
 
-	contractIdByte, _ := contractIdHash.MarshalBinary()
-	contractId, _ := strkey.Encode(strkey.VersionByteContract, contractIdByte)
-	return contractId
+	contractIDByte, err := contractIDHash.MarshalBinary()
+	if err != nil {
+		return ""
+	}
+	contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDByte)
+	if err != nil {
+		return ""
+	}
+	return contractID
 }
 
 func contractCodeHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) string {
@@ -620,23 +638,23 @@ func serializeParameters(args []xdr.ScVal) ([]map[string]string, []map[string]st
 	return params, paramsDecoded
 }
 
-func switchContractIdPreimageType(contractIdPreimage xdr.ContractIdPreimage) map[string]interface{} {
+func switchContractIDPreimageType(contractIDPreimage xdr.ContractIdPreimage) map[string]interface{} {
 	details := map[string]interface{}{}
 
-	switch contractIdPreimage.Type {
+	switch contractIDPreimage.Type {
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
-		fromAddress := contractIdPreimage.MustFromAddress()
+		fromAddress := contractIDPreimage.MustFromAddress()
 		address, err := fromAddress.Address.String()
 		if err != nil {
-			panic(fmt.Errorf("error obtaining address for: %s", contractIdPreimage.Type))
+			panic(fmt.Errorf("error obtaining address for: %s", contractIDPreimage.Type))
 		}
 		details["from"] = "address"
 		details["address"] = address
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
 		details["from"] = "asset"
-		details["asset"] = contractIdPreimage.MustFromAsset().StringCanonical()
+		details["asset"] = contractIDPreimage.MustFromAsset().StringCanonical()
 	default:
-		panic(fmt.Errorf("unknown contract id type: %s", contractIdPreimage.Type))
+		panic(fmt.Errorf("unknown contract id type: %s", contractIDPreimage.Type))
 	}
 
 	return details
