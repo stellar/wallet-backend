@@ -14,12 +14,10 @@ import (
 
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
-	// BatchGetOrCreateIDs returns IDs for multiple trustline assets, creating any that don't exist.
-	BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
+	// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
+	BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
-	// BatchInsert inserts multiple trustline assets and returns a map of "code:issuer" to ID.
-	BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -43,10 +41,10 @@ func (a *TrustlineAsset) AssetKey() string {
 	return fmt.Sprintf("%s:%s", a.Code, a.Issuer)
 }
 
-// BatchGetOrCreateIDs returns IDs for multiple trustline assets, creating any that don't exist.
+// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
 // Uses batch INSERT ... ON CONFLICT for atomic upsert behavior.
 // Returns a map of "code:issuer" -> id.
-func (m *TrustlineAssetModel) BatchGetOrCreateIDs(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
 	if len(assets) == 0 {
 		return make(map[string]int64), nil
 	}
@@ -154,65 +152,4 @@ func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []int64) ([
 
 	m.MetricsService.IncDBQuery("BatchGetByIDs", "trustline_assets")
 	return assets, nil
-}
-
-// BatchInsert inserts multiple trustline assets in a single query using UNNEST.
-// Returns a map of "code:issuer" to the assigned ID.
-// Assets that already exist are returned with their existing IDs via ON CONFLICT.
-func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
-	if len(assets) == 0 {
-		return make(map[string]int64), nil
-	}
-
-	// Flatten assets into parallel slices
-	codes := make([]string, len(assets))
-	issuers := make([]string, len(assets))
-	for i, a := range assets {
-		codes[i] = a.Code
-		issuers[i] = a.Issuer
-	}
-
-	// Use INSERT ... ON CONFLICT to handle duplicates atomically
-	// The DO UPDATE SET code = EXCLUDED.code is a no-op that allows RETURNING to work
-	const insertQuery = `
-		WITH input_assets AS (
-			SELECT
-				UNNEST($1::text[]) AS code,
-				UNNEST($2::text[]) AS issuer
-		),
-		inserted AS (
-			INSERT INTO trustline_assets (code, issuer)
-			SELECT code, issuer FROM input_assets
-			ON CONFLICT (code, issuer) DO UPDATE SET code = EXCLUDED.code
-			RETURNING id, code, issuer
-		)
-		SELECT id, code, issuer FROM inserted
-	`
-
-	start := time.Now()
-	var results []struct {
-		ID     int64  `db:"id"`
-		Code   string `db:"code"`
-		Issuer string `db:"issuer"`
-	}
-	err := m.DB.SelectContext(ctx, &results, insertQuery, pq.Array(codes), pq.Array(issuers))
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchInsert", "trustline_assets", len(assets))
-
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchInsert", "trustline_assets", "query_error")
-		return nil, fmt.Errorf("batch inserting trustline assets: %w", err)
-	}
-
-	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
-
-	// Build result map
-	resultMap := make(map[string]int64, len(results))
-	for _, r := range results {
-		key := fmt.Sprintf("%s:%s", r.Code, r.Issuer)
-		resultMap[key] = r.ID
-	}
-
-	return resultMap, nil
 }

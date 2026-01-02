@@ -23,6 +23,7 @@ import (
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
+	"github.com/dgraph-io/ristretto/v2"
 )
 
 const (
@@ -97,6 +98,7 @@ type accountTokenService struct {
 	networkPassphrase       string
 	trustlinesPrefix        string
 	contractsPrefix         string
+	trustlinesLRUCache      *ristretto.Cache[string, int64]
 }
 
 func NewAccountTokenService(
@@ -108,7 +110,14 @@ func NewAccountTokenService(
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	pool pond.Pool,
 ) (AccountTokenService, error) {
-	// Note: archive can be nil for serve mode (only reads from Redis)
+	trustlinesLRUCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
+		NumCounters: 1e7,
+		MaxCost:     100000, // this is the maximum size of our cache
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &accountTokenService{
 		checkpointLedger:        0,
 		archive:                 archive,
@@ -120,6 +129,7 @@ func NewAccountTokenService(
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
+		trustlinesLRUCache:      trustlinesLRUCache,
 	}, nil
 }
 
@@ -169,7 +179,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 		}
 	}
 
-	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency, cpData.UniqueContractTokens.ToSlice())
+	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).
@@ -219,7 +229,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	}
 
 	// Get or create trustline asset IDs
-	assetsToID, err := s.trustlineAssetModel.BatchGetOrCreateIDs(ctx, uniqueTrustlineAssets.ToSlice())
+	assetsToID, err := s.getAssetIDs(ctx, uniqueTrustlineAssets)
 	if err != nil {
 		return fmt.Errorf("getting or creating trustline asset IDs: %w", err)
 	}
@@ -326,6 +336,35 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	}
 
 	return nil
+}
+
+// getAssetIDs returns the asset IDs for a given asset string.
+func (s *accountTokenService) getAssetIDs(ctx context.Context, assets set.Set[wbdata.TrustlineAsset]) (map[string]int64, error) {
+	assetIDMap := make(map[string]int64)
+	cacheMisses := make([]wbdata.TrustlineAsset, 0)
+	for asset := range assets.Iter() {
+		key := asset.Code + ":" + asset.Issuer
+		assetID, ok := s.trustlinesLRUCache.Get(key)
+		if !ok {
+			cacheMisses = append(cacheMisses, asset)
+			continue
+		}
+		assetIDMap[key] = assetID
+	}
+
+	if len(cacheMisses) == 0 {
+		return assetIDMap, nil
+	}
+
+	idMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, cacheMisses)
+	if err != nil {
+		return nil, fmt.Errorf("getting asset IDs: %w", err)
+	}
+	for asset, assetID := range idMap {
+		s.trustlinesLRUCache.Set(asset, assetID, 1)
+		assetIDMap[asset] = assetID
+	}
+	return assetIDMap, nil
 }
 
 // parseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
@@ -632,36 +671,25 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
 	contractsByAccountAddress map[string]set.Set[string],
 	trustlineFrequency map[wbdata.TrustlineAsset]int,
-	_ []string, // uniqueContractTokens - no longer needed, contracts stored directly
 ) error {
 	startTime := time.Now()
 
-	// Sort assets by frequency (descending) for optimal varint encoding.
-	// Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
-	type assetFreq struct {
-		asset wbdata.TrustlineAsset
-		count int
-	}
-	sortedAssets := make([]assetFreq, 0, len(trustlineFrequency))
-	for asset, count := range trustlineFrequency {
-		sortedAssets = append(sortedAssets, assetFreq{asset, count})
-	}
-	sort.Slice(sortedAssets, func(i, j int) bool {
-		return sortedAssets[i].count > sortedAssets[j].count
-	})
-
-	// Extract sorted asset slice for batch insert
-	uniqueTrustlines := make([]wbdata.TrustlineAsset, len(sortedAssets))
-	for i, af := range sortedAssets {
-		uniqueTrustlines[i] = af.asset
-	}
-
 	// Batch-assign IDs to all unique trustline assets using PostgreSQL
-	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
+	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
+	assetIDMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, uniqueTrustlines)
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}
 	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
+
+	// Add top 100k assets to LRU cache for quick lookups
+	for i, asset := range uniqueTrustlines {
+		if i > 100000 {
+			break
+		}
+		key := asset.Code + ":" + asset.Issuer
+		s.trustlinesLRUCache.Set(key, assetIDMap[key], 1)
+	}
 
 	// Build pipeline operations
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
@@ -704,6 +732,29 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
 	return nil
+}
+
+// processTrustlineAssets sorts assets by frequency (descending) for optimal varint encoding.
+// Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
+func (s *accountTokenService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int) []wbdata.TrustlineAsset {
+	type assetFreq struct {
+		asset wbdata.TrustlineAsset
+		count int
+	}
+	sortedAssets := make([]assetFreq, 0, len(trustlineFrequency))
+	for asset, count := range trustlineFrequency {
+		sortedAssets = append(sortedAssets, assetFreq{asset, count})
+	}
+	sort.Slice(sortedAssets, func(i, j int) bool {
+		return sortedAssets[i].count > sortedAssets[j].count
+	})
+
+	// Extract sorted asset slice for batch insert
+	uniqueTrustlines := make([]wbdata.TrustlineAsset, len(sortedAssets))
+	for i, af := range sortedAssets {
+		uniqueTrustlines[i] = af.asset
+	}
+	return uniqueTrustlines
 }
 
 // extractHolderAddress extracts the account address from a contract balance entry key.
