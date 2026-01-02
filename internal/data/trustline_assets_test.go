@@ -44,8 +44,8 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 	t.Run("returns assets for valid IDs", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "trustline_assets", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -60,7 +60,7 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 			{Code: "USDC", Issuer: "ISSUER1"},
 			{Code: "EURC", Issuer: "ISSUER2"},
 		}
-		assetIDs, err := m.BatchGetOrCreateIDs(ctx, assets)
+		assetIDs, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		id1 := assetIDs["USDC:ISSUER1"]
 		id2 := assetIDs["EURC:ISSUER2"]
@@ -104,7 +104,7 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 	})
 }
 
-func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
+func TestTrustlineAssetModel_BatchGetOrInsert(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -127,106 +127,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		result, err := m.BatchInsert(ctx, []TrustlineAsset{})
-		require.NoError(t, err)
-		require.Empty(t, result)
-	})
-
-	t.Run("inserts multiple new assets", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "trustline_assets", 3).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		assets := []TrustlineAsset{
-			{Code: "USDC", Issuer: "ISSUER1"},
-			{Code: "EURC", Issuer: "ISSUER2"},
-			{Code: "XLM", Issuer: "ISSUER3"},
-		}
-
-		result, err := m.BatchInsert(ctx, assets)
-		require.NoError(t, err)
-		require.Len(t, result, 3)
-
-		require.Greater(t, result["USDC:ISSUER1"], int64(0))
-		require.Greater(t, result["EURC:ISSUER2"], int64(0))
-		require.Greater(t, result["XLM:ISSUER3"], int64(0))
-
-		// Verify all IDs are unique
-		require.NotEqual(t, result["USDC:ISSUER1"], result["EURC:ISSUER2"])
-		require.NotEqual(t, result["EURC:ISSUER2"], result["XLM:ISSUER3"])
-
-		cleanUpDB()
-	})
-
-	t.Run("returns existing IDs for duplicates", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		// First insert
-		assets1 := []TrustlineAsset{
-			{Code: "USDC", Issuer: "ISSUER1"},
-		}
-		result1, err := m.BatchInsert(ctx, assets1)
-		require.NoError(t, err)
-		require.Len(t, result1, 1)
-
-		// Second insert with same asset plus new one
-		assets2 := []TrustlineAsset{
-			{Code: "USDC", Issuer: "ISSUER1"}, // duplicate
-			{Code: "EURC", Issuer: "ISSUER2"}, // new
-		}
-		result2, err := m.BatchInsert(ctx, assets2)
-		require.NoError(t, err)
-		require.Len(t, result2, 2)
-
-		// Same asset should have same ID
-		require.Equal(t, result1["USDC:ISSUER1"], result2["USDC:ISSUER1"])
-
-		cleanUpDB()
-	})
-}
-
-func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
-		require.NoError(t, err)
-	}
-
-	t.Run("returns empty map for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		result, err := m.BatchGetOrCreateIDs(ctx, []TrustlineAsset{})
+		result, err := m.BatchGetOrInsert(ctx, []TrustlineAsset{})
 		require.NoError(t, err)
 		require.Empty(t, result)
 	})
@@ -234,8 +135,8 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 	t.Run("creates single new asset and returns ID", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -247,7 +148,7 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 			{Code: "USDC", Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"},
 		}
 
-		result, err := m.BatchGetOrCreateIDs(ctx, assets)
+		result, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		require.Greater(t, result["USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"], int64(0))
@@ -258,8 +159,8 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 	t.Run("creates multiple new assets and returns IDs", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -273,7 +174,7 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 			{Code: "BTC", Issuer: "ISSUER3"},
 		}
 
-		result, err := m.BatchGetOrCreateIDs(ctx, assets)
+		result, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		require.Len(t, result, 3)
 
@@ -291,8 +192,8 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 	t.Run("returns existing IDs for already existing assets (fast path)", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -306,12 +207,12 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 		}
 
 		// First call - creates assets
-		result1, err := m.BatchGetOrCreateIDs(ctx, assets)
+		result1, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		require.Len(t, result1, 2)
 
 		// Second call - should return same IDs (fast path - all exist)
-		result2, err := m.BatchGetOrCreateIDs(ctx, assets)
+		result2, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		require.Len(t, result2, 2)
 
@@ -338,7 +239,7 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 		initialAssets := []TrustlineAsset{
 			{Code: "USDC", Issuer: "ISSUER1"},
 		}
-		result1, err := m.BatchGetOrCreateIDs(ctx, initialAssets)
+		result1, err := m.BatchGetOrInsert(ctx, initialAssets)
 		require.NoError(t, err)
 		require.Len(t, result1, 1)
 
@@ -348,7 +249,7 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 			{Code: "EURC", Issuer: "ISSUER2"}, // new
 			{Code: "BTC", Issuer: "ISSUER3"},  // new
 		}
-		result2, err := m.BatchGetOrCreateIDs(ctx, mixedAssets)
+		result2, err := m.BatchGetOrInsert(ctx, mixedAssets)
 		require.NoError(t, err)
 		require.Len(t, result2, 3)
 
@@ -367,8 +268,8 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 	t.Run("same asset different issuers get different IDs", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -382,7 +283,7 @@ func TestTrustlineAssetModel_BatchGetOrCreateIDs(t *testing.T) {
 			{Code: "USDC", Issuer: "ISSUER2"},
 		}
 
-		result, err := m.BatchGetOrCreateIDs(ctx, assets)
+		result, err := m.BatchGetOrInsert(ctx, assets)
 		require.NoError(t, err)
 		require.Len(t, result, 2)
 

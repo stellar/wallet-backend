@@ -18,8 +18,8 @@ type TrustlineAssetModelInterface interface {
 	BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
-	// GetTopNAssets returns the top N assets by frequency.
-	GetTopNAssets(ctx context.Context, n int) ([]*TrustlineAsset, error)
+	// GetTopN returns the top N assets by frequency.
+	GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error)
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -89,8 +89,8 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []Tru
 
 	// Step 2: If all found, we're done (fast path - most common case)
 	if len(result) == len(assets) {
-		m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
-		m.MetricsService.IncDBQuery("BatchGetOrCreateIDs", "trustline_assets")
+		m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())
+		m.MetricsService.IncDBQuery("BatchGetOrInsert", "trustline_assets")
 		return result, nil
 	}
 
@@ -127,8 +127,8 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []Tru
 		return nil, fmt.Errorf("closing rows: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchGetOrCreateIDs", "trustline_assets", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchGetOrCreateIDs", "trustline_assets")
+	m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchGetOrInsert", "trustline_assets")
 	return result, nil
 }
 
@@ -156,8 +156,8 @@ func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []int64) ([
 	return assets, nil
 }
 
-// GetTopNAssets returns the top N assets by frequency.
-func (m *TrustlineAssetModel) GetTopNAssets(ctx context.Context, n int) ([]*TrustlineAsset, error) {
+// GetTopN returns the top N assets by frequency.
+func (m *TrustlineAssetModel) GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error) {
 	const query = `SELECT id, code, issuer, created_at FROM trustline_assets ORDER BY id LIMIT $1`
 
 	start := time.Now()

@@ -350,7 +350,7 @@ func (s *accountTokenService) initializeTrustlinesFrequencyCache() (*ristretto.C
 		return nil, fmt.Errorf("initializing trustlines frequency cache: %w", err)
 	}
 
-	topNAssets, err := s.trustlineAssetModel.GetTopNAssets(context.Background(), numTrustlineAssetsInFrequencyCache)
+	topNAssets, err := s.trustlineAssetModel.GetTopN(context.Background(), numTrustlineAssetsInFrequencyCache)
 	if err != nil {
 		return nil, fmt.Errorf("getting top N assets: %w", err)
 	}
