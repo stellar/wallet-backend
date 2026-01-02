@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 func OperationXDRToBase64(opXDR xdr.Operation) (string, error) {

@@ -3,7 +3,7 @@ package contracts
 import (
 	"fmt"
 
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 // extractAddressFromScVal helps extract a string representation of an address from a ScVal

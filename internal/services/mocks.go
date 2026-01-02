@@ -3,9 +3,9 @@ package services
 import (
 	"context"
 
-	"github.com/stellar/go/historyarchive"
-	"github.com/stellar/go/ingest/ledgerbackend"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/historyarchive"
+	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/entities"

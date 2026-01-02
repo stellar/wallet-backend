@@ -3,7 +3,7 @@ package entities
 import (
 	"testing"
 
-	"github.com/stellar/go/keypair"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

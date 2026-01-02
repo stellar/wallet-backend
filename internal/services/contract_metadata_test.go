@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/alitto/pond/v2"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

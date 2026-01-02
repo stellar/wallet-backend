@@ -8,8 +8,8 @@ import (
 	"time"
 
 	jwtgo "github.com/golang-jwt/jwt/v5"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/strkey"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
 )
 
 const DefaultMaxTimeout = 15 * time.Second
