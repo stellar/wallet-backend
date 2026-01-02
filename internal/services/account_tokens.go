@@ -102,7 +102,8 @@ type accountTokenService struct {
 	networkPassphrase       string
 	trustlinesPrefix        string
 	contractsPrefix         string
-	trustlinesLRUCache      *ristretto.Cache[string, int64]
+	trustlineAssetByID      *ristretto.Cache[int64, string]
+	trustlineIDByAsset      *ristretto.Cache[string, int64]
 }
 
 func NewAccountTokenService(
@@ -114,7 +115,7 @@ func NewAccountTokenService(
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	pool pond.Pool,
 ) (AccountTokenService, error) {
-	service := &accountTokenService{
+	return &accountTokenService{
 		checkpointLedger:        0,
 		archive:                 archive,
 		contractValidator:       contractValidator,
@@ -125,14 +126,7 @@ func NewAccountTokenService(
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
-	}
-
-	trustlinesLRUCache, err := service.initializeTrustlinesFrequencyCache()
-	if err != nil {
-		return nil, fmt.Errorf("initializing trustlines frequency cache: %w", err)
-	}
-	service.trustlinesLRUCache = trustlinesLRUCache
-	return service, nil
+	}, nil
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
@@ -340,15 +334,15 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	return nil
 }
 
-// initializeTrustlinesFrequencyCache initializes the trustlines frequency cache.
-func (s *accountTokenService) initializeTrustlinesFrequencyCache() (*ristretto.Cache[string, int64], error) {
-	trustlinesLRUCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
+// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache. This is used for encoding asset strings to IDs during live ingestion.
+func (s *accountTokenService) InitializeTrustlineIDByAssetCache() (*ristretto.Cache[string, int64], error) {
+	trustlineIDByAssetCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
 		NumCounters: 1e7,
 		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
 		BufferItems: 64,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("initializing trustlines frequency cache: %w", err)
+		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
 	}
 
 	topNAssets, err := s.trustlineAssetModel.GetTopN(context.Background(), numTrustlineAssetsInFrequencyCache)
@@ -357,9 +351,33 @@ func (s *accountTokenService) initializeTrustlinesFrequencyCache() (*ristretto.C
 	}
 	for _, asset := range topNAssets {
 		key := asset.Code + ":" + asset.Issuer
-		trustlinesLRUCache.Set(key, asset.ID, 1)
+		trustlineIDByAssetCache.Set(key, asset.ID, 1)
 	}
-	return trustlinesLRUCache, nil
+
+	return trustlineIDByAssetCache, nil
+}
+
+// InitializeTrustlineAssetByIDCache initializes the trustline asset by ID cache. This is used for decoding IDs to asset strings during API requests
+// to get an account's trustline assets.
+func (s *accountTokenService) InitializeTrustlineAssetByIDCache() (*ristretto.Cache[int64, string], error) {
+	trustlineAssetByIDCache, err := ristretto.NewCache(&ristretto.Config[int64, string]{
+		NumCounters: 1e7,
+		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initializing trustline asset by ID cache: %w", err)
+	}
+
+	topNAssets, err := s.trustlineAssetModel.GetTopN(context.Background(), numTrustlineAssetsInFrequencyCache)
+	if err != nil {
+		return nil, fmt.Errorf("getting top N assets: %w", err)
+	}
+	for _, asset := range topNAssets {
+		key := asset.Code + ":" + asset.Issuer
+		trustlineAssetByIDCache.Set(asset.ID, key, 1)
+	}
+	return trustlineAssetByIDCache, nil
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.
@@ -368,7 +386,7 @@ func (s *accountTokenService) getAssetIDs(ctx context.Context, assets set.Set[wb
 	cacheMisses := make([]wbdata.TrustlineAsset, 0)
 	for asset := range assets.Iter() {
 		key := asset.Code + ":" + asset.Issuer
-		assetID, ok := s.trustlinesLRUCache.Get(key)
+		assetID, ok := s.trustlineIDByAsset.Get(key)
 		if !ok {
 			cacheMisses = append(cacheMisses, asset)
 			continue
@@ -385,7 +403,7 @@ func (s *accountTokenService) getAssetIDs(ctx context.Context, assets set.Set[wb
 		return nil, fmt.Errorf("getting asset IDs: %w", err)
 	}
 	for asset, assetID := range idMap {
-		s.trustlinesLRUCache.Set(asset, assetID, 1)
+		s.trustlineIDByAsset.Set(asset, assetID, 1)
 		assetIDMap[asset] = assetID
 	}
 	return assetIDMap, nil
@@ -467,13 +485,56 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 		return nil, nil
 	}
 
-	// Batch resolve IDs to asset objects from PostgreSQL
-	assetRecords, err := s.trustlineAssetModel.BatchGetByIDs(ctx, ids)
+	// Get the trustline asset code and issuer from the IDs
+	assets, err := s.getAssetsFromIDs(ctx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("resolving asset IDs for account %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("getting assets from IDs for account %s: %w", accountAddress, err)
 	}
 
-	return assetRecords, nil
+	return assets, nil
+}
+
+// getAssetsFromIDs gets the trustline asset code and issuer from the IDs
+func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64) ([]*wbdata.TrustlineAsset, error) {
+	result := make([]*wbdata.TrustlineAsset, 0)
+	cacheMisses := make([]int64, 0)
+	for _, id := range ids {
+		if asset, ok := s.trustlineAssetByID.Get(id); ok {
+			code, issuer, err := parseAssetString(asset)
+			if err != nil {
+				log.Ctx(ctx).Warnf("parsing asset string: %s: %v", asset, err)
+				continue
+			}
+			result = append(result, &wbdata.TrustlineAsset{
+				ID:     id,
+				Code:   code,
+				Issuer: issuer,
+			})
+		} else {
+			cacheMisses = append(cacheMisses, id)
+		}
+	}
+
+	if len(cacheMisses) == 0 {
+		return result, nil
+	}
+
+	// Batch resolve IDs to asset objects from PostgreSQL
+	assetRecords, err := s.trustlineAssetModel.BatchGetByIDs(ctx, cacheMisses)
+	if err != nil {
+		return nil, fmt.Errorf("resolving asset IDs: %w", err)
+	}
+
+	for _, asset := range assetRecords {
+		s.trustlineAssetByID.Set(asset.ID, asset.Code+":"+asset.Issuer, 1)
+		result = append(result, &wbdata.TrustlineAsset{
+			ID:     asset.ID,
+			Code:   asset.Code,
+			Issuer: asset.Issuer,
+		})
+	}
+
+	return result, nil
 }
 
 // GetAccountContracts retrieves all contract token IDs for an account from Redis.
@@ -712,7 +773,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 			break
 		}
 		key := asset.Code + ":" + asset.Issuer
-		s.trustlinesLRUCache.Set(key, assetIDMap[key], 1)
+		s.trustlineIDByAsset.Set(key, assetIDMap[key], 1)
 	}
 
 	// Build pipeline operations
