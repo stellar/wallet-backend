@@ -471,6 +471,10 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)
 	}
 
+	// Give RPC a moment to fully stabilize after container readiness before starting health tracking.
+	// This prevents the immediate health check from failing due to transient unavailability.
+	time.Sleep(3 * time.Second)
+
 	// Start tracking RPC health
 	go func() {
 		//nolint:errcheck // Error is expected on context cancellation during shutdown
