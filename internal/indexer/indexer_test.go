@@ -554,7 +554,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		opParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
