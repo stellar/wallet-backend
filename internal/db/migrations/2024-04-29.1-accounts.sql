@@ -1,7 +1,7 @@
 -- +migrate Up
 
 CREATE TABLE accounts (
-  stellar_address text NOT NULL,
+  stellar_address bytea NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT NOW(),
   PRIMARY KEY (stellar_address)
 );

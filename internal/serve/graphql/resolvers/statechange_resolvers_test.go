@@ -25,7 +25,7 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	t.Run("all valid", func(t *testing.T) {
 		obj := &types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
-				TokenID: sql.NullString{String: "token1", Valid: true},
+				TokenID: types.NewNullableStellarAddress("token1"),
 				Amount:  sql.NullString{String: "100.5", Valid: true},
 			},
 		}
@@ -152,7 +152,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 
 		account, err := resolver.Account(ctx, &parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, "test-account", account.StellarAddress)
+		assert.Equal(t, "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", string(account.StellarAddress))
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {

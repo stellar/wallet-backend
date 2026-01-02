@@ -55,8 +55,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	// Create test data
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
@@ -197,8 +196,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			// Verify the account links
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					OperationID int64                `db:"operation_id"`
+					AccountID   types.StellarAddress `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -206,7 +205,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids for O(1) lookups
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each operation has its expected account links
@@ -234,8 +233,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
@@ -367,8 +365,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					OperationID int64                `db:"operation_id"`
+					AccountID   types.StellarAddress `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -376,7 +374,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each expected operation has its account links
@@ -705,13 +703,13 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'env1', 'res1', 'meta1', $1),
 			('tx2', 2, 'env2', 'res2', 'meta2', $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', $1)
@@ -731,11 +729,11 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	// Create test operations_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations_accounts (operation_id, account_id)
-		VALUES 
+		VALUES
 			(1, $1),
 			(2, $1),
 			(3, $2)
-	`, address1, address2)
+	`, types.StellarAddress(address1), types.StellarAddress(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
@@ -814,13 +812,13 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
 	require.NoError(t, err)
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'env1', 'res1', 'meta1', $1),
 			('tx2', 2, 'env2', 'res2', 'meta2', $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', $1)

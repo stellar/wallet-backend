@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -201,12 +202,15 @@ func (m *TransactionModel) BatchInsert(
 
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices (use tx_id instead of tx_hash)
 	var txIDs []int64
-	var stellarAddresses []string
+	var stellarAddresses [][]byte
 	for txHash, addresses := range stellarAddressesByTxHash {
 		toID := hashToToID[txHash]
 		for address := range addresses.Iter() {
-			txIDs = append(txIDs, toID)
-			stellarAddresses = append(stellarAddresses, address)
+			addressBytes := bytesFromAddressString(address)
+			if addressBytes != nil {
+				txIDs = append(txIDs, toID)
+				stellarAddresses = append(stellarAddresses, addressBytes)
+			}
 		}
 	}
 
@@ -241,7 +245,7 @@ func (m *TransactionModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS tx_id,
-				UNNEST($8::text[]) AS account_id
+				UNNEST($8::bytea[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -334,7 +338,12 @@ func (m *TransactionModel) BatchCopy(
 		for txHash, addresses := range stellarAddressesByTxHash {
 			txIDPgtype := pgtype.Int8{Int64: hashToToID[txHash], Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				addressBytes := bytesFromAddressString(addr)
+				if addressBytes != nil {
+					taRows = append(taRows, []any{txIDPgtype, addressBytes})
+				} else {
+					log.Printf("Invalid address for tx_hash: %s, address: %s", txHash, addr)
+				}
 			}
 		}
 
