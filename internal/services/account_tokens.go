@@ -60,7 +60,7 @@ type checkpointData struct {
 	// ContractCodesByWasmHash maps WASM hashes to their contract code bytes
 	ContractCodesByWasmHash map[xdr.Hash][]byte
 	// TrustlineFrequency tracks how many accounts hold each trustline asset for frequency-based ID assignment
-	TrustlineFrequency map[wbdata.TrustlineAsset]int
+	TrustlineFrequency map[wbdata.TrustlineAsset]int64
 }
 
 // AccountTokenService manages Redis caching of account token holdings,
@@ -651,7 +651,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		ContractTypesByContractID:  make(map[string]types.ContractType),
 		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
 		ContractCodesByWasmHash:    make(map[xdr.Hash][]byte),
-		TrustlineFrequency:         make(map[wbdata.TrustlineAsset]int),
+		TrustlineFrequency:         make(map[wbdata.TrustlineAsset]int64),
 	}
 
 	entries := 0
@@ -764,7 +764,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
 	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
 	contractsByAccountAddress map[string]set.Set[string],
-	trustlineFrequency map[wbdata.TrustlineAsset]int,
+	trustlineFrequency map[wbdata.TrustlineAsset]int64,
 ) error {
 	startTime := time.Now()
 
@@ -776,13 +776,13 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	}
 	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
 
-	// Add top 100k assets to LRU cache for quick lookups
+	// Add top 100k assets to frequency cache for quick asset -> ID lookups during ingestion
 	for i, asset := range uniqueTrustlines {
-		if i > 100000 {
+		if i > numTrustlineAssetsInFrequencyCache {
 			break
 		}
 		key := asset.Code + ":" + asset.Issuer
-		s.trustlineIDByAsset.Set(key, assetIDMap[key], 1)
+		s.trustlineIDByAsset.Set(key, assetIDMap[key], trustlineFrequency[asset])
 	}
 
 	// Build pipeline operations
@@ -830,10 +830,10 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 // processTrustlineAssets sorts assets by frequency (descending) for optimal varint encoding.
 // Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
-func (s *accountTokenService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int) []wbdata.TrustlineAsset {
+func (s *accountTokenService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int64) []wbdata.TrustlineAsset {
 	type assetFreq struct {
 		asset wbdata.TrustlineAsset
-		count int
+		count int64
 	}
 	sortedAssets := make([]assetFreq, 0, len(trustlineFrequency))
 	for asset, count := range trustlineFrequency {
