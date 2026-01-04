@@ -60,8 +60,8 @@ type checkpointData struct {
 	ContractTypesByContractID map[string]types.ContractType
 	// ContractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
 	ContractIDsByWasmHash map[xdr.Hash][]string
-	// ContractCodesByWasmHash maps WASM hashes to their contract code bytes
-	ContractCodesByWasmHash map[xdr.Hash][]byte
+	// ContractTypesByWasmHash maps WASM hashes to their contract code bytes
+	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
 	// TrustlineFrequency tracks how many accounts hold each trustline asset for frequency-based ID assignment
 	TrustlineFrequency map[wbdata.TrustlineAsset]int64
 }
@@ -182,7 +182,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	f2.Close()
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractCodesByWasmHash)
+	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
 	// Fetch metadata for contracts and store in database
 	if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
@@ -659,7 +659,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		UniqueContractTokens:       set.NewSet[string](),
 		ContractTypesByContractID:  make(map[string]types.ContractType),
 		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
-		ContractCodesByWasmHash:    make(map[xdr.Hash][]byte),
+		ContractTypesByWasmHash:    make(map[xdr.Hash]types.ContractType),
 		TrustlineFrequency:         make(map[wbdata.TrustlineAsset]int64),
 	}
 
@@ -699,7 +699,11 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
-			data.ContractCodesByWasmHash[contractCodeEntry.Hash] = contractCodeEntry.Code
+			contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCodeEntry.Code)
+			if err != nil {
+				continue
+			}
+			data.ContractTypesByWasmHash[contractCodeEntry.Hash] = contractType
 			entries++
 
 		case xdr.LedgerEntryTypeContractData:
@@ -746,13 +750,9 @@ func (s *accountTokenService) enrichContractTypes(
 	ctx context.Context,
 	contractTypesByContractID map[string]types.ContractType,
 	contractIDsByWasmHash map[xdr.Hash][]string,
-	contractCodesByWasmHash map[xdr.Hash][]byte,
+	contractTypesByWasmHash map[xdr.Hash]types.ContractType,
 ) {
-	for wasmHash, contractCode := range contractCodesByWasmHash {
-		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
-		if err != nil {
-			continue
-		}
+	for wasmHash, contractType := range contractTypesByWasmHash {
 		if contractType == types.ContractTypeUnknown {
 			continue
 		}
