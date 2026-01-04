@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -165,20 +168,26 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	}()
 
 	// Collect account tokens from checkpoint
+	runtime.GC()
+	f1, _ := os.Create("/tmp/heap_before.prof")
+	pprof.WriteHeapProfile(f1)
+	f1.Close()
 	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
 	}
+	runtime.GC()
+	f2, _ := os.Create("/tmp/heap_after_collect.prof")
+	pprof.WriteHeapProfile(f2)
+	f2.Close()
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
 	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractCodesByWasmHash)
 
 	// Fetch metadata for contracts and store in database
-	if s.contractMetadataService != nil {
-		if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
-			log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
-			// Don't fail the entire process if metadata fetch fails
-		}
+	if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
+		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
+		// Don't fail the entire process if metadata fetch fails
 	}
 
 	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
