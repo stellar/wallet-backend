@@ -51,9 +51,9 @@ const (
 // checkpointData holds all data collected from processing a checkpoint ledger.
 type checkpointData struct {
 	// Trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
-	TrustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset]
+	TrustlinesByAccountAddress map[string][]wbdata.TrustlineAsset
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
-	ContractsByHolderAddress map[string]set.Set[string]
+	ContractsByHolderAddress map[string][]string
 	// UniqueContractTokens tracks all unique contract tokens
 	UniqueContractTokens set.Set[string]
 	// ContractTypesByContractID tracks the token type for each unique contract ID
@@ -654,8 +654,8 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
 	data := checkpointData{
-		TrustlinesByAccountAddress: make(map[string]set.Set[wbdata.TrustlineAsset]),
-		ContractsByHolderAddress:   make(map[string]set.Set[string]),
+		TrustlinesByAccountAddress: make(map[string][]wbdata.TrustlineAsset),
+		ContractsByHolderAddress:   make(map[string][]string),
 		UniqueContractTokens:       set.NewSet[string](),
 		ContractTypesByContractID:  make(map[string]types.ContractType),
 		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
@@ -692,9 +692,9 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			entries++
 
 			if _, ok := data.TrustlinesByAccountAddress[accountAddress]; !ok {
-				data.TrustlinesByAccountAddress[accountAddress] = set.NewSet[wbdata.TrustlineAsset]()
+				data.TrustlinesByAccountAddress[accountAddress] = []wbdata.TrustlineAsset{}
 			}
-			data.TrustlinesByAccountAddress[accountAddress].Add(asset)
+			data.TrustlinesByAccountAddress[accountAddress] = append(data.TrustlinesByAccountAddress[accountAddress], asset)
 			data.TrustlineFrequency[asset]++
 
 		case xdr.LedgerEntryTypeContractCode:
@@ -719,9 +719,9 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 					continue
 				}
 				if _, ok := data.ContractsByHolderAddress[holderAddress]; !ok {
-					data.ContractsByHolderAddress[holderAddress] = set.NewSet[string]()
+					data.ContractsByHolderAddress[holderAddress] = []string{}
 				}
-				data.ContractsByHolderAddress[holderAddress].Add(contractAddressStr)
+				data.ContractsByHolderAddress[holderAddress] = append(data.ContractsByHolderAddress[holderAddress], contractAddressStr)
 				data.UniqueContractTokens.Add(contractAddressStr)
 				entries++
 
@@ -771,8 +771,8 @@ func (s *accountTokenService) enrichContractTypes(
 // Contract addresses are stored directly as full strings.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
-	trustlinesByAccountAddress map[string]set.Set[wbdata.TrustlineAsset],
-	contractsByAccountAddress map[string]set.Set[string],
+	trustlinesByAccountAddress map[string][]wbdata.TrustlineAsset,
+	contractsByAccountAddress map[string][]string,
 	trustlineFrequency map[wbdata.TrustlineAsset]int64,
 ) error {
 	startTime := time.Now()
@@ -800,8 +800,8 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	// Add trustline operations with asset IDs from PostgreSQL, encoded as varint
 	for accountAddress, assets := range trustlinesByAccountAddress {
-		ids := make([]int64, 0, assets.Cardinality())
-		for asset := range assets.Iter() {
+		ids := make([]int64, 0, len(assets))
+		for _, asset := range assets {
 			if id, ok := assetIDMap[asset.Code+":"+asset.Issuer]; ok {
 				ids = append(ids, id)
 			}
@@ -821,7 +821,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
 			Key:     s.buildContractKey(accountAddress),
-			Members: contractAddresses.ToSlice(),
+			Members: contractAddresses,
 		})
 	}
 
