@@ -51,7 +51,7 @@ const (
 // checkpointData holds all data collected from processing a checkpoint ledger.
 type checkpointData struct {
 	// Trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
-	TrustlinesByAccountAddress map[string][]wbdata.TrustlineAsset
+	TrustlinesByAccountAddress map[string][]string
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string][]string
 	// UniqueContractTokens tracks all unique contract tokens
@@ -654,7 +654,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
 	data := checkpointData{
-		TrustlinesByAccountAddress: make(map[string][]wbdata.TrustlineAsset),
+		TrustlinesByAccountAddress: make(map[string][]string),
 		ContractsByHolderAddress:   make(map[string][]string),
 		UniqueContractTokens:       set.NewSet[string](),
 		ContractTypesByContractID:  make(map[string]types.ContractType),
@@ -692,9 +692,9 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			entries++
 
 			if _, ok := data.TrustlinesByAccountAddress[accountAddress]; !ok {
-				data.TrustlinesByAccountAddress[accountAddress] = []wbdata.TrustlineAsset{}
+				data.TrustlinesByAccountAddress[accountAddress] = []string{}
 			}
-			data.TrustlinesByAccountAddress[accountAddress] = append(data.TrustlinesByAccountAddress[accountAddress], asset)
+			data.TrustlinesByAccountAddress[accountAddress] = append(data.TrustlinesByAccountAddress[accountAddress], asset.Code+":"+asset.Issuer)
 			data.TrustlineFrequency[asset]++
 
 		case xdr.LedgerEntryTypeContractCode:
@@ -771,7 +771,7 @@ func (s *accountTokenService) enrichContractTypes(
 // Contract addresses are stored directly as full strings.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
-	trustlinesByAccountAddress map[string][]wbdata.TrustlineAsset,
+	trustlinesByAccountAddress map[string][]string,
 	contractsByAccountAddress map[string][]string,
 	trustlineFrequency map[wbdata.TrustlineAsset]int64,
 ) error {
@@ -802,7 +802,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	for accountAddress, assets := range trustlinesByAccountAddress {
 		ids := make([]int64, 0, len(assets))
 		for _, asset := range assets {
-			if id, ok := assetIDMap[asset.Code+":"+asset.Issuer]; ok {
+			if id, ok := assetIDMap[asset]; ok {
 				ids = append(ids, id)
 			}
 		}
