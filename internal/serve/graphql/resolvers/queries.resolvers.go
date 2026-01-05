@@ -349,7 +349,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	// Simulate call to `balance(id)` function of SEP-41 contracts
 	if len(sep41TokenIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
+		sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,

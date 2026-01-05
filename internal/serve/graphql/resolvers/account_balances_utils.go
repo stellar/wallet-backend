@@ -240,7 +240,7 @@ func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contr
 
 // getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
 // The accountAddress parameter is the address of the account whose balance we're querying.
-func getSep41Balances(ctx context.Context, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
+func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
 	results := make([]graphql1.Balance, len(contractIDs))
 	group := pool.NewGroupContext(ctx)
 	var errs []error
@@ -255,9 +255,9 @@ func getSep41Balances(ctx context.Context, contractMetadataService services.Cont
 	for i, contractID := range contractIDs {
 		group.Submit(func() {
 			// Convert the account address to an xdr.ScVal for passing to the balance function
-			addressArg, err := addressToScVal(contractID)
+			addressArg, err := addressToScVal(accountAddress)
 			if err != nil {
-				appendError(fmt.Errorf("converting contract ID to ScVal: %w", err))
+				appendError(fmt.Errorf("converting account address to ScVal: %w", err))
 				return
 			}
 
@@ -346,7 +346,7 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 	}
 
 	if len(info.sep41ContractIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
+		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
 		if err != nil {
 			return nil, err
 		}
