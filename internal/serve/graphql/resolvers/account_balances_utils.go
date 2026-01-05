@@ -4,6 +4,7 @@ package resolvers
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -119,39 +120,65 @@ func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (
 	return contractIDStr, true, nil
 }
 
+// contractIdToHash converts a contract ID string to an xdr.ContractId.
+func contractIdToHash(contractId string) *xdr.ContractId {
+	idBytes := [32]byte{}
+	rawBytes, err := hex.DecodeString(contractId)
+	if err != nil {
+		panic(fmt.Errorf("invalid contract id (%s): %v", contractId, err))
+	}
+	if copy(idBytes[:], rawBytes[:]) != 32 {
+		panic("couldn't copy 32 bytes to contract hash")
+	}
+
+	hash := xdr.ContractId(idBytes)
+	return &hash
+}
+
 // addressToScVal converts a Stellar address string (G... account or C... contract) to an xdr.ScVal.
 // This is used for passing address arguments to contract function calls.
 func addressToScVal(address string) (xdr.ScVal, error) {
-	if strkey.IsValidEd25519PublicKey(address) {
-		accountID, err := xdr.AddressToAccountId(address)
+	scAddress := xdr.ScAddress{}
+
+	switch address[0] {
+	case 'C':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeContract
+		contractHash := strkey.MustDecode(strkey.VersionByteContract, address)
+		scAddress.ContractId = contractIdToHash(hex.EncodeToString(contractHash))
+
+	case 'G':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeAccount
+		scAddress.AccountId = xdr.MustAddressPtr(address)
+	case 'M':
+		acct, err := strkey.DecodeMuxedAccount(address)
 		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("converting address to account ID: %w", err)
+			panic(fmt.Errorf("address is not a valid muxed account: %s", address))
 		}
-		return xdr.ScVal{
-			Type: xdr.ScValTypeScvAddress,
-			Address: &xdr.ScAddress{
-				Type:      xdr.ScAddressTypeScAddressTypeAccount,
-				AccountId: &accountID,
-			},
-		}, nil
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeMuxedAccount
+		scAddress.MuxedAccount = &xdr.MuxedEd25519Account{
+			Id:      xdr.Uint64(acct.ID()),
+			Ed25519: acct.Ed25519(),
+		}
+	case 'L':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeLiquidityPool
+		scAddress.LiquidityPoolId = &xdr.PoolId{}
+		copy((*scAddress.LiquidityPoolId)[:], strkey.MustDecode(strkey.VersionByteLiquidityPool, address))
+	case 'B':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeClaimableBalance
+		var someCb xdr.ClaimableBalanceId
+		err := someCb.DecodeFromStrkey(address)
+		if err != nil {
+			panic(fmt.Errorf("error in decoding claimable balance id from strkey: %w", err))
+		}
+		scAddress.ClaimableBalanceId = &someCb
+	default:
+		panic(fmt.Errorf("unsupported address: %s", address))
 	}
 
-	if strkey.IsValidContractAddress(address) {
-		contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, address)
-		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("decoding contract address: %w", err)
-		}
-		contractID := xdr.ContractId(contractIDBytes)
-		return xdr.ScVal{
-			Type: xdr.ScValTypeScvAddress,
-			Address: &xdr.ScAddress{
-				Type:       xdr.ScAddressTypeScAddressTypeContract,
-				ContractId: &contractID,
-			},
-		}, nil
-	}
-
-	return xdr.ScVal{}, fmt.Errorf("invalid address format: %s", address)
+	return xdr.ScVal{
+		Type:    xdr.ScValTypeScvAddress,
+		Address: &scAddress,
+	}, nil
 }
 
 // parseSACBalance extracts SAC (Stellar Asset Contract) balance from a contract data entry.
