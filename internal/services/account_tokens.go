@@ -7,9 +7,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"os"
-	"runtime"
-	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -89,6 +86,13 @@ type AccountTokenService interface {
 	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
 	// using pipelining for performance. This is called by the indexer for each ledger's
 	// state changes during live ingestion.
+	//
+	// Storage semantics differ between trustlines and contracts:
+	// - Trustlines: Can be added or removed. When all trustlines for an account are removed,
+	//   the account's entry is deleted from Redis.
+	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
+	//   persist in the ledger even when balance is zero, so we track all contracts an account
+	//   has ever held a balance in.
 	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
@@ -168,18 +172,10 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	}()
 
 	// Collect account tokens from checkpoint
-	runtime.GC()
-	f1, _ := os.Create("/tmp/heap_before.prof")
-	pprof.WriteHeapProfile(f1)
-	f1.Close()
 	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
 	}
-	runtime.GC()
-	f2, _ := os.Create("/tmp/heap_after_collect.prof")
-	pprof.WriteHeapProfile(f2)
-	f2.Close()
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
 	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
@@ -459,6 +455,7 @@ func decodeAssetIDs(buf []byte) []int64 {
 	for len(buf) > 0 {
 		val, n := binary.Uvarint(buf)
 		if n <= 0 {
+			log.Warnf("Varint decode stopped early: %d bytes remaining, %d IDs decoded", len(buf), len(result))
 			break
 		}
 		result = append(result, int64(val))
@@ -747,7 +744,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
 func (s *accountTokenService) enrichContractTypes(
-	ctx context.Context,
+	_ context.Context,
 	contractTypesByContractID map[string]types.ContractType,
 	contractIDsByWasmHash map[xdr.Hash][]string,
 	contractTypesByWasmHash map[xdr.Hash]types.ContractType,

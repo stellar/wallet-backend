@@ -171,7 +171,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}
-	accountTokenService.InitializeTrustlineIDByAssetCache(ctx)
+	if err := accountTokenService.InitializeTrustlineIDByAssetCache(ctx); err != nil {
+		return handlerDeps{}, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	}
 
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,

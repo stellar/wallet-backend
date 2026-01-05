@@ -47,6 +47,20 @@ func (m *mockChangeReader) Close() error {
 	return nil
 }
 
+// mockContractValidator implements ContractValidator for testing
+type mockContractValidator struct {
+	returnType types.ContractType
+	returnErr  error
+}
+
+func (m *mockContractValidator) ValidateFromContractCode(_ context.Context, _ []byte) (types.ContractType, error) {
+	return m.returnType, m.returnErr
+}
+
+func (m *mockContractValidator) Close(_ context.Context) error {
+	return nil
+}
+
 // Helper functions for creating test XDR values
 func ptrToScSymbol(s string) *xdr.ScSymbol {
 	sym := xdr.ScSymbol(s)
@@ -516,6 +530,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	service := &accountTokenService{
 		networkPassphrase: "Test SDF Network ; September 2015",
+		contractValidator: &mockContractValidator{returnType: types.ContractTypeUnknown, returnErr: nil},
 	}
 
 	t.Run("reads trustline entries", func(t *testing.T) {
@@ -548,13 +563,13 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, cpData.TrustlinesByAccountAddress, 1)
 		assert.Contains(t, cpData.TrustlinesByAccountAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		// TrustlinesByAccountAddress now contains TrustlineAsset structs
-		expectedAsset := wbdata.TrustlineAsset{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"}
-		assert.True(t, cpData.TrustlinesByAccountAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"].Contains(expectedAsset))
+		// TrustlinesByAccountAddress contains asset strings in "CODE:ISSUER" format
+		expectedAsset := "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		assert.Contains(t, cpData.TrustlinesByAccountAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], expectedAsset)
 		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("reads contract balance entries", func(t *testing.T) {
@@ -611,14 +626,14 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Len(t, cpData.ContractsByHolderAddress, 1)
 		assert.Contains(t, cpData.ContractsByHolderAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 		holderContracts := cpData.ContractsByHolderAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"]
-		assert.Equal(t, 1, holderContracts.Cardinality())
+		assert.Equal(t, 1, len(holderContracts))
 		// Contract address should start with C
-		for contractAddr := range holderContracts.Iter() {
+		for _, contractAddr := range holderContracts {
 			assert.Equal(t, "C", string(contractAddr[0]))
 		}
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("reads contract code entries", func(t *testing.T) {
@@ -651,12 +666,9 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-
-		// CONTRACT_CODE entries should be collected
-		assert.Len(t, cpData.ContractCodesByWasmHash, 1)
-		storedCode, found := cpData.ContractCodesByWasmHash[wasmHash]
-		require.True(t, found, "WASM hash should be in contractCodesByWasmHash map")
-		assert.Equal(t, wasmCode, storedCode)
+		// ContractTypesByWasmHash should contain the validated contract type
+		assert.Len(t, cpData.ContractTypesByWasmHash, 1)
+		assert.Equal(t, types.ContractTypeUnknown, cpData.ContractTypesByWasmHash[wasmHash])
 	})
 
 	t.Run("reads valid SAC contract instance entries", func(t *testing.T) {
@@ -704,7 +716,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// SAC contracts should NOT be added to contractsByWasm (they don't need WASM validation)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("reads non-SAC WASM contract instance entries", func(t *testing.T) {
@@ -771,7 +783,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
 		require.NoError(t, err)
 		assert.Equal(t, contractAddress, contractAddresses[0])
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("skips contract instances with nil WASM hash", func(t *testing.T) {
@@ -828,7 +840,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		// Contract with nil WASM hash should NOT be added to contractsByWasm
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("handles mixed SAC and WASM contract instances", func(t *testing.T) {
@@ -918,7 +930,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// Ensure they're different contracts
 		assert.NotEqual(t, sacAddress, wasmAddress)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
@@ -956,7 +968,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, cpData.ContractsByHolderAddress)
 		assert.Empty(t, cpData.ContractTypesByContractID)
 		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 }
 
@@ -981,17 +993,13 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		// No trustline changes, so BatchGetOrCreateIDs is called with empty slice
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
-
+		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
@@ -1016,17 +1024,13 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		// No trustline changes, so BatchGetOrCreateIDs is called with empty slice
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
-
+		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
@@ -1045,17 +1049,13 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		// Empty asset is skipped during parsing, so BatchGetOrCreateIDs is called with empty slice
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
-
+		// Empty asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
 				AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
@@ -1084,8 +1084,8 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock BatchGetOrCreateIDs to return asset ID
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert to return asset ID
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
@@ -1124,8 +1124,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with existing trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock BatchGetOrCreateIDs for the new asset
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert for the new asset
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
 		}).Return(map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}, nil)
 
@@ -1165,8 +1165,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with multiple trustlines in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
 
-		// Mock BatchGetOrCreateIDs for the asset being removed
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert for the asset being removed
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
@@ -1204,8 +1204,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with single trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock BatchGetOrCreateIDs for the asset being removed
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert for the asset being removed
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
@@ -1238,8 +1238,8 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock BatchGetOrCreateIDs - same asset appears twice so it's deduplicated
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert - same asset appears twice so it's deduplicated
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
@@ -1267,7 +1267,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.Empty(t, val)
 	})
 
-	t.Run("handles BatchGetOrCreateIDs error", func(t *testing.T) {
+	t.Run("handles BatchGetOrInsert error", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
@@ -1279,8 +1279,8 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractsPrefix:     contractsKeyPrefix,
 		}
 
-		// Mock BatchGetOrCreateIDs to return error
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{
+		// Mock BatchGetOrInsert to return error
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(nil, assert.AnError)
 
@@ -1300,19 +1300,15 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Invalid asset is skipped during parsing, so BatchGetOrCreateIDs is called with empty slice
-		mockAssetModel.On("BatchGetOrCreateIDs", ctx, []wbdata.TrustlineAsset{}).Return(map[string]int64{}, nil)
-
+		// Invalid asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
 		// Asset without colon should be skipped (not cause error)
 		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
 			{
