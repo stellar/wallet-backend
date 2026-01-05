@@ -226,8 +226,8 @@ func TestTrustlineAssetModel_BatchGetOrInsert(t *testing.T) {
 	t.Run("handles mix of existing and new assets", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrCreateIDs", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetOrCreateIDs", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
