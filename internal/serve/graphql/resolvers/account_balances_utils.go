@@ -3,17 +3,33 @@
 package resolvers
 
 import (
+	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"sync"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 )
+
+// accountKeyInfo tracks ledger key information for a single account during multi-account balance fetch
+type accountKeyInfo struct {
+	address          string
+	isContract       bool
+	trustlines       []*data.TrustlineAsset
+	contractsByID    map[string]*data.Contract
+	sep41ContractIDs []string
+	ledgerKeys       []string // base64 XDR keys for this account
+	collectionErr    error    // error during data collection phase
+}
 
 // parseNativeBalance extracts native XLM balance from an account entry.
 func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string) (*graphql1.NativeBalance, error) {
@@ -104,6 +120,71 @@ func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (
 	return contractIDStr, true, nil
 }
 
+// contractIDToHash converts a contract ID string to an xdr.ContractId.
+func contractIDToHash(contractID string) (*xdr.ContractId, error) {
+	idBytes := [32]byte{}
+	rawBytes, err := hex.DecodeString(contractID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid contract id (%s): %w", contractID, err)
+	}
+	if copy(idBytes[:], rawBytes[:]) != 32 {
+		return nil, fmt.Errorf("couldn't copy 32 bytes to contract hash: %w", err)
+	}
+
+	hash := xdr.ContractId(idBytes)
+	return &hash, nil
+}
+
+// addressToScVal converts a Stellar address string (G... account or C... contract) to an xdr.ScVal.
+// This is used for passing address arguments to contract function calls.
+func addressToScVal(address string) (xdr.ScVal, error) {
+	scAddress := xdr.ScAddress{}
+
+	switch address[0] {
+	case 'C':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeContract
+		contractHash := strkey.MustDecode(strkey.VersionByteContract, address)
+		contractID, err := contractIDToHash(hex.EncodeToString(contractHash))
+		if err != nil {
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid contract: %w", err)
+		}
+		scAddress.ContractId = contractID
+
+	case 'G':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeAccount
+		scAddress.AccountId = xdr.MustAddressPtr(address)
+	case 'M':
+		acct, err := strkey.DecodeMuxedAccount(address)
+		if err != nil {
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid muxed account: %w", err)
+		}
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeMuxedAccount
+		scAddress.MuxedAccount = &xdr.MuxedEd25519Account{
+			Id:      xdr.Uint64(acct.ID()),
+			Ed25519: acct.Ed25519(),
+		}
+	case 'L':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeLiquidityPool
+		scAddress.LiquidityPoolId = &xdr.PoolId{}
+		copy((*scAddress.LiquidityPoolId)[:], strkey.MustDecode(strkey.VersionByteLiquidityPool, address))
+	case 'B':
+		scAddress.Type = xdr.ScAddressTypeScAddressTypeClaimableBalance
+		var someCb xdr.ClaimableBalanceId
+		err := someCb.DecodeFromStrkey(address)
+		if err != nil {
+			return xdr.ScVal{}, fmt.Errorf("error in decoding claimable balance id from strkey: %w", err)
+		}
+		scAddress.ClaimableBalanceId = &someCb
+	default:
+		return xdr.ScVal{}, fmt.Errorf("unsupported address: %s", address)
+	}
+
+	return xdr.ScVal{
+		Type:    xdr.ScValTypeScvAddress,
+		Address: &scAddress,
+	}, nil
+}
+
 // parseSACBalance extracts SAC (Stellar Asset Contract) balance from a contract data entry.
 func parseSACBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (*graphql1.SACBalance, error) {
 	if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
@@ -170,12 +251,12 @@ func parseSACBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr str
 }
 
 // parseSEP41Balance extracts SEP-41 token balance from a contract data entry.
-func parseSEP41Balance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (*graphql1.SEP41Balance, error) {
-	if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
-		return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
+func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contract) (*graphql1.SEP41Balance, error) {
+	if val.Type != xdr.ScValTypeScvI128 {
+		return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", val.Type)
 	}
 
-	i128Parts := contractDataEntry.Val.MustI128()
+	i128Parts := val.MustI128()
 	balanceStr := amount.String128(i128Parts)
 
 	return &graphql1.SEP41Balance{
@@ -188,22 +269,57 @@ func parseSEP41Balance(contractDataEntry *xdr.ContractDataEntry, contractIDStr s
 	}, nil
 }
 
-// parseContractBalance parses a contract data entry and returns the appropriate balance type.
-// Returns nil if the contract type is unknown or the contract is not found.
-func parseContractBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (graphql1.Balance, error) {
-	switch contract.Type {
-	case string(types.ContractTypeSAC):
-		return parseSACBalance(contractDataEntry, contractIDStr, contract)
-	case string(types.ContractTypeSEP41):
-		return parseSEP41Balance(contractDataEntry, contractIDStr, contract)
-	default:
-		return nil, nil
+// getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
+// The accountAddress parameter is the address of the account whose balance we're querying.
+func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
+	results := make([]graphql1.Balance, len(contractIDs))
+	group := pool.NewGroupContext(ctx)
+	var errs []error
+	mu := sync.Mutex{}
+
+	appendError := func(err error) {
+		mu.Lock()
+		errs = append(errs, err)
+		mu.Unlock()
 	}
+
+	for i, contractID := range contractIDs {
+		group.Submit(func() {
+			// Convert the account address to an xdr.ScVal for passing to the balance function
+			addressArg, err := addressToScVal(accountAddress)
+			if err != nil {
+				appendError(fmt.Errorf("converting account address to ScVal: %w", err))
+				return
+			}
+
+			balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
+			if err != nil {
+				appendError(fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
+				return
+			}
+			balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
+			if err != nil {
+				appendError(fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
+				return
+			}
+			results[i] = balance
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for SEP41 balance fetch group: %w", err)
+	}
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("getting SEP41 balances: %w", errors.Join(errs...))
+	}
+
+	return results, nil
 }
 
 // parseAccountBalances parses ledger entries for a single account and returns balances.
 // This is used by the multi-account balance resolver.
-func parseAccountBalances(info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult, networkPassphrase string) ([]graphql1.Balance, error) {
+func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
 	var balances []graphql1.Balance
 	for _, ledgerKey := range info.ledgerKeys {
 		entry, exists := ledgerEntriesByLedgerKeys[ledgerKey]
@@ -250,7 +366,7 @@ func parseAccountBalances(info *accountKeyInfo, ledgerEntriesByLedgerKeys map[st
 				continue
 			}
 
-			balance, err := parseContractBalance(&contractDataEntry, contractIDStr, contract)
+			balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contract)
 			if err != nil {
 				return nil, err
 			}
@@ -258,6 +374,14 @@ func parseAccountBalances(info *accountKeyInfo, ledgerEntriesByLedgerKeys map[st
 				balances = append(balances, balance)
 			}
 		}
+	}
+
+	if len(info.sep41ContractIDs) > 0 {
+		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
+		if err != nil {
+			return nil, fmt.Errorf("getting SEP41 balances: %w", err)
+		}
+		balances = append(balances, sep41Balances...)
 	}
 
 	return balances, nil
