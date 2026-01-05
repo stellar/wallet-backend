@@ -347,7 +347,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 	}
 
-	// Simulate call to `balances()` function of SEP-41 contracts
+	// Simulate call to `balance(id)` function of SEP-41 contracts
 	if len(sep41TokenIDs) > 0 {
 		sep41Balances, err := getSep41Balances(ctx, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
 		if err != nil {
@@ -362,7 +362,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, result)
 		}
 	}
-	
+
 	return balances, nil
 }
 
@@ -425,9 +425,10 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		address := addr
 		group.Submit(func() {
 			info := &accountKeyInfo{
-				address:       address,
-				isContract:    utils.IsContractAddress(address),
-				contractsByID: make(map[string]*data.Contract),
+				address:          address,
+				isContract:       utils.IsContractAddress(address),
+				contractsByID:    make(map[string]*data.Contract),
+				sep41ContractIDs: make([]string, 0),
 			}
 
 			// Get trustlines (skip for contract addresses)
@@ -509,15 +510,22 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			continue
 		}
 
-		// Build ledger keys for all contracts
+		// Build ledger keys for all SAC contracts
 		for _, contract := range info.contractsByID {
-			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
-			if keyErr != nil {
-				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
-				break
+			switch contract.Type {
+			case "SAC":
+				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
+				if keyErr != nil {
+					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
+					break
+				}
+				ledgerKeys = append(ledgerKeys, ledgerKey)
+				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
+			case "SEP41":
+				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ID)
+			default:
+				continue
 			}
-			ledgerKeys = append(ledgerKeys, ledgerKey)
-			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 		}
 	}
 
@@ -578,7 +586,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(info, ledgerEntriesByLedgerKeys, networkPassphrase)
+			balances, parseErr := parseAccountBalances(ctx, info, ledgerEntriesByLedgerKeys, r.contractMetadataService, networkPassphrase, r.pool)
 			if parseErr != nil {
 				errStr := parseErr.Error()
 				result.Error = &errStr

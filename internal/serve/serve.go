@@ -83,12 +83,12 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService      services.AccountService
-	FeeBumpService      services.FeeBumpService
-	MetricsService      metrics.MetricsService
-	TransactionService  services.TransactionService
-	RPCService          services.RPCService
-	AccountTokenService services.AccountTokenService
+	AccountService          services.AccountService
+	FeeBumpService          services.FeeBumpService
+	MetricsService          metrics.MetricsService
+	TransactionService      services.TransactionService
+	RPCService              services.RPCService
+	AccountTokenService     services.AccountTokenService
 	ContractMetadataService services.ContractMetadataService
 
 	// GraphQL

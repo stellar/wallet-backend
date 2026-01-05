@@ -50,8 +50,9 @@ type ContractMetadataService interface {
 	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
 	// Returns error only for critical failures; individual fetch failures are logged.
 	FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error
-	// FetchSingleField fetches a single contract method (name, symbol, decimals, etc...) via RPC simulation.
-	FetchSingleField(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error)
+	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
+	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
+	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
 }
 
 var _ ContractMetadataService = (*contractMetadataService)(nil)
@@ -207,8 +208,9 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 	}, nil
 }
 
-// fetchSingleField fetches a single contract method (name, symbol, or decimals) via RPC simulation.
-func (s *contractMetadataService) FetchSingleField(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
+// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc.) via RPC simulation.
+// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
+func (s *contractMetadataService) FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error) {
 	if err := ctx.Err(); err != nil {
 		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
 	}
@@ -230,7 +232,7 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 					ContractId: &contractID,
 				},
 				FunctionName: xdr.ScSymbol(functionName),
-				Args:         xdr.ScVec{}, // No arguments needed for metadata functions
+				Args:         xdr.ScVec(args),
 			},
 		},
 	}

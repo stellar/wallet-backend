@@ -53,9 +53,9 @@ type Resolver struct {
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService      services.FeeBumpService
-	rpcService          services.RPCService
-	accountTokenService services.AccountTokenService
+	feeBumpService          services.FeeBumpService
+	rpcService              services.RPCService
+	accountTokenService     services.AccountTokenService
 	contractMetadataService services.ContractMetadataService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
@@ -74,16 +74,16 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		poolSize = 100 // default fallback
 	}
 	return &Resolver{
-		models:              models,
-		accountService:      accountService,
-		transactionService:  transactionService,
-		feeBumpService:      feeBumpService,
-		rpcService:          rpcService,
-		accountTokenService: accountTokenService,
+		models:                  models,
+		accountService:          accountService,
+		transactionService:      transactionService,
+		feeBumpService:          feeBumpService,
+		rpcService:              rpcService,
+		accountTokenService:     accountTokenService,
 		contractMetadataService: contractMetadataService,
-		metricsService:      metricsService,
-		pool:                pond.NewPool(poolSize),
-		config:              config,
+		metricsService:          metricsService,
+		pool:                    pond.NewPool(poolSize),
+		config:                  config,
 	}
 }
 
