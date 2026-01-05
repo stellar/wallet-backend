@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/basemachina/gqlgen-complexity-reporter v0.1.2
 	github.com/deckarep/golang-set/v2 v2.8.0
+	github.com/dgraph-io/ristretto/v2 v2.3.0
 	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/docker/go-connections v0.5.0
 	github.com/getsentry/sentry-go v0.34.1
@@ -94,6 +95,7 @@ require (
 	github.com/djherbis/fscache v0.10.1 // indirect
 	github.com/docker/docker v28.0.1+incompatible // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.8.2 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect

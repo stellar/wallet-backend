@@ -23,7 +23,7 @@ const (
 type accountKeyInfo struct {
 	address       string
 	isContract    bool
-	trustlines    []string // "CODE:ISSUER" format
+	trustlines    []*data.TrustlineAsset
 	contractsByID map[string]*data.Contract
 	ledgerKeys    []string // base64 XDR keys for this account
 	collectionErr error    // error during data collection phase

@@ -51,3 +51,47 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, sqlExecuter db.SQLE
 	}
 	return args.Get(0).([]string), args.Error(1)
 }
+
+// TrustlineAssetModelMock is a mock implementation of TrustlineAssetModelInterface.
+type TrustlineAssetModelMock struct {
+	mock.Mock
+}
+
+var _ TrustlineAssetModelInterface = (*TrustlineAssetModelMock)(nil)
+
+func NewTrustlineAssetModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TrustlineAssetModelMock {
+	mockAsset := &TrustlineAssetModelMock{}
+	mockAsset.Mock.Test(t)
+
+	t.Cleanup(func() { mockAsset.AssertExpectations(t) })
+
+	return mockAsset
+}
+
+func (m *TrustlineAssetModelMock) BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+	args := m.Called(ctx, assets)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
+func (m *TrustlineAssetModelMock) BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*TrustlineAsset), args.Error(1)
+}
+
+func (m *TrustlineAssetModelMock) GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error) {
+	args := m.Called(ctx, n)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*TrustlineAsset), args.Error(1)
+}
