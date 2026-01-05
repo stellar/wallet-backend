@@ -40,6 +40,10 @@ services:
       - 6379:6379
     volumes:
       - redis-data:/data
+    command: >
+      redis-server
+      --hash-max-listpack-entries 1000
+      --hash-max-listpack-value 8000
 
   stellar-rpc-mainnet:
     container_name: stellar-rpc-mainnet
