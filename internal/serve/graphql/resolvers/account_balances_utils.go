@@ -121,14 +121,14 @@ func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (
 }
 
 // contractIDToHash converts a contract ID string to an xdr.ContractId.
-func contractIDToHash(contractId string) (*xdr.ContractId, error) {
+func contractIDToHash(contractID string) (*xdr.ContractId, error) {
 	idBytes := [32]byte{}
-	rawBytes, err := hex.DecodeString(contractId)
+	rawBytes, err := hex.DecodeString(contractID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid contract id (%s): %v", contractId, err)
+		return nil, fmt.Errorf("invalid contract id (%s): %w", contractID, err)
 	}
 	if copy(idBytes[:], rawBytes[:]) != 32 {
-		return nil, fmt.Errorf("couldn't copy 32 bytes to contract hash")
+		return nil, fmt.Errorf("couldn't copy 32 bytes to contract hash: %w", err)
 	}
 
 	hash := xdr.ContractId(idBytes)
@@ -146,7 +146,7 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 		contractHash := strkey.MustDecode(strkey.VersionByteContract, address)
 		contractID, err := contractIDToHash(hex.EncodeToString(contractHash))
 		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("address is not a valid contract: %s", address)
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid contract: %w", err)
 		}
 		scAddress.ContractId = contractID
 
@@ -156,7 +156,7 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	case 'M':
 		acct, err := strkey.DecodeMuxedAccount(address)
 		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("address is not a valid muxed account: %s", address)
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid muxed account: %w", err)
 		}
 		scAddress.Type = xdr.ScAddressTypeScAddressTypeMuxedAccount
 		scAddress.MuxedAccount = &xdr.MuxedEd25519Account{
