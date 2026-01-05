@@ -477,6 +477,10 @@ func decodeAssetIDs(buf []byte) []int64 {
 }
 
 // buildTrustlineKey constructs the Redis key for an account's trustlines set.
+//
+// Uses FNV-1a hash to distribute accounts across buckets, avoiding Redis hot keys.
+// FNV-1a processes each byte: hash = (hash XOR byte) * prime, producing uniform
+// distribution across the 20,000 buckets (~500 accounts per bucket on mainnet).
 func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
 	h := fnv.New32a()
 	h.Write([]byte(accountAddress))

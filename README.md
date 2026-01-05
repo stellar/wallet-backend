@@ -374,11 +374,11 @@ This reduces storage from ~60 bytes per asset string to a small integer ID.
 
 **2. Bucket Sharding**
 
-Instead of creating one Redis key per account (millions of keys), accounts are distributed across 12,000 buckets using FNV-1a hashing:
+Instead of creating one Redis key per account (millions of keys), accounts are distributed across 20,000 buckets using FNV-1a hashing:
 
 ```
 Key format: trustlines:{bucket}
-Bucket = fnv32(accountAddress) % 12000
+Bucket = fnv32(accountAddress) % 20000
 ```
 
 Each bucket is a Redis hash containing multiple accounts. This improves Redis memory efficiency and reduces key overhead.
@@ -408,6 +408,105 @@ Rare asset (10 accounts)     → ID 50000 (3 bytes)
 
 This multiplies the benefits of VARINT encoding by ensuring common assets use minimal storage across all accounts.
 
+**5. Redis Listpack Encoding**
+
+Redis uses **listpack** (successor to ziplist) as a compact, memory-efficient encoding for small hashes. When a hash stays below configured thresholds, Redis stores it in this compressed format instead of a standard hash table.
+
+**Configuration (docker-compose.yaml):**
+```
+redis-server
+  --hash-max-listpack-entries 1000
+  --hash-max-listpack-value 8000
+```
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `hash-max-listpack-entries` | 1000 | Maximum fields (accounts) per hash before conversion to hash table |
+| `hash-max-listpack-value` | 8000 | Maximum value size in bytes before conversion |
+
+Operators of wallet backend can tweak these values based on their requirements.
+
+**How Listpack Works with Bucket Sharding:**
+
+The bucket count (20,000) is designed to keep each bucket's account count well below the `hash-max-listpack-entries` threshold:
+
+```
+Mainnet (~10M accounts):
+  10,000,000 accounts with atleast 1 trustline ÷ 20,000 buckets = ~500 accounts per bucket
+
+  500 accounts < 1000 max-listpack-entries → ✓ Listpack encoding used
+```
+
+Each account's value is VARINT-encoded asset IDs, typically 5-50 bytes for accounts with 1-10 trustlines—well under the 8,000 byte `hash-max-listpack-value` limit.
+
+**Memory Savings from Listpack:**
+
+Listpack provides significant memory savings compared to standard hash tables:
+
+| Storage Format | Memory per Entry | Overhead |
+|----------------|------------------|----------|
+| Listpack | ~(key_len + value_len + 2) bytes | Minimal header |
+| Hash Table | ~(key_len + value_len + 24) bytes | dictEntry pointers, hash slots |
+
+For a bucket with 500 accounts (56-byte addresses, ~20-byte VARINT values):
+- Listpack: ~39 KB per bucket
+- Hash Table: ~51 KB per bucket (~30% more memory)
+
+With 20,000 buckets, this translates to ~240 MB savings on mainnet.
+
+**What Happens When Limits Are Exceeded:**
+
+If a bucket exceeds either threshold, Redis automatically converts it from listpack to a standard hash table:
+
+```
+Bucket exceeds 1000 accounts OR value > 8000 bytes
+                    ↓
+    Redis converts bucket to hash table
+                    ↓
+    Memory usage increases ~30% for that bucket
+    Lookup changes from O(n) scan to O(1) hash lookup
+```
+
+This conversion is **irreversible** for that bucket until Redis restarts. The conversion happens transparently—queries continue to work, but memory efficiency decreases.
+
+**Trade-offs of Increasing `hash-max-listpack-entries`:**
+
+| `max-listpack-entries` | Pros | Cons |
+|------------------------|------|------|
+| Lower (500-1000) | Faster lookups (O(n) with small n) | More buckets needed, higher key overhead |
+| Higher (2000-5000) | More accounts per bucket, fewer keys | Slower lookups as n grows, scan latency |
+| Very High (10000+) | Maximum memory efficiency | Noticeable lookup latency (~1-5ms per lookup) |
+
+Listpack uses **sequential scan** (O(n)) for field lookups. At 1,000 entries with 56-byte keys, each lookup scans ~56 KB of memory. Modern CPUs handle this in microseconds, but at 10,000+ entries, scan latency becomes measurable.
+
+**Impact on Trustline Queries:**
+
+For `GetAccountTrustlines(accountAddress)`:
+
+1. Calculate bucket: `fnv32(accountAddress) % 20000`
+2. Redis HGET on `trustlines:{bucket}` for field `accountAddress`
+3. Listpack: Sequential scan through bucket's entries to find field
+4. Return VARINT-decoded asset IDs
+
+With 500 accounts per bucket (listpack), step 3 takes ~10-50 microseconds.
+With 5000 accounts per bucket (if limit increased), step 3 takes ~100-500 microseconds.
+
+**Scaling Considerations:**
+
+As the Stellar network grows, the accounts-per-bucket ratio will increase:
+
+| Network Size | Accounts per Bucket | Status |
+|--------------|---------------------|--------|
+| 10M accounts | ~500 | ✓ Comfortably in listpack |
+| 20M accounts | ~1000 | ⚠️ At threshold |
+| 50M accounts | ~2500 | ✗ Exceeds default, all buckets converted to hash table |
+
+**Options for scaling beyond 20M accounts:**
+
+1. **Increase `hash-max-listpack-entries`**: Set to 2000-3000. Trades slightly higher lookup latency for delayed scaling.
+
+2. **Accept partial hash table conversion**: Some hot buckets convert to hash tables. Memory increases but queries remain functional.
+
 #### Redis Data Structures
 
 The cache uses optimized Redis data structures for trustlines and sets for contracts:
@@ -421,7 +520,7 @@ flowchart LR
     subgraph Redis["Redis (Bucketed Hashes)"]
         B0["trustlines:0"]
         B1["trustlines:1"]
-        BN["trustlines:11999"]
+        BN["trustlines:19999"]
     end
     subgraph PG["PostgreSQL"]
         T["trustline_assets"]
@@ -432,7 +531,7 @@ flowchart LR
 
 ```
 Structure: Hash
-Key: trustlines:{bucket}  (bucket = fnv32(account) % 12000)
+Key: trustlines:{bucket}  (bucket = fnv32(account) % 20000)
 Field: accountAddress
 Value: VARINT-encoded binary blob of asset IDs
 
