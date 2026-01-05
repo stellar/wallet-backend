@@ -3,8 +3,10 @@
 package resolvers
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
@@ -13,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 // parseNativeBalance extracts native XLM balance from an account entry.
@@ -170,12 +173,12 @@ func parseSACBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr str
 }
 
 // parseSEP41Balance extracts SEP-41 token balance from a contract data entry.
-func parseSEP41Balance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (*graphql1.SEP41Balance, error) {
-	if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
-		return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
+func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contract) (*graphql1.SEP41Balance, error) {
+	if val.Type != xdr.ScValTypeScvI128 {
+		return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", val.Type)
 	}
 
-	i128Parts := contractDataEntry.Val.MustI128()
+	i128Parts := val.MustI128()
 	balanceStr := amount.String128(i128Parts)
 
 	return &graphql1.SEP41Balance{
@@ -194,11 +197,34 @@ func parseContractBalance(contractDataEntry *xdr.ContractDataEntry, contractIDSt
 	switch contract.Type {
 	case string(types.ContractTypeSAC):
 		return parseSACBalance(contractDataEntry, contractIDStr, contract)
-	case string(types.ContractTypeSEP41):
-		return parseSEP41Balance(contractDataEntry, contractIDStr, contract)
 	default:
 		return nil, nil
 	}
+}
+
+// getSep41Balances simulates an RPC call to the `balances()` function of the SEP-41 contract.
+func getSep41Balances(ctx context.Context, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
+	results := make([]graphql1.Balance, len(contractIDs))
+	group := pool.NewGroupContext(ctx)
+	for i, contractID := range contractIDs {
+		group.Submit(func() {
+			contractMetadata, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance")
+			if err != nil {
+				return
+			}
+			balance, err := parseSEP41Balance(contractMetadata, contractID, contractsByContractID[contractID])
+			if err != nil {
+				return
+			}
+			results[i] = balance
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	
+	return results, nil
 }
 
 // parseAccountBalances parses ledger entries for a single account and returns balances.

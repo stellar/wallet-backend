@@ -50,6 +50,8 @@ type ContractMetadataService interface {
 	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
 	// Returns error only for critical failures; individual fetch failures are logged.
 	FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error
+	// FetchSingleField fetches a single contract method (name, symbol, decimals, etc...) via RPC simulation.
+	FetchSingleField(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error)
 }
 
 var _ ContractMetadataService = (*contractMetadataService)(nil)
@@ -139,7 +141,7 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 
 	// Fetch name
 	group.Submit(func() {
-		nameVal, err := s.fetchSingleField(ctx, contractID, "name")
+		nameVal, err := s.FetchSingleField(ctx, contractID, "name")
 		if err != nil {
 			appendError(fmt.Errorf("fetching name: %w", err))
 			return
@@ -156,7 +158,7 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 
 	// Fetch symbol
 	group.Submit(func() {
-		symbolVal, err := s.fetchSingleField(ctx, contractID, "symbol")
+		symbolVal, err := s.FetchSingleField(ctx, contractID, "symbol")
 		if err != nil {
 			appendError(fmt.Errorf("fetching symbol: %w", err))
 			return
@@ -173,7 +175,7 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 
 	// Fetch decimals
 	group.Submit(func() {
-		decimalsVal, err := s.fetchSingleField(ctx, contractID, "decimals")
+		decimalsVal, err := s.FetchSingleField(ctx, contractID, "decimals")
 		if err != nil {
 			appendError(fmt.Errorf("fetching decimals: %w", err))
 			return
@@ -206,7 +208,7 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 }
 
 // fetchSingleField fetches a single contract method (name, symbol, or decimals) via RPC simulation.
-func (s *contractMetadataService) fetchSingleField(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
+func (s *contractMetadataService) FetchSingleField(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
 	if err := ctx.Err(); err != nil {
 		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
 	}

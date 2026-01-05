@@ -235,23 +235,30 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	// Build ledger keys for all contracts
 	contractsByContractID := make(map[string]*data.Contract)
+	sep41TokenIDs := make([]string, 0)
 	for _, contract := range contractTokens {
-		// Create ledger key for this contract
-		ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
-		if keyErr != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
+		switch contract.Type {
+		case "SAC":
+			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
+			if keyErr != nil {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
+			ledgerKeys = append(ledgerKeys, ledgerKey)
+		case "SEP41":
+			sep41TokenIDs = append(sep41TokenIDs, contract.ID)
+		default:
+			continue
 		}
-		ledgerKeys = append(ledgerKeys, ledgerKey)
 		contractsByContractID[contract.ID] = contract
 	}
 
 	// Call RPC to get ledger entries
-	result, err := r.rpcService.GetLedgerEntries(ledgerKeys)
+	ledgerEntriesResult, err := r.rpcService.GetLedgerEntries(ledgerKeys)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgRPCUnavailable,
@@ -265,7 +272,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	var balances []graphql1.Balance
 	contractEntriesByContractID := make(map[string]*xdr.ContractDataEntry)
-	for _, entry := range result.Entries {
+	for _, entry := range ledgerEntriesResult.Entries {
 		// Decode the DataXDR to get the ledger entry data
 		var ledgerEntryData xdr.LedgerEntryData
 		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
@@ -323,14 +330,26 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				continue
 			}
 
+			balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contractsByContractID[contractIDStr])
+			if err != nil {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
+			}
+			if balance != nil {
+				balances = append(balances, balance)
+			}
+
 			contractEntriesByContractID[contractIDStr] = &contractDataEntry
 		}
 	}
 
-	for contractIDStr, contractDataEntry := range contractEntriesByContractID {
-		contract := contractsByContractID[contractIDStr]
-
-		balance, err := parseContractBalance(contractDataEntry, contractIDStr, contract)
+	// Simulate call to `balances()` function of SEP-41 contracts
+	if len(sep41TokenIDs) > 0 {
+		sep41Balances, err := getSep41Balances(ctx, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -339,10 +358,11 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				},
 			}
 		}
-		if balance != nil {
-			balances = append(balances, balance)
+		for _, result := range sep41Balances {
+			balances = append(balances, result)
 		}
 	}
+	
 	return balances, nil
 }
 
