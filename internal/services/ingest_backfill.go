@@ -204,69 +204,79 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 }
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
-// Each worker creates one backend and reuses it for its assigned batch to prevent premature
-// context cancellation during S3 prefetching.
 func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch, mode BackfillMode) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
-		// Capture loop variables for goroutine safety
+		// Capture loop variables
 		index := i
 		batchCopy := batch
 
 		group.Submit(func() {
-			// Create backend ONCE for this worker, reuse across all its work
-			// This prevents premature context cancellation while S3 downloads are in progress
-			backend, err := m.ledgerBackendFactory(ctx)
-			if err != nil {
-				results[index] = BackfillResult{
-					Batch:    batchCopy,
-					Error:    fmt.Errorf("creating ledger backend: %w", err),
-					Duration: 0,
-				}
-				return
-			}
-			defer func() {
-				// Close backend only when worker is completely done
-				if closeErr := backend.Close(); closeErr != nil {
-					log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v",
-						batchCopy.StartLedger, batchCopy.EndLedger, closeErr)
-				}
-			}()
-
-			// Process the batch with the reused backend
-			result := m.processSingleBatchWithBackend(ctx, backend, batchCopy, mode)
+			result := m.processSingleBatch(ctx, batchCopy, mode)
 			results[index] = result
 		})
 	}
 
 	if err := group.Wait(); err != nil {
-		log.Ctx(ctx).Warnf("Backfill batch group wait returned error: %v", err)
+		log.Ctx(ctx).Errorf("CRITICAL: Backfill batch group wait error: %v", err)
 	}
+
+	// Log results summary
+	var successCount, failCount int
+	for i, result := range results {
+		if result.Error != nil {
+			failCount++
+			log.Ctx(ctx).Errorf("Batch %d [%d-%d] FAILED: %v",
+				i, result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			successCount++
+		}
+	}
+
+	log.Ctx(ctx).Infof("Batch processing complete: %d succeeded, %d failed",
+		successCount, failCount)
+
 	return results
 }
 
-// processSingleBatchWithBackend processes a batch using a provided (reused) backend.
-// This function eliminates the race condition where fast data processing causes backend
-// closure while S3 downloads are still in progress.
-func (m *ingestService) processSingleBatchWithBackend(
-	ctx context.Context,
-	backend ledgerbackend.LedgerBackend,
-	batch BackfillBatch,
-	mode BackfillMode,
-) BackfillResult {
+// processSingleBatch processes a single backfill batch with its own ledger backend.
+func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBatch, mode BackfillMode) BackfillResult {
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 	recordMetrics := mode == BackfillModeHistorical
 
+	// Log batch start for visibility
+	log.Ctx(ctx).Infof("Starting batch [%d-%d]", batch.StartLedger, batch.EndLedger)
+
+	// Create a new ledger backend for this batch
+	backend, err := m.ledgerBackendFactory(ctx)
+	if err != nil {
+		log.Ctx(ctx).Errorf("FAILED to create backend for batch [%d-%d]: %v",
+			batch.StartLedger, batch.EndLedger, err)
+		result.Error = fmt.Errorf("creating ledger backend: %w", err)
+		result.Duration = time.Since(start)
+		return result
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v",
+				batch.StartLedger, batch.EndLedger, closeErr)
+		}
+	}()
+
 	// Prepare the range for this batch
 	ledgerRange := ledgerbackend.BoundedRange(batch.StartLedger, batch.EndLedger)
 	if err := backend.PrepareRange(ctx, ledgerRange); err != nil {
+		log.Ctx(ctx).Errorf("FAILED PrepareRange for batch [%d-%d]: %v",
+			batch.StartLedger, batch.EndLedger, err)
 		result.Error = fmt.Errorf("preparing backend range: %w", err)
 		result.Duration = time.Since(start)
 		return result
 	}
+	log.Ctx(ctx).Infof("Backend prepared for batch [%d-%d], starting ledger processing",
+		batch.StartLedger, batch.EndLedger)
 
 	// Process each ledger in the batch using a single shared buffer.
 	// Periodically flush to DB to control memory usage.
@@ -278,6 +288,8 @@ func (m *ingestService) processSingleBatchWithBackend(
 		fetchStart := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
 		if err != nil {
+			log.Ctx(ctx).Errorf("FAILED to get ledger %d in batch [%d-%d]: %v",
+				ledgerSeq, batch.StartLedger, batch.EndLedger, err)
 			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
@@ -288,6 +300,8 @@ func (m *ingestService) processSingleBatchWithBackend(
 
 		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer, recordMetrics)
 		if err != nil {
+			log.Ctx(ctx).Errorf("FAILED to process ledger %d in batch [%d-%d]: %v",
+				ledgerSeq, batch.StartLedger, batch.EndLedger, err)
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
@@ -302,12 +316,22 @@ func (m *ingestService) processSingleBatchWithBackend(
 				m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
 			}
 
+			// CRITICAL ERROR POINT - Database insertion (most likely failure point)
+			log.Ctx(ctx).Infof("Flushing %d ledgers to database (batch [%d-%d], up to ledger %d)",
+				ledgersInBuffer, batch.StartLedger, batch.EndLedger, ledgerSeq)
+
 			insertStart := time.Now()
 			if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+				log.Ctx(ctx).Errorf("FAILED database insert for batch [%d-%d] at ledger %d: %v",
+					batch.StartLedger, batch.EndLedger, ledgerSeq, err)
 				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
 				result.Duration = time.Since(insertStart)
 				return result
 			}
+
+			log.Ctx(ctx).Infof("Successfully inserted %d ledgers to database in %v",
+				ledgersInBuffer, time.Since(insertStart))
+
 			if recordMetrics {
 				m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "insert_into_db", time.Since(insertStart).Seconds())
 			}
@@ -323,12 +347,21 @@ func (m *ingestService) processSingleBatchWithBackend(
 			m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
 		}
 
+		log.Ctx(ctx).Infof("Final flush: inserting %d remaining ledgers for batch [%d-%d]",
+			ledgersInBuffer, batch.StartLedger, batch.EndLedger)
+
 		insertStart := time.Now()
 		if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+			log.Ctx(ctx).Errorf("FAILED final database insert for batch [%d-%d]: %v",
+				batch.StartLedger, batch.EndLedger, err)
 			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
 			result.Duration = time.Since(insertStart)
 			return result
 		}
+
+		log.Ctx(ctx).Infof("Successfully inserted final %d ledgers in %v",
+			ledgersInBuffer, time.Since(insertStart))
+
 		if recordMetrics {
 			m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "insert_into_db", time.Since(insertStart).Seconds())
 		}
