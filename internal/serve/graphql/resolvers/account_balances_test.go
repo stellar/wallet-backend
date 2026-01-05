@@ -252,85 +252,6 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 	}
 }
 
-// createSEP41ContractDataEntry creates a SEP-41 balance entry (direct i128)
-func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderContract bool, amount int64) entities.LedgerEntryResult { //nolint:unparam
-	// Decode contract ID from strkey
-	contractHash := contractIDToHash(contractID)
-
-	// Create balance key [Symbol("Balance"), Address(holder)]
-	var holderScAddress xdr.ScAddress
-	if isHolderContract {
-		holderContractHash := contractIDToHash(holderAddress)
-		holderContractID := xdr.ContractId(holderContractHash)
-		holderScAddress = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &holderContractID,
-		}
-	} else {
-		holderAccountID := xdr.MustAddress(holderAddress)
-		holderScAddress = xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &holderAccountID,
-		}
-	}
-	balanceSymbol := ptrToScSymbol("Balance")
-	balanceKey := xdr.ScVal{
-		Type: xdr.ScValTypeScvVec,
-		Vec: ptrToScVec([]xdr.ScVal{
-			{
-				Type: xdr.ScValTypeScvSymbol,
-				Sym:  balanceSymbol,
-			},
-			{
-				Type:    xdr.ScValTypeScvAddress,
-				Address: &holderScAddress,
-			},
-		}),
-	}
-
-	// Create SEP-41 balance value as direct i128
-	hi := int64(0)
-	if amount < 0 {
-		hi = -1
-	}
-	lo := xdr.Uint64(amount)
-
-	balanceValue := xdr.ScVal{
-		Type: xdr.ScValTypeScvI128,
-		I128: &xdr.Int128Parts{
-			Hi: xdr.Int64(hi),
-			Lo: lo,
-		},
-	}
-
-	contractIDXdr := xdr.ContractId(contractHash)
-	contractDataEntry := xdr.ContractDataEntry{
-		Contract: xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &contractIDXdr,
-		},
-		Key:        balanceKey,
-		Durability: xdr.ContractDataDurabilityPersistent,
-		Val:        balanceValue,
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:         xdr.LedgerEntryTypeContractData,
-		ContractData: &contractDataEntry,
-	}
-
-	ledgerKey, err := utils.GetContractDataEntryLedgerKey(holderAddress, contractID)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
-	}
-
-	return entities.LedgerEntryResult{
-		KeyXDR:             ledgerKey,
-		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
-		LastModifiedLedger: 1000,
-	}
-}
-
 // Helper to create SAC contract data
 func createSACContract(contractID, code, issuer string) *data.Contract {
 	return &data.Contract{
@@ -349,6 +270,22 @@ func createSEP41Contract(contractID, name, symbol string, decimals uint32) *data
 		Name:     &name,
 		Symbol:   &symbol,
 		Decimals: decimals,
+	}
+}
+
+// Helper to create i128 ScVal for SEP-41 balance simulation response
+func createI128ScVal(amount int64) xdr.ScVal {
+	hi := int64(0)
+	if amount < 0 {
+		hi = -1
+	}
+	lo := xdr.Uint64(amount)
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvI128,
+		I128: &xdr.Int128Parts{
+			Hi: xdr.Int64(hi),
+			Lo: lo,
+		},
 	}
 }
 
@@ -541,6 +478,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// Setup mocks
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]*data.TrustlineAsset{}, nil)
@@ -550,14 +488,17 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "MyToken", "MTK", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		// Create ledger entries
+		// Mock FetchSingleField for SEP-41 balance call
+		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
+			Return(createI128ScVal(50000000000), nil)
+
+		// Create ledger entries - only account entry, SEP-41 balance comes from FetchSingleField
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testAccountAddress, false, 50000000000)
 
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 2 // account + 1 contract
+			return len(keys) == 1 // only account key, no SEP-41 entry
 		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, sep41Entry},
+			Entries: []entities.LedgerEntryResult{accountEntry},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -565,8 +506,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
 			},
 		}
 
@@ -590,6 +533,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// Setup mocks
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).
@@ -609,16 +553,19 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		// Create all ledger entries
+		// Mock FetchSingleField for SEP-41 balance call
+		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
+			Return(createI128ScVal(30000000000), nil)
+
+		// Create ledger entries - no SEP-41 entry, balance comes from FetchSingleField
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 2000000000)
 		usdcTrustline := createTrustlineLedgerEntry(testAccountAddress, "USDC", testUSDCIssuer, 1000000000, 10000000000, uint32(xdr.TrustLineFlagsAuthorizedFlag), 0, 0)
 		sacEntry := createSACContractDataEntry(testSACContractAddress, testAccountAddress, 15000000000, true, true)
-		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testAccountAddress, false, 30000000000)
 
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 4 // account + trustline + 2 contracts
+			return len(keys) == 3 // account + trustline + SAC (no SEP-41)
 		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, usdcTrustline, sacEntry, sep41Entry},
+			Entries: []entities.LedgerEntryResult{accountEntry, usdcTrustline, sacEntry},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -626,8 +573,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
 			},
 		}
 
@@ -658,21 +607,25 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// For contract addresses, GetAccountTrustlines should NOT be called
 		// Only GetAccountContracts
-		mockAccountTokenService.On("GetAccountContracts", ctx, testSEP41ContractAddress).
+		mockAccountTokenService.On("GetAccountContracts", ctx, testContractAddress).
 			Return([]string{testSEP41ContractAddress}, nil)
 		mockContract.On("BatchGetByIDs", ctx, []string{testSEP41ContractAddress}).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testContractAddress, true, 10000000000)
+		// Mock FetchSingleField for SEP-41 balance call
+		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
+			Return(createI128ScVal(10000000000), nil)
 
+		// GetLedgerEntries is still called with empty keys for contract addresses with only SEP-41
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 1 // Only contract data, no account key
+			return len(keys) == 0 // No SAC contracts, so empty keys
 		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{sep41Entry},
+			Entries: []entities.LedgerEntryResult{},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -680,8 +633,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
 			},
 		}
 
@@ -1008,6 +963,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]*data.TrustlineAsset{}, nil)
 		mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).
@@ -1016,13 +972,33 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return([]*data.Contract{createSEP41Contract(testContractAddress, "Test", "TST", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		// Create SEP-41 entry with wrong type (use SAC structure instead of i128)
-		wrongTypeEntry := createSACContractDataEntry(testContractAddress, testAccountAddress, 10000000000, true, false)
+		// Mock FetchSingleField returning wrong type (map instead of i128) - use SAC map structure
+		authorizedSym := ptrToScSymbol("authorized")
+		clawbackSym := ptrToScSymbol("clawback")
+		authorizedBool := true
+		clawbackBool := false
+		wrongTypeScVal := xdr.ScVal{
+			Type: xdr.ScValTypeScvMap,
+			Map: ptrToScMap([]xdr.ScMapEntry{
+				{
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: authorizedSym},
+					Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: &authorizedBool},
+				},
+				{
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: clawbackSym},
+					Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: &clawbackBool},
+				},
+			}),
+		}
+		mockContractMetadataService.On("FetchSingleField", ctx, testContractAddress, "balance", mock.Anything).
+			Return(wrongTypeScVal, nil)
 
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
 
-		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, wrongTypeEntry},
+		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+			return len(keys) == 1 // only account key
+		})).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{accountEntry},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -1030,8 +1006,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
 			},
 		}
 
@@ -1061,11 +1039,13 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return([]*data.Contract{unknownContract}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
+		// Only account entry - unknown contract types don't have balance fetching
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		contractEntry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, false, 10000000000)
 
-		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, contractEntry},
+		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+			return len(keys) == 1 // Only account key, unknown contract skipped
+		})).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{accountEntry},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -1350,6 +1330,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// GetAccountTrustlines should NOT be called for contract address
 		mockAccountTokenService.On("GetAccountContracts", ctx, testSEP41ContractAddress).
@@ -1358,22 +1339,22 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testSEP41ContractAddress, true, 10000000000)
-		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 1 // Only contract data, no account key
-		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{sep41Entry},
-		}, nil)
+		// Mock FetchSingleField for SEP-41 balance call - no ledger entries for contract addresses
+		mockContractMetadataService.On("FetchSingleField", mock.Anything, testSEP41ContractAddress, "balance", mock.Anything).
+			Return(createI128ScVal(10000000000), nil)
+
+		// No GetLedgerEntries call since there are no SAC contracts
 
 		resolver := &queryResolver{
 			&Resolver{
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
+				config:                  ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1465,6 +1446,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
+		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// Account address (no contracts, so BatchGetByIDs is not called for this account)
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]*data.TrustlineAsset{}, nil)
@@ -1478,11 +1460,17 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		accountEntry := createAccountLedgerEntry(testAccountAddress, 5000000000)
-		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testSEP41ContractAddress, true, 10000000000)
+		// Mock FetchSingleField for SEP-41 balance call
+		mockContractMetadataService.On("FetchSingleField", mock.Anything, testSEP41ContractAddress, "balance", mock.Anything).
+			Return(createI128ScVal(10000000000), nil)
 
-		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, sep41Entry},
+		// Only account entry - SEP-41 balance comes from FetchSingleField
+		accountEntry := createAccountLedgerEntry(testAccountAddress, 5000000000)
+
+		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+			return len(keys) == 1 // only account key
+		})).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{accountEntry},
 		}, nil)
 
 		resolver := &queryResolver{
@@ -1490,10 +1478,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokenService: mockAccountTokenService,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				accountTokenService:     mockAccountTokenService,
+				rpcService:              mockRPCService,
+				contractMetadataService: mockContractMetadataService,
+				pool:                    pond.NewPool(0),
+				config:                  ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
