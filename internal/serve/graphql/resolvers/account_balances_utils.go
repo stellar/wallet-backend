@@ -348,7 +348,7 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 	if len(info.sep41ContractIDs) > 0 {
 		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting SEP41 balances: %w", err)
 		}
 		balances = append(balances, sep41Balances...)
 	}
