@@ -30,6 +30,7 @@ type IndexerBufferInterface interface {
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
 	GetTransactionsParticipants() map[string]set.Set[string]
 	GetOperationsParticipants() map[int64]set.Set[string]
+	GetAllParticipants() []string
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []types.Transaction
@@ -56,31 +57,18 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
-type AccountModelInterface interface {
-	BatchGetByIDs(ctx context.Context, accountIDs []string) ([]string, error)
-}
-
-// PrecomputedTransactionData holds all the data needed to process a transaction
-// without re-computing participants, operations participants, and state changes.
-type PrecomputedTransactionData struct {
-	Transaction      ingest.LedgerTransaction
-	TxParticipants   set.Set[string]
-	OpsParticipants  map[int64]processors.OperationParticipants
-	StateChanges     []types.StateChange
-	TrustlineChanges []types.TrustlineChange
-	ContractChanges  []types.ContractChange
-	AllParticipants  set.Set[string] // Union of all participants for this transaction
-}
-
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
+	skipTxMeta             bool
+	skipTxEnvelope         bool
+	networkPassphrase      string
 }
 
-func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface) *Indexer {
+func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
@@ -89,17 +77,22 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
 			contract_processors.NewSACEventsProcessor(networkPassphrase, metricsService),
 		},
-		pool:           pool,
-		metricsService: metricsService,
+		pool:              pool,
+		metricsService:    metricsService,
+		skipTxMeta:        skipTxMeta,
+		skipTxEnvelope:    skipTxEnvelope,
+		networkPassphrase: networkPassphrase,
 	}
 }
 
-// CollectAllTransactionData collects all transaction data (participants, operations, state changes) from all transactions in a ledger in parallel
-func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []ingest.LedgerTransaction) ([]PrecomputedTransactionData, set.Set[string], error) {
-	// Process transaction data collection in parallel
+// ProcessLedgerTransactions processes all transactions in a ledger in parallel.
+// It collects transaction data (participants, operations, state changes) and populates the buffer in a single pass.
+// Returns the total participant count for metrics.
+func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerBuffer IndexerBufferInterface) (int, error) {
 	group := i.pool.NewGroupContext(ctx)
 
-	precomputedData := make([]PrecomputedTransactionData, len(transactions))
+	txnBuffers := make([]*IndexerBuffer, len(transactions))
+	participantCounts := make([]int, len(transactions))
 	var errs []error
 	errMu := sync.Mutex{}
 
@@ -107,200 +100,140 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 		index := idx
 		tx := tx
 		group.Submit(func() {
-			txData := PrecomputedTransactionData{
-				Transaction:     tx,
-				AllParticipants: set.NewSet[string](),
-			}
-
-			// Get transaction participants
-			txParticipants, err := i.participantsProcessor.GetTransactionParticipants(tx)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transaction participants: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.TxParticipants = txParticipants
-			txData.AllParticipants = txData.AllParticipants.Union(txParticipants)
-
-			// Get operations participants
-			opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(tx)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting operations participants: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.OpsParticipants = opsParticipants
-			for _, opParticipants := range opsParticipants {
-				txData.AllParticipants = txData.AllParticipants.Union(opParticipants.Participants)
-			}
-
-			// Get state changes
-			stateChanges, err := i.getTransactionStateChanges(ctx, tx, opsParticipants)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transaction state changes: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.StateChanges = stateChanges
-			for _, stateChange := range stateChanges {
-				txData.AllParticipants.Add(stateChange.AccountID)
-			}
-
-			trustlineChanges := []types.TrustlineChange{}
-			contractChanges := []types.ContractChange{}
-			for _, stateChange := range stateChanges {
-				switch stateChange.StateChangeCategory {
-				case types.StateChangeCategoryTrustline:
-					trustlineChange := types.TrustlineChange{
-						AccountID:    stateChange.AccountID,
-						OperationID:  stateChange.OperationID,
-						Asset:        stateChange.TrustlineAsset,
-						LedgerNumber: tx.Ledger.LedgerSequence(),
-					}
-					//exhaustive:ignore
-					switch *stateChange.StateChangeReason {
-					case types.StateChangeReasonAdd:
-						trustlineChange.Operation = types.TrustlineOpAdd
-					case types.StateChangeReasonRemove:
-						trustlineChange.Operation = types.TrustlineOpRemove
-					case types.StateChangeReasonUpdate:
-						continue
-					}
-					trustlineChanges = append(trustlineChanges, trustlineChange)
-				case types.StateChangeCategoryBalance:
-					// Only store contract changes when:
-					// - Account is C-address, OR
-					// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
-					accountIsContract := isContractAddress(stateChange.AccountID)
-					tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
-
-					if accountIsContract || !tokenIsSACOrNative {
-						contractChange := types.ContractChange{
-							AccountID:    stateChange.AccountID,
-							OperationID:  stateChange.OperationID,
-							ContractID:   stateChange.TokenID.String,
-							LedgerNumber: tx.Ledger.LedgerSequence(),
-							ContractType: stateChange.ContractType,
-						}
-						contractChanges = append(contractChanges, contractChange)
-					}
-				default:
-					continue
-				}
-			}
-			txData.TrustlineChanges = trustlineChanges
-			txData.ContractChanges = contractChanges
-
-			// Add to collection
-			precomputedData[index] = txData
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, nil, fmt.Errorf("waiting for transaction data collection: %w", err)
-	}
-	if len(errs) > 0 {
-		return nil, nil, fmt.Errorf("collecting transaction data: %w", errors.Join(errs...))
-	}
-
-	// Merge all participant sets for the single DB call
-	allParticipants := set.NewSet[string]()
-	for _, txData := range precomputedData {
-		allParticipants = allParticipants.Union(txData.AllParticipants)
-	}
-
-	return precomputedData, allParticipants, nil
-}
-
-// ProcessTransactions processes transactions, operations and state changes using precomputed data. It then inserts them into the indexer buffer.
-func (i *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string], ledgerBuffer IndexerBufferInterface) error {
-	// Process transactions in parallel using precomputed data
-	group := i.pool.NewGroupContext(ctx)
-	var errs []error
-	errMu := sync.Mutex{}
-	txnBuffers := make([]*IndexerBuffer, len(precomputedData))
-	for idx, txData := range precomputedData {
-		index := idx
-		txData := txData
-		group.Submit(func() {
 			buffer := NewIndexerBuffer()
-			if err := i.processPrecomputedTransaction(ctx, txData, existingAccounts, buffer); err != nil {
+			count, err := i.processTransaction(ctx, tx, buffer)
+			if err != nil {
 				errMu.Lock()
-				defer errMu.Unlock()
-				errs = append(errs, fmt.Errorf("processing precomputed transaction data at ledger=%d tx=%d: %w", txData.Transaction.Ledger.LedgerSequence(), txData.Transaction.Index, err))
+				errs = append(errs, fmt.Errorf("processing transaction at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err))
+				errMu.Unlock()
+				return
 			}
 			txnBuffers[index] = buffer
+			participantCounts[index] = count
 		})
 	}
+
 	if err := group.Wait(); err != nil {
-		return fmt.Errorf("waiting for transaction processing: %w", err)
+		return 0, fmt.Errorf("waiting for transaction processing: %w", err)
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("processing transactions: %w", errors.Join(errs...))
-	}
-	for _, buffer := range txnBuffers {
-		ledgerBuffer.MergeBuffer(buffer)
+		return 0, fmt.Errorf("processing transactions: %w", errors.Join(errs...))
 	}
 
-	return nil
+	// Merge buffers and count participants
+	totalParticipants := 0
+	for idx, buffer := range txnBuffers {
+		ledgerBuffer.MergeBuffer(buffer)
+		totalParticipants += participantCounts[idx]
+	}
+
+	return totalParticipants, nil
 }
 
-// processPrecomputedTransaction processes a transaction using precomputed data without re-computing participants or state changes
-func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputedData PrecomputedTransactionData, existingAccounts set.Set[string], buffer *IndexerBuffer) error {
-	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&precomputedData.Transaction)
+// processTransaction processes a single transaction - collects data and populates buffer.
+// Returns participant count for metrics.
+func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransaction, buffer *IndexerBuffer) (int, error) {
+	// Get transaction participants
+	txParticipants, err := i.participantsProcessor.GetTransactionParticipants(tx)
 	if err != nil {
-		return fmt.Errorf("creating data transaction: %w", err)
+		return 0, fmt.Errorf("getting transaction participants: %w", err)
+	}
+
+	// Get operations participants
+	opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(tx)
+	if err != nil {
+		return 0, fmt.Errorf("getting operations participants: %w", err)
+	}
+
+	// Get state changes
+	stateChanges, err := i.getTransactionStateChanges(ctx, tx, opsParticipants)
+	if err != nil {
+		return 0, fmt.Errorf("getting transaction state changes: %w", err)
+	}
+
+	// Convert transaction data
+	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope, i.networkPassphrase)
+	if err != nil {
+		return 0, fmt.Errorf("creating data transaction: %w", err)
+	}
+
+	// Count all unique participants for metrics
+	allParticipants := set.NewSet[string]()
+	allParticipants = allParticipants.Union(txParticipants)
+	for _, opParticipants := range opsParticipants {
+		allParticipants = allParticipants.Union(opParticipants.Participants)
+	}
+	for _, stateChange := range stateChanges {
+		allParticipants.Add(stateChange.AccountID)
 	}
 
 	// Insert transaction participants
-	if precomputedData.TxParticipants.Cardinality() != 0 {
-		for participant := range precomputedData.TxParticipants.Iter() {
-			if !existingAccounts.Contains(participant) {
-				continue
-			}
-			buffer.PushTransaction(participant, *dataTx)
-		}
+	for participant := range txParticipants.Iter() {
+		buffer.PushTransaction(participant, *dataTx)
 	}
 
 	// Insert operations participants
-	var dataOp *types.Operation
 	operationsMap := make(map[int64]*types.Operation)
-	for opID, opParticipants := range precomputedData.OpsParticipants {
-		dataOp, err = processors.ConvertOperation(&precomputedData.Transaction, &opParticipants.OpWrapper.Operation, opID)
-		if err != nil {
-			return fmt.Errorf("creating data operation: %w", err)
+	for opID, opParticipants := range opsParticipants {
+		dataOp, opErr := processors.ConvertOperation(&tx, &opParticipants.OpWrapper.Operation, opID)
+		if opErr != nil {
+			return 0, fmt.Errorf("creating data operation: %w", opErr)
 		}
 		operationsMap[opID] = dataOp
 		for participant := range opParticipants.Participants.Iter() {
-			if !existingAccounts.Contains(participant) {
-				continue
-			}
 			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
 	}
 
-	// Insert trustline changes
-	for _, trustlineChange := range precomputedData.TrustlineChanges {
-		buffer.PushTrustlineChange(trustlineChange)
-	}
+	// Process state changes to extract trustline and contract changes
+	for _, stateChange := range stateChanges {
+		//exhaustive:ignore
+		switch stateChange.StateChangeCategory {
+		case types.StateChangeCategoryTrustline:
+			trustlineChange := types.TrustlineChange{
+				AccountID:    stateChange.AccountID,
+				OperationID:  stateChange.OperationID,
+				Asset:        stateChange.TrustlineAsset,
+				LedgerNumber: tx.Ledger.LedgerSequence(),
+			}
+			//exhaustive:ignore
+			switch *stateChange.StateChangeReason {
+			case types.StateChangeReasonAdd:
+				trustlineChange.Operation = types.TrustlineOpAdd
+			case types.StateChangeReasonRemove:
+				trustlineChange.Operation = types.TrustlineOpRemove
+			case types.StateChangeReasonUpdate:
+				continue
+			}
+			buffer.PushTrustlineChange(trustlineChange)
+		case types.StateChangeCategoryBalance:
+			// Only store contract changes when:
+			// - Account is C-address, OR
+			// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
+			accountIsContract := isContractAddress(stateChange.AccountID)
+			tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
 
-	// Insert contract changes
-	for _, contractChange := range precomputedData.ContractChanges {
-		buffer.PushContractChange(contractChange)
+			if accountIsContract || !tokenIsSACOrNative {
+				contractChange := types.ContractChange{
+					AccountID:    stateChange.AccountID,
+					OperationID:  stateChange.OperationID,
+					ContractID:   stateChange.TokenID.String,
+					LedgerNumber: tx.Ledger.LedgerSequence(),
+					ContractType: stateChange.ContractType,
+				}
+				buffer.PushContractChange(contractChange)
+			}
+		}
 	}
 
 	// Sort state changes and set order for this transaction
-	stateChanges := precomputedData.StateChanges
 	sort.Slice(stateChanges, func(i, j int) bool {
 		return stateChanges[i].SortKey < stateChanges[j].SortKey
 	})
 
 	perOpIdx := make(map[int64]int)
-	for i := range stateChanges {
-		sc := &stateChanges[i]
+	for idx := range stateChanges {
+		sc := &stateChanges[idx]
 
 		// State changes are 1-indexed within an operation/transaction.
 		if sc.OperationID != 0 {
@@ -311,9 +244,10 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		}
 	}
 
-	// Process state changes
+	// Insert state changes
 	for _, stateChange := range stateChanges {
-		if !existingAccounts.Contains(stateChange.AccountID) {
+		// Skip empty state changes (no account to associate with)
+		if stateChange.AccountID == "" {
 			continue
 		}
 
@@ -331,7 +265,7 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 
-	return nil
+	return allParticipants.Cardinality(), nil
 }
 
 // getTransactionStateChanges processes operations of a transaction and calculates all state changes

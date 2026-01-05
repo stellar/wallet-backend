@@ -99,7 +99,9 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	if err != nil {
 		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", txHash, err)
 	}
-	stateChanges = append(stateChanges, feeChange)
+	if feeChange.AccountID != "" {
+		stateChanges = append(stateChanges, feeChange)
+	}
 
 	for _, e := range txEvents.OperationEvents {
 		meta := e.GetMeta()
@@ -244,6 +246,11 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		return nil
 
 	default:
+		// Skip transfers involving claimable balances (like LP to CB during trustline revocation)
+		if isClaimableBalance(transfer.GetFrom()) || isClaimableBalance(transfer.GetTo()) {
+			return nil
+		}
+
 		if isLiquidityPool(transfer.GetFrom()) || isLiquidityPool(transfer.GetTo()) {
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, asset, builder)
 		}
@@ -295,8 +302,8 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 		changes = append(changes, mintChange)
 	}
 
-	// Create credit state change for the receiving account. Skip mints to liquidity pools since we dont track LP accounts
-	if !isLiquidityPool(mint.GetTo()) {
+	// Create credit state change for the receiving account. Skip mints to liquidity pools or claimable balances since we dont track them as accounts
+	if !isLiquidityPool(mint.GetTo()) && !isClaimableBalance(mint.GetTo()) {
 		creditChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, mint.GetTo(), mint.GetAmount(), contractAddress, asset, builder)
 		changes = append(changes, creditChange)
 	}
@@ -348,8 +355,8 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 		changes = append(changes, burnChange)
 	}
 
-	// Always record debit from the account losing the tokens. Skip burns from LP accounts since we dont track LP accounts
-	if !isLiquidityPool(from) {
+	// Always record debit from the account losing the tokens. Skip burns from LP or claimable balance since we dont track them as accounts
+	if !isLiquidityPool(from) && !isClaimableBalance(from) {
 		debitChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, amount, contractAddress, asset, builder)
 		changes = append(changes, debitChange)
 	}

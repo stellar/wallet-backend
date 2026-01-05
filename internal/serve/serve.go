@@ -51,6 +51,7 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
+	EnableParticipantFiltering  bool
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -59,6 +60,7 @@ type Configs struct {
 	BaseFee                            int
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+
 	// RPC
 	RPCURL string
 
@@ -72,25 +74,27 @@ type Configs struct {
 }
 
 type handlerDeps struct {
-	Models              *data.Models
-	Port                int
-	DatabaseURL         string
-	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
-	NetworkPassphrase   string
+	Models                     *data.Models
+	Port                       int
+	DatabaseURL                string
+	RequestAuthVerifier        auth.HTTPRequestVerifier
+	SupportedAssets            []entities.Asset
+	NetworkPassphrase          string
+	EnableParticipantFiltering bool
 
 	// Services
-
 	AccountService      services.AccountService
 	FeeBumpService      services.FeeBumpService
 	MetricsService      metrics.MetricsService
 	TransactionService  services.TransactionService
 	RPCService          services.RPCService
 	AccountTokenService services.AccountTokenService
+
 	// GraphQL
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -163,9 +167,12 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, pond.NewPool(0))
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
+	}
+	if err := accountTokenService.InitializeTrustlineIDByAssetCache(ctx); err != nil {
+		return handlerDeps{}, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
 	}
 
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
@@ -261,6 +268,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
 					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
+					EnableParticipantFiltering:  deps.EnableParticipantFiltering,
 				},
 			)
 

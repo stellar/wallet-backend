@@ -32,17 +32,49 @@ func Test_ConvertTransaction(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	gotDataTx, err := ConvertTransaction(&ingestTx)
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, false, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
+	metaXDR := unsafeMetaXDRStr
+	envelopeXDR := envelopeXDRStr
 	wantDataTx := &types.Transaction{
-		Hash:            "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
-		ToID:            20929375637504,
-		EnvelopeXDR:     envelopeXDRStr,
-		ResultXDR:       txResultPairXDRStr,
-		MetaXDR:         unsafeMetaXDRStr,
-		LedgerNumber:    4873,
-		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
+		ToID:                 20929375637504,
+		EnvelopeXDR:          &envelopeXDR,
+		ResultXDR:            txResultPairXDRStr,
+		MetaXDR:              &metaXDR,
+		LedgerNumber:         4873,
+		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
+	}
+	assert.Equal(t, wantDataTx, gotDataTx)
+}
+
+func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
+	var lcm xdr.LedgerCloseMeta
+	err := xdr.SafeUnmarshalBase64(ledgerCloseMetaXDR, &lcm)
+	require.NoError(t, err)
+
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(network.TestNetworkPassphrase, lcm)
+	require.NoError(t, err)
+	ingestTx, err := ledgerTxReader.Read()
+	require.NoError(t, err)
+
+	// skipTxEnvelope = true
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, true, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	metaXDR := unsafeMetaXDRStr
+	// envelopeXDR should be nil
+	wantDataTx := &types.Transaction{
+		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
+		ToID:                 20929375637504,
+		EnvelopeXDR:          nil,
+		ResultXDR:            txResultPairXDRStr,
+		MetaXDR:              &metaXDR,
+		LedgerNumber:         4873,
+		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
 }
@@ -73,4 +105,45 @@ func Test_ConvertOperation(t *testing.T) {
 		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 	}
 	assert.Equal(t, wantDataOp, gotDataOp)
+}
+
+func Test_isClaimableBalance(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		expected bool
+	}{
+		{
+			name:     "valid claimable balance ID",
+			id:       "BAAFK3PZYCD4YKOLFNOCJVG2JIHWOBE5NHU5FHY3ESAHMAO3C5RIYGTBDI",
+			expected: true,
+		},
+		{
+			name:     "regular account ID starting with G",
+			id:       "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+			expected: false,
+		},
+		{
+			name:     "liquidity pool ID starting with P",
+			id:       "PAQKWTDZ3PQLV6OB5HZRLJ6BPZAXUZWBQNC6FDZF3EOJF5LNXKN7C5TJ",
+			expected: false,
+		},
+		{
+			name:     "invalid string",
+			id:       "invalid-id",
+			expected: false,
+		},
+		{
+			name:     "empty string",
+			id:       "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isClaimableBalance(tt.id)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

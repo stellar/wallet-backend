@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/toid"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -44,6 +45,15 @@ func isLiquidityPool(accountID string) bool {
 	}
 	// Check if it's a liquidity pool strkey
 	return versionByte == strkey.VersionByteLiquidityPool
+}
+
+// isClaimableBalance checks if the given ID is a claimable balance
+func isClaimableBalance(id string) bool {
+	versionByte, _, err := strkey.DecodeAny(id)
+	if err != nil {
+		return false
+	}
+	return versionByte == strkey.VersionByteClaimableBalance
 }
 
 // operationSourceAccount returns the source account for an operation,
@@ -83,10 +93,15 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transaction, error) {
-	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
+	var envelopeXDR *string
+	envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
+	}
+
+	if !skipTxEnvelope {
+		envelopeXDR = &envelopeXDRStr
 	}
 
 	resultXDR, err := xdr.MarshalBase64(transaction.Result)
@@ -94,22 +109,47 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transacti
 		return nil, fmt.Errorf("marshalling transaction result: %w", err)
 	}
 
-	metaXDR, err := xdr.MarshalBase64(transaction.UnsafeMeta)
+	var metaXDR *string
+	if !skipTxMeta {
+		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+		}
+		metaXDR = &metaXDRStr
+	}
+
+	// Calculate inner transaction hash
+	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRStr)
 	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+		return nil, fmt.Errorf("deserializing envelope xdr: %w", err)
+	}
+
+	var innerTx *txnbuild.Transaction
+	if feeBumpTx, ok := genericTx.FeeBump(); ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else if tx, ok := genericTx.Transaction(); ok {
+		innerTx = tx
+	} else {
+		return nil, fmt.Errorf("transaction is neither fee bump nor inner transaction")
+	}
+
+	innerTxHash, err := innerTx.HashHex(networkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("generating inner hash hex: %w", err)
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
 	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
 
 	return &types.Transaction{
-		ToID:            transactionID,
-		Hash:            transaction.Hash.HexString(),
-		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
-		EnvelopeXDR:     envelopeXDR,
-		ResultXDR:       resultXDR,
-		MetaXDR:         metaXDR,
-		LedgerNumber:    ledgerSequence,
+		ToID:                 transactionID,
+		Hash:                 transaction.Hash.HexString(),
+		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
+		EnvelopeXDR:          envelopeXDR,
+		ResultXDR:            resultXDR,
+		MetaXDR:              metaXDR,
+		LedgerNumber:         ledgerSequence,
+		InnerTransactionHash: innerTxHash,
 	}, nil
 }
 

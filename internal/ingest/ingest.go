@@ -70,6 +70,13 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// DatastoreConfigPath is the path to the TOML config file for datastore backend
 	DatastoreConfigPath string
+	// SkipTxMeta skips storing transaction metadata (meta_xdr) to reduce storage space
+	SkipTxMeta bool
+	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
+	SkipTxEnvelope bool
+	// EnableParticipantFiltering controls whether to filter ingested data by pre-registered accounts.
+	// When false (default), all data is stored. When true, only data for pre-registered accounts is stored.
+	EnableParticipantFiltering bool
 }
 
 func Ingest(cfg Configs) error {
@@ -143,13 +150,16 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, accountTokenPool)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset, accountTokenPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
+	if err := accountTokenService.InitializeTrustlineIDByAssetCache(context.Background()); err != nil {
+		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope, cfg.EnableParticipantFiltering)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

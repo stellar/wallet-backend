@@ -6,6 +6,8 @@ package resolvers
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -64,7 +66,23 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 
 // AccountByAddress is the resolver for the accountByAddress field.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
-	return r.models.Account.Get(ctx, address)
+	if address == "" {
+		return nil, fmt.Errorf("address cannot be empty")
+	}
+	acc, err := r.models.Account.Get(ctx, address)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// If the participant filtering has been enabled and this account is not registered, we return an error.
+			if r.config.EnableParticipantFiltering {
+				return nil, fmt.Errorf("account not found")
+			}
+
+			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
+			return &types.Account{StellarAddress: address}, nil
+		}
+		return nil, err
+	}
+	return acc, nil
 }
 
 // Operations is the resolver for the operations field.
@@ -181,21 +199,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 		// Build ledger keys for all trustlines
 		for _, trustline := range trustlines {
-			// Parse the trustline string (format: "ASSETCODE:ISSUER")
-			parts := strings.Split(trustline, ":")
-			if len(parts) != 2 {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-			assetCode := parts[0]
-			assetIssuer := parts[1]
-
 			// Create ledger key for this trustline
-			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
+			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, trustline.Code, trustline.Issuer)
 			if keyErr != nil {
 				return nil, &gqlerror.Error{
 					Message: ErrMsgBalancesFetchFailed,
@@ -470,17 +475,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 			// Build ledger keys for all trustlines
 			for _, trustline := range info.trustlines {
-				parts := strings.Split(trustline, ":")
-				if len(parts) != 2 {
-					info.collectionErr = fmt.Errorf("invalid trustline format: %s", trustline)
-					break
-				}
-				assetCode := parts[0]
-				assetIssuer := parts[1]
-
-				ledgerKey, keyErr := utils.GetTrustlineLedgerKey(info.address, assetCode, assetIssuer)
+				ledgerKey, keyErr := utils.GetTrustlineLedgerKey(info.address, trustline.Code, trustline.Issuer)
 				if keyErr != nil {
-					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
+					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s-%s: %w", trustline.Code, trustline.Issuer, keyErr)
 					break
 				}
 				ledgerKeys = append(ledgerKeys, ledgerKey)
