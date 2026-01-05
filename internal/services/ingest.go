@@ -222,21 +222,9 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 
 		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
 		if err == nil {
-			if attempt > 0 {
-				log.Ctx(ctx).Infof("Successfully fetched ledger %d after %d retries", ledgerSeq, attempt)
-			}
 			return ledgerMeta, nil
 		}
 		lastErr = err
-
-		// Enhanced logging to distinguish context-related errors from S3 errors
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			log.Ctx(ctx).Errorf("Context-related error fetching ledger %d (attempt %d/%d): %v",
-				ledgerSeq, attempt+1, maxLedgerFetchRetries, err)
-		} else {
-			log.Ctx(ctx).Warnf("S3 error fetching ledger %d (attempt %d/%d): %v",
-				ledgerSeq, attempt+1, maxLedgerFetchRetries, err)
-		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxRetryBackoff {
