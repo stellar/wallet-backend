@@ -24,6 +24,43 @@ const (
 	BackfillModeCatchup
 )
 
+// BackfillBatch represents a contiguous range of ledgers to process as a unit.
+type BackfillBatch struct {
+	StartLedger uint32
+	EndLedger   uint32
+}
+
+// BackfillResult tracks the outcome of processing a single batch.
+type BackfillResult struct {
+	Batch        BackfillBatch
+	LedgersCount int
+	Duration     time.Duration
+	Error        error
+}
+
+// batchAnalysis holds the aggregated results from processing multiple backfill batches.
+type batchAnalysis struct {
+	failedBatches []BackfillBatch
+	successCount  int
+	totalLedgers  int
+}
+
+// analyzeBatchResults aggregates backfill batch results and logs any failures.
+func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
+	var analysis batchAnalysis
+	for _, result := range results {
+		if result.Error != nil {
+			analysis.failedBatches = append(analysis.failedBatches, result.Batch)
+			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			analysis.successCount++
+			analysis.totalLedgers += result.LedgersCount
+		}
+	}
+	return analysis
+}
+
 // startBackfilling processes ledgers in the specified range, identifying gaps
 // and processing them in parallel batches. The mode parameter determines:
 // - BackfillModeHistorical: fills gaps within already-ingested range
