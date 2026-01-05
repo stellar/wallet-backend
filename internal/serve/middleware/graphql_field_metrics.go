@@ -35,20 +35,21 @@ func (m *GraphQLFieldMetrics) Middleware(ctx context.Context, next graphql.Resol
 	}
 
 	oc := graphql.GetOperationContext(ctx)
-	operationName := "<unnamed>"
-	if oc != nil && oc.OperationName != "" {
-		operationName = oc.OperationName
-	}
+	operationName := GetOperationIdentifier(oc)
 
-	fieldName := fc.Field.Name
+	// Get full field path (e.g., "accountByAddress.transactions.hash")
+	fieldPath := GetFieldPath(fc)
+	if fieldPath == "" {
+		fieldPath = fc.Field.Name // fallback to just field name
+	}
 
 	startTime := time.Now()
 	res, err := next(ctx)
 	duration := time.Since(startTime).Seconds()
-	m.metricsService.ObserveGraphQLFieldDuration(operationName, fieldName, duration)
+	m.metricsService.ObserveGraphQLFieldDuration(operationName, fieldPath, duration)
 
 	success := err == nil
-	m.metricsService.IncGraphQLField(operationName, fieldName, success)
+	m.metricsService.IncGraphQLField(operationName, fieldPath, success)
 
 	if err != nil {
 		errorType := classifyGraphQLError(err)
