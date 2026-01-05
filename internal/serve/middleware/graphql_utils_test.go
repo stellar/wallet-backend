@@ -1,5 +1,3 @@
-// Package middleware provides HTTP middleware components for the wallet backend server.
-// This file contains tests for GraphQL utility functions.
 package middleware
 
 import (
@@ -187,7 +185,7 @@ func TestGetFieldPath(t *testing.T) {
 			expected: "accountByAddress.transactions.hash",
 		},
 		{
-			name: "field with alias uses alias",
+			name: "field with alias uses actual field name not alias",
 			fc: &graphql.FieldContext{
 				Parent: &graphql.FieldContext{
 					Field: graphql.CollectedField{
@@ -198,7 +196,7 @@ func TestGetFieldPath(t *testing.T) {
 					Field: &ast.Field{Name: "address", Alias: "addr"},
 				},
 			},
-			expected: "account.addr",
+			expected: "accountByAddress.address",
 		},
 	}
 

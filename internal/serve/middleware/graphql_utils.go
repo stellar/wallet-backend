@@ -37,22 +37,33 @@ func GetOperationIdentifier(oc *graphql.OperationContext) string {
 // GetFieldPath extracts the full field path from a FieldContext, excluding array indices.
 // This provides a complete path like "accountByAddress.transactions.hash" instead of just "hash".
 // Array indices are excluded to avoid Prometheus cardinality explosion.
+// Uses actual field names (not aliases) to prevent cardinality explosion from aliased queries.
 func GetFieldPath(fc *graphql.FieldContext) string {
 	if fc == nil {
 		return ""
 	}
 
-	path := fc.Path()
+	// Walk the parent chain to build the path (leaf to root)
 	var parts []string
-	for _, segment := range path {
-		// Only include named segments, skip array indices (PathIndex)
-		if name, ok := segment.(ast.PathName); ok {
-			parts = append(parts, string(name))
+	for it := fc; it != nil; it = it.Parent {
+		// Skip array index nodes
+		if it.Index != nil {
+			continue
+		}
+		// Use actual field name (not alias) to avoid cardinality explosion
+		if it.Field.Field != nil {
+			parts = append(parts, it.Field.Field.Name)
 		}
 	}
 
 	if len(parts) == 0 {
 		return ""
 	}
+
+	// Reverse since we walked from leaf to root
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+
 	return strings.Join(parts, ".")
 }
