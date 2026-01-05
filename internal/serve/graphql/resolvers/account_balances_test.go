@@ -40,20 +40,6 @@ func ptrToScSymbol(s string) *xdr.ScSymbol {
 	return &sym
 }
 
-// Helper to decode contract ID from strkey to Hash
-func contractIDToHash(contractID string) xdr.Hash {
-	// Decode the contract address (C... format)
-	// Use strkey.Decode with VersionByteContract
-	decoded, err := strkey.Decode(strkey.VersionByteContract, contractID)
-	if err != nil {
-		panic(fmt.Sprintf("invalid contract ID: %v", err))
-	}
-	// Convert the bytes to Hash
-	var hash xdr.Hash
-	copy(hash[:], decoded)
-	return hash
-}
-
 // Helper to create ScVec pointer
 func ptrToScVec(vals []xdr.ScVal) **xdr.ScVec {
 	vec := xdr.ScVec(vals)
@@ -152,7 +138,7 @@ func createTrustlineLedgerEntry(accountAddress, assetCode, assetIssuer string, b
 // createSACContractDataEntry creates a SAC balance entry with authorization fields
 func createSACContractDataEntry(contractID, holderAddress string, amount int64, authorized, clawback bool) entities.LedgerEntryResult {
 	// Decode contract ID from strkey
-	contractHash := contractIDToHash(contractID)
+	contractHash := strkey.MustDecode(strkey.VersionByteContract, contractID)
 
 	// Create balance key [Symbol("Balance"), Address(holder)]
 	holderAccountID := xdr.MustAddress(holderAddress)
@@ -886,7 +872,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Create SAC entry with missing "amount" field - need to manually create malformed XDR
-		contractHash := contractIDToHash(testContractAddress)
+		contractHash := strkey.MustDecode(strkey.VersionByteContract, testContractAddress)
 		holderAccountID := xdr.MustAddress(testAccountAddress)
 
 		balanceSymbol := ptrToScSymbol("Balance")

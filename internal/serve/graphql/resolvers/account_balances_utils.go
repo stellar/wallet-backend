@@ -120,19 +120,19 @@ func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (
 	return contractIDStr, true, nil
 }
 
-// contractIdToHash converts a contract ID string to an xdr.ContractId.
-func contractIdToHash(contractId string) *xdr.ContractId {
+// contractIDToHash converts a contract ID string to an xdr.ContractId.
+func contractIDToHash(contractId string) (*xdr.ContractId, error) {
 	idBytes := [32]byte{}
 	rawBytes, err := hex.DecodeString(contractId)
 	if err != nil {
-		panic(fmt.Errorf("invalid contract id (%s): %v", contractId, err))
+		return nil, fmt.Errorf("invalid contract id (%s): %v", contractId, err)
 	}
 	if copy(idBytes[:], rawBytes[:]) != 32 {
-		panic("couldn't copy 32 bytes to contract hash")
+		return nil, fmt.Errorf("couldn't copy 32 bytes to contract hash")
 	}
 
 	hash := xdr.ContractId(idBytes)
-	return &hash
+	return &hash, nil
 }
 
 // addressToScVal converts a Stellar address string (G... account or C... contract) to an xdr.ScVal.
@@ -144,7 +144,11 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	case 'C':
 		scAddress.Type = xdr.ScAddressTypeScAddressTypeContract
 		contractHash := strkey.MustDecode(strkey.VersionByteContract, address)
-		scAddress.ContractId = contractIdToHash(hex.EncodeToString(contractHash))
+		contractID, err := contractIDToHash(hex.EncodeToString(contractHash))
+		if err != nil {
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid contract: %s", address)
+		}
+		scAddress.ContractId = contractID
 
 	case 'G':
 		scAddress.Type = xdr.ScAddressTypeScAddressTypeAccount
@@ -152,7 +156,7 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	case 'M':
 		acct, err := strkey.DecodeMuxedAccount(address)
 		if err != nil {
-			panic(fmt.Errorf("address is not a valid muxed account: %s", address))
+			return xdr.ScVal{}, fmt.Errorf("address is not a valid muxed account: %s", address)
 		}
 		scAddress.Type = xdr.ScAddressTypeScAddressTypeMuxedAccount
 		scAddress.MuxedAccount = &xdr.MuxedEd25519Account{
@@ -168,11 +172,11 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 		var someCb xdr.ClaimableBalanceId
 		err := someCb.DecodeFromStrkey(address)
 		if err != nil {
-			panic(fmt.Errorf("error in decoding claimable balance id from strkey: %w", err))
+			return xdr.ScVal{}, fmt.Errorf("error in decoding claimable balance id from strkey: %w", err)
 		}
 		scAddress.ClaimableBalanceId = &someCb
 	default:
-		panic(fmt.Errorf("unsupported address: %s", address))
+		return xdr.ScVal{}, fmt.Errorf("unsupported address: %s", address)
 	}
 
 	return xdr.ScVal{
