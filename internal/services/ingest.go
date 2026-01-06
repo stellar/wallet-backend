@@ -202,6 +202,22 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
+// processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
+func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
+	if err != nil {
+		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
+	return nil
+}
+
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
 	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
 	if err != nil {
