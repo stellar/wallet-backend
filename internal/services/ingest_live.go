@@ -82,7 +82,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
 func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) error {
-	return db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
 			return fmt.Errorf("initializing latest cursor: %w", err)
 		}
@@ -91,6 +91,10 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("initializing cursors: %w", err)
+	}
+	return nil
 }
 
 // ingestLiveLedgers continuously processes ledgers starting from startLedger,
