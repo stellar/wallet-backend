@@ -103,14 +103,14 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			totalStart := time.Now()
-			ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
-			if ledgerErr != nil {
-				return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
-			}
-			m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
+		totalStart := time.Now()
+		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+		if ledgerErr != nil {
+			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
+		}
+		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			if processErr := m.processLiveLedger(ctx, dbTx, ledgerMeta); processErr != nil {
 				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 			}
@@ -126,7 +126,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("ingesting ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		currentLedger++
 	}

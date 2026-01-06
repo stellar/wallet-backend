@@ -248,35 +248,47 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 
-	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		// Process each ledger in the batch sequentially
-		for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-			ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
-			if err != nil {
-				return fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
-			}
+	// Process each ledger in the batch sequentially
+	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+		if err != nil {
+			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+			result.Duration = time.Since(start)
+			return result
+		}
 
-			err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
-			if err != nil {
-				return fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
-			}
-			result.LedgersCount++
-			ledgersInBuffer++
+		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
+		if err != nil {
+			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		result.LedgersCount++
+		ledgersInBuffer++
 
-			// Flush buffer periodically to control memory usage
-			if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+		// Flush buffer periodically to control memory usage
+		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 				if err := m.ingestProcessedData(ctx, dbTx, batchBuffer); err != nil {
 					return fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
 				}
 				batchBuffer.Clear()
 				ledgersInBuffer = 0
+				return nil
+			})
+			if err != nil {
+				result.Error = err
+				result.Duration = time.Since(start)
+				return result
 			}
 		}
+	}
 
-		// Flush remaining data in buffer
+	// Flush remaining data in buffer
+	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		if ledgersInBuffer > 0 {
 			if err := m.ingestProcessedData(ctx, dbTx, batchBuffer); err != nil {
-				return fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+				return fmt.Errorf("ingesting final processed data: %w", err)
 			}
 		}
 
@@ -287,7 +299,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 		return nil
 	})
 	if err != nil {
-		result.Error = err
+		result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
 		result.Duration = time.Since(start)
 		return result
 	}
