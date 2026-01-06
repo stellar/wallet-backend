@@ -117,15 +117,19 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
 
+		filteredData, err := m.filterParticipantData(ctx, buffer)
+		if err != nil {
+			return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, err)
+		}
+
+		dbStart := time.Now()
 		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			start := time.Now()
-			innerErr := m.ingestProcessedData(ctx, dbTx, buffer)
+			innerErr := m.ingestProcessedData(ctx, dbTx, filteredData)
 			if innerErr != nil {
 				return fmt.Errorf("ingesting processed data for ledger %d: %w", currentLedger, innerErr)
 			}
-			m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
 
-			innerErr = m.updateLatestLedgerCursor(ctx, dbTx, currentLedger)
+			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
 			}
@@ -136,25 +140,15 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 
 		// Record processing metrics
+		m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
 		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
-		m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
-		m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
+		m.metricsService.IncIngestionTransactionsProcessed(len(filteredData.txs))
+		m.metricsService.IncIngestionOperationsProcessed(len(filteredData.ops))
 		m.metricsService.IncIngestionLedgersProcessed(1)
+		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
 
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
 		currentLedger++
 	}
-}
-
-// updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
-func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
-	cursorStart := time.Now()
-	err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
-	if err != nil {
-		return fmt.Errorf("updating latest synced ledger: %w", err)
-	}
-	m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
-	m.metricsService.ObserveIngestionPhaseDuration("latest_cursor_update", time.Since(cursorStart).Seconds())
-	return nil
 }

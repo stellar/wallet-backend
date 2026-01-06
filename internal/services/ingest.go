@@ -248,6 +248,8 @@ type filteredIngestionData struct {
 	ops            []*types.Operation
 	opParticipants map[int64]set.Set[string]
 	stateChanges   []types.StateChange
+	trustlineChanges []types.TrustlineChange
+	contractTokenChanges []types.ContractChange
 }
 
 // filterByRegisteredAccounts filters ingestion data to only include items
@@ -331,13 +333,16 @@ func (m *ingestService) filterByRegisteredAccounts(
 	}, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, indexerBuffer indexer.IndexerBufferInterface) error {
+// filterParticipantData filters the data to only include participants that are registered
+func (m *ingestService) filterParticipantData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) (*filteredIngestionData, error) {
 	// Get data from indexer buffer
 	txs := indexerBuffer.GetTransactions()
 	txParticipants := indexerBuffer.GetTransactionsParticipants()
 	ops := indexerBuffer.GetOperations()
 	opParticipants := indexerBuffer.GetOperationsParticipants()
 	stateChanges := indexerBuffer.GetStateChanges()
+	trustlineChanges := indexerBuffer.GetTrustlineChanges()
+	contractChanges := indexerBuffer.GetContractChanges()
 
 	// When filtering is enabled, only store data for registered accounts
 	if m.enableParticipantFiltering {
@@ -346,32 +351,42 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, i
 			indexerBuffer.GetAllParticipants(),
 		)
 		if err != nil {
-			return fmt.Errorf("filtering by registered accounts: %w", err)
+			return nil, fmt.Errorf("filtering by registered accounts: %w", err)
 		}
-		txs = filtered.txs
-		txParticipants = filtered.txParticipants
-		ops = filtered.ops
-		opParticipants = filtered.opParticipants
-		stateChanges = filtered.stateChanges
+		filtered.trustlineChanges = trustlineChanges
+		filtered.contractTokenChanges = contractChanges
+		return filtered, nil
 	}
 
-	if err := m.insertTransactions(ctx, pgxTx, txs, txParticipants); err != nil {
+	return &filteredIngestionData{
+		txs:            txs,
+		txParticipants: txParticipants,
+		ops:            ops,
+		opParticipants: opParticipants,
+		stateChanges:   stateChanges,
+		trustlineChanges: trustlineChanges,
+		contractTokenChanges: contractChanges,
+	}, nil
+}
+
+func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, data *filteredIngestionData) error {
+	if err := m.insertTransactions(ctx, pgxTx, data.txs, data.txParticipants); err != nil {
 		return err
 	}
-	if err := m.insertOperations(ctx, pgxTx, ops, opParticipants); err != nil {
+	if err := m.insertOperations(ctx, pgxTx, data.ops, data.opParticipants); err != nil {
 		return err
 	}
-	if err := m.insertStateChanges(ctx, pgxTx, stateChanges); err != nil {
+	if err := m.insertStateChanges(ctx, pgxTx, data.stateChanges); err != nil {
 		return err
 	}
 
 	// Unlock channel accounts only during live ingestion (skip for historical backfill)
 	// This is done within the same pgxTx for atomicity - all inserts and unlocks succeed or fail together
 	if m.ingestionMode == IngestionModeLive {
-		if err := m.unlockChannelAccounts(ctx, pgxTx, txs); err != nil {
+		if err := m.unlockChannelAccounts(ctx, pgxTx, data.txs); err != nil {
 			return err
 		}
-		return m.processLiveIngestionTokenChanges(ctx, indexerBuffer)
+		return m.processLiveIngestionTokenChanges(ctx, data.trustlineChanges, data.contractTokenChanges)
 	}
 
 	return nil
@@ -456,14 +471,11 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 
 // processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
 // This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
-func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, buffer indexer.IndexerBufferInterface) error {
-	trustlineChanges := buffer.GetTrustlineChanges()
+func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	// Sort trustline changes by operation ID in ascending order
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
-
-	contractChanges := buffer.GetContractChanges()
 
 	// Process all trustline and contract changes in a single batch using Redis pipelining
 	if err := m.accountTokenService.ProcessTokenChanges(ctx, trustlineChanges, contractChanges); err != nil {
