@@ -3,10 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jmoiron/sqlx"
 	"github.com/stellar/go/support/log"
@@ -219,4 +221,27 @@ func RunInTransactionWithResult[T any](ctx context.Context, dbConnectionPool Con
 	}
 
 	return result, nil
+}
+
+func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, atomicFunction func(pgxTx pgx.Tx) error) error {
+	pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning pgx transaction: %w", err)
+	}
+
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+		}
+	}()
+
+	if err := atomicFunction(pgxTx); err != nil {
+		return err
+	}
+
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
+	}
+
+	return nil
 }

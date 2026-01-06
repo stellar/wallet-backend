@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
@@ -220,18 +221,6 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 
-	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
-	if err != nil {
-		result.Error = fmt.Errorf("beginning pgx transaction: %w", err)
-		result.Duration = time.Since(start)
-		return result
-	}
-	defer func() {
-		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
-		}
-	}()
-
 	// Create a new ledger backend for this batch
 	backend, err := m.ledgerBackendFactory(ctx)
 	if err != nil {
@@ -259,54 +248,42 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 
-	// Process each ledger in the batch sequentially
-	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
-		if err != nil {
-			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
-			result.Duration = time.Since(start)
-			return result
-		}
-
-		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
-		if err != nil {
-			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
-			result.Duration = time.Since(start)
-			return result
-		}
-		result.LedgersCount++
-		ledgersInBuffer++
-
-		// Flush buffer periodically to control memory usage
-		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.ingestProcessedData(ctx, pgxTx, batchBuffer); err != nil {
-				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
-				result.Duration = time.Since(start)
-				return result
+	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		// Process each ledger in the batch sequentially
+		for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+			ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+			if err != nil {
+				return fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			}
-			batchBuffer.Clear()
-			ledgersInBuffer = 0
-		}
-	}
 
-	// Flush remaining data in buffer
-	if ledgersInBuffer > 0 {
-		if err := m.ingestProcessedData(ctx, pgxTx, batchBuffer); err != nil {
-			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
-			result.Duration = time.Since(start)
-			return result
-		}
-	}
+			err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
+			if err != nil {
+				return fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
+			}
+			result.LedgersCount++
+			ledgersInBuffer++
 
-	err = m.updateOldestLedgerCursor(ctx, pgxTx, batch.StartLedger)
+			// Flush buffer periodically to control memory usage
+			if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+				if err := m.ingestProcessedData(ctx, dbTx, batchBuffer); err != nil {
+					return fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
+				}
+				batchBuffer.Clear()
+				ledgersInBuffer = 0
+			}
+		}
+
+		// Flush remaining data in buffer
+		if ledgersInBuffer > 0 {
+			if err := m.ingestProcessedData(ctx, dbTx, batchBuffer); err != nil {
+				return fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+			}
+		}
+
+		return m.updateOldestLedgerCursor(ctx, dbTx, batch.StartLedger)
+	})
 	if err != nil {
-		result.Error = fmt.Errorf("updating oldest ledger cursor: %w", err)
-		result.Duration = time.Since(start)
-		return result
-	}
-
-	if err := pgxTx.Commit(ctx); err != nil {
-		result.Error = fmt.Errorf("committing pgx transaction: %w", err)
+		result.Error = err
 		result.Duration = time.Since(start)
 		return result
 	}
@@ -337,12 +314,13 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 }
 
 // updateOldestLedgerCursor updates the oldest ledger cursor during backfill with metrics tracking.
-func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, pgxTx pgx.Tx, currentLedger uint32) error {
+func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
 	cursorStart := time.Now()
-	err := m.models.IngestStore.UpdateMin(ctx, pgxTx, m.oldestLedgerCursorName, currentLedger)
+	err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, currentLedger)
 	if err != nil {
 		return fmt.Errorf("updating oldest ledger cursor: %w", err)
 	}
+	m.metricsService.SetOldestLedgerIngested(float64(currentLedger))
 	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }

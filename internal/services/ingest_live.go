@@ -82,25 +82,15 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
 func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) error {
-	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("beginning pgx transaction: %w", err)
-	}
-	defer func() {
-		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+	return db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
+			return fmt.Errorf("initializing latest cursor: %w", err)
 		}
-	}()
-	if err := m.models.IngestStore.Update(ctx, pgxTx, m.latestLedgerCursorName, ledger); err != nil {
-		return fmt.Errorf("initializing latest cursor: %w", err)
-	}
-	if err := m.models.IngestStore.Update(ctx, pgxTx, m.oldestLedgerCursorName, ledger); err != nil {
-		return fmt.Errorf("initializing oldest cursor: %w", err)
-	}
-	if err := pgxTx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing pgx transaction: %w", err)
-	}
-	return nil
+		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+			return fmt.Errorf("initializing oldest cursor: %w", err)
+		}
+		return nil
+	})
 }
 
 // ingestLiveLedgers continuously processes ledgers starting from startLedger,
@@ -109,40 +99,32 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("beginning pgx transaction: %w", err)
-		}
-		defer func() {
-			if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-				log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			totalStart := time.Now()
+			ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+			if ledgerErr != nil {
+				return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 			}
-		}()
+			m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		totalStart := time.Now()
-		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
-		if ledgerErr != nil {
-			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
-		}
-		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
+			if processErr := m.processLiveLedger(ctx, dbTx, ledgerMeta); processErr != nil {
+				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
+			}
 
-		if processErr := m.processLiveLedger(ctx, pgxTx, ledgerMeta); processErr != nil {
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-		}
+			// Update cursor only for live ingestion
+			innerErr := m.updateLatestLedgerCursor(ctx, dbTx, currentLedger)
+			if innerErr != nil {
+				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
+			}
+			m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
+			m.metricsService.IncIngestionLedgersProcessed(1)
 
-		// Update cursor only for live ingestion
-		err = m.updateLatestLedgerCursor(ctx, pgxTx, currentLedger)
+			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
+			return nil
+		})
 		if err != nil {
-			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("ingesting ledger %d: %w", currentLedger, err)
 		}
-		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(1)
-
-		if err := pgxTx.Commit(ctx); err != nil {
-			return fmt.Errorf("committing pgx transaction: %w", err)
-		}
-
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
 		currentLedger++
 	}
 }
@@ -152,8 +134,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 // Phase 2: Process transactions using Indexer (parallel within ledger)
 // Phase 3: Insert all data into DB
 // Note: Live ingestion includes Redis cache updates and channel account unlocks,
-// while backfill mode skips these operations (determined by m.ingestionMode).
-func (m *ingestService) processLiveLedger(ctx context.Context, pgxTx pgx.Tx, ledgerMeta xdr.LedgerCloseMeta) error {
+func (m *ingestService) processLiveLedger(ctx context.Context, dbTx pgx.Tx, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Phase 1: Get transactions from ledger
@@ -176,7 +157,7 @@ func (m *ingestService) processLiveLedger(ctx context.Context, pgxTx pgx.Tx, led
 
 	// Phase 3: Insert all data into DB
 	start = time.Now()
-	if err := m.ingestProcessedData(ctx, pgxTx, buffer); err != nil {
+	if err := m.ingestProcessedData(ctx, dbTx, buffer); err != nil {
 		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
@@ -189,9 +170,9 @@ func (m *ingestService) processLiveLedger(ctx context.Context, pgxTx pgx.Tx, led
 }
 
 // updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
-func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, pgxTx pgx.Tx, currentLedger uint32) error {
+func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
 	cursorStart := time.Now()
-	err := m.models.IngestStore.Update(ctx, pgxTx, m.latestLedgerCursorName, currentLedger)
+	err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
 	if err != nil {
 		return fmt.Errorf("updating latest synced ledger: %w", err)
 	}
