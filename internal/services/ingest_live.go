@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
@@ -100,6 +103,16 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
+		pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("beginning pgx transaction: %w", err)
+		}
+		defer func() {
+			if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+				log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+			}
+		}()
+
 		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
@@ -107,36 +120,76 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
+		if processErr := m.processLiveLedger(ctx, pgxTx, ledgerMeta); processErr != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 		}
 
 		// Update cursor only for live ingestion
-		err := m.updateLatestLedgerCursor(ctx, currentLedger)
+		err = m.updateLatestLedgerCursor(ctx, pgxTx, currentLedger)
 		if err != nil {
 			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
 		}
 		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(1)
 
+		if err := pgxTx.Commit(ctx); err != nil {
+			return fmt.Errorf("committing pgx transaction: %w", err)
+		}
+
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
 		currentLedger++
 	}
 }
 
-// updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
-func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, currentLedger uint32) error {
-	cursorStart := time.Now()
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); updateErr != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-		}
-		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
-		return nil
-	})
+// processLiveLedger processes a single ledger through all ingestion phases.
+// Phase 1: Get transactions from ledger
+// Phase 2: Process transactions using Indexer (parallel within ledger)
+// Phase 3: Insert all data into DB
+// Note: Live ingestion includes Redis cache updates and channel account unlocks,
+// while backfill mode skips these operations (determined by m.ingestionMode).
+func (m *ingestService) processLiveLedger(ctx context.Context, pgxTx pgx.Tx, ledgerMeta xdr.LedgerCloseMeta) error {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+
+	// Phase 1: Get transactions from ledger
+	start := time.Now()
+	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
 	if err != nil {
-		return fmt.Errorf("updating cursors: %w", err)
+		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
+	m.metricsService.ObserveIngestionPhaseDuration("get_transactions", time.Since(start).Seconds())
+
+	// Phase 2: Process transactions using Indexer (parallel within ledger)
+	start = time.Now()
+	buffer := indexer.NewIndexerBuffer()
+	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
+
+	// Phase 3: Insert all data into DB
+	start = time.Now()
+	if err := m.ingestProcessedData(ctx, pgxTx, buffer); err != nil {
+		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
+
+	// Record transaction and operation processing metrics
+	m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
+	m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
+
+	return nil
+}
+
+// updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
+func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, pgxTx pgx.Tx, currentLedger uint32) error {
+	cursorStart := time.Now()
+	err := m.models.IngestStore.Update(ctx, pgxTx, m.latestLedgerCursorName, currentLedger)
+	if err != nil {
+		return fmt.Errorf("updating latest synced ledger: %w", err)
+	}
+	m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
 	m.metricsService.ObserveIngestionPhaseDuration("latest_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }

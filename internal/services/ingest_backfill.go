@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
@@ -113,13 +115,8 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
 	}
 
-	// Update cursors based on mode
-	switch mode {
-	case BackfillModeHistorical:
-		if err := m.updateOldestLedgerCursor(ctx, startLedger); err != nil {
-			return fmt.Errorf("updating oldest cursor: %w", err)
-		}
-	case BackfillModeCatchup:
+	// Update latest ledger cursor for catchup mode
+	if mode == BackfillModeCatchup {
 		if err := m.updateLatestLedgerCursorAfterCatchup(ctx, endLedger); err != nil {
 			return fmt.Errorf("updating latest cursor after catchup: %w", err)
 		}
@@ -233,6 +230,18 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 
+	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
+	if err != nil {
+		result.Error = fmt.Errorf("beginning pgx transaction: %w", err)
+		result.Duration = time.Since(start)
+		return result
+	}
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+		}
+	}()
+
 	// Create a new ledger backend for this batch
 	backend, err := m.ledgerBackendFactory(ctx)
 	if err != nil {
@@ -280,7 +289,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 		// Flush buffer periodically to control memory usage
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+			if err := m.ingestProcessedData(ctx, pgxTx, batchBuffer); err != nil {
 				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
 				result.Duration = time.Since(start)
 				return result
@@ -292,11 +301,24 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Flush remaining data in buffer
 	if ledgersInBuffer > 0 {
-		if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+		if err := m.ingestProcessedData(ctx, pgxTx, batchBuffer); err != nil {
 			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
 			result.Duration = time.Since(start)
 			return result
 		}
+	}
+
+	err = m.updateOldestLedgerCursor(ctx, pgxTx, batch.StartLedger)
+	if err != nil {
+		result.Error = fmt.Errorf("updating oldest ledger cursor: %w", err)
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	if err := pgxTx.Commit(ctx); err != nil {
+		result.Error = fmt.Errorf("committing pgx transaction: %w", err)
+		result.Duration = time.Since(start)
+		return result
 	}
 
 	result.Duration = time.Since(start)
@@ -325,17 +347,11 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 }
 
 // updateOldestLedgerCursor updates the oldest ledger cursor during backfill with metrics tracking.
-func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, currentLedger uint32) error {
+func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, pgxTx pgx.Tx, currentLedger uint32) error {
 	cursorStart := time.Now()
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, currentLedger); updateErr != nil {
-			return fmt.Errorf("updating oldest synced ledger: %w", updateErr)
-		}
-		m.metricsService.SetOldestLedgerIngested(float64(currentLedger))
-		return nil
-	})
+	err := m.models.IngestStore.UpdateMin(ctx, pgxTx, m.oldestLedgerCursorName, currentLedger)
 	if err != nil {
-		return fmt.Errorf("updating cursors: %w", err)
+		return fmt.Errorf("updating oldest ledger cursor: %w", err)
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
 	return nil

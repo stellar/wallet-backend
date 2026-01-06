@@ -202,47 +202,6 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
-// processLedger processes a single ledger through all ingestion phases.
-// Phase 1: Get transactions from ledger
-// Phase 2: Process transactions using Indexer (parallel within ledger)
-// Phase 3: Insert all data into DB
-// Note: Live ingestion includes Redis cache updates and channel account unlocks,
-// while backfill mode skips these operations (determined by m.ingestionMode).
-func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
-	ledgerSeq := ledgerMeta.LedgerSequence()
-
-	// Phase 1: Get transactions from ledger
-	start := time.Now()
-	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
-	if err != nil {
-		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("get_transactions", time.Since(start).Seconds())
-
-	// Phase 2: Process transactions using Indexer (parallel within ledger)
-	start = time.Now()
-	buffer := indexer.NewIndexerBuffer()
-	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
-	if err != nil {
-		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
-	}
-	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
-	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
-
-	// Phase 3: Insert all data into DB
-	start = time.Now()
-	if err := m.ingestProcessedData(ctx, buffer); err != nil {
-		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
-
-	// Record transaction and operation processing metrics
-	m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
-	m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
-
-	return nil
-}
-
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
 	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
 	if err != nil {
@@ -356,7 +315,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 	}, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
+func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, indexerBuffer indexer.IndexerBufferInterface) error {
 	// Get data from indexer buffer
 	txs := indexerBuffer.GetTransactions()
 	txParticipants := indexerBuffer.GetTransactionsParticipants()
@@ -380,17 +339,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		stateChanges = filtered.stateChanges
 	}
 
-	// Use pgx transaction for BatchCopy operations (binary COPY protocol)
-	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("beginning pgx transaction: %w", err)
-	}
-	defer func() {
-		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
-		}
-	}()
-
 	if err := m.insertTransactions(ctx, pgxTx, txs, txParticipants); err != nil {
 		return err
 	}
@@ -407,14 +355,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		if err := m.unlockChannelAccounts(ctx, pgxTx, txs); err != nil {
 			return err
 		}
-	}
-
-	if err := pgxTx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing pgx transaction: %w", err)
-	}
-
-	// Process token changes only during live ingestion (not backfill)
-	if m.ingestionMode == IngestionModeLive {
 		return m.processLiveIngestionTokenChanges(ctx, indexerBuffer)
 	}
 
