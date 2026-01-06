@@ -17,6 +17,14 @@ import (
 // BackfillMode indicates the purpose of backfilling.
 type BackfillMode int
 
+func (m BackfillMode) isHistorical() bool {
+	return m == BackfillModeHistorical
+}
+
+func (m BackfillMode) isCatchup() bool {
+	return m == BackfillModeCatchup
+}
+
 const (
 	// BackfillModeHistorical fills gaps within already-ingested ledger range.
 	BackfillModeHistorical BackfillMode = iota
@@ -80,7 +88,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 
 	// Determine gaps to fill based on mode
 	var gaps []data.LedgerRange
-	if mode == BackfillModeCatchup {
+	if mode.isCatchup() {
 		// For catchup, treat entire range as a single gap (no existing data in this range)
 		gaps = []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
 	} else {
@@ -102,7 +110,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	numFailedBatches := analyzeBatchResults(ctx, results)
 
 	// Update latest ledger cursor for catchup mode
-	if mode == BackfillModeCatchup {
+	if mode.isCatchup() {
 		if numFailedBatches > 0 {
 			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
 		}
@@ -221,6 +229,45 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode
 	return results
 }
 
+// processSingleBatch processes a single backfill batch with its own ledger backend.
+func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch) BackfillResult {
+	start := time.Now()
+	result := BackfillResult{Batch: batch}
+
+	// Setup backend
+	backend, err := m.setupBatchBackend(ctx, batch)
+	if err != nil {
+		result.Error = err
+		result.Duration = time.Since(start)
+		return result
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v", batch.StartLedger, batch.EndLedger, closeErr)
+		}
+	}()
+
+	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
+	ledgersCount, err := m.processLedgersInBatch(ctx, backend, batch, mode)
+	result.LedgersCount = ledgersCount
+	if err != nil {
+		result.Error = err
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Record metrics for historical backfill cursor updates
+	if mode.isHistorical() {
+		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+	}
+
+	result.Duration = time.Since(start)
+	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
+		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
+
+	return result
+}
+
 // setupBatchBackend creates and prepares a ledger backend for a batch range.
 // Caller is responsible for calling Close() on the returned backend.
 func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBatch) (ledgerbackend.LedgerBackend, error) {
@@ -300,13 +347,13 @@ func (m *ingestService) processLedgersInBatch(
 	// Final flush with cursor update for historical backfill
 	if ledgersInBuffer > 0 {
 		var cursorUpdate *uint32
-		if mode == BackfillModeHistorical {
+		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
 		if err := m.flushBatchBuffer(ctx, batchBuffer, cursorUpdate); err != nil {
 			return ledgersProcessed, err
 		}
-	} else if mode == BackfillModeHistorical {
+	} else if mode.isHistorical() {
 		// All data was flushed in intermediate batches, but we still need to update the cursor
 		// This happens when ledgersInBuffer == 0 (exact multiple of batch size)
 		if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
@@ -326,43 +373,4 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 		return fmt.Errorf("updating oldest ledger cursor: %w", err)
 	}
 	return nil
-}
-
-// processSingleBatch processes a single backfill batch with its own ledger backend.
-func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch) BackfillResult {
-	start := time.Now()
-	result := BackfillResult{Batch: batch}
-
-	// Setup backend
-	backend, err := m.setupBatchBackend(ctx, batch)
-	if err != nil {
-		result.Error = err
-		result.Duration = time.Since(start)
-		return result
-	}
-	defer func() {
-		if closeErr := backend.Close(); closeErr != nil {
-			log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v", batch.StartLedger, batch.EndLedger, closeErr)
-		}
-	}()
-
-	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
-	ledgersCount, err := m.processLedgersInBatch(ctx, backend, batch, mode)
-	result.LedgersCount = ledgersCount
-	if err != nil {
-		result.Error = err
-		result.Duration = time.Since(start)
-		return result
-	}
-
-	// Record metrics for historical backfill cursor updates
-	if mode == BackfillModeHistorical {
-		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
-	}
-
-	result.Duration = time.Since(start)
-	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
-		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
-
-	return result
 }
