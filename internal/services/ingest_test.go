@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/lib/pq"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/xdr"
@@ -19,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
@@ -571,6 +574,55 @@ func setupDBCursors(t *testing.T, ctx context.Context, pool db.ConnectionPool, l
 
 // ptrUint32 returns a pointer to the given uint32 value
 func ptrUint32(v uint32) *uint32 { return &v }
+
+// createTestTransaction creates a transaction with required fields for testing.
+func createTestTransaction(hash string, toID int64) types.Transaction {
+	now := time.Now()
+	envelope := "test_envelope_xdr"
+	meta := "test_meta_xdr"
+	return types.Transaction{
+		Hash:            hash,
+		ToID:            toID,
+		EnvelopeXDR:     &envelope,
+		ResultXDR:       "test_result_xdr",
+		MetaXDR:         &meta,
+		LedgerNumber:    1000,
+		LedgerCreatedAt: now,
+		IngestedAt:      now,
+	}
+}
+
+// createTestOperation creates an operation with required fields for testing.
+func createTestOperation(id int64, txHash string) types.Operation {
+	now := time.Now()
+	return types.Operation{
+		ID:              id,
+		OperationType:   types.OperationTypePayment,
+		OperationXDR:    "test_operation_xdr",
+		TxHash:          txHash,
+		LedgerNumber:    1000,
+		LedgerCreatedAt: now,
+		IngestedAt:      now,
+	}
+}
+
+// createTestStateChange creates a state change with required fields for testing.
+func createTestStateChange(toID int64, accountID string, txHash string, opID int64) types.StateChange {
+	now := time.Now()
+	reason := types.StateChangeReasonCredit
+	return types.StateChange{
+		ToID:                toID,
+		StateChangeOrder:    1,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   &reason,
+		AccountID:           accountID,
+		TxHash:              txHash,
+		OperationID:         opID,
+		LedgerNumber:        1000,
+		LedgerCreatedAt:     now,
+		IngestedAt:          now,
+	}
+}
 
 // ==================== New Tests ====================
 
@@ -1145,35 +1197,134 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name           string
-		updateCursorTo *uint32
-		initialCursor  uint32
-		wantCursor     uint32
+		name                       string
+		setupBuffer                func() *indexer.IndexerBuffer
+		updateCursorTo             *uint32
+		enableParticipantFiltering bool
+		registeredAccounts         []string
+		initialCursor              uint32
+		wantCursor                 uint32
+		wantTxCount                int
+		wantOpCount                int
+		wantStateChangeCount       int
+		txHashes                   []string // For verification queries
 	}{
 		{
-			name:           "flush_without_cursor_update",
-			updateCursorTo: nil,
-			initialCursor:  100,
-			wantCursor:     100, // Unchanged
+			name:                 "flush_empty_buffer_no_cursor_update",
+			setupBuffer:          func() *indexer.IndexerBuffer { return indexer.NewIndexerBuffer() },
+			updateCursorTo:       nil,
+			initialCursor:        100,
+			wantCursor:           100,
+			wantTxCount:          0,
+			wantOpCount:          0,
+			wantStateChangeCount: 0,
+			txHashes:             []string{},
 		},
 		{
-			name:           "flush_with_cursor_update_to_lower_value",
-			updateCursorTo: ptrUint32(50),
-			initialCursor:  100,
-			wantCursor:     50, // Updated to lower
+			name: "flush_with_data_inserts_to_database",
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("flush_tx_1", 1)
+				tx2 := createTestTransaction("flush_tx_2", 2)
+				op1 := createTestOperation(200, "flush_tx_1")
+				op2 := createTestOperation(201, "flush_tx_2")
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "flush_tx_1", 200)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "flush_tx_2", 201)
+
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
+				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushOperation("GDEF2222222222222222222222222222222222222222222222222", op2, tx2)
+				buf.PushStateChange(tx1, op1, sc1)
+				buf.PushStateChange(tx2, op2, sc2)
+				return buf
+			},
+			updateCursorTo:       nil,
+			initialCursor:        100,
+			wantCursor:           100,
+			wantTxCount:          2,
+			wantOpCount:          2,
+			wantStateChangeCount: 2,
+			txHashes:             []string{"flush_tx_1", "flush_tx_2"},
 		},
 		{
-			name:           "flush_with_cursor_update_to_higher_value_keeps_existing",
-			updateCursorTo: ptrUint32(150),
-			initialCursor:  100,
-			wantCursor:     100, // UpdateMin keeps lower
+			name: "flush_with_cursor_update_to_lower_value",
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("flush_tx_3", 3)
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				return buf
+			},
+			updateCursorTo:       ptrUint32(50),
+			initialCursor:        100,
+			wantCursor:           50,
+			wantTxCount:          1,
+			wantOpCount:          0,
+			wantStateChangeCount: 0,
+			txHashes:             []string{"flush_tx_3"},
+		},
+		{
+			name: "flush_with_cursor_update_to_higher_value_keeps_existing",
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("flush_tx_4", 4)
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				return buf
+			},
+			updateCursorTo:       ptrUint32(150),
+			initialCursor:        100,
+			wantCursor:           100, // UpdateMin keeps lower
+			wantTxCount:          1,
+			wantOpCount:          0,
+			wantStateChangeCount: 0,
+			txHashes:             []string{"flush_tx_4"},
+		},
+		{
+			name: "flush_with_filtering_only_inserts_registered",
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("flush_tx_5", 5) // Registered participant
+				tx2 := createTestTransaction("flush_tx_6", 6) // No registered participant
+
+				buf.PushTransaction("GREGISTERED111111111111111111111111111111111111111", tx1)
+				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
+				return buf
+			},
+			enableParticipantFiltering: true,
+			registeredAccounts:         []string{"GREGISTERED111111111111111111111111111111111111111"},
+			updateCursorTo:             nil,
+			initialCursor:              100,
+			wantCursor:                 100,
+			wantTxCount:                1, // Only tx1
+			wantOpCount:                0,
+			wantStateChangeCount:       0,
+			txHashes:                   []string{"flush_tx_5"},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up and set initial cursor
+			// Clean up test data from previous runs
+			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations WHERE tx_hash = $1`, hash)
+				require.NoError(t, err)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
+				require.NoError(t, err)
+			}
+			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
+			require.NoError(t, err)
+
+			// Set up initial cursor
 			setupDBCursors(t, ctx, dbConnectionPool, 200, tc.initialCursor)
+
+			// Add registered accounts if any
+			for _, acc := range tc.registeredAccounts {
+				_, insertErr := dbConnectionPool.ExecContext(ctx,
+					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, acc)
+				require.NoError(t, insertErr)
+			}
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
@@ -1183,6 +1334,7 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
 			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
 			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 			defer mockMetricsService.AssertExpectations(t)
 
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -1192,23 +1344,23 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				MetricsService:         mockMetricsService,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:              IngestionModeBackfill,
+				Models:                     models,
+				LatestLedgerCursorName:     "latest_ledger_cursor",
+				OldestLedgerCursorName:     "oldest_ledger_cursor",
+				AppTracker:                 &apptracker.MockAppTracker{},
+				RPCService:                 mockRPCService,
+				LedgerBackend:              &LedgerBackendMock{},
+				MetricsService:             mockMetricsService,
+				GetLedgersLimit:            defaultGetLedgersLimit,
+				Network:                    network.TestNetworkPassphrase,
+				NetworkPassphrase:          network.TestNetworkPassphrase,
+				Archive:                    &HistoryArchiveMock{},
+				EnableParticipantFiltering: tc.enableParticipantFiltering,
 			})
 			require.NoError(t, err)
 
-			// Create an empty buffer
-			buffer := indexer.NewIndexerBuffer()
+			buffer := tc.setupBuffer()
 
 			// Call flushBatchBuffer
 			err = svc.flushBatchBuffer(ctx, buffer, tc.updateCursorTo)
@@ -1218,6 +1370,36 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 			cursor, err := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantCursor, cursor)
+
+			// Verify transaction count in database
+			if len(tc.txHashes) > 0 {
+				var txCount int
+				err = dbConnectionPool.GetContext(ctx, &txCount,
+					`SELECT COUNT(*) FROM transactions WHERE hash = ANY($1)`,
+					pq.Array(tc.txHashes))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantTxCount, txCount, "transaction count mismatch")
+			}
+
+			// Verify operation count in database
+			if tc.wantOpCount > 0 {
+				var opCount int
+				err = dbConnectionPool.GetContext(ctx, &opCount,
+					`SELECT COUNT(*) FROM operations WHERE tx_hash = ANY($1)`,
+					pq.Array(tc.txHashes))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantOpCount, opCount, "operation count mismatch")
+			}
+
+			// Verify state change count in database
+			if tc.wantStateChangeCount > 0 {
+				var scCount int
+				err = dbConnectionPool.GetContext(ctx, &scCount,
+					`SELECT COUNT(*) FROM state_changes WHERE tx_hash = ANY($1)`,
+					pq.Array(tc.txHashes))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
+			}
 		})
 	}
 }
@@ -1237,16 +1419,121 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 		registeredAccounts         []string
 		setupBuffer                func() *indexer.IndexerBuffer
 		wantTxCount                int
+		wantOpCount                int
+		wantStateChangeCount       int
+		verifyParticipants         func(t *testing.T, filtered *filteredIngestionData)
 	}{
 		{
-			name:                       "filtering_disabled_returns_all",
+			name:                       "filtering_disabled_returns_all_data",
 			enableParticipantFiltering: false,
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				// Empty buffer - just testing the flow
+				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx2 := createTestTransaction("tx_hash_2", 2)
+				op1 := createTestOperation(100, "tx_hash_1")
+				op2 := createTestOperation(101, "tx_hash_2")
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_2", 101)
+
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
+				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushOperation("GDEF2222222222222222222222222222222222222222222222222", op2, tx2)
+				buf.PushStateChange(tx1, op1, sc1)
+				buf.PushStateChange(tx2, op2, sc2)
 				return buf
 			},
-			wantTxCount: 0,
+			wantTxCount:          2,
+			wantOpCount:          2,
+			wantStateChangeCount: 2,
+		},
+		{
+			name:                       "filtering_enabled_includes_tx_with_registered_participant",
+			enableParticipantFiltering: true,
+			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111"},
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("tx_hash_1", 1)
+				op1 := createTestOperation(100, "tx_hash_1")
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
+
+				// Tx has 2 participants but only 1 is registered
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				buf.PushTransaction("GXYZ9999999999999999999999999999999999999999999999999", tx1) // Unregistered participant on same tx
+				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushStateChange(tx1, op1, sc1)
+				return buf
+			},
+			wantTxCount:          1,
+			wantOpCount:          1,
+			wantStateChangeCount: 1,
+			verifyParticipants: func(t *testing.T, filtered *filteredIngestionData) {
+				// Verify ALL participants are preserved (not just registered ones)
+				participants := filtered.txParticipants["tx_hash_1"]
+				assert.Equal(t, 2, participants.Cardinality())
+				assert.True(t, participants.Contains("GABC1111111111111111111111111111111111111111111111111"))
+				assert.True(t, participants.Contains("GXYZ9999999999999999999999999999999999999999999999999"))
+			},
+		},
+		{
+			name:                       "filtering_enabled_excludes_tx_without_registered",
+			enableParticipantFiltering: true,
+			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111"},
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("tx_hash_1", 1) // Has registered
+				tx2 := createTestTransaction("tx_hash_2", 2) // No registered
+				op1 := createTestOperation(100, "tx_hash_1")
+				op2 := createTestOperation(101, "tx_hash_2")
+
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
+				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushOperation("GUNREGISTERED11111111111111111111111111111111111111", op2, tx2)
+				return buf
+			},
+			wantTxCount:          1, // Only tx1
+			wantOpCount:          1, // Only op1
+			wantStateChangeCount: 0,
+		},
+		{
+			name:                       "filtering_enabled_no_registered_accounts_returns_empty",
+			enableParticipantFiltering: true,
+			registeredAccounts:         []string{},
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("tx_hash_1", 1)
+				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx1)
+				return buf
+			},
+			wantTxCount:          0,
+			wantOpCount:          0,
+			wantStateChangeCount: 0,
+		},
+		{
+			name:                       "filtering_state_changes_only_for_registered_accounts",
+			enableParticipantFiltering: true,
+			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111", "GDEF2222222222222222222222222222222222222222222222222"},
+			setupBuffer: func() *indexer.IndexerBuffer {
+				buf := indexer.NewIndexerBuffer()
+				tx1 := createTestTransaction("tx_hash_1", 1)
+				op1 := createTestOperation(100, "tx_hash_1")
+
+				// 3 state changes: 2 for registered accounts, 1 for unregistered
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_1", 100)
+				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", "tx_hash_1", 100)
+
+				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushStateChange(tx1, op1, sc1)
+				buf.PushStateChange(tx1, op1, sc2)
+				buf.PushStateChange(tx1, op1, sc3)
+				return buf
+			},
+			wantTxCount:          1,
+			wantOpCount:          1,
+			wantStateChangeCount: 2, // Only 2 registered accounts' state changes
 		},
 	}
 
@@ -1305,19 +1592,16 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 					return filterErr
 				}
 				assert.Len(t, filtered.txs, tc.wantTxCount)
+				assert.Len(t, filtered.ops, tc.wantOpCount)
+				assert.Len(t, filtered.stateChanges, tc.wantStateChangeCount)
+
+				// Run custom verification if provided
+				if tc.verifyParticipants != nil {
+					tc.verifyParticipants(t, filtered)
+				}
 				return nil
 			})
 			require.NoError(t, txErr)
 		})
 	}
-}
-
-func Test_ContractMetadataServiceMock(t *testing.T) {
-	// Simple test to verify the mock can be created and used
-	mockService := NewContractMetadataServiceMock(t)
-	mockService.On("FetchAndStoreMetadata", mock.Anything, mock.Anything).Return(nil)
-
-	ctx := context.Background()
-	err := mockService.FetchAndStoreMetadata(ctx, nil)
-	require.NoError(t, err)
 }
