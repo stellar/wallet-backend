@@ -98,7 +98,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 
 	backfillBatches := m.splitGapsIntoBatches(gaps)
 	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
+	results := m.processBackfillBatchesParallel(ctx, mode, backfillBatches)
 	duration := time.Since(startTime)
 
 	numFailedBatches := analyzeBatchResults(ctx, results)
@@ -199,13 +199,13 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 }
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
-func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch) []BackfillResult {
+func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode BackfillMode, batches []BackfillBatch) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
 		group.Submit(func() {
-			result := m.processSingleBatch(ctx, batch)
+			result := m.processSingleBatch(ctx, mode, batch)
 			results[i] = result
 		})
 	}
@@ -217,7 +217,7 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batc
 }
 
 // processSingleBatch processes a single backfill batch with its own ledger backend.
-func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBatch) BackfillResult {
+func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch) BackfillResult {
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 
@@ -280,7 +280,11 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 			}
 		}
 
-		return m.updateOldestLedgerCursor(ctx, dbTx, batch.StartLedger)
+		// We only update the cursor for historical backfill
+		if mode == BackfillModeHistorical {
+			return m.updateOldestLedgerCursor(ctx, dbTx, batch.StartLedger)
+		}
+		return nil
 	})
 	if err != nil {
 		result.Error = err
