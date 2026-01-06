@@ -273,7 +273,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 
 		// Flush buffer periodically to control memory usage
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {	
+			err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 				filteredData, err := m.filterParticipantData(ctx, dbTx, batchBuffer)
 				if err != nil {
 					return fmt.Errorf("filtering participant data for ledger %d: %w", ledgerSeq, err)
@@ -311,7 +311,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 			return result
 		}
 	}
-	
+
 	// We only update the cursor for historical backfill
 	if mode == BackfillModeHistorical {
 		start := time.Now()

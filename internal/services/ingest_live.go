@@ -121,7 +121,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		numTransactionProcessed := 0
 		numOperationProcessed := 0
 		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			filteredData, innerErr := m.filterParticipantData(ctx, dbTx,buffer)
+			filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
 			if innerErr != nil {
 				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, err)
 			}

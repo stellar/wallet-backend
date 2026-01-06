@@ -243,12 +243,12 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 // filteredIngestionData holds the filtered data for ingestion
 type filteredIngestionData struct {
-	txs            []*types.Transaction
-	txParticipants map[string]set.Set[string]
-	ops            []*types.Operation
-	opParticipants map[int64]set.Set[string]
-	stateChanges   []types.StateChange
-	trustlineChanges []types.TrustlineChange
+	txs                  []*types.Transaction
+	txParticipants       map[string]set.Set[string]
+	ops                  []*types.Operation
+	opParticipants       map[int64]set.Set[string]
+	stateChanges         []types.StateChange
+	trustlineChanges     []types.TrustlineChange
 	contractTokenChanges []types.ContractChange
 }
 
@@ -360,12 +360,12 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	}
 
 	return &filteredIngestionData{
-		txs:            txs,
-		txParticipants: txParticipants,
-		ops:            ops,
-		opParticipants: opParticipants,
-		stateChanges:   stateChanges,
-		trustlineChanges: trustlineChanges,
+		txs:                  txs,
+		txParticipants:       txParticipants,
+		ops:                  ops,
+		opParticipants:       opParticipants,
+		stateChanges:         stateChanges,
+		trustlineChanges:     trustlineChanges,
 		contractTokenChanges: contractChanges,
 	}, nil
 }

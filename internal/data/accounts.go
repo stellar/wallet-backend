@@ -112,7 +112,7 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountID
 
 	const query = `SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)`
 	start := time.Now()
-	existingAccounts := []string{}
+	var existingAccounts []string
 	rows, err := dbTx.Query(ctx, query, accountIDs)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
