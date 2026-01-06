@@ -319,15 +319,12 @@ func (m *ingestService) processLedgersInBatch(
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
 func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32) error {
-	cursorStart := time.Now()
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		return m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, ledgerSeq)
 	})
 	if err != nil {
 		return fmt.Errorf("updating oldest ledger cursor: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
-	m.metricsService.SetOldestLedgerIngested(float64(ledgerSeq))
 	return nil
 }
 
