@@ -283,3 +283,31 @@ func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	args := m.Called()
 	return args.Get(0).([]historyarchive.ArchiveStats)
 }
+
+// ContractMetadataServiceMock is a mock implementation of the ContractMetadataService interface
+type ContractMetadataServiceMock struct {
+	mock.Mock
+}
+
+var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
+
+func (m *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
+	args := m.Called(ctx, contractTypesByID)
+	return args.Error(0)
+}
+
+// NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.
+// It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewContractMetadataServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ContractMetadataServiceMock {
+	mock := &ContractMetadataServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
