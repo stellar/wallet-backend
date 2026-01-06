@@ -51,29 +51,42 @@ type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend
 
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
-	IngestionMode              string
-	Models                     *data.Models
-	LatestLedgerCursorName     string
-	OldestLedgerCursorName     string
-	AppTracker                 apptracker.AppTracker
-	RPCService                 RPCService
-	LedgerBackend              ledgerbackend.LedgerBackend
-	LedgerBackendFactory       LedgerBackendFactory
-	ChannelAccountStore        store.ChannelAccountStore
-	AccountTokenService        AccountTokenService
-	ContractMetadataService    ContractMetadataService
-	MetricsService             metrics.MetricsService
+	// === Core ===
+	IngestionMode  string
+	Models         *data.Models
+	AppTracker     apptracker.AppTracker
+	MetricsService metrics.MetricsService
+
+	// === Stellar Network ===
+	Network           string
+	NetworkPassphrase string
+	Archive           historyarchive.ArchiveInterface
+	RPCService        RPCService
+
+	// === Ledger Backend ===
+	LedgerBackend        ledgerbackend.LedgerBackend
+	LedgerBackendFactory LedgerBackendFactory
+
+	// === Cursors ===
+	LatestLedgerCursorName string
+	OldestLedgerCursorName string
+
+	// === Live Mode Dependencies ===
+	ChannelAccountStore     store.ChannelAccountStore
+	AccountTokenService     AccountTokenService
+	ContractMetadataService ContractMetadataService
+
+	// === Processing Options ===
 	GetLedgersLimit            int
-	Network                    string
-	NetworkPassphrase          string
-	Archive                    historyarchive.ArchiveInterface
 	SkipTxMeta                 bool
 	SkipTxEnvelope             bool
 	EnableParticipantFiltering bool
-	BackfillWorkers            int
-	BackfillBatchSize          int
-	BackfillDBInsertBatchSize  int
-	CatchupThreshold           int
+
+	// === Backfill Tuning ===
+	BackfillWorkers           int
+	BackfillBatchSize         int
+	BackfillDBInsertBatchSize int
+	CatchupThreshold          int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -241,7 +254,8 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	return transactions, nil
 }
 
-// filteredIngestionData holds the filtered data for ingestion
+// filteredIngestionData holds the filtered transaction, operation, and state change
+// data ready for database insertion after participant filtering.
 type filteredIngestionData struct {
 	txs                  []*types.Transaction
 	txParticipants       map[string]set.Set[string]
@@ -250,6 +264,16 @@ type filteredIngestionData struct {
 	stateChanges         []types.StateChange
 	trustlineChanges     []types.TrustlineChange
 	contractTokenChanges []types.ContractChange
+}
+
+// hasRegisteredParticipant checks if any participant in the set is registered.
+func hasRegisteredParticipant(participants set.Set[string], registered set.Set[string]) bool {
+	for p := range participants.Iter() {
+		if registered.Contains(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // filterByRegisteredAccounts filters ingestion data to only include items
@@ -277,11 +301,8 @@ func (m *ingestService) filterByRegisteredAccounts(
 	// Filter transactions: include if ANY participant is registered
 	txHashesToInclude := set.NewSet[string]()
 	for txHash, participants := range txParticipants {
-		for p := range participants.Iter() {
-			if registeredAccounts.Contains(p) {
-				txHashesToInclude.Add(txHash)
-				break
-			}
+		if hasRegisteredParticipant(participants, registeredAccounts) {
+			txHashesToInclude.Add(txHash)
 		}
 	}
 
@@ -297,11 +318,8 @@ func (m *ingestService) filterByRegisteredAccounts(
 	// Filter operations: include if ANY participant is registered
 	opIDsToInclude := set.NewSet[int64]()
 	for opID, participants := range opParticipants {
-		for p := range participants.Iter() {
-			if registeredAccounts.Contains(p) {
-				opIDsToInclude.Add(opID)
-				break
-			}
+		if hasRegisteredParticipant(participants, registeredAccounts) {
+			opIDsToInclude.Add(opID)
 		}
 	}
 
@@ -370,7 +388,9 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	}, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, data *filteredIngestionData) error {
+// ingestProcessedData persists the processed data to the database.
+// When processLiveChanges is true, it also unlocks channel accounts and processes token changes.
+func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, data *filteredIngestionData, processLiveChanges bool) error {
 	if err := m.insertTransactions(ctx, pgxTx, data.txs, data.txParticipants); err != nil {
 		return err
 	}
@@ -381,9 +401,9 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, pgxTx pgx.Tx, d
 		return err
 	}
 
-	// Unlock channel accounts only during live ingestion (skip for historical backfill)
+	// Unlock channel accounts and process token changes only during live ingestion
 	// This is done within the same pgxTx for atomicity - all inserts and unlocks succeed or fail together
-	if m.ingestionMode == IngestionModeLive {
+	if processLiveChanges {
 		if err := m.unlockChannelAccounts(ctx, pgxTx, data.txs); err != nil {
 			return err
 		}
