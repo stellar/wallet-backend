@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -42,13 +43,13 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	return lastSyncedLedger, nil
 }
 
-func (m *IngestStoreModel) Update(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) Update(ctx context.Context, pgxTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
 	start := time.Now()
-	_, err := dbTx.ExecContext(ctx, query, cursorName, ledger)
+	_, err := pgxTx.Exec(ctx, query, cursorName, ledger)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Update", "ingest_store", duration)
 	if err != nil {
@@ -59,13 +60,13 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx db.Transaction, curs
 	return nil
 }
 
-func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) UpdateMin(ctx context.Context, pgxTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		UPDATE ingest_store
 		SET value = LEAST(value::integer, $2)::text
 		WHERE key = $1
 	`
-	_, err := dbTx.ExecContext(ctx, query, cursorName, ledger)
+	_, err := pgxTx.Exec(ctx, query, cursorName, ledger)
 	if err != nil {
 		return fmt.Errorf("updating minimum ledger for cursor %s: %w", cursorName, err)
 	}

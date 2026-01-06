@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
@@ -40,27 +39,18 @@ type BackfillResult struct {
 	Error        error
 }
 
-// batchAnalysis holds the aggregated results from processing multiple backfill batches.
-type batchAnalysis struct {
-	failedBatches []BackfillBatch
-	successCount  int
-	totalLedgers  int
-}
-
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
-func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
-	var analysis batchAnalysis
+func analyzeBatchResults(ctx context.Context, results []BackfillResult) int {
+	numFailed := 0
 	for _, result := range results {
 		if result.Error != nil {
-			analysis.failedBatches = append(analysis.failedBatches, result.Batch)
+			numFailed++
 			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
 				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
-		} else {
-			analysis.successCount++
-			analysis.totalLedgers += result.LedgersCount
 		}
 	}
-	return analysis
+	log.Ctx(ctx).Infof("Backfilling completed: %d/%d batches failed", numFailed, len(results))
+	return numFailed
 }
 
 // startBackfilling processes ledgers in the specified range, identifying gaps
@@ -110,19 +100,19 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
 	duration := time.Since(startTime)
 
-	analysis := analyzeBatchResults(ctx, results)
-	if len(analysis.failedBatches) > 0 {
-		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
-	}
+	numFailedBatches := analyzeBatchResults(ctx, results)
 
 	// Update latest ledger cursor for catchup mode
 	if mode == BackfillModeCatchup {
+		if numFailedBatches > 0 {
+			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
+		}
 		if err := m.updateLatestLedgerCursorAfterCatchup(ctx, endLedger); err != nil {
 			return fmt.Errorf("updating latest cursor after catchup: %w", err)
 		}
 	}
 
-	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches, %d ledgers", duration, analysis.successCount, analysis.totalLedgers)
+	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches", duration, len(backfillBatches))
 	return nil
 }
 
@@ -360,16 +350,22 @@ func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, pgxTx pgx.
 // updateLatestLedgerCursorAfterCatchup updates the latest ledger cursor after catchup completes.
 func (m *ingestService) updateLatestLedgerCursorAfterCatchup(ctx context.Context, ledger uint32) error {
 	cursorStart := time.Now()
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); updateErr != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-		}
-		m.metricsService.SetLatestLedgerIngested(float64(ledger))
-		return nil
-	})
+	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("updating cursors: %w", err)
+		return fmt.Errorf("beginning pgx transaction: %w", err)
 	}
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+		}
+	}()
+	if updateErr := m.models.IngestStore.Update(ctx, pgxTx, m.latestLedgerCursorName, ledger); updateErr != nil {
+		return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+	}
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
+	}
+	m.metricsService.SetLatestLedgerIngested(float64(ledger))
 	m.metricsService.ObserveIngestionPhaseDuration("catchup_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }

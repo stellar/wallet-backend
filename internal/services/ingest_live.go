@@ -82,17 +82,23 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
 func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) error {
-	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing latest cursor: %w", err)
-		}
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing oldest cursor: %w", err)
-		}
-		return nil
-	})
+	pgxTx, err := m.models.DB.PgxPool().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("initializing cursors: %w", err)
+		return fmt.Errorf("beginning pgx transaction: %w", err)
+	}
+	defer func() {
+		if err := pgxTx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Errorf("error rolling back pgx transaction: %v", err)
+		}
+	}()
+	if err := m.models.IngestStore.Update(ctx, pgxTx, m.latestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing latest cursor: %w", err)
+	}
+	if err := m.models.IngestStore.Update(ctx, pgxTx, m.oldestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing oldest cursor: %w", err)
+	}
+	if err := pgxTx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing pgx transaction: %w", err)
 	}
 	return nil
 }
