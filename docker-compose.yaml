@@ -23,24 +23,9 @@ services:
       - postgres-db:/data/postgres
     ports:
       - 5432:5432
-    command: |
-      bash -c "
-      # Run default postgres initialization
-      /usr/local/bin/docker-entrypoint.sh postgres &
-
-      # Wait for startup
-      sleep 10
-
-      # Create schemas (only on first run)
-      if [ ! -f /data/postgres/schemas_created ]; then
-        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;'
-        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;'
-        touch /data/postgres/schemas_created
-      fi
-
-      # Keep postgres running
-      wait
-      "
+    configs:
+      - source: postgres_init
+        target: /docker-entrypoint-initdb.d/init-schemas.sql
 
   redis:
     container_name: redis
@@ -309,3 +294,9 @@ volumes:
     driver: local
   redis-data:
     driver: local
+
+configs:
+  postgres_init:
+    content: |
+      CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;
+      CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;

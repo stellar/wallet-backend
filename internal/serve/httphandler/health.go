@@ -20,7 +20,7 @@ type HealthHandler struct {
 }
 
 const (
-	ledgerCursorName      = "live_ingest_cursor"
+	ledgerCursorName      = "latest_ingest_ledger"
 	ledgerHealthThreshold = uint32(50)
 )
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -104,22 +105,27 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 }
 
 // BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
-func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) ([]string, error) {
+func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountIDs []string) ([]string, error) {
 	if len(accountIDs) == 0 {
 		return []string{}, nil
 	}
 
 	const query = `SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)`
 	start := time.Now()
-	existingAccounts := []string{}
-	err := m.DB.SelectContext(ctx, &existingAccounts, query, pq.Array(accountIDs))
+	var existingAccounts []string
+	rows, err := dbTx.Query(ctx, query, accountIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying accounts by IDs: %w", err)
+	}
+	existingAccounts, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("collecting rows: %w", err)
+	}
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByIDs", "accounts", len(accountIDs))
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("batch getting accounts by IDs: %w", err)
-	}
 	m.MetricsService.IncDBQuery("BatchGetByIDs", "accounts")
 	return existingAccounts, nil
 }

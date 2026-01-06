@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 type ingestCmd struct{}
@@ -38,20 +39,60 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.RedisPortOption(&cfg.RedisPort),
 		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
-			Name:        "ledger-cursor-name",
-			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
+			Name:        "ingestion-mode",
+			Usage:       "What mode to run ingestion in - live or backfill",
 			OptType:     types.String,
-			ConfigKey:   &cfg.LedgerCursorName,
-			FlagDefault: "live_ingest_cursor",
+			ConfigKey:   &cfg.IngestionMode,
+			FlagDefault: services.IngestionModeLive,
 			Required:    true,
 		},
 		{
-			Name:        "account-tokens-cursor-name",
-			Usage:       "Name of last synced account tokens ledger cursor, used to keep track of the last ledger ingested by the service.",
+			Name:        "latest-ledger-cursor-name",
+			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
 			OptType:     types.String,
-			ConfigKey:   &cfg.AccountTokensCursorName,
-			FlagDefault: "live_account_tokens_ingest_cursor",
+			ConfigKey:   &cfg.LatestLedgerCursorName,
+			FlagDefault: "latest_ingest_ledger",
 			Required:    true,
+		},
+		{
+			Name:        "oldest-ledger-cursor-name",
+			Usage:       "Name of the oldest ledger cursor, used to track the earliest ledger ingested by the service. Used for backfill operations to know where historical data begins.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.OldestLedgerCursorName,
+			FlagDefault: "oldest_ingest_ledger",
+			Required:    true,
+		},
+		{
+			Name:        "backfill-workers",
+			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Lower values reduce RAM usage at cost of throughput.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillWorkers,
+			FlagDefault: 0,
+			Required:    false,
+		},
+		{
+			Name:        "backfill-batch-size",
+			Usage:       "Number of ledgers per batch during backfill. Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillBatchSize,
+			FlagDefault: 250,
+			Required:    false,
+		},
+		{
+			Name:        "backfill-db-insert-batch-size",
+			Usage:       "Number of ledgers to process before flushing buffer to DB during backfill. Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillDBInsertBatchSize,
+			FlagDefault: 100,
+			Required:    false,
+		},
+		{
+			Name:        "catchup-threshold",
+			Usage:       "Number of ledgers behind network tip that triggers fast catchup via backfilling. Defaults to 100.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.CatchupThreshold,
+			FlagDefault: 100,
+			Required:    false,
 		},
 		{
 			Name:        "archive-url",

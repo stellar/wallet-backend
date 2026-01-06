@@ -111,9 +111,9 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 
 	var metaXDR *string
 	if !skipTxMeta {
-		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
-		if err != nil {
-			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+		metaXDRStr, marshalErr := xdr.MarshalBase64(transaction.UnsafeMeta)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", marshalErr)
 		}
 		metaXDR = &metaXDRStr
 	}
