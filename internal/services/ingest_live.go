@@ -117,14 +117,16 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
 
-		filteredData, err := m.filterParticipantData(ctx, buffer)
-		if err != nil {
-			return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, err)
-		}
-
 		dbStart := time.Now()
+		numTransactionProcessed := 0
+		numOperationProcessed := 0
 		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			innerErr := m.ingestProcessedData(ctx, dbTx, filteredData)
+			filteredData, innerErr := m.filterParticipantData(ctx, dbTx,buffer)
+			if innerErr != nil {
+				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, err)
+			}
+
+			innerErr = m.ingestProcessedData(ctx, dbTx, filteredData)
 			if innerErr != nil {
 				return fmt.Errorf("ingesting processed data for ledger %d: %w", currentLedger, innerErr)
 			}
@@ -133,6 +135,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
 			}
+			numTransactionProcessed = len(filteredData.txs)
+			numOperationProcessed = len(filteredData.ops)
 			return nil
 		})
 		if err != nil {
@@ -143,8 +147,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
 		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
-		m.metricsService.IncIngestionTransactionsProcessed(len(filteredData.txs))
-		m.metricsService.IncIngestionOperationsProcessed(len(filteredData.ops))
+		m.metricsService.IncIngestionTransactionsProcessed(numTransactionProcessed)
+		m.metricsService.IncIngestionOperationsProcessed(numOperationProcessed)
 		m.metricsService.IncIngestionLedgersProcessed(1)
 		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
 

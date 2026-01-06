@@ -271,16 +271,13 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 		result.LedgersCount++
 		ledgersInBuffer++
 
-		filteredData, err := m.filterParticipantData(ctx, batchBuffer)
-		if err != nil {
-			result.Error = fmt.Errorf("filtering participant data for ledger %d: %w", ledgerSeq, err)
-			result.Duration = time.Since(start)
-			return result
-		}
-
 		// Flush buffer periodically to control memory usage
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {	
+				filteredData, err := m.filterParticipantData(ctx, dbTx, batchBuffer)
+				if err != nil {
+					return fmt.Errorf("filtering participant data for ledger %d: %w", ledgerSeq, err)
+				}
 				if err := m.ingestProcessedData(ctx, dbTx, filteredData); err != nil {
 					return fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
 				}
@@ -297,45 +294,45 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	}
 
 	// Flush remaining data in buffer
-	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		filteredData, err := m.filterParticipantData(ctx, batchBuffer)
-		if err != nil {
-			return fmt.Errorf("filtering participant data for final processing: %w", err)
-		}
-
-		if ledgersInBuffer > 0 {
+	if ledgersInBuffer > 0 {
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			filteredData, err := m.filterParticipantData(ctx, dbTx, batchBuffer)
+			if err != nil {
+				return fmt.Errorf("filtering participant data for final processing: %w", err)
+			}
 			if err := m.ingestProcessedData(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("ingesting final processed data: %w", err)
 			}
+			return nil
+		})
+		if err != nil {
+			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+			result.Duration = time.Since(start)
+			return result
 		}
-
-		// We only update the cursor for historical backfill
-		if mode == BackfillModeHistorical {
-			return m.updateOldestLedgerCursor(ctx, dbTx, batch.StartLedger)
-		}
-		return nil
-	})
-	if err != nil {
-		result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
-		result.Duration = time.Since(start)
-		return result
 	}
-	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+	
+	// We only update the cursor for historical backfill
+	if mode == BackfillModeHistorical {
+		start := time.Now()
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, batch.StartLedger); err != nil {
+				return fmt.Errorf("updating oldest ledger cursor: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			result.Error = fmt.Errorf("updating oldest ledger cursor: %w", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(start).Seconds())
+		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+	}
 
 	result.Duration = time.Since(start)
 	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
 		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
 	return result
-}
-
-// updateOldestLedgerCursor updates the oldest ledger cursor during backfill with metrics tracking.
-func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
-	cursorStart := time.Now()
-	err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, currentLedger)
-	if err != nil {
-		return fmt.Errorf("updating oldest ledger cursor: %w", err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
-	return nil
 }

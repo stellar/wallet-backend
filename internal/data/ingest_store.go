@@ -45,13 +45,13 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	return lastSyncedLedger, nil
 }
 
-func (m *IngestStoreModel) Update(ctx context.Context, pgxTx pgx.Tx, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
 	start := time.Now()
-	_, err := pgxTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
+	_, err := dbTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Update", "ingest_store", duration)
 	if err != nil {
@@ -62,13 +62,13 @@ func (m *IngestStoreModel) Update(ctx context.Context, pgxTx pgx.Tx, cursorName 
 	return nil
 }
 
-func (m *IngestStoreModel) UpdateMin(ctx context.Context, pgxTx pgx.Tx, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		UPDATE ingest_store
 		SET value = LEAST(value::integer, $2)::text
 		WHERE key = $1
 	`
-	_, err := pgxTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
+	_, err := dbTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
 	if err != nil {
 		return fmt.Errorf("updating minimum ledger for cursor %s: %w", cursorName, err)
 	}

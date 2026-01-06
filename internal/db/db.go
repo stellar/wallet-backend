@@ -65,13 +65,13 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 }
 
 // OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// It configures session-level settings (synchronous_commit=off, work_mem=256MB) via the connection
+// It configures session-level settings (synchronous_commit=off) via the connection
 // string, which are applied to every new connection in the pool.
 // This should ONLY be used for backfill instances, NOT for live ingestion.
 func OpenDBConnectionPoolForBackfill(dataSourceName string) (ConnectionPool, error) {
 	// Append session parameters to connection string for automatic configuration.
-	// URL-encoded: -c synchronous_commit=off -c work_mem=256MB
-	backfillParams := "options=-c%20synchronous_commit%3Doff%20-c%20work_mem%3D256MB"
+	// URL-encoded: -c synchronous_commit=off
+	backfillParams := "options=-c%20synchronous_commit%3Doff"
 
 	separator := "?"
 	if strings.Contains(dataSourceName, "?") {

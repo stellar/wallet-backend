@@ -257,6 +257,7 @@ type filteredIngestionData struct {
 // If a transaction/operation has ANY registered participant, it is included with ALL its participants.
 func (m *ingestService) filterByRegisteredAccounts(
 	ctx context.Context,
+	dbTx pgx.Tx,
 	txs []*types.Transaction,
 	txParticipants map[string]set.Set[string],
 	ops []*types.Operation,
@@ -265,7 +266,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 	allParticipants []string,
 ) (*filteredIngestionData, error) {
 	// Get registered accounts from DB
-	existing, err := m.models.Account.BatchGetByIDs(ctx, allParticipants)
+	existing, err := m.models.Account.BatchGetByIDs(ctx, dbTx, allParticipants)
 	if err != nil {
 		return nil, fmt.Errorf("getting registered accounts: %w", err)
 	}
@@ -334,7 +335,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 }
 
 // filterParticipantData filters the data to only include participants that are registered
-func (m *ingestService) filterParticipantData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) (*filteredIngestionData, error) {
+func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, indexerBuffer indexer.IndexerBufferInterface) (*filteredIngestionData, error) {
 	// Get data from indexer buffer
 	txs := indexerBuffer.GetTransactions()
 	txParticipants := indexerBuffer.GetTransactionsParticipants()
@@ -347,7 +348,7 @@ func (m *ingestService) filterParticipantData(ctx context.Context, indexerBuffer
 	// When filtering is enabled, only store data for registered accounts
 	if m.enableParticipantFiltering {
 		filtered, err := m.filterByRegisteredAccounts(
-			ctx, txs, txParticipants, ops, opParticipants, stateChanges,
+			ctx, dbTx, txs, txParticipants, ops, opParticipants, stateChanges,
 			indexerBuffer.GetAllParticipants(),
 		)
 		if err != nil {
