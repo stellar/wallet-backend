@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 type ingestCmd struct{}
@@ -42,7 +43,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "What mode to run ingestion in - live or backfill",
 			OptType:     types.String,
 			ConfigKey:   &cfg.IngestionMode,
-			FlagDefault: string(ingest.IngestionModeLive),
+			FlagDefault: services.IngestionModeLive,
 			Required:    true,
 		},
 		{

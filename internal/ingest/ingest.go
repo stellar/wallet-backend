@@ -35,16 +35,11 @@ const (
 // LedgerBackendType represents the type of ledger backend to use
 type LedgerBackendType string
 
-// IngestionMode represents the mode of ingestion to use
-type IngestionMode string
-
 const (
 	// LedgerBackendTypeRPC uses RPC to fetch ledgers
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
-	IngestionModeLive          IngestionMode     = "live"
-	IngestionModeBackfill      IngestionMode     = "backfill"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
@@ -119,7 +114,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	var err error
 	switch cfg.IngestionMode {
 	// Use optimized connection pool for backfill mode with async commit and increased work_mem
-	case string(IngestionModeBackfill):
+	case services.IngestionModeBackfill:
 		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)

@@ -29,12 +29,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-var ErrAlreadyInSync = errors.New("ingestion is already in sync")
-
 const (
-	// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
-	// to avoid racing with live finalization during parallel processing.
-	HistoricalBufferLedgers uint32 = 5
 	// maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
 	maxLedgerFetchRetries = 10
 	// maxRetryBackoff is the maximum backoff duration between retry attempts.
