@@ -111,7 +111,6 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 			}
 
-			// Update cursor only for live ingestion
 			innerErr := m.updateLatestLedgerCursor(ctx, dbTx, currentLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)

@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -49,7 +51,7 @@ func (m *IngestStoreModel) Update(ctx context.Context, pgxTx pgx.Tx, cursorName 
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
 	start := time.Now()
-	_, err := pgxTx.Exec(ctx, query, cursorName, ledger)
+	_, err := pgxTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Update", "ingest_store", duration)
 	if err != nil {
@@ -66,7 +68,7 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, pgxTx pgx.Tx, cursorNa
 		SET value = LEAST(value::integer, $2)::text
 		WHERE key = $1
 	`
-	_, err := pgxTx.Exec(ctx, query, cursorName, ledger)
+	_, err := pgxTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
 	if err != nil {
 		return fmt.Errorf("updating minimum ledger for cursor %s: %w", cursorName, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -122,7 +123,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
+			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 				if err := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
 					return err
 				}
@@ -193,7 +194,7 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 				MetricsService: mockMetricsService,
 			}
 
-			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
+			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 				return m.UpdateMin(ctx, dbTx, tc.key, tc.newValue)
 			})
 			require.NoError(t, err)

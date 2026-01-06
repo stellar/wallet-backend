@@ -236,7 +236,7 @@ func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, a
 	}()
 
 	if err := atomicFunction(pgxTx); err != nil {
-		return err
+		return fmt.Errorf("running atomic function in RunInPgxTransaction: %w", err)
 	}
 
 	if err := pgxTx.Commit(ctx); err != nil {
