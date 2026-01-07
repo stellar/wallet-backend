@@ -65,6 +65,7 @@ type sorobanTransaction struct {
 	op             *txnbuild.InvokeHostFunction
 	signer         *keypair.Full
 	sequenceNumber int64
+	resourceFee    int64 // Soroban resource fee from preflight simulation
 }
 
 // Generate creates synthetic ledgers with bulk Soroban transfers.
@@ -326,12 +327,16 @@ func createAccounts(containers *LoadTestContainers, rpcURL string, count int) (
 			return nil, nil, nil, fmt.Errorf("creating accounts batch: %w", err)
 		}
 
-		// Create account objects
+		// Create account objects with actual sequence numbers from chain
 		for _, kp := range batchSigners {
+			seq, err := getAccountSequence(containers.HTTPClient, rpcURL, kp.Address())
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("getting sequence for %s: %w", kp.Address(), err)
+			}
 			signers = append(signers, kp)
 			accounts = append(accounts, &txnbuild.SimpleAccount{
 				AccountID: kp.Address(),
-				Sequence:  0,
+				Sequence:  seq,
 			})
 		}
 		accountLedgers = append(accountLedgers, ledger)
@@ -404,6 +409,7 @@ func prepareBulkTransfers(containers *LoadTestContainers, rpcURL string,
 			op:             preflightedOp,
 			signer:         signers[i],
 			sequenceNumber: seqNum,
+			resourceFee:    int64(preflightedOp.Ext.SorobanData.ResourceFee),
 		})
 	}
 
@@ -452,7 +458,7 @@ func txSubWorker(ctx context.Context, containers *LoadTestContainers, rpcURL str
 		builtTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount:        &account,
 			Operations:           []txnbuild.Operation{tx.op},
-			BaseFee:              txnbuild.MinBaseFee * 100,
+			BaseFee:              txnbuild.MinBaseFee + tx.resourceFee,
 			IncrementSequenceNum: true,
 			Preconditions: txnbuild.Preconditions{
 				TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
@@ -912,6 +918,71 @@ func getHealthFromRPC(client *http.Client, rpcURL string) (*entities.RPCGetHealt
 	}
 
 	return &rpcResp.Result, nil
+}
+
+func getAccountSequence(client *http.Client, rpcURL, accountID string) (int64, error) {
+	// Build the account ledger key
+	accountKey := xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeAccount,
+		Account: &xdr.LedgerKeyAccount{
+			AccountId: xdr.MustAddress(accountID),
+		},
+	}
+	keyBase64, err := xdr.MarshalBase64(accountKey)
+	if err != nil {
+		return 0, fmt.Errorf("marshaling account key: %w", err)
+	}
+
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "getLedgerEntries",
+		"params": map[string]interface{}{
+			"keys": []string{keyBase64},
+		},
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return 0, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return 0, fmt.Errorf("posting to RPC: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck
+
+	var rpcResp struct {
+		Result struct {
+			Entries []struct {
+				XDR string `json:"xdr"`
+			} `json:"entries"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return 0, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return 0, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+
+	if len(rpcResp.Result.Entries) == 0 {
+		return 0, fmt.Errorf("account not found: %s", accountID)
+	}
+
+	var entry xdr.LedgerEntryData
+	if err := xdr.SafeUnmarshalBase64(rpcResp.Result.Entries[0].XDR, &entry); err != nil {
+		return 0, fmt.Errorf("unmarshaling ledger entry: %w", err)
+	}
+
+	account := entry.MustAccount()
+	return int64(account.SeqNum), nil
 }
 
 func getLedgerFromRPC(client *http.Client, rpcURL string, sequence uint32) (xdr.LedgerCloseMeta, error) {
