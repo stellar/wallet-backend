@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -17,11 +16,9 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	sdkingest "github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -173,7 +170,7 @@ func runIngestionLoop(
 		// Process ledger
 		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
-		if err := processLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer); err != nil {
+		if _, err := indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer); err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
@@ -203,46 +200,6 @@ func runIngestionLoop(
 
 		currentLedger++
 	}
-}
-
-// processLedger extracts transactions from a ledger and indexes them.
-func processLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *indexer.Indexer, buffer *indexer.IndexerBuffer) error {
-	// Extract transactions from the ledger close meta
-	transactions, err := getLedgerTransactions(networkPassphrase, ledgerMeta)
-	if err != nil {
-		return fmt.Errorf("extracting transactions: %w", err)
-	}
-
-	// Process transactions using the indexer
-	_, err = ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
-	if err != nil {
-		return fmt.Errorf("processing transactions: %w", err)
-	}
-
-	return nil
-}
-
-// getLedgerTransactions extracts transactions from ledger close meta.
-func getLedgerTransactions(networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]sdkingest.LedgerTransaction, error) {
-	txReader, err := sdkingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledgerMeta)
-	if err != nil {
-		return nil, fmt.Errorf("creating transaction reader: %w", err)
-	}
-	defer func() { _ = txReader.Close() }() //nolint:errcheck
-
-	var transactions []sdkingest.LedgerTransaction
-	for {
-		tx, err := txReader.Read()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("reading transaction: %w", err)
-		}
-		transactions = append(transactions, tx)
-	}
-
-	return transactions, nil
 }
 
 // persistLedgerData writes the processed data to the database.

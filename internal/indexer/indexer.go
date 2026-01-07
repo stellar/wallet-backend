@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 
@@ -11,10 +12,12 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // isContractAddress determines if the given address is a contract address (C...) or account address (G...)
@@ -292,4 +295,44 @@ func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction in
 	stateChanges = append(stateChanges, tokenTransferStateChanges...)
 
 	return stateChanges, nil
+}
+
+// GetLedgerTransactions extracts transactions from ledger close meta.
+func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
+	}
+	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
+
+	transactions := make([]ingest.LedgerTransaction, 0)
+	for {
+		tx, err := ledgerTxReader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("reading ledger: %w", err)
+		}
+		transactions = append(transactions, tx)
+	}
+
+	return transactions, nil
+}
+
+// ProcessLedger extracts transactions from a ledger and indexes them.
+// Returns the participant count for optional metrics recording.
+func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	participantCount, err := ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	return participantCount, nil
 }
