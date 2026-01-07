@@ -9,10 +9,9 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -161,7 +160,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		opParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -240,7 +239,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants1, nil)
 		opParticipants1 := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -256,7 +255,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetTransactionParticipants", testTx2).Return(txParticipants2, nil)
 		opParticipants2 := map[int64]processors.OperationParticipants{
 			2: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      paymentOp,
 					Network:        network.TestNetworkPassphrase,
@@ -502,7 +501,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
 		opParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -555,7 +554,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		opParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -635,7 +634,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 		// Setup mocks
 		opsParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -746,7 +745,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 		// Setup mocks
 		opsParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
@@ -826,7 +825,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 		// Setup mocks
 		opsParticipants := map[int64]processors.OperationParticipants{
 			1: {
-				OpWrapper: &operation_processor.TransactionOperationWrapper{
+				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,

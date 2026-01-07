@@ -6,9 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +19,7 @@ func Test_ContractDeployProcessor_Process_invalidOpType(t *testing.T) {
 	ctx := context.Background()
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 
-	op := &operation_processor.TransactionOperationWrapper{
+	op := &TransactionOperationWrapper{
 		Operation: xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypePayment}},
 	}
 	changes, err := proc.ProcessOperation(ctx, op)
@@ -44,7 +43,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 
 	type TestCase struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantStateChanges []types.StateChange
 	}
 	testCases := []TestCase{}
@@ -74,7 +73,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 				testCases = append(testCases,
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							setFromAddress(op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
@@ -95,7 +94,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 							setFromAddress(op, hostFnType, fromSourceAccount)
@@ -117,7 +116,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							setFromAsset(op, hostFnType, usdcAssetTestnet)
 							if withSubinvocations {
@@ -160,7 +159,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 
 	ctx := context.Background()
 
-	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *operation_processor.TransactionOperationWrapper {
+	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *TransactionOperationWrapper {
 		op := makeBasicSorobanOp()
 		op.Operation = xdr.Operation{
 			Body: xdr.OperationBody{
@@ -195,7 +194,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 
 	type TestCase struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantStateChanges []types.StateChange
 	}
 	testCases := []TestCase{}
@@ -224,7 +223,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 			testCases = append(testCases,
 				TestCase{
 					name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
@@ -239,7 +238,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScContract(argContractID1), makeScContract(argContractID2))
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 						if withSubinvocations {

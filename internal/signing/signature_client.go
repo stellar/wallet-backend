@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
 var (

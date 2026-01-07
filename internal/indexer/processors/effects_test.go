@@ -5,11 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/toid"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/toid"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +37,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -103,7 +102,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -147,7 +146,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -187,7 +186,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -232,7 +231,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -271,7 +270,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -280,7 +279,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
-		require.Len(t, changes, 9)
+		require.Len(t, changes, 9) // Updated: CreateAccount now generates SIGNER/ADD effect
+
+		// CreateAccount generates SIGNER/ADD effect at index 0
+		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
 
 		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
@@ -317,6 +320,17 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[6].StateChangeReason)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[6].AccountID)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[6].SponsorAccountID.String)
+
+		// Sponsorship created creates two state changes - one for the sponsor and one for the target account
+		assert.Equal(t, types.StateChangeCategoryReserves, changes[7].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSponsor, *changes[7].StateChangeReason)
+		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[7].AccountID)
+		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[7].SponsoredAccountID.String)
+
+		assert.Equal(t, types.StateChangeCategoryReserves, changes[8].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSponsor, *changes[8].StateChangeReason)
+		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[8].AccountID)
+		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[8].SponsorAccountID.String)
 	})
 	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
 		envelopeXDR := "AAAAAgAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAAGQAB1eLAAAAAwAAAAEAAAAAAAAAAAAAAABowwQqAAAAAAAAAAEAAAAAAAAABgAAAAFURVNUAAAAAFrnJwiWP46hSSjcYc6wY93h556Qpe47SA8bIQGXMJTlf/////////8AAAAAAAAAAbUNOWYAAABAzWelNCrF4Q+iSKX30xHrBm76FMa2h89pPauijrWAVlcj/swEyYZqjU94SYU+8XEWUuvg2rpjCIHGPHHyzSXlAw=="
@@ -338,7 +352,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -384,7 +398,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
@@ -427,7 +441,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
+		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,

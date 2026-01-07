@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/stellar/go/ingest"
+	"github.com/stellar/go-stellar-sdk/ingest"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -50,7 +49,7 @@ func (p *SACEventsProcessor) Name() string {
 }
 
 // ProcessOperation processes contract events and converts them into state changes.
-func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
 // GetIngestCursor retrieves a cursor value from the ingest_store table.

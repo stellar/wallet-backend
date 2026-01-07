@@ -3,7 +3,7 @@ package integrationtests
 import (
 	"fmt"
 
-	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
 func parseTxXDR(txXDR string) (*txnbuild.Transaction, error) {

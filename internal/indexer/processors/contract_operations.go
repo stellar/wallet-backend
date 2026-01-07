@@ -6,9 +6,8 @@ import (
 	"fmt"
 
 	set "github.com/deckarep/golang-set/v2"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -144,7 +143,7 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 //     applying the same extraction logic as above
 //
 // It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
-func participantsForSorobanOp(op *operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
@@ -226,7 +225,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 }
 
 type CreateContractV1OpProcessor struct {
-	op *operation_processor.TransactionOperationWrapper
+	op *TransactionOperationWrapper
 }
 
 func (p *CreateContractV1OpProcessor) GetCreateContract() (xdr.CreateContractArgs, bool) {
@@ -270,7 +269,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 }
 
 type CreateContractV2OpProcessor struct {
-	op *operation_processor.TransactionOperationWrapper
+	op *TransactionOperationWrapper
 }
 
 func (p *CreateContractV2OpProcessor) GetCreateContract() (xdr.CreateContractArgsV2, bool) {
@@ -314,7 +313,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 }
 
 type InvokeContractOpProcessor struct {
-	op *operation_processor.TransactionOperationWrapper
+	op *TransactionOperationWrapper
 }
 
 func (p *InvokeContractOpProcessor) GetInvokeContract() (xdr.InvokeContractArgs, bool) {

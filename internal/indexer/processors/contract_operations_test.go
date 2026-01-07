@@ -7,10 +7,9 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,8 +30,8 @@ func Test_calculateContractID(t *testing.T) {
 func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 	const txSourceAccount = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
 
-	nonSorobanOp := func() *operation_processor.TransactionOperationWrapper {
-		return &operation_processor.TransactionOperationWrapper{
+	nonSorobanOp := func() *TransactionOperationWrapper {
+		return &TransactionOperationWrapper{
 			Network:      network.TestNetworkPassphrase,
 			LedgerClosed: time.Now(),
 			Operation: xdr.Operation{
@@ -58,7 +57,7 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 	// Test cases
 	testCases := []struct {
 		name            string
-		op              *operation_processor.TransactionOperationWrapper
+		op              *TransactionOperationWrapper
 		wantErrContains string
 	}{
 		{
@@ -92,8 +91,8 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 		contractID2     = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
 	)
 
-	basicSorobanOp := func() *operation_processor.TransactionOperationWrapper {
-		return &operation_processor.TransactionOperationWrapper{
+	basicSorobanOp := func() *TransactionOperationWrapper {
+		return &TransactionOperationWrapper{
 			Network:      network.TestNetworkPassphrase,
 			LedgerClosed: time.Now(),
 			Operation:    xdr.Operation{},
@@ -134,7 +133,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 
 	type TestCase struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantParticipants set.Set[string]
 	}
 
@@ -149,7 +148,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 			testCases = append(testCases,
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly/tx.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := basicSorobanOp()
 						op.Operation.Body.Type = opType
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = []xdr.LedgerKey{
@@ -164,7 +163,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly/op.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := basicSorobanOp()
 						op.Operation.Body.Type = opType
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
@@ -180,7 +179,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly&ReadWrite/tx.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := basicSorobanOp()
 						op.Operation.Body.Type = opType
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = []xdr.LedgerKey{
@@ -214,7 +213,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 	const opSourceAccount = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
 
-	uploadWasmOp := func() *operation_processor.TransactionOperationWrapper {
+	uploadWasmOp := func() *TransactionOperationWrapper {
 		op := makeBasicSorobanOp()
 		op.Operation = xdr.Operation{
 			Body: xdr.OperationBody{
@@ -232,7 +231,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 
 	testCases := []struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantParticipants set.Set[string]
 	}{
 		{
@@ -242,7 +241,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 		},
 		{
 			name: "🟢upload_wasm/tx.SourceAccount",
-			op: func() *operation_processor.TransactionOperationWrapper {
+			op: func() *TransactionOperationWrapper {
 				op := uploadWasmOp()
 				op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 				return op
@@ -267,7 +266,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 
 // makeAuthEntries receives a []xdr.ScAddress and returns a []xdr.SorobanAuthorizationEntry. It also populates the
 // SorobanAuthorizedFunction's type and function fields based on the operation provided.
-func makeAuthEntries(t *testing.T, op *operation_processor.TransactionOperationWrapper, authAccounts ...xdr.ScAddress) []xdr.SorobanAuthorizationEntry {
+func makeAuthEntries(t *testing.T, op *TransactionOperationWrapper, authAccounts ...xdr.ScAddress) []xdr.SorobanAuthorizationEntry {
 	t.Helper()
 	sorobanAuthFn := xdr.SorobanAuthorizedFunction{}
 	switch op.Operation.Body.InvokeHostFunctionOp.HostFunction.Type {
@@ -316,7 +315,7 @@ const (
 // includeSubInvocations will add subInvocations to any existing SorobanAuthorizationEntry. After adding the subinvocations,
 // the following addresses are expected to be present:
 // [deployerAccountID, deployedContractID, contractID1, contractID3, xlmSACID]
-func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) {
+func includeSubInvocations(op *TransactionOperationWrapper) {
 	subInvocations := []xdr.SorobanAuthorizedInvocation{
 		{
 			Function: xdr.SorobanAuthorizedFunction{
@@ -391,7 +390,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 
 	type TestCase struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantParticipants set.Set[string]
 	}
 
@@ -411,7 +410,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 				testCases = append(testCases,
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							setFromAddress(op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
@@ -427,7 +426,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 							setFromAddress(op, hostFnType, fromSourceAccount)
@@ -444,7 +443,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
-						op: func() *operation_processor.TransactionOperationWrapper {
+						op: func() *TransactionOperationWrapper {
 							op := makeBasicSorobanOp()
 							setFromAsset(op, hostFnType, usdcAssetTestnet)
 							if withSubinvocations {
@@ -464,7 +463,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	}
 	testCases = append(testCases, TestCase{
 		name: fmt.Sprintf("🟢%s.ConstructorArgs/FromAccount/op.SourceAccount", xdr.HostFunctionTypeHostFunctionTypeCreateContractV2),
-		op: func() *operation_processor.TransactionOperationWrapper {
+		op: func() *TransactionOperationWrapper {
 			op := makeBasicSorobanOp()
 			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, fromSourceAccount)
 			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2.ConstructorArgs = []xdr.ScVal{ // <--- args addresses are not returned
@@ -499,7 +498,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 		invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
 	)
 
-	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *operation_processor.TransactionOperationWrapper {
+	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *TransactionOperationWrapper {
 		op := makeBasicSorobanOp()
 		op.Operation = xdr.Operation{
 			Body: xdr.OperationBody{
@@ -529,7 +528,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 
 	type TestCase struct {
 		name             string
-		op               *operation_processor.TransactionOperationWrapper
+		op               *TransactionOperationWrapper
 		wantParticipants set.Set[string]
 	}
 
@@ -548,7 +547,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 			testCases = append(testCases,
 				TestCase{
 					name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
@@ -563,7 +562,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
-					op: func() *operation_processor.TransactionOperationWrapper {
+					op: func() *TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScContract(argContractID1), makeScContract(argContractID2))
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 						if withSubinvocations {

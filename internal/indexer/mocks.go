@@ -4,8 +4,7 @@ import (
 	"context"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
-	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
@@ -40,7 +39,7 @@ type MockOperationProcessor struct {
 	mock.Mock
 }
 
-func (m *MockOperationProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (m *MockOperationProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {
 	args := m.Called(ctx, opWrapper)
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }

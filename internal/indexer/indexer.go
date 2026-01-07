@@ -9,9 +9,8 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
@@ -54,7 +53,7 @@ type ParticipantsProcessorInterface interface {
 }
 
 type OperationProcessorInterface interface {
-	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
+	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error)
 	Name() string
 }
 
