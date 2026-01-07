@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/stellar/go/amount"
-	goloadtest "github.com/stellar/go/ingest/loadtest"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/amount"
+	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
@@ -622,7 +622,7 @@ func mergeLedgers(containers *LoadTestContainers, rpcURL string,
 			var changes xdr.LedgerEntryChanges
 			for i := range accountEntries {
 				entry := accountEntries[i]
-				if err := goloadtest.UpdateLedgerSeq(&entry, func(uint32) uint32 {
+				if err := goloadtest.UpdateLedgerSeqInLedgerEntries(&entry, func(uint32) uint32 {
 					return start
 				}); err != nil {
 					return fmt.Errorf("updating ledger seq: %w", err)
