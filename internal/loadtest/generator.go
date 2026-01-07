@@ -111,13 +111,13 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 
 	// Step 1: Deploy native asset SAC
 	log.Info("Deploying native asset SAC...")
-	if sacErr := deployNativeAssetSAC(ctx, containers, rpcURL); sacErr != nil {
+	if sacErr := deployNativeAssetSAC(containers, rpcURL); sacErr != nil {
 		return fmt.Errorf("deploying native asset SAC: %w", sacErr)
 	}
 
 	// Step 2: Deploy soroban_bulk contract
 	log.Info("Deploying soroban_bulk contract...")
-	bulkContractID, err := deployBulkContract(ctx, containers, rpcURL)
+	bulkContractID, err := deployBulkContract(containers, rpcURL)
 	if err != nil {
 		return fmt.Errorf("deploying bulk contract: %w", err)
 	}
@@ -125,7 +125,7 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 
 	// Step 3: Create accounts (2x transactionsPerLedger - half senders, half recipients)
 	log.Infof("Creating %d accounts...", 2*cfg.TransactionsPerLedger)
-	signers, accounts, accountLedgers, err := createAccounts(ctx, containers, rpcURL, 2*cfg.TransactionsPerLedger)
+	signers, accounts, accountLedgers, err := createAccounts(containers, rpcURL, 2*cfg.TransactionsPerLedger)
 	if err != nil {
 		return fmt.Errorf("creating accounts: %w", err)
 	}
@@ -205,11 +205,14 @@ func deployNativeAssetSAC(containers *LoadTestContainers, rpcURL string) error {
 	}
 
 	_, err := infrastructure.ExecuteSorobanOperation(containers.HTTPClient, rpcURL, containers.MasterAccount, containers.MasterKeyPair, deployOp, false, 20)
-	return err
+	if err != nil {
+		return fmt.Errorf("deploying native asset SAC: %w", err)
+	}
+	return nil
 }
 
 // deployBulkContract uploads and deploys the soroban_bulk.wasm contract.
-func deployBulkContract(ctx context.Context, containers *LoadTestContainers, rpcURL string) (xdr.ContractId, error) {
+func deployBulkContract(containers *LoadTestContainers, rpcURL string) (xdr.ContractId, error) {
 	// Read WASM file
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
@@ -288,7 +291,7 @@ func deployBulkContract(ctx context.Context, containers *LoadTestContainers, rpc
 }
 
 // createAccounts creates funded accounts for load testing.
-func createAccounts(ctx context.Context, containers *LoadTestContainers, rpcURL string, count int) (
+func createAccounts(containers *LoadTestContainers, rpcURL string, count int) (
 	[]*keypair.Full, []*txnbuild.SimpleAccount, []uint32, error,
 ) {
 	var signers []*keypair.Full

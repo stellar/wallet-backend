@@ -20,11 +20,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 )
 
-const (
-	// Master account seed for standalone network
-	masterAccountSeed = "SBGWSG6BTNCKCOB3DIFBGCVMUPQFYPA2G4O34RMTB343OYPXU5DJDVMN"
-)
-
 // LoadTestContainers holds the minimal container set for ledger generation.
 // This is a self-contained environment that starts and stops its own containers.
 type LoadTestContainers struct {
@@ -132,11 +127,4 @@ func (c *LoadTestContainers) Close() error {
 
 	log.Info("Load test containers closed")
 	return nil
-}
-
-// accountLedgerKey creates a ledger key for an account (simplified).
-func accountLedgerKey(accountID string) string {
-	// This is a simplified version - for the master account on standalone,
-	// we just need to initialize with sequence 0
-	return accountID
 }
