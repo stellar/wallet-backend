@@ -215,18 +215,10 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 		},
 		{
 			Name:        "server-port",
-			Usage:       "Port for metrics server",
+			Usage:       "Port for the loadtest metrics server",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.ServerPort,
 			FlagDefault: 8003,
-			Required:    false,
-		},
-		{
-			Name:        "admin-port",
-			Usage:       "Port for admin/pprof server (0 to disable)",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.AdminPort,
-			FlagDefault: 0,
 			Required:    false,
 		},
 		{
@@ -296,7 +288,6 @@ Example:
 				DatabaseURL:         cfg.DatabaseURL,
 				NetworkPassphrase:   cfg.NetworkPassphrase,
 				ServerPort:          cfg.ServerPort,
-				AdminPort:           cfg.AdminPort,
 				SkipTxMeta:          cfg.SkipTxMeta,
 				SkipTxEnvelope:      cfg.SkipTxEnvelope,
 			})

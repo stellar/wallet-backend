@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +40,6 @@ type RunConfig struct {
 	DatabaseURL         string
 	NetworkPassphrase   string
 	ServerPort          int
-	AdminPort           int
 	SkipTxMeta          bool
 	SkipTxEnvelope      bool
 }
@@ -154,9 +152,8 @@ func runIngestionLoop(
 		default:
 		}
 
-		ledgerStart := time.Now()
-
 		// Get ledger from backend
+		ledgerStart := time.Now()
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
 			log.Info("Loadtest complete - all ledgers processed")
@@ -168,6 +165,7 @@ func runIngestionLoop(
 		metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(ledgerStart).Seconds())
 
 		// Process ledger
+		ingestStart := time.Now()
 		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
 		if _, err := indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer); err != nil {
@@ -184,8 +182,8 @@ func runIngestionLoop(
 		metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
 
 		// Record metrics
-		ledgerDuration := time.Since(ledgerStart).Seconds()
-		metricsService.ObserveIngestionDuration(ledgerDuration)
+		ingestionDuration := time.Since(ingestStart).Seconds()
+		metricsService.ObserveIngestionDuration(ingestionDuration)
 		metricsService.IncIngestionLedgersProcessed(1)
 		metricsService.IncIngestionTransactionsProcessed(numTxs)
 		metricsService.IncIngestionOperationsProcessed(numOps)
@@ -195,8 +193,8 @@ func runIngestionLoop(
 		txsProcessed += numTxs
 		opsProcessed += numOps
 
-		log.Infof("Processed ledger %d (%d txs, %d ops) in %.3fs",
-			currentLedger, numTxs, numOps, ledgerDuration)
+		log.Infof("Ingested ledger %d (%d txs, %d ops) in %.3fs",
+			currentLedger, numTxs, numOps, ingestionDuration)
 
 		currentLedger++
 	}
@@ -279,30 +277,6 @@ func startServers(cfg RunConfig, metricsService metrics.MetricsService) []*http.
 		}
 	}()
 	servers = append(servers, server)
-
-	// Admin server (pprof)
-	if cfg.AdminPort > 0 {
-		adminMux := http.NewServeMux()
-		adminMux.HandleFunc("/debug/pprof/", pprof.Index)
-		adminMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		adminMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		adminMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		adminMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-
-		adminServer := &http.Server{
-			Addr:    fmt.Sprintf(":%d", cfg.AdminPort),
-			Handler: adminMux,
-		}
-
-		go func() {
-			log.Infof("Starting admin server on port %d", cfg.AdminPort)
-			if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
-				log.Errorf("Admin server error: %v", err)
-			}
-		}()
-		servers = append(servers, adminServer)
-	}
-
 	return servers
 }
 
