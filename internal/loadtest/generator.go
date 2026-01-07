@@ -8,17 +8,21 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -46,6 +50,8 @@ const (
 	MaxAccountsPerTransaction = 100
 	// DefaultFundingAmount is the amount to fund each account with
 	DefaultFundingAmount = "10000000"
+	// LongTermTTL is the TTL extension for contracts (same as Horizon)
+	LongTermTTL = 10000
 )
 
 // GeneratorConfig configures the synthetic ledger generator.
@@ -65,7 +71,6 @@ type sorobanTransaction struct {
 	op             *txnbuild.InvokeHostFunction
 	signer         *keypair.Full
 	sequenceNumber int64
-	resourceFee    int64 // Soroban resource fee from preflight simulation
 }
 
 // Generate creates synthetic ledgers with bulk Soroban transfers.
@@ -112,8 +117,15 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 
 	// Step 1: Deploy native asset SAC
 	log.Info("Deploying native asset SAC...")
-	if sacErr := deployNativeAssetSAC(containers, rpcURL); sacErr != nil {
-		return fmt.Errorf("deploying native asset SAC: %w", sacErr)
+	sacContractID, err := deployNativeAssetSAC(containers, rpcURL)
+	if err != nil {
+		return fmt.Errorf("deploying native asset SAC: %w", err)
+	}
+
+	// Step 1b: Extend SAC TTL to prevent expiration
+	log.Info("Extending SAC TTL...")
+	if ttlErr := extendContractTTL(containers, rpcURL, sacContractID, LongTermTTL); ttlErr != nil {
+		return fmt.Errorf("extending SAC TTL: %w", ttlErr)
 	}
 
 	// Step 2: Deploy soroban_bulk contract
@@ -123,6 +135,12 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 		return fmt.Errorf("deploying bulk contract: %w", err)
 	}
 	log.Infof("Bulk contract deployed: %x", bulkContractID[:8])
+
+	// Step 2b: Extend bulk contract TTL to prevent expiration
+	log.Info("Extending bulk contract TTL...")
+	if ttlErr := extendContractTTL(containers, rpcURL, bulkContractID, LongTermTTL); ttlErr != nil {
+		return fmt.Errorf("extending bulk contract TTL: %w", ttlErr)
+	}
 
 	// Step 3: Create accounts (2x transactionsPerLedger - half senders, half recipients)
 	log.Infof("Creating %d accounts...", 2*cfg.TransactionsPerLedger)
@@ -187,7 +205,8 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 }
 
 // deployNativeAssetSAC deploys the Stellar Asset Contract for native XLM.
-func deployNativeAssetSAC(containers *LoadTestContainers, rpcURL string) error {
+// Returns the SAC contract ID for TTL extension.
+func deployNativeAssetSAC(containers *LoadTestContainers, rpcURL string) (xdr.ContractId, error) {
 	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
 	deployOp := &txnbuild.InvokeHostFunction{
 		HostFunction: xdr.HostFunction{
@@ -207,9 +226,16 @@ func deployNativeAssetSAC(containers *LoadTestContainers, rpcURL string) error {
 
 	_, err := infrastructure.ExecuteSorobanOperation(containers.HTTPClient, rpcURL, containers.MasterAccount, containers.MasterKeyPair, deployOp, false, 20)
 	if err != nil {
-		return fmt.Errorf("deploying native asset SAC: %w", err)
+		return xdr.ContractId{}, fmt.Errorf("deploying native asset SAC: %w", err)
 	}
-	return nil
+
+	// Calculate the SAC contract ID from the asset
+	sacContractID, err := nativeAsset.ContractID(infrastructure.NetworkPassphrase)
+	if err != nil {
+		return xdr.ContractId{}, fmt.Errorf("calculating SAC contract ID: %w", err)
+	}
+
+	return sacContractID, nil
 }
 
 // deployBulkContract uploads and deploys the soroban_bulk.wasm contract.
@@ -289,6 +315,100 @@ func deployBulkContract(containers *LoadTestContainers, rpcURL string) (xdr.Cont
 	}
 
 	return contractID, nil
+}
+
+// extendContractTTL extends the TTL of a contract to prevent expiration during load testing.
+func extendContractTTL(containers *LoadTestContainers, rpcURL string, contractID xdr.ContractId, ttl uint32) error {
+	// Build the ledger key for the contract instance
+	contractKey := xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeContractData,
+		ContractData: &xdr.LedgerKeyContractData{
+			Contract: xdr.ScAddress{
+				Type:       xdr.ScAddressTypeScAddressTypeContract,
+				ContractId: &contractID,
+			},
+			Key: xdr.ScVal{
+				Type: xdr.ScValTypeScvLedgerKeyContractInstance,
+			},
+			Durability: xdr.ContractDataDurabilityPersistent,
+		},
+	}
+
+	// Build operation with initial footprint for simulation
+	extendOp := &txnbuild.ExtendFootprintTtl{
+		ExtendTo: ttl,
+		Ext: xdr.TransactionExt{
+			V: 1,
+			SorobanData: &xdr.SorobanTransactionData{
+				Resources: xdr.SorobanResources{
+					Footprint: xdr.LedgerFootprint{ReadOnly: []xdr.LedgerKey{contractKey}},
+				},
+			},
+		},
+	}
+
+	// Simulate to get resource requirements
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        containers.MasterAccount,
+		Operations:           []txnbuild.Operation{extendOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout)},
+	})
+	if err != nil {
+		return fmt.Errorf("building simulation tx: %w", err)
+	}
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return fmt.Errorf("encoding simulation tx: %w", err)
+	}
+
+	simResult, err := infrastructure.SimulateTransactionRPC(containers.HTTPClient, rpcURL, txXDR)
+	if err != nil {
+		return fmt.Errorf("simulating: %w", err)
+	}
+	if simResult.Error != "" {
+		return fmt.Errorf("simulation failed: %s", simResult.Error)
+	}
+
+	// Apply simulation results and submit
+	extendOp.Ext.SorobanData = &simResult.TransactionData
+	minFee, err := strconv.ParseInt(simResult.MinResourceFee, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parsing fee: %w", err)
+	}
+
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        containers.MasterAccount,
+		Operations:           []txnbuild.Operation{extendOp},
+		BaseFee:              minFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout)},
+	})
+	if err != nil {
+		return fmt.Errorf("building tx: %w", err)
+	}
+	tx, err = tx.Sign(infrastructure.NetworkPassphrase, containers.MasterKeyPair)
+	if err != nil {
+		return fmt.Errorf("signing tx: %w", err)
+	}
+	txXDR, err = tx.Base64()
+	if err != nil {
+		return fmt.Errorf("encoding tx: %w", err)
+	}
+
+	result, err := infrastructure.SubmitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
+	if err != nil {
+		return fmt.Errorf("submitting: %w", err)
+	}
+	if result.Status == entities.ErrorStatus {
+		return fmt.Errorf("failed: %s", result.ErrorResultXDR)
+	}
+
+	if err := infrastructure.WaitForTxConfirmationRPC(containers.HTTPClient, rpcURL, result.Hash, 20); err != nil {
+		return fmt.Errorf("waiting for confirmation: %w", err)
+	}
+	return nil
 }
 
 // createAccounts creates funded accounts for load testing.
@@ -388,11 +508,12 @@ func prepareBulkTransfers(containers *LoadTestContainers, rpcURL string,
 		// Build the bulk transfer operation
 		op := buildBulkTransfer(bulkContractID, sender, sacContractID, &bulkRecipients, &bulkAmounts)
 
-		// Preflight the operation
-		preflightedOp, err := preflightOperation(containers, rpcURL, accounts[i], op)
+		// Preflight the operation (includes auth signing)
+		preflightedOp, err := preflightOperation(containers, rpcURL, accounts[i], signers[i], op)
 		if err != nil {
 			return nil, fmt.Errorf("preflighting operation %d: %w", i, err)
 		}
+		// Scale up resource limits for load testing
 		preflightedOp.Ext.SorobanData.Resources.DiskReadBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.WriteBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.Instructions *= 10
@@ -407,7 +528,6 @@ func prepareBulkTransfers(containers *LoadTestContainers, rpcURL string,
 			op:             preflightedOp,
 			signer:         signers[i],
 			sequenceNumber: seqNum,
-			resourceFee:    int64(preflightedOp.Ext.SorobanData.ResourceFee),
 		})
 	}
 
@@ -580,15 +700,44 @@ func waitForLedger(ctx context.Context, containers *LoadTestContainers, rpcURL s
 	}
 }
 
-func getAccountEntries(ctx context.Context, containers *LoadTestContainers, rpcURL string,
+func getAccountEntries(_ context.Context, containers *LoadTestContainers, rpcURL string,
 	accountLedgers []uint32, count int,
 ) ([]xdr.LedgerEntry, error) {
-	// For simplicity, we create synthetic account entries
-	// In a full implementation, we'd fetch these from RPC
 	var entries []xdr.LedgerEntry
-	// This is a placeholder - the actual implementation would need to
-	// fetch account entries from the ledgers
-	log.Warnf("getAccountEntries: using placeholder implementation")
+
+	// Fetch each ledger where accounts were created and extract account entries
+	for _, ledgerSeq := range accountLedgers {
+		ledger, err := getLedgerFromRPC(containers.HTTPClient, rpcURL, ledgerSeq)
+		if err != nil {
+			return nil, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+		}
+
+		// Use ingest library to extract changes from the ledger
+		reader, err := ingest.NewLedgerChangeReaderFromLedgerCloseMeta(infrastructure.NetworkPassphrase, ledger)
+		if err != nil {
+			return nil, fmt.Errorf("creating change reader for ledger %d: %w", ledgerSeq, err)
+		}
+
+		for {
+			change, readErr := reader.Read()
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			if readErr != nil {
+				return nil, fmt.Errorf("reading change from ledger %d: %w", ledgerSeq, readErr)
+			}
+
+			// Filter for newly created account entries (Post != nil, Pre == nil)
+			if change.Type == xdr.LedgerEntryTypeAccount && change.Post != nil && change.Pre == nil {
+				entries = append(entries, *change.Post)
+			}
+		}
+	}
+
+	if len(entries) != count {
+		return nil, fmt.Errorf("expected %d account entries, got %d", count, len(entries))
+	}
+
 	return entries, nil
 }
 
@@ -844,7 +993,7 @@ func executeClassicOperation(containers *LoadTestContainers, rpcURL string,
 }
 
 func preflightOperation(containers *LoadTestContainers, rpcURL string,
-	account *txnbuild.SimpleAccount, op *txnbuild.InvokeHostFunction,
+	account *txnbuild.SimpleAccount, signer *keypair.Full, op *txnbuild.InvokeHostFunction,
 ) (*txnbuild.InvokeHostFunction, error) {
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        account,
@@ -877,6 +1026,20 @@ func preflightOperation(containers *LoadTestContainers, rpcURL string,
 	result.Ext = xdr.TransactionExt{
 		V:           1,
 		SorobanData: &simResult.TransactionData,
+	}
+
+	// Extract and sign auth entries if present
+	if len(simResult.Results) > 0 && len(simResult.Results[0].Auth) > 0 {
+		signedAuth, authErr := infrastructure.SignAuthEntries(
+			simResult.Results[0].Auth,
+			signer,
+			infrastructure.NetworkPassphrase,
+			simResult.LatestLedger,
+		)
+		if authErr != nil {
+			return nil, fmt.Errorf("signing auth entries: %w", authErr)
+		}
+		result.Auth = signedAuth
 	}
 
 	return &result, nil
