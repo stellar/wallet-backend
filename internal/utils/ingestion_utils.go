@@ -3,7 +3,7 @@ package utils
 import (
 	"strconv"
 
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 // Memo returns the memo value parsed to string and its type.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
 // WaitForLedgers waits for a number of ledgers to close (approximated by sleep)

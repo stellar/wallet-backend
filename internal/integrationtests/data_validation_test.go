@@ -11,9 +11,9 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
@@ -430,17 +430,19 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 7 total state changes")
+	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 8 total state changes")
 
-	for _, edge := range stateChanges.Edges {
+	for i, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
 		suite.Require().NoError(err, "failed to marshal state change")
-		fmt.Printf("%s\n", string(jsonBytes))
+		fmt.Printf("State Change #%d:\n%s\n", i+1, string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
 	fmt.Printf("primary account: %s\n", primaryAccount)
 	fmt.Printf("sponsored new account: %s\n", sponsoredNewAccount)
 	fmt.Printf("xlm contract address: %s\n", xlmContractAddress)
+
+	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 8 total state changes")
 
 	// Fetch all state changes in parallel
 	sponsorshipQueries := []stateChangeQuery{

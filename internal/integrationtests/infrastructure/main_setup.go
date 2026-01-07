@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -582,6 +582,10 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)
 	}
+
+	// Give RPC a moment to fully stabilize after container readiness before starting health tracking.
+	// This prevents the immediate health check from failing due to transient unavailability.
+	time.Sleep(3 * time.Second)
 
 	// Start tracking RPC health
 	go func() {

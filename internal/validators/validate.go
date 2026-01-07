@@ -8,8 +8,8 @@ import (
 	"unicode"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
 func NewValidator() (*validator.Validate, error) {
