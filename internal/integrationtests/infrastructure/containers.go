@@ -515,6 +515,87 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 	}, nil
 }
 
+// backfillContainerCounter is used to generate unique container names for backfill containers
+var backfillContainerCounter int64
+
+// StartBackfillContainer creates and starts a new backfill container alongside the live ingest container.
+// It processes historical ledgers in the specified range.
+func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedger, endLedger uint32) (*TestContainer, error) {
+	// Use a unique container name
+	backfillContainerCounter++
+	containerName := fmt.Sprintf("wallet-backend-backfill-%d", backfillContainerCounter)
+
+	// Prepare container request with backfill-specific configuration
+	containerRequest := testcontainers.ContainerRequest{
+		Name:  containerName,
+		Image: s.walletBackendImage,
+		Labels: map[string]string{
+			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+		},
+		Entrypoint: []string{"sh", "-c"},
+		Cmd: []string{
+			"./wallet-backend ingest", // No migrations needed, DB already set up
+		},
+		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerIngestPort)},
+		Env: map[string]string{
+			"RPC_URL":              "http://stellar-rpc:8000",
+			"DATABASE_URL":         "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
+			"PORT":                 walletBackendContainerIngestPort,
+			"LOG_LEVEL":            "DEBUG",
+			"NETWORK":              "standalone",
+			"ARCHIVE_URL":          "http://stellar-core:1570",
+			"CHECKPOINT_FREQUENCY": "8",
+			"GET_LEDGERS_LIMIT":    "5",
+			"SKIP_TX_META":         "false",
+			"SKIP_TX_ENVELOPE":     "false",
+			"LEDGER_BACKEND_TYPE":  "rpc",
+			"NETWORK_PASSPHRASE":   networkPassphrase,
+			// Backfill-specific configuration
+			"INGESTION_MODE":                          "backfill",
+			"START_LEDGER":                            fmt.Sprintf("%d", startLedger),
+			"END_LEDGER":                              fmt.Sprintf("%d", endLedger),
+			"CLIENT_AUTH_PUBLIC_KEYS":                 s.clientAuthKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":         s.distributionAccountKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY":        s.distributionAccountKeyPair.Seed(),
+			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
+			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"REDIS_HOST":                              redisContainerName,
+			"REDIS_PORT":                              "6379",
+		},
+		Networks: []string{s.TestNetwork.Name},
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: containerRequest,
+		Reuse:            false, // Don't reuse - each backfill run is unique
+		Started:          true,
+	})
+	if err != nil {
+		// If we got a container reference, print its logs
+		if container != nil {
+			logs, logErr := container.Logs(ctx)
+			if logErr == nil {
+				defer logs.Close()              //nolint:errcheck
+				logBytes, _ := io.ReadAll(logs) //nolint:errcheck
+				log.Ctx(ctx).Errorf("Backfill container logs:\n%s", string(logBytes))
+			}
+		}
+		return nil, fmt.Errorf("creating backfill container: %w", err)
+	}
+
+	log.Ctx(ctx).Infof("🔄 Created Backfill container (ledgers %d-%d)", startLedger, endLedger)
+
+	testContainer := &TestContainer{
+		Container:     container,
+		MappedPortStr: walletBackendContainerIngestPort,
+	}
+
+	// Store reference for WaitForBackfillCompletion
+	s.BackfillContainer = testContainer
+
+	return testContainer, nil
+}
+
 // triggerProtocolUpgrade triggers a protocol upgrade on Stellar Core
 func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, version int) error {
 	// Get container's HTTP endpoint

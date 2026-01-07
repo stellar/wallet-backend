@@ -83,12 +83,13 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService      services.AccountService
-	FeeBumpService      services.FeeBumpService
-	MetricsService      metrics.MetricsService
-	TransactionService  services.TransactionService
-	RPCService          services.RPCService
-	AccountTokenService services.AccountTokenService
+	AccountService          services.AccountService
+	FeeBumpService          services.FeeBumpService
+	MetricsService          metrics.MetricsService
+	TransactionService      services.TransactionService
+	RPCService              services.RPCService
+	AccountTokenService     services.AccountTokenService
+	ContractMetadataService services.ContractMetadataService
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -167,9 +168,17 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, pond.NewPool(0))
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
+	}
+	if err := accountTokenService.InitializeTrustlineIDByAssetCache(ctx); err != nil {
+		return handlerDeps{}, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	}
+
+	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
@@ -209,6 +218,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
 		AccountTokenService:         accountTokenService,
+		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
 		TransactionService:          txService,
@@ -261,6 +271,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.FeeBumpService,
 				deps.RPCService,
 				deps.AccountTokenService,
+				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,

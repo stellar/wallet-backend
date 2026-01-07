@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -33,7 +34,11 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty input returns empty result", func(t *testing.T) {
-		result, err := accountModel.BatchGetByIDs(ctx, []string{})
+		var result []string
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{})
+			return err
+		})
 		require.NoError(t, err)
 		assert.Empty(t, result)
 	})
@@ -48,7 +53,11 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "accounts").Return().Once()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
 
-		result, err := accountModel.BatchGetByIDs(ctx, []string{"account1", "nonexistent", "account2", "another_nonexistent"})
+		var result []string
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{"account1", "nonexistent", "account2", "another_nonexistent"})
+			return err
+		})
 		require.NoError(t, err)
 
 		// Should only return the existing accounts
@@ -68,7 +77,11 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "accounts").Return().Once()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
 
-		result, err := accountModel.BatchGetByIDs(ctx, []string{"nonexistent1", "nonexistent2"})
+		var result []string
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{"nonexistent1", "nonexistent2"})
+			return err
+		})
 		require.NoError(t, err)
 		assert.Empty(t, result)
 	})

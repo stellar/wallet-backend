@@ -32,14 +32,15 @@ type IndexerBufferInterface interface {
 	GetAllParticipants() []string
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
-	GetTransactions() []types.Transaction
-	GetOperations() []types.Operation
+	GetTransactions() []*types.Transaction
+	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() []types.TrustlineChange
 	GetContractChanges() []types.ContractChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
-	MergeBuffer(other IndexerBufferInterface)
+	Merge(other IndexerBufferInterface)
+	Clear()
 }
 
 type TokenTransferProcessorInterface interface {
@@ -122,7 +123,7 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 	// Merge buffers and count participants
 	totalParticipants := 0
 	for idx, buffer := range txnBuffers {
-		ledgerBuffer.MergeBuffer(buffer)
+		ledgerBuffer.Merge(buffer)
 		totalParticipants += participantCounts[idx]
 	}
 

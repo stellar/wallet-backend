@@ -190,6 +190,15 @@ func isLiquidityPool(accountID string) bool {
 	return versionByte == strkey.VersionByteLiquidityPool
 }
 
+// isClaimableBalance checks if the given ID is a claimable balance
+func isClaimableBalance(id string) bool {
+	versionByte, _, err := strkey.DecodeAny(id)
+	if err != nil {
+		return false
+	}
+	return versionByte == strkey.VersionByteClaimableBalance
+}
+
 // operationSourceAccount returns the source account for an operation,
 // falling back to the transaction source account if the operation doesn't have one
 func operationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) string {
@@ -245,9 +254,9 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 
 	var metaXDR *string
 	if !skipTxMeta {
-		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
-		if err != nil {
-			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+		metaXDRStr, marshalErr := xdr.MarshalBase64(transaction.UnsafeMeta)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", marshalErr)
 		}
 		metaXDR = &metaXDRStr
 	}

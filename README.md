@@ -302,81 +302,254 @@ The Account Token Cache operates in two phases:
 
 When the wallet-backend starts with an empty database, it performs a one-time population from Stellar history archives:
 
-```
-History Archive (Checkpoint Ledger)
-         │
-         ▼
-CheckpointChangeReader ──► Processes ledger state
-         │
-         ├──► Trustlines: account → [CODE:ISSUER, ...]
-         └──► Contracts: account → [ContractID, ...]
-                     │
-                     ▼
-            Redis Cache (Populated)
-            ├── trustlines:{account} → Set<"CODE:ISSUER">
-            └── contracts:{account} → Set<contractID>
+```mermaid
+flowchart TD
+    A[History Archive] --> B[Read Checkpoint Ledger]
+    B --> C[Collect Trustlines & Track Frequency]
+    C --> D[Sort Assets by Frequency]
+    D --> E[Batch Insert to PostgreSQL]
+    E --> F[Assign Asset IDs]
+    F --> G[Encode IDs to VARINT Binary]
+    G --> H[Store in Bucketed Redis Hashes]
 ```
 
 **Process:**
 1. Calculates the nearest checkpoint ledger from the history archive
 2. Downloads and processes the checkpoint state file
-3. Extracts all trustline and contract balance entries
-4. Populates Redis using batch operations (50,000 items per pipeline)
-5. Completes before live ingestion begins
+3. Extracts all trustline entries and tracks how frequently each asset appears
+4. Sorts assets by frequency (descending) so common assets get lower IDs
+5. Batch inserts assets to PostgreSQL `trustline_assets` table
+6. Encodes asset IDs to compact VARINT binary format
+7. Stores in Redis using bucketed hashes (50,000 operations per pipeline batch)
+8. Completes before live ingestion begins
 
 **2. Live Ingestion (Continuous Updates)**
 
-During normal operation, the cache is updated in real-time as trustlines are created/removed and transfers of new contract tokens occurs between accounts:
+During normal operation, the cache is updated in real-time as trustlines are created/removed and transfers of new contract tokens occur between accounts:
 
-```
-Stellar RPC (LedgerCloseMeta)
-         │
-         ▼
-    Indexer
-    ├── TokenTransferProcessor (balance changes detects new SEP41 token updates)
-    └── EffectsProcessor (trustline changes detects new trustline additions or removal of old trustlines)
-         │
-         ▼
-   IndexerBuffer
-   ├── TrustlineChanges
-   └── ContractChanges
-         │
-         ▼
-AccountTokenService.ProcessTokenChanges()
-         │
-         ▼
-   Redis Cache (Updated)
+```mermaid
+flowchart TD
+    A[Stellar RPC - LedgerCloseMeta] --> B[Indexer]
+    B --> C[TokenTransferProcessor]
+    B --> D[EffectsProcessor]
+    C --> E[IndexerBuffer]
+    D --> E
+    E --> F[TrustlineChanges & ContractChanges]
+    F --> G[Get/Create Asset IDs from PostgreSQL]
+    G --> H[Encode to VARINT Binary]
+    H --> I[Pipeline Updates to Redis]
 ```
 
 **Process:**
 1. Indexer processors detect state changes from transaction effects
 2. Changes are buffered (trustline additions/removals, contract balance changes)
-3. After successful DB write, `AccountTokenService.ProcessTokenChanges()` updates Redis
-4. Uses Redis pipelining for efficient batch updates
-5. Contract metadata (name, symbol, decimals) is fetched and stored in PostgreSQL
+3. Asset IDs are fetched or created from PostgreSQL
+4. IDs are encoded to compact VARINT binary format
+5. After successful DB write, `AccountTokenService.ProcessTokenChanges()` updates Redis
+6. Uses Redis pipelining for efficient batch updates
+7. Contract metadata (name, symbol, decimals) is fetched and stored in PostgreSQL
 
 #### GraphQL Integration
 
 The Account Token Cache powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query. See the [Get Account Balances](#7-get-account-balances) section for query examples and response formats.
 
+#### Storage Optimization Strategies
+
+The Account Token Cache uses several optimization strategies to minimize Redis memory usage while maintaining fast lookup performance.
+
+**1. PostgreSQL Asset ID Mapping**
+
+Instead of storing full asset strings (e.g., `USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`) in Redis, we store compact integer IDs. The mapping between IDs and asset strings is maintained in a PostgreSQL table:
+
+```sql
+CREATE TABLE trustline_assets (
+    id BIGSERIAL PRIMARY KEY,
+    code TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    UNIQUE(code, issuer)
+);
+```
+
+This reduces storage from ~60 bytes per asset string to a small integer ID.
+
+**2. Bucket Sharding**
+
+Instead of creating one Redis key per account (millions of keys), accounts are distributed across 20,000 buckets using FNV-1a hashing:
+
+```
+Key format: trustlines:{bucket}
+Bucket = fnv32(accountAddress) % 20000
+```
+
+Each bucket is a Redis hash containing multiple accounts. This improves Redis memory efficiency and reduces key overhead.
+
+**3. VARINT Binary Encoding**
+
+Asset IDs are encoded using Go's variable-length integer (VARINT) format instead of storing them as text:
+
+| ID Value | VARINT Bytes | ASCII Bytes |
+|----------|--------------|-------------|
+| 1 | 1 byte | 1 byte |
+| 127 | 1 byte | 3 bytes |
+| 1000 | 2 bytes | 4 bytes |
+| 100000 | 3 bytes | 6 bytes |
+
+This provides significant compression, especially for accounts holding multiple assets.
+
+**4. Frequency-Based ID Assignment**
+
+During initial population, assets are sorted by how frequently they appear across all accounts. The most common assets (like USDC) receive the lowest IDs (1, 2, 3...), which encode to fewer bytes in VARINT format:
+
+```
+USDC (held by 100K accounts) → ID 1 (1 byte)
+EURC (held by 50K accounts)  → ID 2 (1 byte)
+Rare asset (10 accounts)     → ID 50000 (3 bytes)
+```
+
+This multiplies the benefits of VARINT encoding by ensuring common assets use minimal storage across all accounts.
+
+**5. Redis Listpack Encoding**
+
+Redis uses **listpack** (successor to ziplist) as a compact, memory-efficient encoding for small hashes. When a hash stays below configured thresholds, Redis stores it in this compressed format instead of a standard hash table.
+
+**Configuration (docker-compose.yaml):**
+```
+redis-server
+  --hash-max-listpack-entries 1000
+  --hash-max-listpack-value 8000
+```
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `hash-max-listpack-entries` | 1000 | Maximum fields (accounts) per hash before conversion to hash table |
+| `hash-max-listpack-value` | 8000 | Maximum value size in bytes before conversion |
+
+Operators of wallet backend can tweak these values based on their requirements.
+
+**How Listpack Works with Bucket Sharding:**
+
+The bucket count (20,000) is designed to keep each bucket's account count well below the `hash-max-listpack-entries` threshold:
+
+```
+Mainnet (~10M accounts):
+  10,000,000 accounts with atleast 1 trustline ÷ 20,000 buckets = ~500 accounts per bucket
+
+  500 accounts < 1000 max-listpack-entries → ✓ Listpack encoding used
+```
+
+Each account's value is VARINT-encoded asset IDs, typically 5-50 bytes for accounts with 1-10 trustlines—well under the 8,000 byte `hash-max-listpack-value` limit.
+
+**Memory Savings from Listpack:**
+
+Listpack provides significant memory savings compared to standard hash tables:
+
+| Storage Format | Memory per Entry | Overhead |
+|----------------|------------------|----------|
+| Listpack | ~(key_len + value_len + 2) bytes | Minimal header |
+| Hash Table | ~(key_len + value_len + 24) bytes | dictEntry pointers, hash slots |
+
+For a bucket with 500 accounts (56-byte addresses, ~20-byte VARINT values):
+- Listpack: ~39 KB per bucket
+- Hash Table: ~51 KB per bucket (~30% more memory)
+
+With 20,000 buckets, this translates to ~240 MB savings on mainnet.
+
+**What Happens When Limits Are Exceeded:**
+
+If a bucket exceeds either threshold, Redis automatically converts it from listpack to a standard hash table:
+
+```
+Bucket exceeds 1000 accounts OR value > 8000 bytes
+                    ↓
+    Redis converts bucket to hash table
+                    ↓
+    Memory usage increases ~30% for that bucket
+    Lookup changes from O(n) scan to O(1) hash lookup
+```
+
+This conversion is **irreversible** for that bucket until Redis restarts. The conversion happens transparently—queries continue to work, but memory efficiency decreases.
+
+**Trade-offs of Increasing `hash-max-listpack-entries`:**
+
+| `max-listpack-entries` | Pros | Cons |
+|------------------------|------|------|
+| Lower (500-1000) | Faster lookups (O(n) with small n) | More buckets needed, higher key overhead |
+| Higher (2000-5000) | More accounts per bucket, fewer keys | Slower lookups as n grows, scan latency |
+| Very High (10000+) | Maximum memory efficiency | Noticeable lookup latency (~1-5ms per lookup) |
+
+Listpack uses **sequential scan** (O(n)) for field lookups. At 1,000 entries with 56-byte keys, each lookup scans ~56 KB of memory. Modern CPUs handle this in microseconds, but at 10,000+ entries, scan latency becomes measurable.
+
+**Impact on Trustline Queries:**
+
+For `GetAccountTrustlines(accountAddress)`:
+
+1. Calculate bucket: `fnv32(accountAddress) % 20000`
+2. Redis HGET on `trustlines:{bucket}` for field `accountAddress`
+3. Listpack: Sequential scan through bucket's entries to find field
+4. Return VARINT-decoded asset IDs
+
+With 500 accounts per bucket (listpack), step 3 takes ~10-50 microseconds.
+With 5000 accounts per bucket (if limit increased), step 3 takes ~100-500 microseconds.
+
+**Scaling Considerations:**
+
+As the Stellar network grows, the accounts-per-bucket ratio will increase:
+
+| Network Size | Accounts per Bucket | Status |
+|--------------|---------------------|--------|
+| 10M accounts | ~500 | ✓ Comfortably in listpack |
+| 20M accounts | ~1000 | ⚠️ At threshold |
+| 50M accounts | ~2500 | ✗ Exceeds default, all buckets converted to hash table |
+
+**Options for scaling beyond 20M accounts:**
+
+1. **Increase `hash-max-listpack-entries`**: Set to 2000-3000. Trades slightly higher lookup latency for delayed scaling.
+
+2. **Accept partial hash table conversion**: Some hot buckets convert to hash tables. Memory increases but queries remain functional.
+
 #### Redis Data Structures
 
-The cache uses Redis sets with namespace prefixes:
+The cache uses optimized Redis data structures for trustlines and sets for contracts:
 
-**Trustline Keys:**
+**Trustline Storage (Bucketed Hashes with VARINT)**
+
+Trustlines are stored in Redis hashes, bucketed by account address hash:
+
+```mermaid
+flowchart LR
+    subgraph Redis["Redis (Bucketed Hashes)"]
+        B0["trustlines:0"]
+        B1["trustlines:1"]
+        BN["trustlines:19999"]
+    end
+    subgraph PG["PostgreSQL"]
+        T["trustline_assets"]
+    end
+    B0 -->|"GABC... → [1,3,45]"| T
+    T -->|"id=1 → USDC:GA..."| B0
 ```
-Key: trustlines:{accountAddress}
-Value: Set<"CODE:ISSUER">
+
+```
+Structure: Hash
+Key: trustlines:{bucket}  (bucket = fnv32(account) % 20000)
+Field: accountAddress
+Value: VARINT-encoded binary blob of asset IDs
 
 Example:
-trustlines:GABC123... → {
-  "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-  "EURC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+trustlines:1234 → {
+  "GABC123...": [binary: 0x01 0x03 0x2D]     // IDs: [1, 3, 45]
+  "GDEF456...": [binary: 0x02 0x05 0x43]     // IDs: [2, 5, 67]
 }
+
+Resolution: IDs → PostgreSQL trustline_assets table → "CODE:ISSUER"
 ```
 
-**Contract Keys:**
+**Contract Storage (Sets)**
+
+Contract token IDs are stored directly as Redis sets (no ID mapping needed):
+
 ```
+Structure: Set
 Key: contracts:{accountAddress}
 Value: Set<contractID>
 
@@ -393,32 +566,50 @@ The `AccountTokenService` interface provides the following methods:
 
 **Population:**
 - `PopulateAccountTokens(ctx, checkpointLedger)` - Initial cache population from history archive
+- `GetCheckpointLedger()` - Returns the checkpoint ledger used for initial population
 
 **Querying:**
-- `GetAccountTrustlines(ctx, accountAddress)` - Returns all classic asset trustlines
+- `GetAccountTrustlines(ctx, accountAddress)` - Returns all classic asset trustlines (resolves IDs from PostgreSQL)
 - `GetAccountContracts(ctx, accountAddress)` - Returns all contract token IDs
 
 **Updates:**
-- `AddTrustlines(ctx, accountAddress, assets)` - Adds trustline assets to cache
-- `AddContracts(ctx, accountAddress, contractIDs)` - Adds contract IDs to cache
-- `ProcessTokenChanges(ctx, trustlineChanges, contractChanges)` - Batch update during ingestion
+- `ProcessTokenChanges(ctx, trustlineChanges, contractChanges)` - Batch update during live ingestion (handles ID assignment, VARINT encoding, and Redis pipelining)
 
 #### Performance Characteristics
 
 **Initial Population:**
 - Processes millions of ledger entries efficiently
 - Uses Redis pipelining (50,000 operations per batch)
+- Frequency-based sorting ensures optimal VARINT compression
 - Non-blocking: completes before API serves traffic
 
 **Live Updates:**
 - Sub-millisecond Redis operations per transaction
-- Batch updates using Redis pipelines
+- Batch updates using Redis pipelines with VARINT encoding
+- Efficient bucket-based lookups via FNV-1a hashing
 - Scales horizontally with Redis cluster
 
+**Memory Efficiency:**
+- Combined optimizations (ID mapping, VARINT, frequency sorting, bucketing) significantly reduce Redis memory usage compared to storing full asset strings
+- Most common assets encode to 1-2 bytes per account
+
 **Balance Queries:**
-- O(1) Redis lookup per account
+- O(1) Redis hash field lookup per account
+- Single PostgreSQL query to resolve asset IDs to strings
 - Single RPC call for all balances (no N+1 queries)
 - Typical response time: 100-300ms (including RPC roundtrip)
+
+**Performance Trade-offs:**
+
+The storage optimizations introduce a trade-off between memory usage and query latency:
+
+| Operation | Trade-off |
+|-----------|-----------|
+| `GetAccountTrustlines` | +1 PostgreSQL query (sub-ms) to resolve IDs to asset strings |
+| `ProcessTokenChanges` | Read-modify-write pattern for trustline updates instead of direct set operations |
+| Memory | ~90% reduction in Redis memory usage |
+
+The additional PostgreSQL round-trip for trustline queries is negligible in practice because the Stellar RPC call to fetch actual balances (100-300ms) dominates total query latency. This trade-off optimizes for large-scale deployments where Redis memory costs are significant.
 
 ### Contract Validator Service
 

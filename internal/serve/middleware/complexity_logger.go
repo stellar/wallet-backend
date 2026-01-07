@@ -5,6 +5,7 @@ package middleware
 import (
 	"context"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -26,11 +27,14 @@ func NewComplexityLogger(metricsService metrics.MetricsService) *ComplexityLogge
 
 // ReportComplexity logs the complexity of a GraphQL query and records it to Prometheus.
 // This method is called by the gqlgen-complexity-reporter extension.
+// When operationName is empty (anonymous queries), it extracts the root field name from context.
 func (c *ComplexityLogger) ReportComplexity(ctx context.Context, operationName string, complexity int) {
 	logger := log.Ctx(ctx)
 
+	// If operationName is empty, extract from operation context
 	if operationName == "" {
-		operationName = "<unnamed>"
+		oc := graphql.GetOperationContext(ctx)
+		operationName = GetOperationIdentifier(oc)
 	}
 
 	logger.WithField("operation_name", operationName).

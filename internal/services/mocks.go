@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -136,19 +137,9 @@ func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, che
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
-	args := a.Called(ctx, accountAddress, assets)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error {
-	args := a.Called(ctx, accountAddress, contractIDs)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
+func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
 	args := a.Called(ctx, accountAddress)
-	return args.Get(0).([]string), args.Error(1)
+	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
 }
 
 func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
@@ -158,6 +149,16 @@ func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accou
 
 func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	args := a.Called(ctx, trustlineChanges, contractChanges)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
+	args := a.Called(ctx)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
+	args := a.Called(ctx)
 	return args.Error(0)
 }
 
@@ -281,4 +282,35 @@ func (m *HistoryArchiveMock) GetCheckpointManager() historyarchive.CheckpointMan
 func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	args := m.Called()
 	return args.Get(0).([]historyarchive.ArchiveStats)
+}
+
+// ContractMetadataServiceMock is a mock implementation of ContractMetadataService
+type ContractMetadataServiceMock struct {
+	mock.Mock
+}
+
+var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
+
+func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
+	args := c.Called(ctx, contractTypesByID)
+	return args.Error(0)
+}
+
+func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
+	args := c.Called(ctx, contractAddress, functionName, funcArgs)
+	return args.Get(0).(xdr.ScVal), args.Error(1)
+}
+
+// NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.
+func NewContractMetadataServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ContractMetadataServiceMock {
+	mock := &ContractMetadataServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
 }

@@ -927,7 +927,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchSingleField(ctx, "INVALID_CONTRACT_ID", "name")
+		_, err = cms.FetchSingleField(ctx, "INVALID_CONTRACT_ID", "name")
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "decoding contract address")
@@ -949,7 +949,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchSingleField(ctx, contractID, "name")
+		_, err = cms.FetchSingleField(ctx, contractID, "name")
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "simulating transaction")
@@ -973,7 +973,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchSingleField(ctx, contractID, "name")
+		_, err = cms.FetchSingleField(ctx, contractID, "name")
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "simulation failed")
@@ -997,7 +997,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchSingleField(ctx, contractID, "name")
+		_, err = cms.FetchSingleField(ctx, contractID, "name")
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no simulation results returned")
@@ -1024,7 +1024,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		result, err := cms.fetchSingleField(ctx, contractID, "name")
+		result, err := cms.FetchSingleField(ctx, contractID, "name")
 
 		require.NoError(t, err)
 		str, ok := result.GetStr()
@@ -1048,7 +1048,7 @@ func TestFetchSingleField(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchSingleField(cancelledCtx, contractID, "name")
+		_, err = cms.FetchSingleField(cancelledCtx, contractID, "name")
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "context error")

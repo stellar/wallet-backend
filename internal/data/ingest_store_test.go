@@ -2,8 +2,10 @@ package data
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -51,8 +53,8 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.Anything).Return().
-				On("IncDBQuery", "GetLatestLedgerSynced", "ingest_store").Return()
+				On("ObserveDBQueryDuration", "Get", "ingest_store", mock.Anything).Return().
+				On("IncDBQuery", "Get", "ingest_store").Return()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &IngestStoreModel{
@@ -108,8 +110,8 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.Anything).Return().Once().
-				On("IncDBQuery", "UpdateLatestLedgerSynced", "ingest_store").Return().Once()
+				On("ObserveDBQueryDuration", "Update", "ingest_store", mock.Anything).Return().Once().
+				On("IncDBQuery", "Update", "ingest_store").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &IngestStoreModel{
@@ -121,7 +123,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
+			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 				if err := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
 					return err
 				}
@@ -133,6 +135,184 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			err = m.DB.GetContext(ctx, &dbStoredLedger, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.ledgerToUpsert, dbStoredLedger)
+		})
+	}
+}
+
+func Test_IngestStoreModel_UpdateMin(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name           string
+		key            string
+		initialValue   uint32
+		newValue       uint32
+		expectedResult uint32
+	}{
+		{
+			name:           "updates_to_smaller_value",
+			key:            "oldest_ledger_cursor",
+			initialValue:   1000,
+			newValue:       500,
+			expectedResult: 500,
+		},
+		{
+			name:           "keeps_existing_smaller_value",
+			key:            "oldest_ledger_cursor",
+			initialValue:   500,
+			newValue:       1000,
+			expectedResult: 500,
+		},
+		{
+			name:           "keeps_same_value",
+			key:            "oldest_ledger_cursor",
+			initialValue:   500,
+			newValue:       500,
+			expectedResult: 500,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			// Insert initial value
+			_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, tc.initialValue)
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+
+			m := &IngestStoreModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+				return m.UpdateMin(ctx, dbTx, tc.key, tc.newValue)
+			})
+			require.NoError(t, err)
+
+			var dbStoredLedger uint32
+			err = m.DB.GetContext(ctx, &dbStoredLedger, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedResult, dbStoredLedger)
+		})
+	}
+}
+
+func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name         string
+		setupDB      func(t *testing.T)
+		expectedGaps []LedgerRange
+	}{
+		{
+			name:         "returns_empty_when_no_transactions",
+			expectedGaps: nil,
+		},
+		{
+			name: "returns_empty_when_no_gaps",
+			setupDB: func(t *testing.T) {
+				// Insert consecutive ledgers: 100, 101, 102
+				for i, ledger := range []uint32{100, 101, 102} {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						fmt.Sprintf("hash%d", i), i+1, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: nil,
+		},
+		{
+			name: "returns_single_gap",
+			setupDB: func(t *testing.T) {
+				// Insert ledgers 100 and 105, creating gap 101-104
+				for i, ledger := range []uint32{100, 105} {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						fmt.Sprintf("hash%d", i), i+1, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []LedgerRange{
+				{GapStart: 101, GapEnd: 104},
+			},
+		},
+		{
+			name: "returns_multiple_gaps",
+			setupDB: func(t *testing.T) {
+				// Insert ledgers 100, 105, 110, creating gaps 101-104 and 106-109
+				for i, ledger := range []uint32{100, 105, 110} {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						fmt.Sprintf("hash%d", i), i+1, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []LedgerRange{
+				{GapStart: 101, GapEnd: 104},
+				{GapStart: 106, GapEnd: 109},
+			},
+		},
+		{
+			name: "handles_single_ledger_gap",
+			setupDB: func(t *testing.T) {
+				// Insert ledgers 100 and 102, creating gap of just 101
+				for i, ledger := range []uint32{100, 102} {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						fmt.Sprintf("hash%d", i), i+1, ledger)
+					require.NoError(t, err)
+				}
+			},
+			expectedGaps: []LedgerRange{
+				{GapStart: 101, GapEnd: 101},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.
+				On("ObserveDBQueryDuration", "GetLedgerGaps", "transactions", mock.Anything).Return().
+				On("IncDBQuery", "GetLedgerGaps", "transactions").Return()
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &IngestStoreModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			gaps, err := m.GetLedgerGaps(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedGaps, gaps)
 		})
 	}
 }

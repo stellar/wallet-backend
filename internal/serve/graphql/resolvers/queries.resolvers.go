@@ -199,21 +199,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 		// Build ledger keys for all trustlines
 		for _, trustline := range trustlines {
-			// Parse the trustline string (format: "ASSETCODE:ISSUER")
-			parts := strings.Split(trustline, ":")
-			if len(parts) != 2 {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-			assetCode := parts[0]
-			assetIssuer := parts[1]
-
 			// Create ledger key for this trustline
-			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
+			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, trustline.Code, trustline.Issuer)
 			if keyErr != nil {
 				return nil, &gqlerror.Error{
 					Message: ErrMsgBalancesFetchFailed,
@@ -248,23 +235,30 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	// Build ledger keys for all contracts
 	contractsByContractID := make(map[string]*data.Contract)
+	sep41TokenIDs := make([]string, 0)
 	for _, contract := range contractTokens {
-		// Create ledger key for this contract
-		ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
-		if keyErr != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
+		switch contract.Type {
+		case "SAC":
+			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
+			if keyErr != nil {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
 			}
+			ledgerKeys = append(ledgerKeys, ledgerKey)
+		case "SEP41":
+			sep41TokenIDs = append(sep41TokenIDs, contract.ID)
+		default:
+			continue
 		}
-		ledgerKeys = append(ledgerKeys, ledgerKey)
 		contractsByContractID[contract.ID] = contract
 	}
 
 	// Call RPC to get ledger entries
-	result, err := r.rpcService.GetLedgerEntries(ledgerKeys)
+	ledgerEntriesResult, err := r.rpcService.GetLedgerEntries(ledgerKeys)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgRPCUnavailable,
@@ -278,7 +272,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	var balances []graphql1.Balance
 	contractEntriesByContractID := make(map[string]*xdr.ContractDataEntry)
-	for _, entry := range result.Entries {
+	for _, entry := range ledgerEntriesResult.Entries {
 		// Decode the DataXDR to get the ledger entry data
 		var ledgerEntryData xdr.LedgerEntryData
 		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
@@ -336,14 +330,26 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				continue
 			}
 
+			balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contractsByContractID[contractIDStr])
+			if err != nil {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
+			}
+			if balance != nil {
+				balances = append(balances, balance)
+			}
+
 			contractEntriesByContractID[contractIDStr] = &contractDataEntry
 		}
 	}
 
-	for contractIDStr, contractDataEntry := range contractEntriesByContractID {
-		contract := contractsByContractID[contractIDStr]
-
-		balance, err := parseContractBalance(contractDataEntry, contractIDStr, contract)
+	// Simulate call to `balance(id)` function of SEP-41 contracts
+	if len(sep41TokenIDs) > 0 {
+		sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -352,10 +358,11 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				},
 			}
 		}
-		if balance != nil {
-			balances = append(balances, balance)
+		for _, result := range sep41Balances {
+			balances = append(balances, result)
 		}
 	}
+
 	return balances, nil
 }
 
@@ -418,9 +425,10 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		address := addr
 		group.Submit(func() {
 			info := &accountKeyInfo{
-				address:       address,
-				isContract:    utils.IsContractAddress(address),
-				contractsByID: make(map[string]*data.Contract),
+				address:          address,
+				isContract:       utils.IsContractAddress(address),
+				contractsByID:    make(map[string]*data.Contract),
+				sep41ContractIDs: make([]string, 0),
 			}
 
 			// Get trustlines (skip for contract addresses)
@@ -488,17 +496,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 			// Build ledger keys for all trustlines
 			for _, trustline := range info.trustlines {
-				parts := strings.Split(trustline, ":")
-				if len(parts) != 2 {
-					info.collectionErr = fmt.Errorf("invalid trustline format: %s", trustline)
-					break
-				}
-				assetCode := parts[0]
-				assetIssuer := parts[1]
-
-				ledgerKey, keyErr := utils.GetTrustlineLedgerKey(info.address, assetCode, assetIssuer)
+				ledgerKey, keyErr := utils.GetTrustlineLedgerKey(info.address, trustline.Code, trustline.Issuer)
 				if keyErr != nil {
-					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s: %w", trustline, keyErr)
+					info.collectionErr = fmt.Errorf("creating trustline ledger key for %s-%s: %w", trustline.Code, trustline.Issuer, keyErr)
 					break
 				}
 				ledgerKeys = append(ledgerKeys, ledgerKey)
@@ -510,15 +510,22 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			continue
 		}
 
-		// Build ledger keys for all contracts
+		// Build ledger keys for all SAC contracts
 		for _, contract := range info.contractsByID {
-			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
-			if keyErr != nil {
-				info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
-				break
+			switch contract.Type {
+			case "SAC":
+				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
+				if keyErr != nil {
+					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
+					break
+				}
+				ledgerKeys = append(ledgerKeys, ledgerKey)
+				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
+			case "SEP41":
+				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ID)
+			default:
+				continue
 			}
-			ledgerKeys = append(ledgerKeys, ledgerKey)
-			info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 		}
 	}
 
@@ -579,9 +586,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(info, ledgerEntriesByLedgerKeys, networkPassphrase)
+			balances, parseErr := parseAccountBalances(ctx, info, ledgerEntriesByLedgerKeys, r.contractMetadataService, networkPassphrase, r.pool)
 			if parseErr != nil {
-				errStr := parseErr.Error()
+				errStr := fmt.Sprintf("parsing account balances: %v", parseErr)
 				result.Error = &errStr
 			} else {
 				result.Balances = balances

@@ -49,23 +49,24 @@ type StorageBackendConfig struct {
 }
 
 type Configs struct {
-	DatabaseURL             string
-	RedisHost               string
-	RedisPort               int
-	ServerPort              int
-	LedgerCursorName        string
-	StartLedger             int
-	EndLedger               int
-	LogLevel                logrus.Level
-	AppTracker              apptracker.AppTracker
-	RPCURL                  string
-	Network                 string
-	NetworkPassphrase       string
-	GetLedgersLimit         int
-	AdminPort               int
-	AccountTokensCursorName string
-	ArchiveURL              string
-	CheckpointFrequency     int
+	IngestionMode          string
+	LatestLedgerCursorName string
+	OldestLedgerCursorName string
+	DatabaseURL            string
+	RedisHost              string
+	RedisPort              int
+	ServerPort             int
+	StartLedger            int
+	EndLedger              int
+	LogLevel               logrus.Level
+	AppTracker             apptracker.AppTracker
+	RPCURL                 string
+	Network                string
+	NetworkPassphrase      string
+	GetLedgersLimit        int
+	AdminPort              int
+	ArchiveURL             string
+	CheckpointFrequency    int
 	// LedgerBackendType specifies which backend to use for fetching ledgers
 	LedgerBackendType LedgerBackendType
 	// DatastoreConfigPath is the path to the TOML config file for datastore backend
@@ -77,6 +78,18 @@ type Configs struct {
 	// EnableParticipantFiltering controls whether to filter ingested data by pre-registered accounts.
 	// When false (default), all data is stored. When true, only data for pre-registered accounts is stored.
 	EnableParticipantFiltering bool
+	// BackfillWorkers limits concurrent batch processing during backfill.
+	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
+	BackfillWorkers int
+	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
+	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
+	BackfillBatchSize int
+	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
+	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	BackfillDBInsertBatchSize int
+	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
+	// Defaults to 100.
+	CatchupThreshold int
 }
 
 func Ingest(cfg Configs) error {
@@ -95,15 +108,37 @@ func Ingest(cfg Configs) error {
 }
 
 func setupDeps(cfg Configs) (services.IngestService, error) {
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to the database: %w", err)
+	ctx := context.Background()
+
+	var dbConnectionPool db.ConnectionPool
+	var err error
+	switch cfg.IngestionMode {
+	// Use optimized connection pool for backfill mode with async commit and increased work_mem
+	case services.IngestionModeBackfill:
+		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
+		}
+
+		// Disable FK constraint checking for faster inserts (requires elevated privileges)
+		if fkErr := db.ConfigureBackfillSession(ctx, dbConnectionPool); fkErr != nil {
+			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
+			// Continue anyway - other optimizations (async commit, work_mem) still apply
+		} else {
+			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled, work_mem=256MB")
+		}
+	default:
+		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to the database: %w", err)
+		}
 	}
-	db, err := dbConnectionPool.SqlxDB(context.Background())
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
-	metricsService := metrics.NewMetricsService(db)
+
+	metricsService := metrics.NewMetricsService(sqlxDB)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
@@ -150,13 +185,44 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, accountTokenPool)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset, accountTokenPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
+	if err := accountTokenService.InitializeTrustlineIDByAssetCache(context.Background()); err != nil {
+		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	}
 
-	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta, cfg.SkipTxEnvelope, cfg.EnableParticipantFiltering)
+	// Create a factory function for parallel backfill (each batch needs its own backend)
+	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+		return NewLedgerBackend(ctx, cfg)
+	}
+
+	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
+		IngestionMode:              cfg.IngestionMode,
+		Models:                     models,
+		LatestLedgerCursorName:     cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		AppTracker:                 cfg.AppTracker,
+		RPCService:                 rpcService,
+		LedgerBackend:              ledgerBackend,
+		LedgerBackendFactory:       ledgerBackendFactory,
+		ChannelAccountStore:        chAccStore,
+		AccountTokenService:        accountTokenService,
+		ContractMetadataService:    contractMetadataService,
+		MetricsService:             metricsService,
+		GetLedgersLimit:            cfg.GetLedgersLimit,
+		Network:                    cfg.Network,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+		Archive:                    archive,
+		SkipTxMeta:                 cfg.SkipTxMeta,
+		SkipTxEnvelope:             cfg.SkipTxEnvelope,
+		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
+		BackfillWorkers:            cfg.BackfillWorkers,
+		BackfillBatchSize:          cfg.BackfillBatchSize,
+		BackfillDBInsertBatchSize:  cfg.BackfillDBInsertBatchSize,
+		CatchupThreshold:           cfg.CatchupThreshold,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
