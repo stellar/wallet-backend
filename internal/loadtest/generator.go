@@ -393,8 +393,6 @@ func prepareBulkTransfers(containers *LoadTestContainers, rpcURL string,
 		if err != nil {
 			return nil, fmt.Errorf("preflighting operation %d: %w", i, err)
 		}
-
-		// Increase resource limits to account for variability
 		preflightedOp.Ext.SorobanData.Resources.DiskReadBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.WriteBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.Instructions *= 10
@@ -458,7 +456,7 @@ func txSubWorker(ctx context.Context, containers *LoadTestContainers, rpcURL str
 		builtTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount:        &account,
 			Operations:           []txnbuild.Operation{tx.op},
-			BaseFee:              txnbuild.MinBaseFee + tx.resourceFee,
+			BaseFee:              txnbuild.MinBaseFee,
 			IncrementSequenceNum: true,
 			Preconditions: txnbuild.Preconditions{
 				TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
