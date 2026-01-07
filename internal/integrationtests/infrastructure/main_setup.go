@@ -90,20 +90,20 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 		return fmt.Errorf("creating Redis container: %w", err)
 	}
 
-	// Start PostgreSQL for Stellar Core
-	s.PostgresContainer, err = createCoreDBContainer(ctx, s.TestNetwork)
+	// Start PostgreSQL for Stellar Core (nil opts uses defaults: reuse=true, standard names)
+	s.PostgresContainer, err = CreateCoreDBContainer(ctx, s.TestNetwork, nil)
 	if err != nil {
 		return fmt.Errorf("creating core DB container: %w", err)
 	}
 
-	// Start Stellar Core
-	s.StellarCoreContainer, err = createStellarCoreContainer(ctx, s.TestNetwork)
+	// Start Stellar Core (nil opts uses defaults: reuse=true, standard names)
+	s.StellarCoreContainer, err = CreateStellarCoreContainer(ctx, s.TestNetwork, nil)
 	if err != nil {
 		return fmt.Errorf("creating Stellar Core container: %w", err)
 	}
 
-	// Start Stellar RPC
-	s.RPCContainer, err = createRPCContainer(ctx, s.TestNetwork)
+	// Start Stellar RPC (nil opts uses defaults: reuse=true, standard names)
+	s.RPCContainer, err = CreateRPCContainer(ctx, s.TestNetwork, nil)
 	if err != nil {
 		return fmt.Errorf("creating RPC container: %w", err)
 	}
@@ -116,7 +116,7 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 //nolint:unparam // error return kept for API consistency with other setup methods
 func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) error {
 	// Initialize master account for funding
-	s.masterKeyPair = keypair.Root(networkPassphrase)
+	s.masterKeyPair = keypair.Root(NetworkPassphrase)
 	s.masterAccount = &txnbuild.SimpleAccount{
 		AccountID: s.masterKeyPair.Address(),
 		Sequence:  0,
@@ -344,7 +344,7 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 	metricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64"))
 	metricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64"))
 	metricsService.On("IncRPCRequests", "getHealth")
-	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	rpcService, err := services.NewRPCService(rpcURL, NetworkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)
 	}
@@ -578,7 +578,7 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 	// Initialize RPC service
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	metricsService := metrics.NewMetricsService(sqlxDB)
-	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	rpcService, err := services.NewRPCService(rpcURL, NetworkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)
 	}
@@ -617,7 +617,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 	masterAccountKP := containers.GetMasterKeyPair(ctx)
 	fixtures, err := NewFixtures(
 		ctx,
-		networkPassphrase,
+		NetworkPassphrase,
 		primaryAccountKP,
 		secondaryAccountKP,
 		sponsoredNewAccountKP,
@@ -656,7 +656,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		HolderContractAddress: containers.holderContractAddress,
 		MasterAccountAddress:  masterAccountKP.Address(),
 		UseCases:              useCases,
-		NetworkPassphrase:     networkPassphrase,
+		NetworkPassphrase:     NetworkPassphrase,
 		LiquidityPoolID:       fixtures.LiquidityPoolID,
 	}, nil
 }

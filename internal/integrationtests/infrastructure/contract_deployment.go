@@ -203,7 +203,7 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 
 	// Step 6: Calculate and return the contract address from the preimage
 	// The contract address is deterministically computed from the deployer address and salt
-	contractAddress, err := s.calculateContractID(networkPassphrase, preimage.MustFromAddress())
+	contractAddress, err := s.calculateContractID(NetworkPassphrase, preimage.MustFromAddress())
 	require.NoError(t, err, "failed to calculate contract ID")
 	return contractAddress
 }

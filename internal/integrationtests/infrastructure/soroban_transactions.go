@@ -326,7 +326,7 @@ func executeSorobanOperation(
 				t,
 				simulationResult.Results[0].Auth,
 				s.masterKeyPair,
-				networkPassphrase,
+				NetworkPassphrase,
 				simulationResult.LatestLedger,
 			)
 		}
@@ -362,7 +362,7 @@ func executeSorobanOperation(
 	}
 
 	// Step 8: Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	tx, err = tx.Sign(NetworkPassphrase, s.masterKeyPair)
 	if err != nil {
 		return "", fmt.Errorf("signing transaction: %w", err)
 	}
@@ -424,7 +424,7 @@ func executeClassicOperation(
 
 	// Step 2: Sign with all required signers
 	for _, signer := range signers {
-		tx, err = tx.Sign(networkPassphrase, signer)
+		tx, err = tx.Sign(NetworkPassphrase, signer)
 		if err != nil {
 			return "", fmt.Errorf("signing transaction: %w", err)
 		}

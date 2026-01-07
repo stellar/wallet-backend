@@ -28,9 +28,20 @@ const (
 	walletBackendContainerIngestPort = "8003"
 	walletBackendContainerTag        = "integration-test"
 	walletBackendDockerfile          = "Dockerfile"
-	networkPassphrase                = "Standalone Network ; February 2017"
-	protocolVersion                  = DefaultProtocolVersion // Default protocol version for Stellar Core upgrades
+	// NetworkPassphrase is the passphrase for the standalone network used in tests
+	NetworkPassphrase = "Standalone Network ; February 2017"
+	protocolVersion   = DefaultProtocolVersion // Default protocol version for Stellar Core upgrades
 )
+
+// ContainerOptions controls container creation behavior
+type ContainerOptions struct {
+	// NamePrefix allows unique naming (e.g., loadtest uses timestamps)
+	NamePrefix string
+	// Reuse determines if containers should be reused (integration tests) or fresh (loadtest)
+	Reuse bool
+	// SessionLabel is the label used for container session identification
+	SessionLabel string
+}
 
 // WalletBackendContainer holds API and Ingest container references
 type WalletBackendContainer struct {
@@ -191,13 +202,28 @@ func createRedisContainer(ctx context.Context, testNetwork *testcontainers.Docke
 	}, nil
 }
 
-// createCoreDBContainer starts a PostgreSQL container for Stellar Core
-func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+// CreateCoreDBContainer starts a PostgreSQL container for Stellar Core.
+// If opts is nil, default options are used (reuse=true, standard naming).
+func CreateCoreDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork, opts *ContainerOptions) (*TestContainer, error) {
+	// Apply defaults if no options provided
+	containerName := "core-postgres"
+	reuse := true
+	sessionLabel := "wallet-backend-integration-tests"
+	if opts != nil {
+		if opts.NamePrefix != "" {
+			containerName = opts.NamePrefix + "-core-postgres"
+		}
+		reuse = opts.Reuse
+		if opts.SessionLabel != "" {
+			sessionLabel = opts.SessionLabel
+		}
+	}
+
 	containerRequest := testcontainers.ContainerRequest{
-		Name:  "core-postgres",
+		Name:  containerName,
 		Image: "postgres:9.6.17-alpine",
 		Labels: map[string]string{
-			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+			"org.testcontainers.session-id": sessionLabel,
 		},
 		Env: map[string]string{
 			"POSTGRES_PASSWORD": "mysecretpassword",
@@ -210,7 +236,7 @@ func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.Dock
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: containerRequest,
-		Reuse:            true,
+		Reuse:            reuse,
 		Started:          true,
 	})
 	if err != nil {
@@ -224,20 +250,36 @@ func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.Dock
 	}, nil
 }
 
-// createStellarCoreContainer starts a Stellar Core container in standalone mode
-func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
-	// Get the directory of the current source file
+// CreateStellarCoreContainer starts a Stellar Core container in standalone mode.
+// If opts is nil, default options are used (reuse=true, standard naming).
+// Note: This function automatically triggers a protocol upgrade after container creation.
+func CreateStellarCoreContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork, opts *ContainerOptions) (*TestContainer, error) {
+	// Get the directory of the current source file for config files
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		return nil, fmt.Errorf("failed to get caller information")
 	}
 	dir := filepath.Dir(filename)
 
+	// Apply defaults if no options provided
+	containerName := "stellar-core"
+	reuse := true
+	sessionLabel := "wallet-backend-integration-tests"
+	if opts != nil {
+		if opts.NamePrefix != "" {
+			containerName = opts.NamePrefix + "-stellar-core"
+		}
+		reuse = opts.Reuse
+		if opts.SessionLabel != "" {
+			sessionLabel = opts.SessionLabel
+		}
+	}
+
 	containerRequest := testcontainers.ContainerRequest{
-		Name:  "stellar-core",
+		Name:  containerName,
 		Image: "stellar/stellar-core:24",
 		Labels: map[string]string{
-			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+			"org.testcontainers.session-id": sessionLabel,
 		},
 		Files: []testcontainers.ContainerFile{
 			{
@@ -270,7 +312,7 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: containerRequest,
-		Reuse:            true,
+		Reuse:            reuse,
 		Started:          true,
 	})
 	if err != nil {
@@ -284,27 +326,42 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 	}
 
 	// Trigger protocol upgrade
-	if err := triggerProtocolUpgrade(ctx, testContainer, protocolVersion); err != nil {
+	if err := TriggerProtocolUpgrade(ctx, testContainer, protocolVersion); err != nil {
 		return nil, fmt.Errorf("triggering protocol upgrade: %w", err)
 	}
 
 	return testContainer, nil
 }
 
-// createRPCContainer starts a Stellar RPC container for testing
-func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
-	// Get the directory of the current source file
+// CreateRPCContainer starts a Stellar RPC container for testing.
+// If opts is nil, default options are used (reuse=true, standard naming).
+func CreateRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork, opts *ContainerOptions) (*TestContainer, error) {
+	// Get the directory of the current source file for config files
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		return nil, fmt.Errorf("failed to get caller information")
 	}
 	dir := filepath.Dir(filename)
 
+	// Apply defaults if no options provided
+	containerName := "stellar-rpc"
+	reuse := true
+	sessionLabel := "wallet-backend-integration-tests"
+	if opts != nil {
+		if opts.NamePrefix != "" {
+			containerName = opts.NamePrefix + "-stellar-rpc"
+		}
+		reuse = opts.Reuse
+		if opts.SessionLabel != "" {
+			sessionLabel = opts.SessionLabel
+		}
+	}
+
 	containerRequest := testcontainers.ContainerRequest{
-		Name:  "stellar-rpc",
+		Name:  containerName,
 		Image: "stellar/stellar-rpc:24.0.0",
 		Labels: map[string]string{
-			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+			"org.testcontainers.session-id": sessionLabel,
 		},
 		Files: []testcontainers.ContainerFile{
 			{
@@ -331,7 +388,7 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: containerRequest,
-		Reuse:            true,
+		Reuse:            reuse,
 		Started:          true,
 	})
 	if err != nil {
@@ -409,7 +466,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"LEDGER_BACKEND_TYPE":              "rpc",
 			"START_LEDGER":                     "0",
 			"END_LEDGER":                       "0",
-			"NETWORK_PASSPHRASE":               networkPassphrase,
+			"NETWORK_PASSPHRASE":               NetworkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
@@ -473,7 +530,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"GRAPHQL_COMPLEXITY_LIMIT":         "2000",
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
-			"NETWORK_PASSPHRASE":               networkPassphrase,
+			"NETWORK_PASSPHRASE":               NetworkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
@@ -547,7 +604,7 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			"SKIP_TX_META":         "false",
 			"SKIP_TX_ENVELOPE":     "false",
 			"LEDGER_BACKEND_TYPE":  "rpc",
-			"NETWORK_PASSPHRASE":   networkPassphrase,
+			"NETWORK_PASSPHRASE":   NetworkPassphrase,
 			// Backfill-specific configuration
 			"INGESTION_MODE":                          "backfill",
 			"START_LEDGER":                            fmt.Sprintf("%d", startLedger),
@@ -594,8 +651,8 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 	return testContainer, nil
 }
 
-// triggerProtocolUpgrade triggers a protocol upgrade on Stellar Core
-func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, version int) error {
+// TriggerProtocolUpgrade triggers a protocol upgrade on Stellar Core
+func TriggerProtocolUpgrade(ctx context.Context, container *TestContainer, version int) error {
 	// Get container's HTTP endpoint
 	coreURL, err := container.GetConnectionString(ctx)
 	if err != nil {

@@ -51,4 +51,5 @@ func SetupCLI(cfg RootConfig) {
 	rootCmd.AddCommand((&migrateCmd{}).Command())
 	rootCmd.AddCommand((&channelAccountCmd{}).Command(&ChAccCmdService{}))
 	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
+	rootCmd.AddCommand((&loadtestCmd{}).Command())
 }

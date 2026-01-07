@@ -43,7 +43,7 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 	// Convert to XDR Asset to get contract ID
 	xdrAsset, err := testAsset.ToXDR()
 	require.NoError(t, err)
-	contractID, err := xdrAsset.ContractID(networkPassphrase)
+	contractID, err := xdrAsset.ContractID(NetworkPassphrase)
 	require.NoError(t, err)
 	s.usdcContractAddress = strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
@@ -93,7 +93,7 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 	// Convert to XDR Asset to get contract ID
 	xdrAsset, err := eurcAsset.ToXDR()
 	require.NoError(t, err)
-	contractID, err := xdrAsset.ContractID(networkPassphrase)
+	contractID, err := xdrAsset.ContractID(NetworkPassphrase)
 	require.NoError(t, err)
 	s.eurcContractAddress = strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
