@@ -33,8 +33,12 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the deployment operation
-	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, deployOp, false, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy native asset SAC")
 }
 
@@ -84,8 +88,12 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the deployment operation
-	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, deployOp, false, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy credit asset SAC for %s", assetCode)
 }
 
@@ -116,8 +124,12 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the WASM upload operation
-	_, err := executeSorobanOperation(ctx, t, s, uploadOp, false, DefaultConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, uploadOp, false, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to upload WASM")
 
 	// Compute and return WASM hash from the uploaded bytecode
@@ -196,9 +208,13 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Step 5: Execute the contract deployment operation
+	// Step 5: Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
+	// Step 6: Execute the contract deployment operation
 	// requireAuth=true because CreateContractV2 with constructor requires deployer authorization
-	_, err = executeSorobanOperation(ctx, t, s, deployOp, true, DefaultConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, deployOp, true, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy contract with constructor")
 
 	// Step 6: Calculate and return the contract address from the preimage

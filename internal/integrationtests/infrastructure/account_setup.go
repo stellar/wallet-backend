@@ -23,8 +23,12 @@ func (s *SharedContainers) CreateAndFundAccounts(ctx context.Context, t *testing
 		}
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the account creation operations
-	_, err := executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair})
+	_, err = ExecuteClassicOperation(s.httpClient, rpcURL, s.masterAccount, ops, []*keypair.Full{s.masterKeyPair})
 	require.NoError(t, err, "failed to create and fund accounts")
 
 	// Log funded accounts
@@ -73,8 +77,12 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 	signers = append(signers, s.masterKeyPair)
 	signers = append(signers, accounts...)
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the trustline creation operations
-	_, err = executeClassicOperation(ctx, t, s, ops, signers)
+	_, err = ExecuteClassicOperation(s.httpClient, rpcURL, s.masterAccount, ops, signers)
 	require.NoError(t, err, "failed to create USDC trustlines")
 
 	// Log created trustlines
@@ -118,8 +126,12 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 		},
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute the trustline creation operations
-	_, err = executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair, s.balanceTestAccount1KeyPair})
+	_, err = ExecuteClassicOperation(s.httpClient, rpcURL, s.masterAccount, ops, []*keypair.Full{s.masterKeyPair, s.balanceTestAccount1KeyPair})
 	require.NoError(t, err, "failed to create EURC trustline")
 
 	log.Ctx(ctx).Infof("🔗 Created EURC trustline for balance test account 1 %s: %s:%s", s.balanceTestAccount1KeyPair.Address(), eurcAsset.Code, eurcAsset.Issuer)
@@ -136,7 +148,11 @@ func (s *SharedContainers) SubmitPaymentOp(ctx context.Context, t *testing.T, to
 		},
 	}
 
-	_, err := executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair})
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
+	_, err = ExecuteClassicOperation(s.httpClient, rpcURL, s.masterAccount, ops, []*keypair.Full{s.masterKeyPair})
 	require.NoError(t, err, "failed to execute payment")
 
 	log.Ctx(ctx).Infof("💸 Payment of %s XLM from %s to %s", amount, s.masterKeyPair.Address(), to)

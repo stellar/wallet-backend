@@ -3,27 +3,24 @@ package infrastructure
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
-	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
-// simulateTransactionRPC simulates a transaction via RPC to get resource footprint
-func simulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSimulateTransactionResult, error) {
+// SimulateTransactionRPC simulates a transaction via RPC to get resource footprint
+func SimulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSimulateTransactionResult, error) {
 	requestBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -65,8 +62,8 @@ func simulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entitie
 	return &rpcResp.Result, nil
 }
 
-// submitTransactionToRPC submits a transaction XDR to the RPC endpoint
-func submitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSendTransactionResult, error) {
+// SubmitTransactionToRPC submits a transaction XDR to the RPC endpoint
+func SubmitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSendTransactionResult, error) {
 	requestBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -108,8 +105,8 @@ func submitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entitie
 	return &rpcResp.Result, nil
 }
 
-// getTransactionFromRPC polls RPC for transaction status
-func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.RPCGetTransactionResult, error) {
+// GetTransactionFromRPC polls RPC for transaction status
+func GetTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.RPCGetTransactionResult, error) {
 	requestBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -151,13 +148,10 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 	return &rpcResp.Result, nil
 }
 
-// waitForTransactionConfirmation polls RPC until transaction is confirmed or times out.
+// WaitForTxConfirmationRPC polls RPC directly until transaction is confirmed or times out.
 // Returns an error if the transaction fails or is not confirmed within the retry limit.
-//
-//nolint:unparam // ctx and t kept for API consistency and potential future use
-func waitForTransactionConfirmation(
-	ctx context.Context,
-	t *testing.T,
+// This is a lower-level function that doesn't require an RPCService instance.
+func WaitForTxConfirmationRPC(
 	client *http.Client,
 	rpcURL string,
 	hash string,
@@ -168,7 +162,7 @@ func waitForTransactionConfirmation(
 
 	for range retries {
 		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		txResult, err := GetTransactionFromRPC(client, rpcURL, hash)
 		if err == nil {
 			if txResult.Status == entities.SuccessStatus {
 				confirmed = true
@@ -219,17 +213,16 @@ func parseAddressToScAddress(address string) (xdr.ScAddress, error) {
 	return xdr.ScAddress{}, fmt.Errorf("invalid address format: must start with G or C")
 }
 
-// signAuthEntries signs Soroban authorization entries with the provided keypair.
+// SignAuthEntries signs Soroban authorization entries with the provided keypair.
 // This is required for CreateContractV2 with constructor and certain contract invocations.
-func signAuthEntries(
-	t *testing.T,
+func SignAuthEntries(
 	authEntries []xdr.SorobanAuthorizationEntry,
 	signer *keypair.Full,
 	networkPassphrase string,
 	latestLedger int64,
-) []xdr.SorobanAuthorizationEntry {
+) ([]xdr.SorobanAuthorizationEntry, error) {
 	if len(authEntries) == 0 {
-		return authEntries
+		return authEntries, nil
 	}
 
 	authSigner := sorobanauth.AuthSigner{
@@ -246,7 +239,9 @@ func signAuthEntries(
 				uint32(latestLedger+LedgerValidityBuffer),
 				signer,
 			)
-			require.NoError(t, err, "failed to sign auth entry %d", i)
+			if err != nil {
+				return nil, fmt.Errorf("failed to sign auth entry %d: %w", i, err)
+			}
 			signedAuthEntries[i] = signedEntry
 		case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
 			// Source auth entries don't need explicit signing as they are authorized by transaction signature
@@ -256,36 +251,34 @@ func signAuthEntries(
 		}
 	}
 
-	return signedAuthEntries
+	return signedAuthEntries, nil
 }
 
-// executeSorobanOperation executes a Soroban operation with the standard 11-step pattern:
+// ExecuteSorobanOperation executes a Soroban operation with the standard pattern:
 // 1. Build transaction for simulation
-// 2. Get RPC URL
-// 3. Simulate transaction
-// 4. Sign auth entries (if required)
-// 5. Apply simulation results
-// 6. Parse MinResourceFee
-// 7. Rebuild transaction with simulation results
-// 8. Sign transaction
-// 9. Submit to RPC
-// 10. Wait for confirmation
-// 11. Return transaction hash
+// 2. Simulate transaction
+// 3. Sign auth entries (if required)
+// 4. Apply simulation results
+// 5. Parse MinResourceFee
+// 6. Rebuild transaction with simulation results
+// 7. Sign transaction
+// 8. Submit to RPC
+// 9. Wait for confirmation
+// 10. Return transaction hash
 //
 // This helper consolidates the pattern used across all Soroban contract operations.
-//
-//nolint:unparam // hash kept for API consistency despite not being used by callers
-func executeSorobanOperation(
-	ctx context.Context,
-	t *testing.T,
-	s *SharedContainers,
-	op txnbuild.Operation,
+func ExecuteSorobanOperation(
+	httpClient *http.Client,
+	rpcURL string,
+	masterAccount *txnbuild.SimpleAccount,
+	masterKeyPair *keypair.Full,
+	op *txnbuild.InvokeHostFunction,
 	requireAuth bool,
 	retries int,
 ) (hash string, err error) {
 	// Step 1: Build initial transaction for simulation
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
+		SourceAccount:        masterAccount,
 		Operations:           []txnbuild.Operation{op},
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
@@ -297,19 +290,13 @@ func executeSorobanOperation(
 		return "", fmt.Errorf("building transaction: %w", err)
 	}
 
-	// Step 2: Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	if err != nil {
-		return "", fmt.Errorf("getting RPC connection string: %w", err)
-	}
-
-	// Step 3: Simulate transaction to get resource footprint
+	// Step 2: Simulate transaction to get resource footprint
 	txXDR, err := tx.Base64()
 	if err != nil {
 		return "", fmt.Errorf("encoding transaction for simulation: %w", err)
 	}
 
-	simulationResult, err := simulateTransactionRPC(s.httpClient, rpcURL, txXDR)
+	simulationResult, err := SimulateTransactionRPC(httpClient, rpcURL, txXDR)
 	if err != nil {
 		return "", fmt.Errorf("simulating transaction: %w", err)
 	}
@@ -317,39 +304,35 @@ func executeSorobanOperation(
 		return "", fmt.Errorf("simulation failed: %s", simulationResult.Error)
 	}
 
-	// Step 4: Sign auth entries if required
+	// Step 3: Sign auth entries if required
 	if requireAuth && len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		// Extract the operation to update its auth entries
-		switch typedOp := op.(type) {
-		case *txnbuild.InvokeHostFunction:
-			typedOp.Auth = signAuthEntries(
-				t,
-				simulationResult.Results[0].Auth,
-				s.masterKeyPair,
-				NetworkPassphrase,
-				simulationResult.LatestLedger,
-			)
+		signedAuth, authErr := SignAuthEntries(
+			simulationResult.Results[0].Auth,
+			masterKeyPair,
+			NetworkPassphrase,
+			simulationResult.LatestLedger,
+		)
+		if authErr != nil {
+			return "", fmt.Errorf("signing auth entries: %w", authErr)
 		}
+		op.Auth = signedAuth
 	}
 
-	// Step 5: Apply simulation results to the operation
-	switch typedOp := op.(type) {
-	case *txnbuild.InvokeHostFunction:
-		typedOp.Ext = xdr.TransactionExt{
-			V:           1,
-			SorobanData: &simulationResult.TransactionData,
-		}
+	// Step 4: Apply simulation results to the operation
+	op.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
 	}
 
-	// Step 6: Parse MinResourceFee
+	// Step 5: Parse MinResourceFee
 	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("parsing MinResourceFee: %w", err)
 	}
 
-	// Step 7: Rebuild transaction with simulation results and increment sequence
+	// Step 6: Rebuild transaction with simulation results and increment sequence
 	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
+		SourceAccount:        masterAccount,
 		Operations:           []txnbuild.Operation{op},
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
@@ -361,8 +344,8 @@ func executeSorobanOperation(
 		return "", fmt.Errorf("rebuilding transaction: %w", err)
 	}
 
-	// Step 8: Sign with master key
-	tx, err = tx.Sign(NetworkPassphrase, s.masterKeyPair)
+	// Step 7: Sign with master key
+	tx, err = tx.Sign(NetworkPassphrase, masterKeyPair)
 	if err != nil {
 		return "", fmt.Errorf("signing transaction: %w", err)
 	}
@@ -372,8 +355,8 @@ func executeSorobanOperation(
 		return "", fmt.Errorf("encoding signed transaction: %w", err)
 	}
 
-	// Step 9: Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(s.httpClient, rpcURL, txXDR)
+	// Step 8: Submit transaction to RPC
+	sendResult, err := SubmitTransactionToRPC(httpClient, rpcURL, txXDR)
 	if err != nil {
 		return "", fmt.Errorf("submitting transaction: %w", err)
 	}
@@ -382,8 +365,8 @@ func executeSorobanOperation(
 			sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
 	}
 
-	// Step 10: Wait for transaction confirmation
-	err = waitForTransactionConfirmation(ctx, t, s.httpClient, rpcURL, sendResult.Hash, retries)
+	// Step 9: Wait for transaction confirmation
+	err = WaitForTxConfirmationRPC(httpClient, rpcURL, sendResult.Hash, retries)
 	if err != nil {
 		return "", fmt.Errorf("waiting for confirmation: %w", err)
 	}
@@ -391,26 +374,23 @@ func executeSorobanOperation(
 	return sendResult.Hash, nil
 }
 
-// executeClassicOperation executes a classic Stellar operation (non-Soroban):
+// ExecuteClassicOperation executes a classic Stellar operation (non-Soroban):
 // 1. Build transaction
 // 2. Sign transaction
-// 3. Get RPC URL
-// 4. Submit to RPC
-// 5. Wait for confirmation
+// 3. Submit to RPC
+// 4. Wait for confirmation
 //
 // This helper consolidates the pattern used for classic operations like CreateAccount, ChangeTrust, Payment.
-//
-//nolint:unparam // hash kept for API consistency despite not being used by callers
-func executeClassicOperation(
-	ctx context.Context,
-	t *testing.T,
-	s *SharedContainers,
+func ExecuteClassicOperation(
+	httpClient *http.Client,
+	rpcURL string,
+	masterAccount *txnbuild.SimpleAccount,
 	ops []txnbuild.Operation,
 	signers []*keypair.Full,
 ) (hash string, err error) {
 	// Step 1: Build transaction
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
+		SourceAccount:        masterAccount,
 		Operations:           ops,
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
@@ -430,19 +410,13 @@ func executeClassicOperation(
 		}
 	}
 
-	// Step 3: Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	if err != nil {
-		return "", fmt.Errorf("getting RPC connection string: %w", err)
-	}
-
 	txXDR, err := tx.Base64()
 	if err != nil {
 		return "", fmt.Errorf("encoding transaction: %w", err)
 	}
 
-	// Step 4: Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(s.httpClient, rpcURL, txXDR)
+	// Step 3: Submit transaction to RPC
+	sendResult, err := SubmitTransactionToRPC(httpClient, rpcURL, txXDR)
 	if err != nil {
 		return "", fmt.Errorf("submitting transaction: %w", err)
 	}
@@ -450,8 +424,8 @@ func executeClassicOperation(
 		return "", fmt.Errorf("transaction failed with status: %s", sendResult.Status)
 	}
 
-	// Step 5: Wait for transaction confirmation
-	err = waitForTransactionConfirmation(ctx, t, s.httpClient, rpcURL, sendResult.Hash, DefaultConfirmationRetries)
+	// Step 4: Wait for transaction confirmation
+	err = WaitForTxConfirmationRPC(httpClient, rpcURL, sendResult.Hash, DefaultConfirmationRetries)
 	if err != nil {
 		return "", fmt.Errorf("waiting for confirmation: %w", err)
 	}

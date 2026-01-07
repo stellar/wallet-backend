@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -187,7 +186,7 @@ func Generate(ctx context.Context, cfg GeneratorConfig) error {
 }
 
 // deployNativeAssetSAC deploys the Stellar Asset Contract for native XLM.
-func deployNativeAssetSAC(ctx context.Context, containers *LoadTestContainers, rpcURL string) error {
+func deployNativeAssetSAC(containers *LoadTestContainers, rpcURL string) error {
 	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
 	deployOp := &txnbuild.InvokeHostFunction{
 		HostFunction: xdr.HostFunction{
@@ -205,7 +204,8 @@ func deployNativeAssetSAC(ctx context.Context, containers *LoadTestContainers, r
 		SourceAccount: containers.MasterKeyPair.Address(),
 	}
 
-	return executeSorobanOperation(ctx, containers, rpcURL, deployOp)
+	_, err := infrastructure.ExecuteSorobanOperation(containers.HTTPClient, rpcURL, containers.MasterAccount, containers.MasterKeyPair, deployOp, false, 20)
+	return err
 }
 
 // deployBulkContract uploads and deploys the soroban_bulk.wasm contract.
@@ -232,7 +232,7 @@ func deployBulkContract(ctx context.Context, containers *LoadTestContainers, rpc
 		SourceAccount: containers.MasterKeyPair.Address(),
 	}
 
-	if uploadErr := executeSorobanOperation(ctx, containers, rpcURL, uploadOp); uploadErr != nil {
+	if _, uploadErr := infrastructure.ExecuteSorobanOperation(containers.HTTPClient, rpcURL, containers.MasterAccount, containers.MasterKeyPair, uploadOp, false, 20); uploadErr != nil {
 		return xdr.ContractId{}, fmt.Errorf("uploading WASM: %w", uploadErr)
 	}
 
@@ -273,7 +273,8 @@ func deployBulkContract(ctx context.Context, containers *LoadTestContainers, rpc
 		SourceAccount: containers.MasterKeyPair.Address(),
 	}
 
-	if deployErr := executeSorobanOperation(ctx, containers, rpcURL, deployOp); deployErr != nil {
+	// requireAuth=true for CreateContractV2 with constructor
+	if _, deployErr := infrastructure.ExecuteSorobanOperation(containers.HTTPClient, rpcURL, containers.MasterAccount, containers.MasterKeyPair, deployOp, true, 20); deployErr != nil {
 		return xdr.ContractId{}, fmt.Errorf("deploying contract: %w", deployErr)
 	}
 
@@ -317,7 +318,7 @@ func createAccounts(ctx context.Context, containers *LoadTestContainers, rpcURL 
 		}
 
 		// Execute batch creation
-		ledger, err := executeClassicOperation(ctx, containers, rpcURL, ops)
+		ledger, err := executeClassicOperation(containers, rpcURL, ops)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("creating accounts batch: %w", err)
 		}
@@ -474,7 +475,7 @@ func txSubWorker(ctx context.Context, containers *LoadTestContainers, rpcURL str
 		}
 
 		// Submit to RPC
-		result, err := submitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
+		result, err := infrastructure.SubmitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
 		if err != nil {
 			return fmt.Errorf("submitting transaction: %w", err)
 		}
@@ -505,7 +506,7 @@ func waitForTransactions(ctx context.Context, containers *LoadTestContainers, rp
 			return fmt.Errorf("timeout waiting for %d transactions", len(pending))
 		case <-ticker.C:
 			for hash := range pending {
-				result, err := getTransactionFromRPC(containers.HTTPClient, rpcURL, hash)
+				result, err := infrastructure.GetTransactionFromRPC(containers.HTTPClient, rpcURL, hash)
 				if err != nil {
 					continue
 				}
@@ -788,92 +789,7 @@ func calculateContractID(networkPassphrase string, deployerAddress xdr.ContractI
 
 // RPC helper functions
 
-func executeSorobanOperation(ctx context.Context, containers *LoadTestContainers, rpcURL string,
-	op *txnbuild.InvokeHostFunction,
-) error {
-	// Build initial transaction for simulation
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        containers.MasterAccount,
-		Operations:           []txnbuild.Operation{op},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("building transaction: %w", err)
-	}
-
-	txXDR, err := tx.Base64()
-	if err != nil {
-		return fmt.Errorf("encoding transaction: %w", err)
-	}
-
-	// Simulate
-	simResult, err := simulateTransactionRPC(containers.HTTPClient, rpcURL, txXDR)
-	if err != nil {
-		return fmt.Errorf("simulating transaction: %w", err)
-	}
-	if simResult.Error != "" {
-		return fmt.Errorf("simulation failed: %s", simResult.Error)
-	}
-
-	// Apply simulation results
-	op.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simResult.TransactionData,
-	}
-
-	// Parse fee
-	minResourceFee, err := strconv.ParseInt(simResult.MinResourceFee, 10, 64)
-	if err != nil {
-		return fmt.Errorf("parsing MinResourceFee: %w", err)
-	}
-
-	// Rebuild with results
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        containers.MasterAccount,
-		Operations:           []txnbuild.Operation{op},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("rebuilding transaction: %w", err)
-	}
-
-	// Sign
-	tx, err = tx.Sign(infrastructure.NetworkPassphrase, containers.MasterKeyPair)
-	if err != nil {
-		return fmt.Errorf("signing transaction: %w", err)
-	}
-
-	txXDR, err = tx.Base64()
-	if err != nil {
-		return fmt.Errorf("encoding signed transaction: %w", err)
-	}
-
-	// Submit
-	sendResult, err := submitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
-	if err != nil {
-		return fmt.Errorf("submitting transaction: %w", err)
-	}
-	if sendResult.Status == entities.ErrorStatus {
-		return fmt.Errorf("transaction failed: %s", sendResult.ErrorResultXDR)
-	}
-
-	// Wait for confirmation
-	if err := waitForTransactionConfirmation(ctx, containers.HTTPClient, rpcURL, sendResult.Hash, 60); err != nil {
-		return fmt.Errorf("waiting for confirmation: %w", err)
-	}
-
-	return nil
-}
-
-func executeClassicOperation(ctx context.Context, containers *LoadTestContainers, rpcURL string,
+func executeClassicOperation(containers *LoadTestContainers, rpcURL string,
 	ops []txnbuild.Operation,
 ) (uint32, error) {
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -899,7 +815,7 @@ func executeClassicOperation(ctx context.Context, containers *LoadTestContainers
 		return 0, fmt.Errorf("encoding transaction: %w", err)
 	}
 
-	sendResult, err := submitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
+	sendResult, err := infrastructure.SubmitTransactionToRPC(containers.HTTPClient, rpcURL, txXDR)
 	if err != nil {
 		return 0, fmt.Errorf("submitting transaction: %w", err)
 	}
@@ -907,12 +823,12 @@ func executeClassicOperation(ctx context.Context, containers *LoadTestContainers
 		return 0, fmt.Errorf("transaction failed: %s", sendResult.ErrorResultXDR)
 	}
 
-	if confirmErr := waitForTransactionConfirmation(ctx, containers.HTTPClient, rpcURL, sendResult.Hash, 30); confirmErr != nil {
+	if confirmErr := infrastructure.WaitForTxConfirmationRPC(containers.HTTPClient, rpcURL, sendResult.Hash, 30); confirmErr != nil {
 		return 0, fmt.Errorf("waiting for confirmation: %w", confirmErr)
 	}
 
 	// Get the ledger from transaction result
-	result, err := getTransactionFromRPC(containers.HTTPClient, rpcURL, sendResult.Hash)
+	result, err := infrastructure.GetTransactionFromRPC(containers.HTTPClient, rpcURL, sendResult.Hash)
 	if err != nil {
 		return 0, fmt.Errorf("getting transaction result: %w", err)
 	}
@@ -941,7 +857,7 @@ func preflightOperation(containers *LoadTestContainers, rpcURL string,
 		return nil, fmt.Errorf("encoding transaction: %w", err)
 	}
 
-	simResult, err := simulateTransactionRPC(containers.HTTPClient, rpcURL, txXDR)
+	simResult, err := infrastructure.SimulateTransactionRPC(containers.HTTPClient, rpcURL, txXDR)
 	if err != nil {
 		return nil, fmt.Errorf("simulating transaction: %w", err)
 	}
@@ -957,123 +873,6 @@ func preflightOperation(containers *LoadTestContainers, rpcURL string,
 	}
 
 	return &result, nil
-}
-
-func simulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSimulateTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "simulateTransaction",
-		"params": map[string]string{
-			"transaction": txXDR,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck
-
-	var rpcResp struct {
-		Result entities.RPCSimulateTransactionResult `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
-}
-
-func submitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSendTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "sendTransaction",
-		"params": map[string]string{
-			"transaction": txXDR,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck
-
-	var rpcResp struct {
-		Result entities.RPCSendTransactionResult `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
-}
-
-func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.RPCGetTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "getTransaction",
-		"params": map[string]string{
-			"hash": hash,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck
-
-	var rpcResp struct {
-		Result entities.RPCGetTransactionResult `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
 }
 
 func getHealthFromRPC(client *http.Client, rpcURL string) (*entities.RPCGetHealthResult, error) {
@@ -1165,30 +964,4 @@ func getLedgerFromRPC(client *http.Client, rpcURL string, sequence uint32) (xdr.
 	}
 
 	return ledger, nil
-}
-
-func waitForTransactionConfirmation(ctx context.Context, client *http.Client, rpcURL, hash string, retries int) error {
-	timeout := time.Duration(retries) * TransactionPollInterval
-
-	for i := 0; i < retries; i++ {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
-		case <-time.After(TransactionPollInterval):
-		}
-
-		result, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err != nil {
-			continue
-		}
-
-		if result.Status == entities.SuccessStatus {
-			return nil
-		}
-		if result.Status == entities.FailedStatus {
-			return fmt.Errorf("transaction failed: %s", result.ResultXDR)
-		}
-	}
-
-	return fmt.Errorf("transaction not confirmed after %v", timeout)
 }

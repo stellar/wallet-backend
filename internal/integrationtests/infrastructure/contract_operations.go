@@ -69,8 +69,12 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		SourceAccount: s.masterKeyPair.Address(), // Must be admin for mint to succeed
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute using helper with extended retries for mint operations
-	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, ExtendedConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, invokeOp, true, ExtendedConfirmationRetries)
 	require.NoError(t, err, "failed to mint SEP-41 tokens")
 }
 
@@ -129,7 +133,11 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC URL")
+
 	// Execute using helper
-	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, DefaultConfirmationRetries)
+	_, err = ExecuteSorobanOperation(s.httpClient, rpcURL, s.masterAccount, s.masterKeyPair, invokeOp, true, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to transfer tokens")
 }
