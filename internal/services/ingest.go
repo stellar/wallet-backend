@@ -38,6 +38,8 @@ const (
 	IngestionModeLive = "live"
 	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
 	IngestionModeBackfill = "backfill"
+	// IngestionModeLoadtest represents ingestion from synthetic ledgers for load testing.
+	IngestionModeLoadtest = "loadtest"
 )
 
 // LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.

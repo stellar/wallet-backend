@@ -3,9 +3,11 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pelletier/go-toml"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
@@ -77,4 +79,22 @@ func loadDatastoreBackendConfig(configPath string) (StorageBackendConfig, error)
 	}
 
 	return storageBackendConfig, nil
+}
+
+// LoadtestBackendConfig holds configuration for the loadtest ledger backend.
+type LoadtestBackendConfig struct {
+	NetworkPassphrase   string
+	LedgersFilePath     string
+	LedgerCloseDuration time.Duration
+}
+
+// NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
+func NewLoadtestLedgerBackend(cfg LoadtestBackendConfig) ledgerbackend.LedgerBackend {
+	backend := goloadtest.NewLedgerBackend(goloadtest.LedgerBackendConfig{
+		NetworkPassphrase:   cfg.NetworkPassphrase,
+		LedgersFilePath:     cfg.LedgersFilePath,
+		LedgerCloseDuration: cfg.LedgerCloseDuration,
+	})
+	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
+	return backend
 }

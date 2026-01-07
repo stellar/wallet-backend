@@ -40,6 +40,8 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeLoadtest uses synthetic ledgers from a file for load testing
+	LedgerBackendTypeLoadtest LedgerBackendType = "loadtest"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
