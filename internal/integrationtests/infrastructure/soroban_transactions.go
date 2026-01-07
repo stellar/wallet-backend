@@ -283,7 +283,7 @@ func ExecuteSorobanOperation(
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
 		},
 	})
 	if err != nil {
@@ -337,7 +337,7 @@ func ExecuteSorobanOperation(
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
 		},
 	})
 	if err != nil {

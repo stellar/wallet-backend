@@ -353,7 +353,7 @@ func extendContractTTL(containers *LoadTestContainers, rpcURL string, contractID
 		Operations:           []txnbuild.Operation{extendOp},
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false,
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout)},
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
 	})
 	if err != nil {
 		return fmt.Errorf("building simulation tx: %w", err)
@@ -383,7 +383,7 @@ func extendContractTTL(containers *LoadTestContainers, rpcURL string, contractID
 		Operations:           []txnbuild.Operation{extendOp},
 		BaseFee:              minFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout)},
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
 	})
 	if err != nil {
 		return fmt.Errorf("building tx: %w", err)
@@ -513,7 +513,6 @@ func prepareBulkTransfers(containers *LoadTestContainers, rpcURL string,
 		if err != nil {
 			return nil, fmt.Errorf("preflighting operation %d: %w", i, err)
 		}
-		// Scale up resource limits for load testing
 		preflightedOp.Ext.SorobanData.Resources.DiskReadBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.WriteBytes *= 10
 		preflightedOp.Ext.SorobanData.Resources.Instructions *= 10
@@ -579,7 +578,7 @@ func txSubWorker(ctx context.Context, containers *LoadTestContainers, rpcURL str
 			BaseFee:              txnbuild.MinBaseFee,
 			IncrementSequenceNum: true,
 			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
+				TimeBounds: txnbuild.NewInfiniteTimeout(),
 			},
 		})
 		if err != nil {
@@ -1001,7 +1000,7 @@ func preflightOperation(containers *LoadTestContainers, rpcURL string,
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
 		},
 	})
 	if err != nil {
