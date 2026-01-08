@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
@@ -1496,5 +1497,147 @@ func TestProcessTokenChanges(t *testing.T) {
 		markerVal, err := mr.Get("ingested_ledger")
 		assert.NoError(t, err)
 		assert.Equal(t, "100", markerVal)
+	})
+
+	t.Run("idempotent - reprocessing intermingled operations produces same result", func(t *testing.T) {
+		mr, redisStore := setupTestRedis(t)
+		defer mr.Close()
+
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
+		service := &accountTokenService{
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
+		}
+
+		// Test accounts
+		accountA := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		accountB := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		accountC := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
+
+		// Contract IDs
+		contractC1 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+		contractC2 := "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+		// Asset definitions
+		usdcAsset := "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+		eurcAsset := "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"
+		btcAsset := "BTC:GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF"
+
+		// Pre-populate Redis with initial trustlines
+		// Account A: [1, 2] (USDC, EURC)
+		keyA := service.buildTrustlineKey(accountA)
+		mr.HSet(keyA, accountA, testEncodeAssetIDs([]int64{1, 2}))
+
+		// Account B: [3] (BTC)
+		keyB := service.buildTrustlineKey(accountB)
+		mr.HSet(keyB, accountB, testEncodeAssetIDs([]int64{3}))
+
+		// Account C: empty (no pre-population needed)
+
+		// Mock BatchGetOrInsert to return consistent asset IDs
+		// Use mock.Anything because the order of assets in the slice is non-deterministic (from set iteration)
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.MatchedBy(func(assets []wbdata.TrustlineAsset) bool {
+			return len(assets) == 3
+		})).Return(map[string]int64{
+			usdcAsset: 1,
+			eurcAsset: 2,
+			btcAsset:  3,
+		}, nil).Times(2)
+
+		// Intermingled trustline changes across multiple accounts
+		trustlineChanges := []types.TrustlineChange{
+			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpRemove, OperationID: 1},
+			{AccountID: accountB, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 2},
+			{AccountID: accountA, Asset: btcAsset, Operation: types.TrustlineOpAdd, OperationID: 3},
+			{AccountID: accountC, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 4},
+			{AccountID: accountB, Asset: btcAsset, Operation: types.TrustlineOpRemove, OperationID: 5},
+			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 6}, // Re-add USDC
+			{AccountID: accountC, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 7},
+		}
+
+		// Contract changes
+		contractChanges := []types.ContractChange{
+			{AccountID: accountA, ContractID: contractC1, ContractType: types.ContractTypeSAC},
+			{AccountID: accountB, ContractID: contractC1, ContractType: types.ContractTypeSAC},
+			{AccountID: accountB, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
+			{AccountID: accountC, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
+		}
+
+		// Helper function to capture current state
+		captureState := func() (map[string][]int64, map[string][]string) {
+			trustlines := make(map[string][]int64)
+			contracts := make(map[string][]string)
+
+			for _, acc := range []string{accountA, accountB, accountC} {
+				// Get trustlines
+				key := service.buildTrustlineKey(acc)
+				val := mr.HGet(key, acc)
+				if val != "" {
+					trustlines[acc] = decodeAssetIDs([]byte(val))
+				} else {
+					trustlines[acc] = []int64{}
+				}
+
+				// Get contracts
+				contractKey := contractsKeyPrefix + acc
+				members, err := mr.SMembers(contractKey)
+				if err != nil {
+					contracts[acc] = []string{}
+				} else {
+					contracts[acc] = members
+				}
+			}
+
+			return trustlines, contracts
+		}
+
+		// --- First processing run ---
+
+		err := service.ProcessTokenChanges(ctx, uint32(100), trustlineChanges, contractChanges)
+		require.NoError(t, err)
+
+		// Capture state after first run
+		trustlinesRun1, contractsRun1 := captureState()
+
+		// Verify expected final state after first run
+		// Account A: [2, 3, 1] → EURC, BTC, USDC (removed then re-added)
+		assert.Len(t, trustlinesRun1[accountA], 3)
+		assert.Contains(t, trustlinesRun1[accountA], int64(1)) // USDC
+		assert.Contains(t, trustlinesRun1[accountA], int64(2)) // EURC
+		assert.Contains(t, trustlinesRun1[accountA], int64(3)) // BTC
+
+		// Account B: [2] → EURC only (BTC removed)
+		assert.Equal(t, []int64{2}, trustlinesRun1[accountB])
+
+		// Account C: [1, 2] → USDC, EURC
+		assert.Len(t, trustlinesRun1[accountC], 2)
+		assert.Contains(t, trustlinesRun1[accountC], int64(1))
+		assert.Contains(t, trustlinesRun1[accountC], int64(2))
+
+		// Contracts
+		assert.ElementsMatch(t, []string{contractC1}, contractsRun1[accountA])
+		assert.ElementsMatch(t, []string{contractC1, contractC2}, contractsRun1[accountB])
+		assert.ElementsMatch(t, []string{contractC2}, contractsRun1[accountC])
+
+		err = service.ProcessTokenChanges(ctx, uint32(100), trustlineChanges, contractChanges)
+		require.NoError(t, err)
+
+		// Capture state after second run
+		trustlinesRun2, contractsRun2 := captureState()
+
+		// --- Assert idempotency: both runs produce identical state ---
+		// Trustlines (order-independent comparison)
+		for _, acc := range []string{accountA, accountB, accountC} {
+			assert.ElementsMatch(t, trustlinesRun1[acc], trustlinesRun2[acc],
+				"Trustlines for %s should be identical after reprocessing", acc)
+		}
+
+		// Contracts (order-independent comparison)
+		for _, acc := range []string{accountA, accountB, accountC} {
+			assert.ElementsMatch(t, contractsRun1[acc], contractsRun2[acc],
+				"Contracts for %s should be identical after reprocessing", acc)
+		}
 	})
 }

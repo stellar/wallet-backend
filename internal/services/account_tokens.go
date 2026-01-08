@@ -8,7 +8,6 @@ import (
 	"hash/fnv"
 	"io"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +31,6 @@ const (
 	// Redis key prefixes for account token storage
 	trustlinesKeyPrefix = "trustlines:"
 	contractsKeyPrefix  = "contracts:"
-	ingestLedgerKey     = "ingested_ledger"
 
 	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
@@ -119,7 +117,6 @@ type accountTokenService struct {
 	contractsPrefix         string
 	trustlineAssetByID      *ristretto.Cache[int64, string]
 	trustlineIDByAsset      *ristretto.Cache[string, int64]
-	lastCacheIngestedLedger *uint32
 }
 
 func NewAccountTokenService(
@@ -142,7 +139,6 @@ func NewAccountTokenService(
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
-		lastCacheIngestedLedger: nil,
 	}, nil
 }
 
@@ -210,16 +206,6 @@ func validateAccountAddress(accountAddress string) error {
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
 func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
-		return nil
-	}
-
-	// Get the last ingested ledger sequence. If the last processed ledger sequence is greater than or equal to the current ledger sequence
-	// then we can skip updating the cache since it is already ahead.
-	lastIngestedLedgerSequence, err := s.getLatestIngestedLedgerSequence(ctx)
-	if err != nil {
-		return fmt.Errorf("getting last ingested ledger sequence: %w", err)
-	}
-	if lastIngestedLedgerSequence >= ledgerSequence {
 		return nil
 	}
 
@@ -293,7 +279,8 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 
 			assetID, exists := assetsToID[code+":"+issuer]
 			if !exists {
-				return fmt.Errorf("getting asset ID for %s: %w", change.Asset, err)
+				log.Ctx(ctx).Warnf("Unable to get trustline asset ID for %s", code+":"+issuer)
+				continue
 			}
 
 			switch change.Operation {
@@ -351,18 +338,10 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 		})
 	}
 
-	// Set the ingested ledger
-	operations = append(operations, store.RedisPipelineOperation{
-		Op:    store.OpSet,
-		Key:   ingestLedgerKey,
-		Value: fmt.Sprintf("%d", ledgerSequence),
-	})
-
 	// Execute all operations in a single pipeline
 	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
 		return fmt.Errorf("executing token changes pipeline: %w", err)
 	}
-	s.lastCacheIngestedLedger = &ledgerSequence
 
 	return nil
 }
@@ -414,25 +393,6 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 	}
 	s.trustlineAssetByID = trustlineAssetByIDCache
 	return nil
-}
-
-// getLatestIngestedLedgerSequence returns the latest ingested ledger sequence from Redis.
-func (s *accountTokenService) getLatestIngestedLedgerSequence(ctx context.Context) (uint32, error) {
-	if s.lastCacheIngestedLedger != nil {
-		return *s.lastCacheIngestedLedger, nil
-	}
-	lastIngestedLedgerSequence, err := s.redisStore.Get(ctx, ingestLedgerKey)
-	if err != nil {
-		return 0, fmt.Errorf("getting last ingested ledger sequence: %w", err)
-	}
-	if lastIngestedLedgerSequence == "" {
-		lastIngestedLedgerSequence = "0"
-	}
-	lastIngestedLedgerSequenceUint64, err := strconv.ParseUint(lastIngestedLedgerSequence, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("converting last ingested ledger sequence to uint32: %w", err)
-	}
-	return uint32(lastIngestedLedgerSequenceUint64), nil
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.
@@ -537,9 +497,6 @@ func (s *accountTokenService) buildContractKey(accountAddress string) string {
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
 // Returns asset strings in "CODE:ISSUER" format after resolving from internal IDs.
 func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
-	if err := validateAccountAddress(accountAddress); err != nil {
-		return nil, err
-	}
 	key := s.buildTrustlineKey(accountAddress)
 
 	// Get varint-encoded IDs from Redis hash
@@ -879,13 +836,6 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		})
 	}
 
-	// Add ingested ledger operation
-	redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-		Op:    store.OpSet,
-		Key:   ingestLedgerKey,
-		Value: fmt.Sprintf("%d", s.checkpointLedger),
-	})
-
 	// Execute operations in batches
 	for i := 0; i < len(redisPipelineOps); i += redisPipelineBatchSize {
 		end := min(i+redisPipelineBatchSize, len(redisPipelineOps))
@@ -893,7 +843,6 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 			return fmt.Errorf("executing account tokens pipeline: %w", err)
 		}
 	}
-	s.lastCacheIngestedLedger = &s.checkpointLedger
 
 	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
 	return nil
