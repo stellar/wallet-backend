@@ -879,17 +879,19 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 		})
 	}
 
+	// Add ingested ledger operation
+	redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
+		Op:    store.OpSet,
+		Key:   ingestLedgerKey,
+		Value: fmt.Sprintf("%d", s.checkpointLedger),
+	})
+
 	// Execute operations in batches
 	for i := 0; i < len(redisPipelineOps); i += redisPipelineBatchSize {
 		end := min(i+redisPipelineBatchSize, len(redisPipelineOps))
 		if err := s.redisStore.ExecutePipeline(ctx, redisPipelineOps[i:end]); err != nil {
 			return fmt.Errorf("executing account tokens pipeline: %w", err)
 		}
-	}
-
-	// Set the ingested ledger
-	if err := s.redisStore.Set(ctx, ingestLedgerKey, fmt.Sprintf("%d", s.checkpointLedger)); err != nil {
-		return fmt.Errorf("setting ingested ledger: %w", err)
 	}
 	s.lastCacheIngestedLedger = &s.checkpointLedger
 
