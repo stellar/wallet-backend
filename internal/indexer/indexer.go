@@ -190,6 +190,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
 		case types.StateChangeCategoryTrustline:
+			if stateChange.TrustlineAsset == "" {
+				continue
+			}
 			trustlineChange := types.TrustlineChange{
 				AccountID:    stateChange.AccountID,
 				OperationID:  stateChange.OperationID,
