@@ -450,7 +450,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer)).Build()
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
