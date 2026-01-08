@@ -232,9 +232,16 @@ func TestParseAssetString(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "valid CODE:ISSUER format",
+			name:       "valid CODE:ISSUER format with 4 char code",
 			asset:      "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 			wantCode:   "USDC",
+			wantIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			wantErr:    false,
+		},
+		{
+			name:       "valid CODE:ISSUER format with 12 char code",
+			asset:      "LONGERCODE12:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			wantCode:   "LONGERCODE12",
 			wantIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 			wantErr:    false,
 		},
@@ -249,11 +256,29 @@ func TestParseAssetString(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:       "multiple colons - splits on first",
-			asset:      "USD:C:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-			wantCode:   "USD",
-			wantIssuer: "C:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-			wantErr:    false,
+			name:    "empty code",
+			asset:   ":GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			wantErr: true,
+		},
+		{
+			name:    "empty issuer",
+			asset:   "USDC:",
+			wantErr: true,
+		},
+		{
+			name:    "invalid issuer format",
+			asset:   "USDC:NOTAVALIDISSUER",
+			wantErr: true,
+		},
+		{
+			name:    "code too long (13 chars)",
+			asset:   "THIRTEENCHARS:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			wantErr: true,
+		},
+		{
+			name:    "multiple colons - invalid issuer",
+			asset:   "USD:C:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			wantErr: true,
 		},
 	}
 
