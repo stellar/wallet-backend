@@ -985,7 +985,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{})
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{})
 		assert.NoError(t, err)
 	})
 
@@ -1000,7 +1002,9 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
@@ -1031,7 +1035,9 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{}, []types.ContractChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				ContractID:   "",
@@ -1056,7 +1062,9 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// Empty asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				Asset:     "",
@@ -1089,7 +1097,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1129,7 +1139,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			{Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
 		}).Return(map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}, nil)
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
@@ -1170,7 +1182,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1209,7 +1223,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1245,7 +1261,9 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Send changes out of order - remove then add (by opID)
 		// Op 2: Remove, Op 1: Add - should be processed as Add first, then Remove
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1284,7 +1302,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(nil, assert.AnError)
 
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1310,7 +1330,9 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Invalid asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
 		// Asset without colon should be skipped (not cause error)
-		err := service.ProcessTokenChanges(ctx, []types.TrustlineChange{
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "INVALIDASSET", // No colon
@@ -1324,5 +1346,155 @@ func TestProcessTokenChanges(t *testing.T) {
 		key := service.buildTrustlineKey(accountAddress)
 		val := mr.HGet(key, accountAddress)
 		assert.Empty(t, val)
+	})
+
+	t.Run("skips processing when ledger already processed", func(t *testing.T) {
+		mr, redisStore := setupTestRedis(t)
+		defer mr.Close()
+
+		service := &accountTokenService{
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
+		}
+
+		// Set marker to current ledger - should skip processing
+		err := mr.Set("ingested_ledger", "100")
+		require.NoError(t, err)
+
+		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		// Try to process ledger 100 when marker is already at 100
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+			{
+				AccountID:   accountAddress,
+				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+				Operation:   types.TrustlineOpAdd,
+				OperationID: 1,
+			},
+		}, []types.ContractChange{
+			{
+				AccountID:    accountAddress,
+				ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+				ContractType: types.ContractTypeSAC,
+			},
+		})
+		assert.NoError(t, err)
+
+		// Verify no trustline was written (because we skipped)
+		key := service.buildTrustlineKey(accountAddress)
+		assert.False(t, mr.Exists(key))
+
+		// Verify no contract was written (because we skipped)
+		contractKey := contractsKeyPrefix + accountAddress
+		assert.False(t, mr.Exists(contractKey))
+
+		// Verify marker wasn't changed
+		markerVal, err := mr.Get("ingested_ledger")
+		assert.NoError(t, err)
+		assert.Equal(t, "100", markerVal)
+	})
+
+	t.Run("processes when ledger is ahead of marker", func(t *testing.T) {
+		mr, redisStore := setupTestRedis(t)
+		defer mr.Close()
+
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
+		service := &accountTokenService{
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
+		}
+
+		// Set marker behind current ledger - should process
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+
+		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		// Mock BatchGetOrInsert to return asset ID
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+
+		// Process ledger 100 when marker is at 99
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+			{
+				AccountID:   accountAddress,
+				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+				Operation:   types.TrustlineOpAdd,
+				OperationID: 1,
+			},
+		}, []types.ContractChange{})
+		assert.NoError(t, err)
+
+		// Verify trustline was written
+		key := service.buildTrustlineKey(accountAddress)
+		val := mr.HGet(key, accountAddress)
+		decodedIDs := decodeAssetIDs([]byte(val))
+		assert.Equal(t, []int64{1}, decodedIDs)
+
+		// Verify marker was updated to 100
+		markerVal, err := mr.Get("ingested_ledger")
+		assert.NoError(t, err)
+		assert.Equal(t, "100", markerVal)
+	})
+
+	t.Run("updates ledger marker atomically with changes", func(t *testing.T) {
+		mr, redisStore := setupTestRedis(t)
+		defer mr.Close()
+
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
+		service := &accountTokenService{
+			redisStore:          redisStore,
+			trustlineAssetModel: mockAssetModel,
+			trustlinesPrefix:    trustlinesKeyPrefix,
+			contractsPrefix:     contractsKeyPrefix,
+		}
+
+		err := mr.Set("ingested_ledger", "99")
+		require.NoError(t, err)
+
+		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		// Mock BatchGetOrInsert
+		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+
+		// Process with both trustline and contract changes
+		err = service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+			{
+				AccountID:   accountAddress,
+				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+				Operation:   types.TrustlineOpAdd,
+				OperationID: 1,
+			},
+		}, []types.ContractChange{
+			{
+				AccountID:    accountAddress,
+				ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+				ContractType: types.ContractTypeSAC,
+			},
+		})
+		assert.NoError(t, err)
+
+		// Verify trustline was written
+		trustlineKey := service.buildTrustlineKey(accountAddress)
+		val := mr.HGet(trustlineKey, accountAddress)
+		decodedIDs := decodeAssetIDs([]byte(val))
+		assert.Equal(t, []int64{1}, decodedIDs)
+
+		// Verify contract was written
+		contractKey := contractsKeyPrefix + accountAddress
+		members, err := mr.SMembers(contractKey)
+		assert.NoError(t, err)
+		assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+
+		// Verify marker was updated to 100 (all in same pipeline)
+		markerVal, err := mr.Get("ingested_ledger")
+		assert.NoError(t, err)
+		assert.Equal(t, "100", markerVal)
 	})
 }

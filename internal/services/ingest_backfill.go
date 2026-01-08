@@ -292,7 +292,7 @@ func (m *ingestService) flushBatchBuffer(ctx context.Context, buffer *indexer.In
 		if err != nil {
 			return fmt.Errorf("filtering participant data: %w", err)
 		}
-		if err := m.insertProcessedDataIntoDB(ctx, dbTx, filteredData); err != nil {
+		if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 			return fmt.Errorf("inserting processed data into db: %w", err)
 		}
 		// Update cursor atomically with data insertion if requested

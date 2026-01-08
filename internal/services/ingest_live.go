@@ -121,32 +121,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
 
 		dbStart := time.Now()
-		numTransactionProcessed := 0
-		numOperationProcessed := 0
-		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
-			if innerErr != nil {
-				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
-			}
-			innerErr = m.insertProcessedDataIntoDB(ctx, dbTx, filteredData)
-			if innerErr != nil {
-				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
-			}
-			if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
-				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
-			}
-			innerErr = m.processLiveIngestionTokenChanges(ctx, currentLedger, filteredData.trustlineChanges, filteredData.contractTokenChanges)
-			if innerErr != nil {
-				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
-			}
-			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
-			if innerErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
-			}
-			numTransactionProcessed = len(filteredData.txs)
-			numOperationProcessed = len(filteredData.ops)
-			return nil
-		})
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedData(ctx, currentLedger, buffer)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -163,6 +138,40 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
 		currentLedger++
 	}
+}
+
+// ingestProcessedData ingests the processed data into the database, unlocks channel accounts, and processes token changes.
+func (m *ingestService) ingestProcessedData(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
+	numTransactionProcessed := 0
+	numOperationProcessed := 0
+	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
+		if innerErr != nil {
+			return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
+		}
+		innerErr = m.insertIntoDB(ctx, dbTx, filteredData)
+		if innerErr != nil {
+			return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
+		}
+		if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
+			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+		}
+		innerErr = m.processLiveIngestionTokenChanges(ctx, currentLedger, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+		if innerErr != nil {
+			return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
+		}
+		innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
+		if innerErr != nil {
+			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
+		}
+		numTransactionProcessed = len(filteredData.txs)
+		numOperationProcessed = len(filteredData.ops)
+		return nil
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("ingesting processed data: %w", err)
+	}
+	return numTransactionProcessed, numOperationProcessed, nil
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.

@@ -382,8 +382,8 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	}, nil
 }
 
-// insertProcessedDataIntoDB persists the processed data to the database.
-func (m *ingestService) insertProcessedDataIntoDB(ctx context.Context, dbTx pgx.Tx, data *filteredIngestionData) error {
+// insertIntoDB persists the processed data to the database.
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, data *filteredIngestionData) error {
 	if err := m.insertTransactions(ctx, dbTx, data.txs, data.txParticipants); err != nil {
 		return err
 	}
