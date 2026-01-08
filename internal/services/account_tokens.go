@@ -31,6 +31,7 @@ const (
 	// Redis key prefixes for account token storage
 	trustlinesKeyPrefix = "trustlines:"
 	contractsKeyPrefix  = "contracts:"
+	ingestLedgerKey = "ingested_ledger"
 
 	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
@@ -93,7 +94,7 @@ type AccountTokenService interface {
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
-	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
 	InitializeTrustlineIDByAssetCache(ctx context.Context) error
@@ -204,7 +205,7 @@ func validateAccountAddress(accountAddress string) error {
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -336,6 +337,14 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			Members: []string{change.ContractID},
 		})
 	}
+
+	// Set the ingested ledger
+	operations = append(operations, store.RedisPipelineOperation{
+		Op:    store.OpSet,
+		Key:   ingestLedgerKey,
+		Value: fmt.Sprintf("%d", ledgerSequence),
+	})
+
 
 	// Execute all operations in a single pipeline
 	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
