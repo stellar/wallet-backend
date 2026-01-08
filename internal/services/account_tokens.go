@@ -119,6 +119,7 @@ type accountTokenService struct {
 	contractsPrefix         string
 	trustlineAssetByID      *ristretto.Cache[int64, string]
 	trustlineIDByAsset      *ristretto.Cache[string, int64]
+	lastCacheIngestedLedger *uint32
 }
 
 func NewAccountTokenService(
@@ -141,6 +142,7 @@ func NewAccountTokenService(
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
+		lastCacheIngestedLedger: nil,
 	}, nil
 }
 
@@ -360,6 +362,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
 		return fmt.Errorf("executing token changes pipeline: %w", err)
 	}
+	s.lastCacheIngestedLedger = &ledgerSequence
 
 	return nil
 }
@@ -415,6 +418,9 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 
 // getLatestIngestedLedgerSequence returns the latest ingested ledger sequence from Redis.
 func (s *accountTokenService) getLatestIngestedLedgerSequence(ctx context.Context) (uint32, error) {
+	if s.lastCacheIngestedLedger != nil {
+		return *s.lastCacheIngestedLedger, nil
+	}
 	lastIngestedLedgerSequence, err := s.redisStore.Get(ctx, ingestLedgerKey)
 	if err != nil {
 		return 0, fmt.Errorf("getting last ingested ledger sequence: %w", err)
@@ -885,6 +891,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	if err := s.redisStore.Set(ctx, ingestLedgerKey, fmt.Sprintf("%d", s.checkpointLedger)); err != nil {
 		return fmt.Errorf("setting ingested ledger: %w", err)
 	}
+	s.lastCacheIngestedLedger = &s.checkpointLedger
 
 	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
 	return nil
