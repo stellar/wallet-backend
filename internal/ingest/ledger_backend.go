@@ -15,7 +15,7 @@ import (
 func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	switch cfg.LedgerBackendType {
 	case LedgerBackendTypeDatastore:
-		return newDatastoreLedgerBackend(ctx, cfg)
+		return newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	case LedgerBackendTypeRPC:
 		return newRPCLedgerBackend(cfg)
 	default:
@@ -23,13 +23,13 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 	}
 }
 
-func newDatastoreLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBackend, error) {
-	storageBackendConfig, err := loadDatastoreBackendConfig(cfg.DatastoreConfigPath)
+func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
+	storageBackendConfig, err := loadDatastoreBackendConfig(datastoreConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading datastore config: %w", err)
 	}
 
-	storageBackendConfig.DataStoreConfig.NetworkPassphrase = cfg.NetworkPassphrase
+	storageBackendConfig.DataStoreConfig.NetworkPassphrase = networkPassphrase
 
 	dataStore, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
 	if err != nil {
@@ -86,15 +86,23 @@ type LoadtestBackendConfig struct {
 	NetworkPassphrase   string
 	LedgersFilePath     string
 	LedgerCloseDuration time.Duration
+	DatastoreConfigPath string
 }
 
 // NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
 func NewLoadtestLedgerBackend(cfg LoadtestBackendConfig) ledgerbackend.LedgerBackend {
-	backend := goloadtest.NewLedgerBackend(goloadtest.LedgerBackendConfig{
+	datastoreBackend, err := newDatastoreLedgerBackend(context.Background(), cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+	if err != nil {
+		log.Errorf("Failed to create datastore ledger backend: %v", err)
+		return nil
+	}
+	config := goloadtest.LedgerBackendConfig{
 		NetworkPassphrase:   cfg.NetworkPassphrase,
 		LedgersFilePath:     cfg.LedgersFilePath,
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
-	})
+		LedgerBackend:       datastoreBackend,
+	}
+	backend := goloadtest.NewLedgerBackend(config)
 	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
 	return backend
 }

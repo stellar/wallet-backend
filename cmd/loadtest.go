@@ -165,6 +165,7 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 		AdminPort           int
 		SkipTxMeta          bool
 		SkipTxEnvelope      bool
+		StartLedger         int
 	}{}
 
 	cfgOpts := config.ConfigOptions{
@@ -237,6 +238,14 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 			FlagDefault: true,
 			Required:    false,
 		},
+		{
+			Name:        "start-ledger",
+			Usage:       "Ledger sequence to start ingestion from (defaults to 606644043 for pubnet datastore)",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.StartLedger,
+			FlagDefault: 606644043,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
@@ -281,6 +290,7 @@ Example:
 			log.Infof("  Database URL: %s", cfg.DatabaseURL)
 			log.Infof("  Network passphrase: %s", cfg.NetworkPassphrase)
 			log.Infof("  Server port: %d", cfg.ServerPort)
+			log.Infof("  Start ledger: %d", cfg.StartLedger)
 
 			err := loadtest.Run(ctx, loadtest.RunConfig{
 				LedgersFilePath:     cfg.LedgersFilePath,
@@ -290,6 +300,7 @@ Example:
 				ServerPort:          cfg.ServerPort,
 				SkipTxMeta:          cfg.SkipTxMeta,
 				SkipTxEnvelope:      cfg.SkipTxEnvelope,
+				StartLedger:         uint32(cfg.StartLedger),
 			})
 			if err != nil {
 				log.Errorf("Loadtest run failed: %v", err)

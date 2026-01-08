@@ -42,6 +42,7 @@ type RunConfig struct {
 	ServerPort          int
 	SkipTxMeta          bool
 	SkipTxEnvelope      bool
+	StartLedger         uint32
 }
 
 // Run executes ingestion from synthetic ledgers file.
@@ -80,6 +81,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		NetworkPassphrase:   cfg.NetworkPassphrase,
 		LedgersFilePath:     cfg.LedgersFilePath,
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
+		DatastoreConfigPath: "config/datastore-pubnet.toml",
 	})
 	defer func() {
 		if closeErr := backend.Close(); closeErr != nil {
@@ -129,21 +131,19 @@ func runIngestionLoop(
 	models *data.Models,
 	metricsService metrics.MetricsService,
 ) error {
-	startLedger := uint32(1)
-
 	// Prepare unbounded range - the backend will signal completion when file is exhausted
-	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+	ledgerRange := ledgerbackend.UnboundedRange(cfg.StartLedger)
 	if err := backend.PrepareRange(ctx, ledgerRange); err != nil {
 		return fmt.Errorf("preparing ledger range: %w", err)
 	}
 
-	currentLedger := startLedger
+	currentLedger := cfg.StartLedger
 	totalStart := time.Now()
 	ledgersProcessed := 0
 	txsProcessed := 0
 	opsProcessed := 0
 
-	log.Infof("Starting loadtest ingestion from ledger %d", startLedger)
+	log.Infof("Starting loadtest ingestion from ledger %d", cfg.StartLedger)
 
 	for {
 		select {
