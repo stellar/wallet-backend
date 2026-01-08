@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
@@ -125,10 +128,16 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 			if innerErr != nil {
 				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
 			}
-
-			innerErr = m.ingestProcessedData(ctx, dbTx, filteredData, true)
+			innerErr = m.insertProcessedDataIntoDB(ctx, dbTx, filteredData)
 			if innerErr != nil {
-				return fmt.Errorf("ingesting processed data for ledger %d: %w", currentLedger, innerErr)
+				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
+			}
+			if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
+				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, currentLedger, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			if innerErr != nil {
+				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}
 
 			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
@@ -155,4 +164,100 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
 		currentLedger++
 	}
+}
+
+// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
+	if len(txs) == 0 {
+		return nil
+	}
+
+	innerTxHashes := make([]string, 0, len(txs))
+	for _, tx := range txs {
+		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
+	}
+
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, innerTxHashes...); err != nil {
+		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
+	} else if affectedRows > 0 {
+		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
+	}
+
+	return nil
+}
+
+// processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
+// This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
+func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	// Sort trustline changes by operation ID in ascending order
+	sort.Slice(trustlineChanges, func(i, j int) bool {
+		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+	})
+
+	// Process all trustline and contract changes in a single batch using Redis pipelining
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, dbTx, ledgerSequence, trustlineChanges, contractChanges); err != nil {
+		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+		return fmt.Errorf("processing trustline changes batch: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
+
+	// Fetch and store metadata for new SAC/SEP-41 contracts
+	if m.contractMetadataService != nil {
+		newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
+		if len(newContractTypesByID) > 0 {
+			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
+			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
+				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
+				// Don't return error - we don't want to block ingestion for metadata fetch failures
+			}
+		}
+	}
+	return nil
+}
+
+// filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
+// checks which contracts already exist in the database, and returns a map of only new contracts.
+func (m *ingestService) filterNewContractTokens(ctx context.Context, contractChanges []types.ContractChange) map[string]types.ContractType {
+	if len(contractChanges) == 0 {
+		return nil
+	}
+
+	// Extract unique SAC and SEP-41 contract IDs and build type map
+	seen := set.NewSet[string]()
+	contractTypeMap := make(map[string]types.ContractType)
+	var contractIDs []string
+
+	for _, change := range contractChanges {
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
+		}
+		if change.ContractID == "" {
+			continue
+		}
+		if seen.Contains(change.ContractID) {
+			continue
+		}
+		seen.Add(change.ContractID)
+		contractIDs = append(contractIDs, change.ContractID)
+		contractTypeMap[change.ContractID] = change.ContractType
+	}
+
+	if len(contractIDs) == 0 {
+		return nil
+	}
+
+	// Check which contracts already exist in the database
+	existingContracts, err := m.models.Contract.BatchGetByIDs(ctx, contractIDs)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Failed to check existing contracts: %v", err)
+		return nil
+	}
+
+	// Remove existing contracts from the map
+	for _, contract := range existingContracts {
+		delete(contractTypeMap, contract.ID)
+	}
+
+	return contractTypeMap
 }

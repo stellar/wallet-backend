@@ -8,11 +8,13 @@ import (
 	"hash/fnv"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
@@ -31,7 +33,7 @@ const (
 	// Redis key prefixes for account token storage
 	trustlinesKeyPrefix = "trustlines:"
 	contractsKeyPrefix  = "contracts:"
-	ingestLedgerKey = "ingested_ledger"
+	ingestLedgerKey     = "ingested_ledger"
 
 	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
@@ -94,7 +96,7 @@ type AccountTokenService interface {
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
-	ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
 	InitializeTrustlineIDByAssetCache(ctx context.Context) error
@@ -205,8 +207,23 @@ func validateAccountAddress(accountAddress string) error {
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
+		return nil
+	}
+
+	// Get the last ingested ledger sequence. If the last processed ledger sequence is greater than or equal to the current ledger sequence
+	// then we can skip updating the cache since it is already ahead.
+	lastIngestedLedgerSequence, err := s.redisStore.Get(ctx, ingestLedgerKey)
+	if err != nil {
+		return fmt.Errorf("getting last ingested ledger sequence: %w", err)
+	}
+	lastIngestedLedgerSequenceUint64, err := strconv.ParseUint(lastIngestedLedgerSequence, 10, 32)
+	if err != nil {
+		return fmt.Errorf("converting last ingested ledger sequence to uint32: %w", err)
+	}
+	lastIngestedLedgerSequenceUint32 := uint32(lastIngestedLedgerSequenceUint64)
+	if ledgerSequence <= lastIngestedLedgerSequenceUint32 {
 		return nil
 	}
 
@@ -344,7 +361,6 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 		Key:   ingestLedgerKey,
 		Value: fmt.Sprintf("%d", ledgerSequence),
 	})
-
 
 	// Execute all operations in a single pipeline
 	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
