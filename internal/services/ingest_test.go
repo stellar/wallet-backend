@@ -2220,7 +2220,7 @@ func Test_ingestProcessedData(t *testing.T) {
 		mockAccountTokenService := &AccountTokenServiceMock{}
 		mockAccountTokenService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			uint32(100),   // ledgerSequence
+			mock.Anything, // dbTx
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
 		).Return(nil)
@@ -2308,7 +2308,7 @@ func Test_ingestProcessedData(t *testing.T) {
 		mockAccountTokenService := &AccountTokenServiceMock{}
 		mockAccountTokenService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			uint32(100),   // ledgerSequence
+			mock.Anything, // dbTx
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
 		).Return(fmt.Errorf("redis connection failed"))

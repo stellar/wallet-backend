@@ -6,16 +6,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// Note: pq is still used by BatchGetByIDs for sqlx compatibility
+
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
 	// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
-	BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
+	// Uses the provided pgx.Tx for transactional consistency with the caller's transaction.
+	BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
 	// GetTopN returns the top N assets by frequency.
@@ -43,10 +47,17 @@ func (a *TrustlineAsset) AssetKey() string {
 	return fmt.Sprintf("%s:%s", a.Code, a.Issuer)
 }
 
+// trustlineAssetRow is used for scanning rows from pgx queries.
+type trustlineAssetRow struct {
+	ID     int64
+	Code   string
+	Issuer string
+}
+
 // BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
 // Uses batch INSERT ... ON CONFLICT for atomic upsert behavior.
 // Returns a map of "code:issuer" -> id.
-func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error) {
 	if len(assets) == 0 {
 		return make(map[string]int64), nil
 	}
@@ -65,26 +76,19 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []Tru
 	`
 
 	start := time.Now()
-	rows, err := m.DB.QueryxContext(ctx, selectQuery, pq.Array(codes), pq.Array(issuers))
+	rows, err := dbTx.Query(ctx, selectQuery, codes, issuers)
 	if err != nil {
 		return nil, fmt.Errorf("selecting trustline assets: %w", err)
 	}
 
-	result := make(map[string]int64, len(assets))
-	for rows.Next() {
-		var id int64
-		var code, issuer string
-		if err := rows.Scan(&id, &code, &issuer); err != nil {
-			err = rows.Close()
-			if err != nil {
-				return nil, fmt.Errorf("closing rows: %w", err)
-			}
-			return nil, fmt.Errorf("scanning trustline asset: %w", err)
-		}
-		result[code+":"+issuer] = id
+	existingAssets, err := pgx.CollectRows(rows, pgx.RowToStructByPos[trustlineAssetRow])
+	if err != nil {
+		return nil, fmt.Errorf("collecting trustline asset rows: %w", err)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("closing rows: %w", err)
+
+	result := make(map[string]int64, len(assets))
+	for _, asset := range existingAssets {
+		result[asset.Code+":"+asset.Issuer] = asset.ID
 	}
 
 	// Step 2: If all found, we're done (fast path - most common case)
@@ -110,21 +114,18 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []Tru
 		RETURNING id, code, issuer
 	`
 
-	rows, err = m.DB.QueryxContext(ctx, insertQuery, pq.Array(newCodes), pq.Array(newIssuers))
+	rows, err = dbTx.Query(ctx, insertQuery, newCodes, newIssuers)
 	if err != nil {
 		return nil, fmt.Errorf("inserting trustline assets: %w", err)
 	}
 
-	for rows.Next() {
-		var id int64
-		var code, issuer string
-		if err := rows.Scan(&id, &code, &issuer); err != nil {
-			return nil, fmt.Errorf("scanning inserted trustline asset: %w", err)
-		}
-		result[code+":"+issuer] = id
+	insertedAssets, err := pgx.CollectRows(rows, pgx.RowToStructByPos[trustlineAssetRow])
+	if err != nil {
+		return nil, fmt.Errorf("collecting inserted trustline asset rows: %w", err)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("closing rows: %w", err)
+
+	for _, asset := range insertedAssets {
+		result[asset.Code+":"+asset.Issuer] = asset.ID
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -147,8 +148,8 @@ func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accou
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := a.Called(ctx, ledgerSequence, trustlineChanges, contractChanges)
+func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := a.Called(ctx, dbTx, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 

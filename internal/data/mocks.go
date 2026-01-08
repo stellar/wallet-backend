@@ -4,6 +4,7 @@ package data
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -72,8 +73,8 @@ func NewTrustlineAssetModelMock(t interface {
 	return mockAsset
 }
 
-func (m *TrustlineAssetModelMock) BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
-	args := m.Called(ctx, assets)
+func (m *TrustlineAssetModelMock) BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error) {
+	args := m.Called(ctx, dbTx, assets)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
@@ -23,6 +24,7 @@ import (
 	"github.com/dgraph-io/ristretto/v2"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 )
@@ -93,7 +95,7 @@ type AccountTokenService interface {
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
-	ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
 	InitializeTrustlineIDByAssetCache(ctx context.Context) error
@@ -109,6 +111,7 @@ type accountTokenService struct {
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
 	redisStore              *store.RedisStore
+	db                      db.ConnectionPool
 	contractMetadataService ContractMetadataService
 	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
 	pool                    pond.Pool
@@ -123,6 +126,7 @@ func NewAccountTokenService(
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	redisStore *store.RedisStore,
+	dbPool db.ConnectionPool,
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
@@ -133,6 +137,7 @@ func NewAccountTokenService(
 		archive:                 archive,
 		contractValidator:       contractValidator,
 		redisStore:              redisStore,
+		db:                      dbPool,
 		contractMetadataService: contractMetadataService,
 		trustlineAssetModel:     trustlineAssetModel,
 		pool:                    pool,
@@ -204,7 +209,7 @@ func validateAccountAddress(accountAddress string) error {
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -236,7 +241,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 	}
 
 	// Get or create trustline asset IDs
-	assetsToID, err := s.getAssetIDs(ctx, uniqueTrustlineAssets)
+	assetsToID, err := s.getAssetIDs(ctx, dbTx, uniqueTrustlineAssets)
 	if err != nil {
 		return fmt.Errorf("getting or creating trustline asset IDs: %w", err)
 	}
@@ -396,7 +401,7 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.
-func (s *accountTokenService) getAssetIDs(ctx context.Context, assets set.Set[wbdata.TrustlineAsset]) (map[string]int64, error) {
+func (s *accountTokenService) getAssetIDs(ctx context.Context, dbTx pgx.Tx, assets set.Set[wbdata.TrustlineAsset]) (map[string]int64, error) {
 	assetIDMap := make(map[string]int64)
 	cacheMisses := make([]wbdata.TrustlineAsset, 0)
 	for asset := range assets.Iter() {
@@ -413,7 +418,7 @@ func (s *accountTokenService) getAssetIDs(ctx context.Context, assets set.Set[wb
 		return assetIDMap, nil
 	}
 
-	idMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, cacheMisses)
+	idMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, cacheMisses)
 	if err != nil {
 		return nil, fmt.Errorf("getting asset IDs: %w", err)
 	}
@@ -790,7 +795,15 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	// Batch-assign IDs to all unique trustline assets using PostgreSQL
 	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
-	assetIDMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, uniqueTrustlines)
+	var assetIDMap map[string]int64
+	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		var txErr error
+		assetIDMap, txErr = s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, uniqueTrustlines)
+		if txErr != nil {
+			return fmt.Errorf("batch get or insert trustline assets: %w", txErr)
+		}
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("batch assigning asset IDs: %w", err)
 	}

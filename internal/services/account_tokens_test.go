@@ -986,7 +986,7 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{})
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{})
 		assert.NoError(t, err)
 	})
 
@@ -1001,7 +1001,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
@@ -1032,7 +1032,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{}, []types.ContractChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				ContractID:   "",
@@ -1057,7 +1057,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// Empty asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				Asset:     "",
@@ -1086,11 +1086,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		// Mock BatchGetOrInsert to return asset ID
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1126,11 +1126,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock BatchGetOrInsert for the new asset
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
 		}).Return(map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}, nil)
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
@@ -1167,11 +1167,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
 
 		// Mock BatchGetOrInsert for the asset being removed
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1206,11 +1206,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
 		// Mock BatchGetOrInsert for the asset being removed
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1240,13 +1240,13 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		// Mock BatchGetOrInsert - same asset appears twice so it's deduplicated
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
 
 		// Send changes out of order - remove then add (by opID)
 		// Op 2: Remove, Op 1: Add - should be processed as Add first, then Remove
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1281,11 +1281,11 @@ func TestProcessTokenChanges(t *testing.T) {
 		}
 
 		// Mock BatchGetOrInsert to return error
-		mockAssetModel.On("BatchGetOrInsert", ctx, []wbdata.TrustlineAsset{
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
 			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 		}).Return(nil, assert.AnError)
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1311,7 +1311,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Invalid asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
 		// Asset without colon should be skipped (not cause error)
-		err := service.ProcessTokenChanges(ctx, uint32(100), []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "INVALIDASSET", // No colon
@@ -1366,7 +1366,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Mock BatchGetOrInsert to return consistent asset IDs
 		// Use mock.Anything because the order of assets in the slice is non-deterministic (from set iteration)
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.MatchedBy(func(assets []wbdata.TrustlineAsset) bool {
+		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, mock.MatchedBy(func(assets []wbdata.TrustlineAsset) bool {
 			return len(assets) == 3
 		})).Return(map[string]int64{
 			usdcAsset: 1,
@@ -1423,7 +1423,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// --- First processing run ---
 
-		err := service.ProcessTokenChanges(ctx, uint32(100), trustlineChanges, contractChanges)
+		err := service.ProcessTokenChanges(ctx, nil, trustlineChanges, contractChanges)
 		require.NoError(t, err)
 
 		// Capture state after first run
@@ -1449,7 +1449,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.ElementsMatch(t, []string{contractC1, contractC2}, contractsRun1[accountB])
 		assert.ElementsMatch(t, []string{contractC2}, contractsRun1[accountC])
 
-		err = service.ProcessTokenChanges(ctx, uint32(100), trustlineChanges, contractChanges)
+		err = service.ProcessTokenChanges(ctx, nil, trustlineChanges, contractChanges)
 		require.NoError(t, err)
 
 		// Capture state after second run
