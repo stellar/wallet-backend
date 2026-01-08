@@ -190,6 +190,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
 		case types.StateChangeCategoryTrustline:
+			// We dont track liquidity pool trustlines for balances
 			if stateChange.TrustlineAsset == "" {
 				continue
 			}
