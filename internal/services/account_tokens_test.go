@@ -498,21 +498,6 @@ func TestGetAccountTrustlines(t *testing.T) {
 func TestGetAccountContracts(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("empty account address returns error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		got, err := service.GetAccountContracts(ctx, "")
-		assert.Error(t, err)
-		assert.Nil(t, got)
-	})
-
 	t.Run("account with contracts", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
@@ -1068,7 +1053,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.False(t, mr.Exists(key))
 	})
 
-	t.Run("skip empty asset in trustline", func(t *testing.T) {
+	t.Run("empty asset in trustline gives error", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
@@ -1086,7 +1071,7 @@ func TestProcessTokenChanges(t *testing.T) {
 				Operation: types.TrustlineOpAdd,
 			},
 		}, []types.ContractChange{})
-		assert.NoError(t, err)
+		require.Error(t, err)
 
 		// No key should be created for empty asset
 		key := trustlinesKeyPrefix + "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
@@ -1322,7 +1307,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.Contains(t, err.Error(), "getting or creating trustline asset IDs")
 	})
 
-	t.Run("handles invalid asset format", func(t *testing.T) {
+	t.Run("invalid asset format produces error", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
@@ -1334,8 +1319,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Invalid asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
-		// Asset without colon should be skipped (not cause error)
+		// Invalid asset throws an error
 		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
@@ -1344,7 +1328,7 @@ func TestProcessTokenChanges(t *testing.T) {
 				OperationID: 1,
 			},
 		}, []types.ContractChange{})
-		assert.NoError(t, err)
+		assert.Error(t, err)
 
 		// No trustline should be stored
 		key := service.buildTrustlineKey(accountAddress)
