@@ -301,31 +301,36 @@ func TestEncodeDecodeAssetIDs(t *testing.T) {
 		encoded := encodeAssetIDs([]int64{})
 		assert.Nil(t, encoded)
 
-		decoded := decodeAssetIDs(nil)
+		decoded, err := decodeAssetIDs(nil)
+		assert.NoError(t, err)
 		assert.Nil(t, decoded)
 
-		decoded = decodeAssetIDs([]byte{})
+		decoded, err = decodeAssetIDs([]byte{})
+		assert.NoError(t, err)
 		assert.Nil(t, decoded)
 	})
 
 	t.Run("single ID roundtrip", func(t *testing.T) {
 		ids := []int64{42}
 		encoded := encodeAssetIDs(ids)
-		decoded := decodeAssetIDs(encoded)
+		decoded, err := decodeAssetIDs(encoded)
+		assert.NoError(t, err)
 		assert.Equal(t, ids, decoded)
 	})
 
 	t.Run("multiple IDs roundtrip", func(t *testing.T) {
 		ids := []int64{1, 2, 3, 100, 1000, 163006, 253529}
 		encoded := encodeAssetIDs(ids)
-		decoded := decodeAssetIDs(encoded)
+		decoded, err := decodeAssetIDs(encoded)
+		assert.NoError(t, err)
 		assert.Equal(t, ids, decoded)
 	})
 
 	t.Run("large IDs roundtrip", func(t *testing.T) {
 		ids := []int64{1, 127, 128, 16383, 16384, 2097151, 2097152, 268435455}
 		encoded := encodeAssetIDs(ids)
-		decoded := decodeAssetIDs(encoded)
+		decoded, err := decodeAssetIDs(encoded)
+		assert.NoError(t, err)
 		assert.Equal(t, ids, decoded)
 	})
 
@@ -337,6 +342,13 @@ func TestEncodeDecodeAssetIDs(t *testing.T) {
 		// ASCII would be "163006,153698,22755,197674,162872" = 34 bytes
 		asciiLen := len("163006,153698,22755,197674,162872")
 		assert.Less(t, len(encoded), asciiLen, "varint should be smaller than ASCII")
+	})
+
+	t.Run("corrupted data returns error", func(t *testing.T) {
+		// 0xFF with continuation bit set but no following byte is invalid varint
+		corruptedData := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}
+		_, err := decodeAssetIDs(corruptedData)
+		assert.Error(t, err)
 	})
 }
 
@@ -1113,7 +1125,8 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Verify trustline is stored in Redis in varint format
 		key := service.buildTrustlineKey(accountAddress)
 		val := mr.HGet(key, accountAddress)
-		decodedIDs := decodeAssetIDs([]byte(val))
+		decodedIDs, err := decodeAssetIDs([]byte(val))
+		require.NoError(t, err)
 		assert.Equal(t, []int64{1}, decodedIDs)
 	})
 
@@ -1152,7 +1165,8 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Verify both trustlines exist by decoding the varint data
 		val := mr.HGet(key, accountAddress)
-		decodedIDs := decodeAssetIDs([]byte(val))
+		decodedIDs, err := decodeAssetIDs([]byte(val))
+		require.NoError(t, err)
 		assert.Len(t, decodedIDs, 2)
 		assert.Contains(t, decodedIDs, int64(1))
 		assert.Contains(t, decodedIDs, int64(2))
@@ -1193,7 +1207,8 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Verify only ID 2 remains
 		val := mr.HGet(key, accountAddress)
-		decodedIDs := decodeAssetIDs([]byte(val))
+		decodedIDs, err := decodeAssetIDs([]byte(val))
+		require.NoError(t, err)
 		assert.Equal(t, []int64{2}, decodedIDs)
 	})
 
@@ -1408,12 +1423,14 @@ func TestProcessTokenChanges(t *testing.T) {
 			trustlines := make(map[string][]int64)
 			contracts := make(map[string][]string)
 
+			var err error
 			for _, acc := range []string{accountA, accountB, accountC} {
 				// Get trustlines
 				key := service.buildTrustlineKey(acc)
 				val := mr.HGet(key, acc)
 				if val != "" {
-					trustlines[acc] = decodeAssetIDs([]byte(val))
+					trustlines[acc], err = decodeAssetIDs([]byte(val))
+					require.NoError(t, err)
 				} else {
 					trustlines[acc] = []int64{}
 				}

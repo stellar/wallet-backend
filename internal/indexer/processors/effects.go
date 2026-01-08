@@ -418,7 +418,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
 			"liquidity_pool_id": poolID,
-		}).WithTrustlineAsset(poolID) // poolID is already in the format poolAsset1:poolAsset2
+		})
 	} else {
 		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {

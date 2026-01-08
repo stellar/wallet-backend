@@ -249,7 +249,10 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 		// Parse existing trustlines (varint format) into sets
 		for accountAddress, trustlineData := range existingTrustlines {
 			if trustlineData != "" {
-				ids := decodeAssetIDs([]byte(trustlineData))
+				ids, err := decodeAssetIDs([]byte(trustlineData))
+				if err != nil {
+					return fmt.Errorf("decoding trustline IDs for address %s: %w", accountAddress, err)
+				}
 				trustlinesSetByAccount[accountAddress] = set.NewSet(ids...)
 			}
 		}
@@ -460,23 +463,20 @@ func encodeAssetIDs(ids []int64) []byte {
 // Reads consecutive varint-encoded integers from the buffer until exhausted.
 // Each varint uses 7 data bits + 1 continuation bit per byte, so small IDs
 // (< 128) use 1 byte, medium IDs (< 16384) use 2 bytes, etc.
-//
-// Logs a warning and returns partial results if buffer contains corrupted data.
-func decodeAssetIDs(buf []byte) []int64 {
+func decodeAssetIDs(buf []byte) ([]int64, error) {
 	if len(buf) == 0 {
-		return nil
+		return nil, nil
 	}
 	result := make([]int64, 0)
 	for len(buf) > 0 {
 		val, n := binary.Uvarint(buf)
 		if n <= 0 {
-			log.Warnf("Varint decode stopped early: %d bytes remaining, %d IDs decoded", len(buf), len(result))
-			break
+			return nil, fmt.Errorf("decoding varint for buffer %v: %d bytes remaining", buf, len(buf))
 		}
 		result = append(result, int64(val))
 		buf = buf[n:]
 	}
-	return result
+	return result, nil
 }
 
 // buildTrustlineKey constructs the Redis key for an account's trustlines set.
@@ -511,7 +511,10 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	}
 
 	// Decode varint binary format to asset IDs
-	ids := decodeAssetIDs([]byte(idData))
+	ids, err := decodeAssetIDs([]byte(idData))
+	if err != nil {
+		return nil, fmt.Errorf("decoding trustline IDs for account %s: %w", accountAddress, err)
+	}
 	if len(ids) == 0 {
 		return nil, nil
 	}
