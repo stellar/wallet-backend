@@ -22,7 +22,7 @@ type TrustlineAssetModelInterface interface {
 	BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchInsert inserts multiple trustline assets and returns their IDs.
 	// Uses INSERT ... ON CONFLICT for idempotent bulk operations during checkpoint population.
-	BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
 	// GetTopN returns the top N assets by frequency.
@@ -140,7 +140,7 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx,
 // Uses batch INSERT with UNNEST for efficient bulk operations during checkpoint population.
 // ON CONFLICT DO UPDATE ensures RETURNING works for all rows (existing + new).
 // Returns a map of "code:issuer" -> id.
-func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error) {
 	if len(assets) == 0 {
 		return make(map[string]int64), nil
 	}
@@ -160,7 +160,7 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, assets []Trustlin
 	`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, codes, issuers)
+	rows, err := dbTx.Query(ctx, query, codes, issuers)
 	if err != nil {
 		return nil, fmt.Errorf("batch inserting trustline assets: %w", err)
 	}

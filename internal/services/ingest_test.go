@@ -1060,7 +1060,9 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.initializeCursors(ctx, tc.startLedger)
+			err = db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
+				return svc.initializeCursors(ctx, dbTx, tc.startLedger)
+			})
 			require.NoError(t, err)
 
 			// Verify both cursors are set to the same value

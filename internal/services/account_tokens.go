@@ -76,7 +76,8 @@ type AccountTokenService interface {
 	// history archive for a specific checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in Redis.
 	// The checkpointLedger parameter specifies which checkpoint to use for population.
-	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error
+	// The dbTx parameter allows the operation to participate in a larger transaction.
+	PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error
 
 	// GetAccountTrustlines retrieves all classic trustline assets for an account.
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
@@ -148,7 +149,7 @@ func NewAccountTokenService(
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
-func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error {
+func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
 	}
@@ -183,12 +184,11 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
 	// Fetch metadata for contracts and store in database
-	if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
-		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
-		// Don't fail the entire process if metadata fetch fails
+	if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); err != nil {
+		return fmt.Errorf("fetching and storing contract metadata: %w", err)
 	}
 
-	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
+	return s.storeAccountTokensInRedis(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
 }
 
 // ProcessTokenChanges processes token changes efficiently using Redis pipelining.
@@ -785,6 +785,7 @@ func (s *accountTokenService) enrichContractTypes(
 // Contract addresses are stored directly as full strings.
 func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
+	dbTx pgx.Tx,
 	trustlinesByAccountAddress map[string][]string,
 	contractsByAccountAddress map[string][]string,
 	trustlineFrequency map[wbdata.TrustlineAsset]int64,
@@ -793,7 +794,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	// Batch-assign IDs to all unique trustline assets using PostgreSQL
 	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
-	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
+	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, uniqueTrustlines)
 	if err != nil {
 		return fmt.Errorf("batch get or insert trustline assets: %w", err)
 	}

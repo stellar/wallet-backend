@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -16,7 +17,7 @@ import (
 type ContractModelInterface interface {
 	GetByID(ctx context.Context, contractID string) (*Contract, error)
 	BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
-	BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error)
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) ([]string, error)
 }
 
 type ContractModel struct {
@@ -69,13 +70,9 @@ func (m *ContractModel) BatchGetByIDs(ctx context.Context, contractIDs []string)
 // BatchInsert inserts multiple contracts in a single query using UNNEST.
 // It returns the IDs of successfully inserted contracts.
 // Contracts that already exist (duplicate IDs) are skipped via ON CONFLICT DO NOTHING.
-func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error) {
+func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) ([]string, error) {
 	if len(contracts) == 0 {
 		return nil, nil
-	}
-
-	if sqlExecuter == nil {
-		sqlExecuter = m.DB
 	}
 
 	// Flatten contracts into parallel slices
@@ -119,23 +116,21 @@ func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecu
 	`
 
 	start := time.Now()
-	var insertedIDs []string
-	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
-		pq.Array(ids),
-		pq.Array(types),
-		pq.Array(codes),
-		pq.Array(issuers),
-		pq.Array(names),
-		pq.Array(symbols),
-		pq.Array(decimals),
-	)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "contract_tokens", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchInsert", "contract_tokens", len(contracts))
+	rows, err := dbTx.Query(ctx, insertQuery, ids, types, codes, issuers, names, symbols, decimals)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchInsert", "contract_tokens", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("batch inserting contracts: %w", err)
 	}
+
+	insertedIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsert", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("collecting inserted contract IDs: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "contract_tokens", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchInsert", "contract_tokens", len(contracts))
 	m.MetricsService.IncDBQuery("BatchInsert", "contract_tokens")
 
 	return insertedIDs, nil

@@ -133,8 +133,8 @@ func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
 	return args.Get(0).(uint32)
 }
 
-func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error {
-	args := a.Called(ctx, checkpointLedger)
+func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error {
+	args := a.Called(ctx, dbTx, checkpointLedger)
 	return args.Error(0)
 }
 
@@ -292,8 +292,8 @@ type ContractMetadataServiceMock struct {
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
 
-func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
-	args := c.Called(ctx, contractTypesByID)
+func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
+	args := c.Called(ctx, dbTx, contractTypesByID)
 	return args.Error(0)
 }
 

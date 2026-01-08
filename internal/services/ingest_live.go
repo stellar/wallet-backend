@@ -46,14 +46,17 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			if txErr := m.accountTokenService.PopulateAccountTokens(ctx, dbTx, startLedger); txErr != nil {
+				return fmt.Errorf("populating account tokens cache: %w", txErr)
+			}
+			if txErr := m.initializeCursors(ctx, dbTx, startLedger); txErr != nil {
+				return fmt.Errorf("initializing cursors: %w", txErr)
+			}
+			return nil
+		})
 		if err != nil {
-			return fmt.Errorf("populating account tokens cache: %w", err)
-		}
-
-		err := m.initializeCursors(ctx, startLedger)
-		if err != nil {
-			return fmt.Errorf("initializing cursors: %w", err)
+			return fmt.Errorf("initializing live ingestion: %w", err)
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
@@ -83,18 +86,12 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 }
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
-func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) error {
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing latest cursor: %w", err)
-		}
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing oldest cursor: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("initializing cursors: %w", err)
+func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledger uint32) error {
+	if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing latest cursor: %w", err)
+	}
+	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing oldest cursor: %w", err)
 	}
 	return nil
 }
@@ -214,7 +211,7 @@ func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, db
 		newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
 		if len(newContractTypesByID) > 0 {
 			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
-			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
+			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID); err != nil {
 				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
 				// Don't return error - we don't want to block ingestion for metadata fetch failures
 			}

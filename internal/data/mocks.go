@@ -6,8 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
-
-	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type ContractModelMock struct {
@@ -45,8 +43,8 @@ func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, contractIDs []str
 	return args.Get(0).([]*Contract), args.Error(1)
 }
 
-func (m *ContractModelMock) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error) {
-	args := m.Called(ctx, sqlExecuter, contracts)
+func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) ([]string, error) {
+	args := m.Called(ctx, dbTx, contracts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -81,8 +79,8 @@ func (m *TrustlineAssetModelMock) BatchGetOrInsert(ctx context.Context, dbTx pgx
 	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
-func (m *TrustlineAssetModelMock) BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
-	args := m.Called(ctx, assets)
+func (m *TrustlineAssetModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error) {
+	args := m.Called(ctx, dbTx, assets)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
