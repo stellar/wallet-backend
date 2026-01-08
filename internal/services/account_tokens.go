@@ -213,16 +213,11 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSeq
 
 	// Get the last ingested ledger sequence. If the last processed ledger sequence is greater than or equal to the current ledger sequence
 	// then we can skip updating the cache since it is already ahead.
-	lastIngestedLedgerSequence, err := s.redisStore.Get(ctx, ingestLedgerKey)
+	lastIngestedLedgerSequence, err := s.getLatestIngestedLedgerSequence(ctx)
 	if err != nil {
 		return fmt.Errorf("getting last ingested ledger sequence: %w", err)
 	}
-	lastIngestedLedgerSequenceUint64, err := strconv.ParseUint(lastIngestedLedgerSequence, 10, 32)
-	if err != nil {
-		return fmt.Errorf("converting last ingested ledger sequence to uint32: %w", err)
-	}
-	lastIngestedLedgerSequenceUint32 := uint32(lastIngestedLedgerSequenceUint64)
-	if ledgerSequence <= lastIngestedLedgerSequenceUint32 {
+	if lastIngestedLedgerSequence >= ledgerSequence {
 		return nil
 	}
 
@@ -416,6 +411,22 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 	}
 	s.trustlineAssetByID = trustlineAssetByIDCache
 	return nil
+}
+
+// getLatestIngestedLedgerSequence returns the latest ingested ledger sequence from Redis.
+func (s *accountTokenService) getLatestIngestedLedgerSequence(ctx context.Context) (uint32, error) {
+	lastIngestedLedgerSequence, err := s.redisStore.Get(ctx, ingestLedgerKey)
+	if err != nil {
+		return 0, fmt.Errorf("getting last ingested ledger sequence: %w", err)
+	}
+	if lastIngestedLedgerSequence == "" {
+		lastIngestedLedgerSequence = "0"
+	}
+	lastIngestedLedgerSequenceUint64, err := strconv.ParseUint(lastIngestedLedgerSequence, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("converting last ingested ledger sequence to uint32: %w", err)
+	}
+	return uint32(lastIngestedLedgerSequenceUint64), nil
 }
 
 // getAssetIDs returns the asset IDs for a given asset string.
@@ -861,6 +872,13 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 			Members: contractAddresses,
 		})
 	}
+
+	// Set the ingested ledger
+	redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
+		Op:    store.OpSet,
+		Key:   ingestLedgerKey,
+		Value: fmt.Sprintf("%d", s.checkpointLedger),
+	})
 
 	// Execute operations in batches
 	for i := 0; i < len(redisPipelineOps); i += redisPipelineBatchSize {
