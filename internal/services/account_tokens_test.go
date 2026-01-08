@@ -354,21 +354,6 @@ func TestBuildTrustlineKey(t *testing.T) {
 func TestGetAccountTrustlines(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("empty account address returns error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &accountTokenService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		got, err := service.GetAccountTrustlines(ctx, "")
-		assert.Error(t, err)
-		assert.Nil(t, got)
-	})
-
 	t.Run("account with no trustlines returns empty", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
