@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/dgraph-io/ristretto/v2"
@@ -190,14 +191,6 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	return s.storeAccountTokensInRedis(ctx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
 }
 
-// validateAccountAddress checks if the account address is valid (non-empty).
-func validateAccountAddress(accountAddress string) error {
-	if accountAddress == "" {
-		return fmt.Errorf("account address cannot be empty")
-	}
-	return nil
-}
-
 // ProcessTokenChanges processes token changes efficiently using Redis pipelining.
 // This reduces network round trips from N operations to 1, significantly improving performance
 // during live ingestion. Called by the indexer for each ledger's state changes.
@@ -214,21 +207,23 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 	operations := make([]store.RedisPipelineOperation, 0)
 
 	// Build unique prefix buckets and group changes by account
-	addressesByBucketPrefix := make(map[string][]string)
+	addressesByBucketPrefix := make(map[string]set.Set[string])
 	trustlineChangesByAccount := make(map[string][]types.TrustlineChange)
 	accountToPrefix := make(map[string]string) // Map account -> its prefix bucket
 	uniqueTrustlineAssets := set.NewSet[wbdata.TrustlineAsset]()
 
 	for _, change := range trustlineChanges {
 		prefix := s.buildTrustlineKey(change.AccountID)
-		addressesByBucketPrefix[prefix] = append(addressesByBucketPrefix[prefix], change.AccountID)
+		if addressesByBucketPrefix[prefix] == nil {
+			addressesByBucketPrefix[prefix] = set.NewSet[string]()
+		}
+		addressesByBucketPrefix[prefix].Add(change.AccountID)
 		trustlineChangesByAccount[change.AccountID] = append(trustlineChangesByAccount[change.AccountID], change)
 		accountToPrefix[change.AccountID] = prefix
 
 		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
-			log.Ctx(ctx).Errorf("parsing asset string from trustline change: %v", err)
-			continue
+			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
 		}
 		uniqueTrustlineAssets.Add(wbdata.TrustlineAsset{
 			Code:   code,
@@ -244,8 +239,9 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 
 	// Process each prefix bucket - decode varint binary format to int64 sets
 	trustlinesSetByAccount := make(map[string]set.Set[int64])
-	for prefix, accounts := range addressesByBucketPrefix {
-		existingTrustlines, err := s.redisStore.HMGet(ctx, prefix, accounts...)
+	for prefix := range addressesByBucketPrefix {
+		accountsInThisBucket := addressesByBucketPrefix[prefix].ToSlice()
+		existingTrustlines, err := s.redisStore.HMGet(ctx, prefix, accountsInThisBucket...)
 		if err != nil {
 			return fmt.Errorf("getting key %s: %w", prefix, err)
 		}
@@ -274,14 +270,12 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 		for _, change := range changes {
 			code, issuer, err := parseAssetString(change.Asset)
 			if err != nil {
-				log.Ctx(ctx).Warnf("Skipping trustline change with invalid asset format %s: %v", change.Asset, err)
-				continue
+				return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", accountAddress, change.Asset, err)
 			}
 
 			assetID, exists := assetsToID[code+":"+issuer]
 			if !exists {
-				log.Ctx(ctx).Warnf("Unable to get trustline asset ID for %s", code+":"+issuer)
-				continue
+				return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
 			}
 
 			switch change.Operation {
@@ -431,7 +425,14 @@ func parseAssetString(asset string) (code, issuer string, err error) {
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid asset format: expected CODE:ISSUER, got %s", asset)
 	}
-	return parts[0], parts[1], nil
+	code, issuer = parts[0], parts[1]
+
+	// Validate using txnbuild
+	creditAsset := txnbuild.CreditAsset{Code: code, Issuer: issuer}
+	if _, err := creditAsset.ToXDR(); err != nil {
+		return "", "", fmt.Errorf("invalid asset %s: %w", asset, err)
+	}
+	return code, issuer, nil
 }
 
 // encodeAssetIDs encodes a slice of asset IDs to varint binary format.
@@ -563,6 +564,7 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 			Issuer: asset.Issuer,
 		})
 	}
+	s.trustlineIDByAsset.Wait()
 
 	return result, nil
 }
@@ -572,9 +574,6 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 // For C-address: all contract tokens (SAC, custom)
 // Returns full contract addresses (C...).
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
-	if err := validateAccountAddress(accountAddress); err != nil {
-		return nil, err
-	}
 	key := s.buildContractKey(accountAddress)
 
 	contracts, err := s.redisStore.SMembers(ctx, key)
