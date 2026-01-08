@@ -125,7 +125,7 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 		return nil
 	}
 
-	pipe := r.client.Pipeline()
+	pipe := r.client.TxPipeline()
 	for _, op := range operations {
 		switch op.Op {
 		case SetOpAdd:
