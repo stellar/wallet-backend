@@ -300,3 +300,4 @@ configs:
     content: |
       CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;
       CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;
+      CREATE SCHEMA IF NOT EXISTS wallet_backend_loadtest;
