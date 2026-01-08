@@ -24,7 +24,6 @@ import (
 	"github.com/dgraph-io/ristretto/v2"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 )
@@ -111,7 +110,6 @@ type accountTokenService struct {
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
 	redisStore              *store.RedisStore
-	db                      db.ConnectionPool
 	contractMetadataService ContractMetadataService
 	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
 	pool                    pond.Pool
@@ -126,7 +124,6 @@ func NewAccountTokenService(
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	redisStore *store.RedisStore,
-	dbPool db.ConnectionPool,
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
@@ -137,7 +134,6 @@ func NewAccountTokenService(
 		archive:                 archive,
 		contractValidator:       contractValidator,
 		redisStore:              redisStore,
-		db:                      dbPool,
 		contractMetadataService: contractMetadataService,
 		trustlineAssetModel:     trustlineAssetModel,
 		pool:                    pool,
@@ -795,17 +791,9 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	// Batch-assign IDs to all unique trustline assets using PostgreSQL
 	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
-	var assetIDMap map[string]int64
-	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		var txErr error
-		assetIDMap, txErr = s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, uniqueTrustlines)
-		if txErr != nil {
-			return fmt.Errorf("batch get or insert trustline assets: %w", txErr)
-		}
-		return nil
-	})
+	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, uniqueTrustlines)
 	if err != nil {
-		return fmt.Errorf("batch assigning asset IDs: %w", err)
+		return fmt.Errorf("batch get or insert trustline assets: %w", err)
 	}
 	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
 

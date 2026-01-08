@@ -20,6 +20,9 @@ type TrustlineAssetModelInterface interface {
 	// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
 	// Uses the provided pgx.Tx for transactional consistency with the caller's transaction.
 	BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) (map[string]int64, error)
+	// BatchInsert inserts multiple trustline assets and returns their IDs.
+	// Uses INSERT ... ON CONFLICT for idempotent bulk operations during checkpoint population.
+	BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
 	// BatchGetByIDs retrieves trustline assets by their IDs.
 	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
 	// GetTopN returns the top N assets by frequency.
@@ -130,6 +133,50 @@ func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx,
 
 	m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BatchGetOrInsert", "trustline_assets")
+	return result, nil
+}
+
+// BatchInsert inserts multiple trustline assets and returns their IDs.
+// Uses batch INSERT with UNNEST for efficient bulk operations during checkpoint population.
+// ON CONFLICT DO UPDATE ensures RETURNING works for all rows (existing + new).
+// Returns a map of "code:issuer" -> id.
+func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+	if len(assets) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	codes := make([]string, len(assets))
+	issuers := make([]string, len(assets))
+	for i, a := range assets {
+		codes[i] = a.Code
+		issuers[i] = a.Issuer
+	}
+
+	const query = `
+		INSERT INTO trustline_assets (code, issuer)
+		SELECT * FROM UNNEST($1::text[], $2::text[])
+		ON CONFLICT (code, issuer) DO UPDATE SET code = EXCLUDED.code
+		RETURNING id, code, issuer
+	`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, codes, issuers)
+	if err != nil {
+		return nil, fmt.Errorf("batch inserting trustline assets: %w", err)
+	}
+
+	insertedAssets, err := pgx.CollectRows(rows, pgx.RowToStructByPos[trustlineAssetRow])
+	if err != nil {
+		return nil, fmt.Errorf("collecting inserted trustline asset rows: %w", err)
+	}
+
+	result := make(map[string]int64, len(assets))
+	for _, asset := range insertedAssets {
+		result[asset.Code+":"+asset.Issuer] = asset.ID
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
 	return result, nil
 }
 

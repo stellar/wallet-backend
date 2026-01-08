@@ -168,7 +168,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, models.DB, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}

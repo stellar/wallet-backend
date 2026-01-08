@@ -81,6 +81,14 @@ func (m *TrustlineAssetModelMock) BatchGetOrInsert(ctx context.Context, dbTx pgx
 	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
+func (m *TrustlineAssetModelMock) BatchInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+	args := m.Called(ctx, assets)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
 func (m *TrustlineAssetModelMock) BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error) {
 	args := m.Called(ctx, ids)
 	if args.Get(0) == nil {
