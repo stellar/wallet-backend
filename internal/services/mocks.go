@@ -147,8 +147,8 @@ func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accou
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := a.Called(ctx, trustlineChanges, contractChanges)
+func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := a.Called(ctx, ledgerSequence, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 

@@ -135,11 +135,10 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 			if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, currentLedger, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			innerErr = m.processLiveIngestionTokenChanges(ctx, currentLedger, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 			if innerErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}
-
 			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
@@ -188,14 +187,14 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 
 // processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
 // This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
-func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	// Sort trustline changes by operation ID in ascending order
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
 
 	// Process all trustline and contract changes in a single batch using Redis pipelining
-	if err := m.accountTokenService.ProcessTokenChanges(ctx, dbTx, ledgerSequence, trustlineChanges, contractChanges); err != nil {
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, ledgerSequence, trustlineChanges, contractChanges); err != nil {
 		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
 		return fmt.Errorf("processing trustline changes batch: %w", err)
 	}

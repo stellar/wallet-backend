@@ -14,7 +14,6 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
@@ -96,7 +95,7 @@ type AccountTokenService interface {
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
 	InitializeTrustlineIDByAssetCache(ctx context.Context) error
@@ -207,7 +206,7 @@ func validateAccountAddress(accountAddress string) error {
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, ledgerSequence uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
