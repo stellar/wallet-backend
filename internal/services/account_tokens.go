@@ -515,6 +515,9 @@ func (s *accountTokenService) buildContractKey(accountAddress string) string {
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
 // Returns asset strings in "CODE:ISSUER" format after resolving from internal IDs.
 func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
 	key := s.buildTrustlineKey(accountAddress)
 
 	// Get varint-encoded IDs from Redis hash
@@ -592,6 +595,9 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 // For C-address: all contract tokens (SAC, custom)
 // Returns full contract addresses (C...).
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
 	key := s.buildContractKey(accountAddress)
 
 	contracts, err := s.redisStore.SMembers(ctx, key)
