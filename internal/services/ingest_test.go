@@ -2181,8 +2181,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		"latest cursor should remain unchanged when all batches fail")
 }
 
-// Test_ingestProcessedData tests the ingestProcessedData function covering success and failure scenarios.
-func Test_ingestProcessedData(t *testing.T) {
+// Test_ingestProcessedDataWithRetry tests the ingestProcessedDataWithRetry function covering success, failure, and retry scenarios.
+func Test_ingestProcessedDataWithRetry(t *testing.T) {
 	t.Run("success - processes data and updates cursor", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -2255,9 +2255,9 @@ func Test_ingestProcessedData(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedData - should succeed
+		// Call ingestProcessedDataWithRetry - should succeed
 		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-		numTx, numOps, err := svc.ingestProcessedData(ctx, 100, buffer, assetIDMap)
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
 
 		// Verify success
 		require.NoError(t, err)
@@ -2344,18 +2344,114 @@ func Test_ingestProcessedData(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedData - should fail due to Redis error
+		// Call ingestProcessedDataWithRetry - should fail after retries due to Redis error
 		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-		_, _, err = svc.ingestProcessedData(ctx, 100, buffer, assetIDMap)
+		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
 
-		// Verify error propagates
+		// Verify error propagates with retry failure message
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed after")
 		assert.Contains(t, err.Error(), "redis connection failed")
 
 		// Verify DB cursor was NOT updated (transaction rolled back)
 		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when Redis fails")
+
+		mockAccountTokenService.AssertExpectations(t)
+	})
+
+	t.Run("retries on transient error then succeeds", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		// Clean up database
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+		require.NoError(t, err)
+
+		// Set initial cursor to 99
+		initialCursor := uint32(99)
+		setupDBCursors(t, ctx, dbConnectionPool, initialCursor, initialCursor)
+
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+		mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
+		// Create mock services
+		mockRPCService := &RPCServiceMock{}
+		mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+
+		mockChAccStore := &store.ChannelAccountStoreMock{}
+
+		// Mock AccountTokenService to fail once then succeed
+		mockAccountTokenService := &AccountTokenServiceMock{}
+		mockAccountTokenService.On("ProcessTokenChanges",
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+		).Return(fmt.Errorf("transient error")).Once()
+		mockAccountTokenService.On("ProcessTokenChanges",
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil).Once()
+
+		svc, err := NewIngestService(IngestServiceConfig{
+			IngestionMode:              IngestionModeLive,
+			Models:                     models,
+			LatestLedgerCursorName:     "latest_ledger_cursor",
+			OldestLedgerCursorName:     "oldest_ledger_cursor",
+			AppTracker:                 &apptracker.MockAppTracker{},
+			RPCService:                 mockRPCService,
+			LedgerBackend:              &LedgerBackendMock{},
+			ChannelAccountStore:        mockChAccStore,
+			AccountTokenService:        mockAccountTokenService,
+			MetricsService:             mockMetricsService,
+			GetLedgersLimit:            defaultGetLedgersLimit,
+			Network:                    network.TestNetworkPassphrase,
+			NetworkPassphrase:          network.TestNetworkPassphrase,
+			Archive:                    &HistoryArchiveMock{},
+			EnableParticipantFiltering: false,
+		})
+		require.NoError(t, err)
+
+		// Create buffer with some data
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushTrustlineChange(types.TrustlineChange{
+			AccountID:   "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			Operation:   types.TrustlineOpAdd,
+			OperationID: 1,
+		})
+
+		// Call ingestProcessedDataWithRetry - should succeed after retry
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
+
+		// Verify success after retry
+		require.NoError(t, err)
+		assert.Equal(t, 0, numTx)
+		assert.Equal(t, 0, numOps)
+
+		// Verify DB cursor was updated
+		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated after successful retry")
 
 		mockAccountTokenService.AssertExpectations(t)
 	})

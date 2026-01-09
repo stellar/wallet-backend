@@ -17,6 +17,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	maxIngestProcessedDataRetries      = 5
+	maxIngestProcessedDataRetryBackoff = 10 * time.Second
+)
+
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
 // acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
@@ -118,10 +123,10 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		if err != nil {
 			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("insert_trustline_assets", time.Since(assetIDStart).Seconds())
+		m.metricsService.ObserveIngestionPhaseDuration("insert_new_trustline_assets", time.Since(assetIDStart).Seconds())
 
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedData(ctx, currentLedger, buffer, assetIDMap)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, assetIDMap)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -140,39 +145,66 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// ingestProcessedData ingests the processed data into the database, unlocks channel accounts, and processes token changes.
+// ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
+// unlocks channel accounts, and processes token changes.
 // The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
-func (m *ingestService) ingestProcessedData(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
+func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
 	numTransactionProcessed := 0
 	numOperationProcessed := 0
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
-		if innerErr != nil {
-			return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
+
+	var lastErr error
+	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return 0, 0, fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
 		}
-		innerErr = m.insertIntoDB(ctx, dbTx, filteredData)
-		if innerErr != nil {
-			return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
+
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
+			if innerErr != nil {
+				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.insertIntoDB(ctx, dbTx, filteredData)
+			if innerErr != nil {
+				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.unlockChannelAccounts(ctx, dbTx, filteredData.txs)
+			if innerErr != nil {
+				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			if innerErr != nil {
+				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
+			if innerErr != nil {
+				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
+			}
+			numTransactionProcessed = len(filteredData.txs)
+			numOperationProcessed = len(filteredData.ops)
+			return nil
+		})
+
+		if err == nil {
+			return numTransactionProcessed, numOperationProcessed, nil
 		}
-		if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
-			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+		lastErr = err
+
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxIngestProcessedDataRetryBackoff {
+			backoff = maxIngestProcessedDataRetryBackoff
 		}
-		innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
-		if innerErr != nil {
-			return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
+		log.Ctx(ctx).Warnf("Error ingesting data for ledger %d (attempt %d/%d): %v, retrying in %v...",
+			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
+
+		select {
+		case <-ctx.Done():
+			return 0, 0, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
 		}
-		innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
-		if innerErr != nil {
-			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
-		}
-		numTransactionProcessed = len(filteredData.txs)
-		numOperationProcessed = len(filteredData.ops)
-		return nil
-	})
-	if err != nil {
-		return 0, 0, fmt.Errorf("ingesting processed data: %w", err)
 	}
-	return numTransactionProcessed, numOperationProcessed, nil
+	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
