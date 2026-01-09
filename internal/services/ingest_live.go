@@ -46,17 +46,11 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			if txErr := m.accountTokenService.PopulateAccountTokens(ctx, dbTx, startLedger); txErr != nil {
-				return fmt.Errorf("populating account tokens cache: %w", txErr)
-			}
-			if txErr := m.initializeCursors(ctx, dbTx, startLedger); txErr != nil {
-				return fmt.Errorf("initializing cursors: %w", txErr)
-			}
-			return nil
+		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
-			return fmt.Errorf("initializing live ingestion: %w", err)
+			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.

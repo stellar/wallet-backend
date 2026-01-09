@@ -133,8 +133,8 @@ func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
 	return args.Get(0).(uint32)
 }
 
-func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error {
-	args := a.Called(ctx, dbTx, checkpointLedger)
+func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := a.Called(ctx, checkpointLedger, initializeCursors)
 	return args.Error(0)
 }
 

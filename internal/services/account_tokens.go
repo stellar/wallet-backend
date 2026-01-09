@@ -25,6 +25,7 @@ import (
 	"github.com/dgraph-io/ristretto/v2"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 )
@@ -76,8 +77,9 @@ type AccountTokenService interface {
 	// history archive for a specific checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in Redis.
 	// The checkpointLedger parameter specifies which checkpoint to use for population.
-	// The dbTx parameter allows the operation to participate in a larger transaction.
-	PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error
+	// The initializeCursors callback is invoked within the same DB transaction as
+	// the metadata storage to ensure atomic initialization.
+	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
 
 	// GetAccountTrustlines retrieves all classic trustline assets for an account.
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
@@ -108,6 +110,7 @@ type AccountTokenService interface {
 var _ AccountTokenService = (*accountTokenService)(nil)
 
 type accountTokenService struct {
+	db                      db.ConnectionPool
 	checkpointLedger        uint32
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
@@ -123,6 +126,7 @@ type accountTokenService struct {
 }
 
 func NewAccountTokenService(
+	dbPool db.ConnectionPool,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	redisStore *store.RedisStore,
@@ -132,6 +136,7 @@ func NewAccountTokenService(
 	pool pond.Pool,
 ) (AccountTokenService, error) {
 	return &accountTokenService{
+		db:                      dbPool,
 		checkpointLedger:        0,
 		archive:                 archive,
 		contractValidator:       contractValidator,
@@ -149,7 +154,7 @@ func NewAccountTokenService(
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
-func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, dbTx pgx.Tx, checkpointLedger uint32) error {
+func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
 	}
@@ -174,7 +179,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, dbTx pg
 		}
 	}()
 
-	// Collect account tokens from checkpoint
+	// Collect account tokens from checkpoint (~7 mins, no transaction needed)
 	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
@@ -183,12 +188,23 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, dbTx pg
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
 	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
-	// Fetch metadata for contracts and store in database
-	if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); err != nil {
-		return fmt.Errorf("fetching and storing contract metadata: %w", err)
+	// Wrap DB operations in a single transaction
+	err = db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		if txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); txErr != nil {
+			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
+		}
+		if txErr := s.storeAccountTokensInRedis(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency); txErr != nil {
+			return fmt.Errorf("storing account tokens in redis: %w", txErr)
+		}
+		if txErr := initializeCursors(dbTx); txErr != nil {
+			return fmt.Errorf("initializing cursors: %w", txErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("running db transaction for account tokens: %w", err)
 	}
-
-	return s.storeAccountTokensInRedis(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency)
+	return nil
 }
 
 // ProcessTokenChanges processes token changes efficiently using Redis pipelining.
