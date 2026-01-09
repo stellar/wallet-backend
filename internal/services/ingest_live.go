@@ -111,8 +111,17 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
 
+		// Pre-commit asset IDs in a separate transaction before the main transaction
+		// to prevent orphan IDs if the main transaction rolls back
+		assetIDStart := time.Now()
+		assetIDMap, err := m.accountTokenService.GetOrInsertTrustlineAssets(ctx, buffer.GetTrustlineChanges())
+		if err != nil {
+			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
+		}
+		m.metricsService.ObserveIngestionPhaseDuration("insert_trustline_assets", time.Since(assetIDStart).Seconds())
+
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedData(ctx, currentLedger, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedData(ctx, currentLedger, buffer, assetIDMap)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -132,7 +141,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 }
 
 // ingestProcessedData ingests the processed data into the database, unlocks channel accounts, and processes token changes.
-func (m *ingestService) ingestProcessedData(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
+// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
+func (m *ingestService) ingestProcessedData(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
 	numTransactionProcessed := 0
 	numOperationProcessed := 0
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
@@ -147,7 +157,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, currentLedger u
 		if innerErr := m.unlockChannelAccounts(ctx, dbTx, filteredData.txs); innerErr != nil {
 			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 		}
-		innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+		innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 		if innerErr != nil {
 			return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 		}
@@ -187,14 +197,15 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 
 // processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
 // This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
-func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
+func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, dbTx pgx.Tx, assetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	// Sort trustline changes by operation ID in ascending order
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
 
 	// Process all trustline and contract changes in a single batch using Redis pipelining
-	if err := m.accountTokenService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges); err != nil {
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges); err != nil {
 		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
 		return fmt.Errorf("processing trustline changes batch: %w", err)
 	}

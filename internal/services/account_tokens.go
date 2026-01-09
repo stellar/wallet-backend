@@ -88,6 +88,12 @@ type AccountTokenService interface {
 	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
 
+	// GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed
+	// transaction. This MUST be called BEFORE the main ingestion transaction to prevent orphan
+	// asset IDs when the main transaction rolls back (PostgreSQL sequences don't roll back).
+	// Returns a map of "CODE:ISSUER" -> ID for use in ProcessTokenChanges.
+	GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error)
+
 	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
 	// using pipelining for performance. This is called by the indexer for each ledger's
 	// state changes during live ingestion.
@@ -98,7 +104,9 @@ type AccountTokenService interface {
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	//
+	// The trustlineAssetIDMap parameter must be pre-populated by calling GetOrInsertTrustlineAssets first.
+	ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 
 	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
 	InitializeTrustlineIDByAssetCache(ctx context.Context) error
@@ -214,7 +222,9 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+//
+// The trustlineAssetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -226,7 +236,6 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 	addressesByBucketPrefix := make(map[string]set.Set[string])
 	trustlineChangesByAccount := make(map[string][]types.TrustlineChange)
 	accountToPrefix := make(map[string]string) // Map account -> its prefix bucket
-	uniqueTrustlineAssets := set.NewSet[wbdata.TrustlineAsset]()
 
 	for _, change := range trustlineChanges {
 		prefix := s.buildTrustlineKey(change.AccountID)
@@ -236,21 +245,6 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 		addressesByBucketPrefix[prefix].Add(change.AccountID)
 		trustlineChangesByAccount[change.AccountID] = append(trustlineChangesByAccount[change.AccountID], change)
 		accountToPrefix[change.AccountID] = prefix
-
-		code, issuer, err := parseAssetString(change.Asset)
-		if err != nil {
-			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
-		}
-		uniqueTrustlineAssets.Add(wbdata.TrustlineAsset{
-			Code:   code,
-			Issuer: issuer,
-		})
-	}
-
-	// Get or create trustline asset IDs
-	assetsToID, err := s.getAssetIDs(ctx, dbTx, uniqueTrustlineAssets)
-	if err != nil {
-		return fmt.Errorf("getting or creating trustline asset IDs: %w", err)
 	}
 
 	// Process each prefix bucket - decode varint binary format to int64 sets
@@ -292,7 +286,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, dbTx pgx.
 				return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", accountAddress, change.Asset, err)
 			}
 
-			assetID, exists := assetsToID[code+":"+issuer]
+			assetID, exists := trustlineAssetIDMap[code+":"+issuer]
 			if !exists {
 				return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
 			}
@@ -407,35 +401,6 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 	}
 	s.trustlineAssetByID = trustlineAssetByIDCache
 	return nil
-}
-
-// getAssetIDs returns the asset IDs for a given asset string.
-func (s *accountTokenService) getAssetIDs(ctx context.Context, dbTx pgx.Tx, assets set.Set[wbdata.TrustlineAsset]) (map[string]int64, error) {
-	assetIDMap := make(map[string]int64)
-	cacheMisses := make([]wbdata.TrustlineAsset, 0)
-	for asset := range assets.Iter() {
-		key := asset.Code + ":" + asset.Issuer
-		assetID, ok := s.trustlineIDByAsset.Get(key)
-		if !ok {
-			cacheMisses = append(cacheMisses, asset)
-			continue
-		}
-		assetIDMap[key] = assetID
-	}
-
-	if len(cacheMisses) == 0 {
-		return assetIDMap, nil
-	}
-
-	idMap, err := s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, cacheMisses)
-	if err != nil {
-		return nil, fmt.Errorf("getting asset IDs: %w", err)
-	}
-	for asset, assetID := range idMap {
-		s.trustlineIDByAsset.Set(asset, assetID, 1)
-		assetIDMap[asset] = assetID
-	}
-	return assetIDMap, nil
 }
 
 // parseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
@@ -555,7 +520,7 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 		if asset, ok := s.trustlineAssetByID.Get(id); ok {
 			code, issuer, err := parseAssetString(asset)
 			if err != nil {
-				return nil, fmt.Errorf("parsing trustline asset string for ID %d: asset %s: %v", id, asset, err)
+				return nil, fmt.Errorf("parsing trustline asset string for ID %d: asset %s: %w", id, asset, err)
 			}
 			result = append(result, &wbdata.TrustlineAsset{
 				ID:     id,
@@ -614,6 +579,59 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 // GetCheckpointLedger returns the ledger sequence number of the checkpoint used for initial cache population.
 func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
+}
+
+// GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed transaction.
+// This prevents orphan asset IDs when the main ingestion transaction rolls back.
+func (s *accountTokenService) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+	if len(trustlineChanges) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	// Extract unique assets from trustline changes
+	uniqueAssets := set.NewSet[wbdata.TrustlineAsset]()
+	for _, change := range trustlineChanges {
+		code, issuer, err := parseAssetString(change.Asset)
+		if err != nil {
+			return nil, fmt.Errorf("parsing asset %s: %w", change.Asset, err)
+		}
+		uniqueAssets.Add(wbdata.TrustlineAsset{Code: code, Issuer: issuer})
+	}
+
+	// Check Ristretto cache first
+	assetIDMap := make(map[string]int64)
+	var cacheMisses []wbdata.TrustlineAsset
+	for asset := range uniqueAssets.Iter() {
+		key := asset.Code + ":" + asset.Issuer
+		if id, ok := s.trustlineIDByAsset.Get(key); ok {
+			assetIDMap[key] = id
+		} else {
+			cacheMisses = append(cacheMisses, asset)
+		}
+	}
+
+	// All assets found in cache
+	if len(cacheMisses) == 0 {
+		return assetIDMap, nil
+	}
+
+	// Insert missing assets in a separate committed transaction. Also get IDs for assets not found in local cache.
+	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		idMap, txErr := s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, cacheMisses)
+		if txErr != nil {
+			return fmt.Errorf("batch get or insert trustline assets: %w", txErr)
+		}
+		for asset, id := range idMap {
+			assetIDMap[asset] = id
+			s.trustlineIDByAsset.Set(asset, id, 1)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("inserting trustline assets: %w", err)
+	}
+
+	return assetIDMap, nil
 }
 
 // processTrustlineChange extracts trustline information from a ledger change entry.

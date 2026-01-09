@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
@@ -1082,22 +1082,18 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock BatchGetOrInsert to return asset ID
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1119,12 +1115,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
@@ -1133,12 +1127,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with existing trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock BatchGetOrInsert for the new asset
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
-		}).Return(map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}, nil)
+		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
@@ -1161,12 +1153,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
@@ -1175,12 +1165,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with multiple trustlines in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
 
-		// Mock BatchGetOrInsert for the asset being removed
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1201,12 +1189,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
@@ -1215,12 +1201,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Pre-populate with single trustline in varint format
 		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
 
-		// Mock BatchGetOrInsert for the asset being removed
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1239,24 +1223,20 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Mock BatchGetOrInsert - same asset appears twice so it's deduplicated
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}).Return(map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}, nil)
+		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
 
 		// Send changes out of order - remove then add (by opID)
 		// Op 2: Remove, Op 1: Add - should be processed as Add first, then Remove
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   accountAddress,
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1278,24 +1258,20 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.Empty(t, val)
 	})
 
-	t.Run("handles BatchGetOrInsert error", func(t *testing.T) {
+	t.Run("missing asset ID in map returns error", func(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
-		// Mock BatchGetOrInsert to return error
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, []wbdata.TrustlineAsset{
-			{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}).Return(nil, assert.AnError)
+		// Pass empty assetIDMap - asset ID will not be found
+		assetIDMap := map[string]int64{}
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
+		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
 			{
 				AccountID:   "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -1304,7 +1280,7 @@ func TestProcessTokenChanges(t *testing.T) {
 			},
 		}, []types.ContractChange{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "getting or creating trustline asset IDs")
+		assert.Contains(t, err.Error(), "asset ID not found")
 	})
 
 	t.Run("invalid asset format produces error", func(t *testing.T) {
@@ -1340,12 +1316,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
 		service := &accountTokenService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
 		}
 
 		// Test accounts
@@ -1373,15 +1347,12 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// Account C: empty (no pre-population needed)
 
-		// Mock BatchGetOrInsert to return consistent asset IDs
-		// Use mock.Anything because the order of assets in the slice is non-deterministic (from set iteration)
-		mockAssetModel.On("BatchGetOrInsert", ctx, mock.Anything, mock.MatchedBy(func(assets []wbdata.TrustlineAsset) bool {
-			return len(assets) == 3
-		})).Return(map[string]int64{
+		// Pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{
 			usdcAsset: 1,
 			eurcAsset: 2,
 			btcAsset:  3,
-		}, nil).Times(2)
+		}
 
 		// Intermingled trustline changes across multiple accounts
 		trustlineChanges := []types.TrustlineChange{
@@ -1434,7 +1405,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// --- First processing run ---
 
-		err := service.ProcessTokenChanges(ctx, nil, trustlineChanges, contractChanges)
+		err := service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
 		require.NoError(t, err)
 
 		// Capture state after first run
@@ -1460,7 +1431,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.ElementsMatch(t, []string{contractC1, contractC2}, contractsRun1[accountB])
 		assert.ElementsMatch(t, []string{contractC2}, contractsRun1[accountC])
 
-		err = service.ProcessTokenChanges(ctx, nil, trustlineChanges, contractChanges)
+		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
 		require.NoError(t, err)
 
 		// Capture state after second run
@@ -1478,5 +1449,105 @@ func TestProcessTokenChanges(t *testing.T) {
 			assert.ElementsMatch(t, contractsRun1[acc], contractsRun2[acc],
 				"Contracts for %s should be identical after reprocessing", acc)
 		}
+	})
+}
+
+func TestGetOrInsertTrustlineAssets(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty changes returns empty map", func(t *testing.T) {
+		service := &accountTokenService{}
+
+		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, []types.TrustlineChange{})
+		require.NoError(t, err)
+		assert.Empty(t, assetIDMap)
+	})
+
+	t.Run("all assets in cache returns cached IDs without DB call", func(t *testing.T) {
+		// Create mock asset model that should NOT be called
+		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
+
+		// Initialize Ristretto cache
+		cache, err := createTestRistrettoCache()
+		require.NoError(t, err)
+
+		// Pre-populate cache
+		cache.Set("USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", int64(1), 1)
+		cache.Set("EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", int64(2), 1)
+		cache.Wait()
+
+		service := &accountTokenService{
+			trustlineAssetModel: mockAssetModel,
+			trustlineIDByAsset:  cache,
+		}
+
+		changes := []types.TrustlineChange{
+			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
+			{AccountID: "GTEST2", Asset: "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", Operation: types.TrustlineOpAdd},
+		}
+
+		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, changes)
+		require.NoError(t, err)
+
+		// Verify IDs from cache
+		assert.Equal(t, int64(1), assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"])
+		assert.Equal(t, int64(2), assetIDMap["EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"])
+
+		mockAssetModel.AssertExpectations(t)
+	})
+
+	t.Run("invalid asset format returns error", func(t *testing.T) {
+		// Initialize empty Ristretto cache
+		cache, err := createTestRistrettoCache()
+		require.NoError(t, err)
+
+		service := &accountTokenService{
+			trustlineIDByAsset: cache,
+		}
+
+		changes := []types.TrustlineChange{
+			{AccountID: "GTEST1", Asset: "INVALID_NO_COLON", Operation: types.TrustlineOpAdd},
+		}
+
+		_, err = service.GetOrInsertTrustlineAssets(ctx, changes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parsing asset")
+	})
+
+	t.Run("deduplicates assets from multiple changes", func(t *testing.T) {
+		// Initialize Ristretto cache
+		cache, err := createTestRistrettoCache()
+		require.NoError(t, err)
+
+		// Pre-populate cache with all assets so we don't need DB
+		cache.Set("USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", int64(1), 1)
+		cache.Wait()
+
+		service := &accountTokenService{
+			trustlineIDByAsset: cache,
+		}
+
+		// Same asset appears in multiple changes
+		changes := []types.TrustlineChange{
+			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
+			{AccountID: "GTEST2", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
+			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpRemove},
+		}
+
+		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, changes)
+		require.NoError(t, err)
+
+		// Only one unique asset should be in the map
+		assert.Len(t, assetIDMap, 1)
+		assert.Equal(t, int64(1), assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"])
+	})
+}
+
+// createTestRistrettoCache creates a small Ristretto cache for testing
+func createTestRistrettoCache() (*ristretto.Cache[string, int64], error) {
+	return ristretto.NewCache(&ristretto.Config[string, int64]{
+		NumCounters: 1e4,
+		MaxCost:     1000,
+		BufferItems: 64,
 	})
 }

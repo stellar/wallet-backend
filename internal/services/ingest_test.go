@@ -2222,7 +2222,7 @@ func Test_ingestProcessedData(t *testing.T) {
 		mockAccountTokenService := &AccountTokenServiceMock{}
 		mockAccountTokenService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // dbTx
+			mock.Anything, // assetIDMap
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
 		).Return(nil)
@@ -2256,7 +2256,8 @@ func Test_ingestProcessedData(t *testing.T) {
 		})
 
 		// Call ingestProcessedData - should succeed
-		numTx, numOps, err := svc.ingestProcessedData(ctx, 100, buffer)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		numTx, numOps, err := svc.ingestProcessedData(ctx, 100, buffer, assetIDMap)
 
 		// Verify success
 		require.NoError(t, err)
@@ -2310,7 +2311,7 @@ func Test_ingestProcessedData(t *testing.T) {
 		mockAccountTokenService := &AccountTokenServiceMock{}
 		mockAccountTokenService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // dbTx
+			mock.Anything, // assetIDMap
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
 		).Return(fmt.Errorf("redis connection failed"))
@@ -2344,7 +2345,8 @@ func Test_ingestProcessedData(t *testing.T) {
 		})
 
 		// Call ingestProcessedData - should fail due to Redis error
-		_, _, err = svc.ingestProcessedData(ctx, 100, buffer)
+		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		_, _, err = svc.ingestProcessedData(ctx, 100, buffer, assetIDMap)
 
 		// Verify error propagates
 		require.Error(t, err)

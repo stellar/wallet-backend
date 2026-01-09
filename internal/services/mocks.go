@@ -148,8 +148,16 @@ func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accou
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := a.Called(ctx, dbTx, trustlineChanges, contractChanges)
+func (a *AccountTokenServiceMock) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+	args := a.Called(ctx, trustlineChanges)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
+func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, assetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := a.Called(ctx, assetIDMap, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 
