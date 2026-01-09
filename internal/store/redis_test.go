@@ -347,6 +347,54 @@ func TestRedisStore_ExecutePipeline(t *testing.T) {
 
 		err := store.ExecutePipeline(ctx, operations)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "executing set pipeline")
+		assert.Contains(t, err.Error(), "executing pipeline")
+	})
+
+	t.Run("reports partial failure when one operation has wrong type", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Set a key as a string type - this will cause WRONGTYPE error when we try HSET on it
+		err := mr.Set("key1", "string_value")
+		require.NoError(t, err)
+
+		operations := []RedisPipelineOperation{
+			{
+				Op:    OpSet,
+				Key:   "key0",
+				Value: "value0",
+			},
+			{
+				Op:    OpHSet, // This will fail with WRONGTYPE because key1 is a string, not a hash
+				Key:   "key1",
+				Field: "field1",
+				Value: "value1",
+			},
+			{
+				Op:    OpSet,
+				Key:   "key2",
+				Value: "value2",
+			},
+		}
+
+		err = store.ExecutePipeline(ctx, operations)
+		// Pipeline should return an error due to the WRONGTYPE failure
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "WRONGTYPE")
+
+		// Despite the error, other operations in the pipeline still executed
+		// This demonstrates partial failure - Redis executes ALL commands in MULTI/EXEC
+		value0, err := mr.Get("key0")
+		require.NoError(t, err)
+		assert.Equal(t, "value0", value0)
+
+		value2, err := mr.Get("key2")
+		require.NoError(t, err)
+		assert.Equal(t, "value2", value2)
+
+		// The failed operation didn't modify key1 - it's still a string
+		value1, err := mr.Get("key1")
+		require.NoError(t, err)
+		assert.Equal(t, "string_value", value1)
 	})
 }
