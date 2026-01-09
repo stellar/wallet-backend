@@ -552,8 +552,7 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 		if asset, ok := s.trustlineAssetByID.Get(id); ok {
 			code, issuer, err := parseAssetString(asset)
 			if err != nil {
-				log.Ctx(ctx).Warnf("parsing asset string: %s: %v", asset, err)
-				continue
+				return nil, fmt.Errorf("parsing trustline asset string for ID %d: asset %s: %v", id, asset, err)
 			}
 			result = append(result, &wbdata.TrustlineAsset{
 				ID:     id,
@@ -583,7 +582,7 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 			Issuer: asset.Issuer,
 		})
 	}
-	s.trustlineIDByAsset.Wait()
+	s.trustlineAssetByID.Wait()
 
 	return result, nil
 }
@@ -822,8 +821,9 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 			break
 		}
 		key := asset.Code + ":" + asset.Issuer
-		s.trustlineIDByAsset.Set(key, assetIDMap[key], trustlineFrequency[asset])
+		s.trustlineIDByAsset.Set(key, assetIDMap[key], 1)
 	}
+	s.trustlineIDByAsset.Wait()
 
 	// Build pipeline operations
 	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)

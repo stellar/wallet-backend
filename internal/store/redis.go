@@ -110,8 +110,8 @@ func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (m
 
 	result := make(map[string]string)
 	for i, field := range fields {
-		if vals[i] != nil {
-			result[field] = vals[i].(string)
+		if str, ok := vals[i].(string); ok {
+			result[field] = str
 		}
 	}
 	return result, nil
