@@ -172,8 +172,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}
-	if err := accountTokenService.InitializeTrustlineIDByAssetCache(ctx); err != nil {
-		return handlerDeps{}, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	if err := accountTokenService.InitializeTrustlineAssetByIDCache(ctx); err != nil {
+		return handlerDeps{}, fmt.Errorf("initializing trustline asset by ID cache: %w", err)
 	}
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
