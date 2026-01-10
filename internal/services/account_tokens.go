@@ -373,9 +373,8 @@ func (s *accountTokenService) InitializeTrustlineIDByAssetCache(ctx context.Cont
 		key := asset.Code + ":" + asset.Issuer
 		trustlineIDByAssetCache.Set(key, asset.ID, 1)
 	}
-
+	trustlineIDByAssetCache.Wait()
 	s.trustlineIDByAsset = trustlineIDByAssetCache
-
 	return nil
 }
 
@@ -399,6 +398,7 @@ func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Cont
 		key := asset.Code + ":" + asset.Issuer
 		trustlineAssetByIDCache.Set(asset.ID, key, 1)
 	}
+	trustlineAssetByIDCache.Wait()
 	s.trustlineAssetByID = trustlineAssetByIDCache
 	return nil
 }
@@ -625,6 +625,7 @@ func (s *accountTokenService) GetOrInsertTrustlineAssets(ctx context.Context, tr
 			assetIDMap[asset] = id
 			s.trustlineIDByAsset.Set(asset, id, 1)
 		}
+		s.trustlineIDByAsset.Wait()
 		return nil
 	})
 	if err != nil {
