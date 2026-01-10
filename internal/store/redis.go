@@ -148,17 +148,19 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 	cmds, err := pipe.Exec(ctx)
 	if err != nil && !errors.Is(err, redis.Nil) {
 		// Collect individual failures for diagnostics
-		var failures []string
-		for i, cmd := range cmds {
-			if cmdErr := cmd.Err(); cmdErr != nil && !errors.Is(cmdErr, redis.Nil) {
-				failures = append(failures, fmt.Sprintf(
-					"op[%d] %s key=%s: %v",
-					i, operations[i].Op, operations[i].Key, cmdErr,
-				))
+		if cmds != nil && len(cmds) == len(operations) {
+			var failures []string
+			for i, cmd := range cmds {
+				if cmdErr := cmd.Err(); cmdErr != nil && !errors.Is(cmdErr, redis.Nil) {
+					failures = append(failures, fmt.Sprintf(
+						"op[%d] %s key=%s: %v",
+						i, operations[i].Op, operations[i].Key, cmdErr,
+					))
+				}
 			}
-		}
-		if len(failures) > 0 {
-			return fmt.Errorf("pipeline execution failed with %d errors: %v", len(failures), failures)
+			if len(failures) > 0 {
+				return fmt.Errorf("pipeline execution failed with %d errors: %v", len(failures), failures)
+			}
 		}
 		return fmt.Errorf("executing pipeline: %w", err)
 	}
