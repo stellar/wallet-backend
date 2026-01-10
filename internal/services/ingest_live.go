@@ -118,15 +118,12 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// Pre-commit asset IDs in a separate transaction before the main transaction
 		// to prevent orphan IDs if the main transaction rolls back
-		assetIDStart := time.Now()
-		assetIDMap, err := m.accountTokenService.GetOrInsertTrustlineAssets(ctx, buffer.GetTrustlineChanges())
+		dbStart := time.Now()
+		trustlineAssetIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
 		if err != nil {
 			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("insert_new_trustline_assets", time.Since(assetIDStart).Seconds())
-
-		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, assetIDMap)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -143,6 +140,57 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
 		currentLedger++
 	}
+}
+
+// insertTrustlinesAndContractTokensWithRetry inserts trustlines and contract tokens into the database.
+func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, error) {
+	var trustlineAssetIDMap map[string]int64
+	var innerErr error
+	var lastErr error
+
+	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context done: %w", ctx.Err())
+		default:
+		}
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			trustlineAssetIDMap, innerErr = m.accountTokenService.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
+			if innerErr != nil {
+				return fmt.Errorf("inserting trustline assets: %w", innerErr)
+			}
+			// Fetch and store metadata for new SAC/SEP-41 contracts
+			newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
+			if len(newContractTypesByID) > 0 {
+				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
+				if innerErr != nil {
+					return fmt.Errorf("fetching and storing new contract tokens metadata: %w", innerErr)
+				}
+			}
+			return nil
+		})
+		if err == nil {
+			return trustlineAssetIDMap, nil
+		}
+		lastErr = err
+
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxIngestProcessedDataRetryBackoff {
+			backoff = maxIngestProcessedDataRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error ingesting trustline and contract tokens for ledger %d (attempt %d/%d): %v, retrying in %v...",
+			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
+	}
+	return trustlineAssetIDMap, nil
 }
 
 // ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
@@ -242,18 +290,6 @@ func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, db
 		return fmt.Errorf("processing trustline changes batch: %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
-
-	// Fetch and store metadata for new SAC/SEP-41 contracts
-	if m.contractMetadataService != nil {
-		newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
-		if len(newContractTypesByID) > 0 {
-			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
-			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID); err != nil {
-				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
-				// Don't return error - we don't want to block ingestion for metadata fetch failures
-			}
-		}
-	}
 	return nil
 }
 
