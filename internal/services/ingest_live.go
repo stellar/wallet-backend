@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -221,10 +220,11 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.processLiveIngestionTokenChanges(ctx, dbTx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			innerErr = m.accountTokenService.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 			if innerErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}
+			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
 			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
@@ -272,24 +272,6 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
 	}
 
-	return nil
-}
-
-// processLiveIngestionTokenChanges processes trustline and contract changes for live ingestion.
-// This updates the Redis cache and fetches metadata for new SAC/SEP-41 contracts.
-// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
-func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, dbTx pgx.Tx, assetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	// Sort trustline changes by operation ID in ascending order
-	sort.Slice(trustlineChanges, func(i, j int) bool {
-		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-	})
-
-	// Process all trustline and contract changes in a single batch using Redis pipelining
-	if err := m.accountTokenService.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges); err != nil {
-		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
-		return fmt.Errorf("processing trustline changes batch: %w", err)
-	}
-	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
 	return nil
 }
 
