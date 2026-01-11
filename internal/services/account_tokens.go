@@ -842,7 +842,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	// Add top 100k assets to frequency cache for quick asset -> ID lookups during ingestion
 	for i, asset := range uniqueTrustlines {
-		if i > numTrustlineAssetsInFrequencyCache {
+		if i >= numTrustlineAssetsInFrequencyCache {
 			break
 		}
 		key := asset.Code + ":" + asset.Issuer

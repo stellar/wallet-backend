@@ -117,7 +117,7 @@ func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (m
 		}
 		str, ok := vals[i].(string)
 		if !ok {
-			return nil, fmt.Errorf("getting field %s from key %s: %w", field, key, err)
+			return nil, fmt.Errorf("field %s from key %s is not a string", field, key)
 		}
 		result[field] = str
 	}
