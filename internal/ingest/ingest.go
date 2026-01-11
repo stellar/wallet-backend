@@ -238,6 +238,9 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 				log.Errorf("Server forced to shutdown: %v", err)
 			}
 		}
+		if err := redisStore.Close(); err != nil {
+			log.Errorf("Error closing Redis connection: %v", err)
+		}
 		log.Info("Servers gracefully stopped")
 	}()
 

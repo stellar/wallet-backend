@@ -564,3 +564,33 @@ func TestRedisStore_ExecutePipeline(t *testing.T) {
 		assert.Equal(t, "string_value", value1)
 	})
 }
+
+func TestRedisStore_Close(t *testing.T) {
+	t.Run("successfully closes connection", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Close should succeed
+		err := store.Close()
+		assert.NoError(t, err)
+
+		// Subsequent operations should fail after Close
+		ctx := context.Background()
+		_, err = store.Get(ctx, "test:key")
+		assert.Error(t, err)
+	})
+
+	t.Run("close is idempotent", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// First close should succeed
+		err := store.Close()
+		assert.NoError(t, err)
+
+		// Second close returns error but doesn't panic (go-redis returns "client is closed")
+		err = store.Close()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "closing redis connection")
+	})
+}

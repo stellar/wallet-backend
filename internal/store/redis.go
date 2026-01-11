@@ -124,6 +124,14 @@ func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (m
 	return result, nil
 }
 
+// Close closes the Redis connection pool.
+func (r *RedisStore) Close() error {
+	if err := r.client.Close(); err != nil {
+		return fmt.Errorf("closing redis connection: %w", err)
+	}
+	return nil
+}
+
 // ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
 // This reduces network round trips and improves performance when processing many operations.
 // Returns an error if any operation in the pipeline fails.

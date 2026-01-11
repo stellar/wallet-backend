@@ -530,7 +530,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 		got, err := service.GetAccountContracts(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
-		assert.Nil(t, got)
+		assert.Empty(t, got)
 	})
 }
 
