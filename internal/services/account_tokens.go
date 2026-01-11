@@ -597,7 +597,7 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
 	}
 	if len(contracts) == 0 {
-		return nil, nil
+		return []string{}, nil
 	}
 
 	return contracts, nil
