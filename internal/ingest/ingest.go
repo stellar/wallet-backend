@@ -181,10 +181,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenCacheWriter, err := services.NewTokenCacheWriter(context.Background(), models.DB, cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating token cache writer: %w", err)
-	}
+	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -237,6 +234,9 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			if err := server.Shutdown(ctx); err != nil {
 				log.Errorf("Server forced to shutdown: %v", err)
 			}
+		}
+		if err := redisStore.Close(); err != nil {
+			log.Errorf("Error closing Redis connection: %v", err)
 		}
 		log.Info("Servers gracefully stopped")
 	}()

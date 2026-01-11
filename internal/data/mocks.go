@@ -102,11 +102,3 @@ func (m *TrustlineAssetModelMock) BatchGetByIDs(ctx context.Context, ids []int64
 	}
 	return args.Get(0).([]*TrustlineAsset), args.Error(1)
 }
-
-func (m *TrustlineAssetModelMock) GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error) {
-	args := m.Called(ctx, n)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*TrustlineAsset), args.Error(1)
-}
