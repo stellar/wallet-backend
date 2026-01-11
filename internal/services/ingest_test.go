@@ -84,7 +84,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 				RPCService:                 &mockRPCService,
 				LedgerBackend:              mockLedgerBackend,
 				ChannelAccountStore:        mockChAccStore,
-				AccountTokenService:        nil,
+				TokenCacheWriter:           nil,
 				ContractMetadataService:    nil,
 				MetricsService:             mockMetricsService,
 				GetLedgersLimit:            defaultGetLedgersLimit,
@@ -2219,8 +2219,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
 		// Mock AccountTokenService to succeed
-		mockAccountTokenService := &AccountTokenServiceMock{}
-		mockAccountTokenService.On("ProcessTokenChanges",
+		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
+		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
 			mock.Anything, // assetIDMap
 			mock.Anything, // trustlineChanges
@@ -2236,7 +2236,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			RPCService:                 mockRPCService,
 			LedgerBackend:              &LedgerBackendMock{},
 			ChannelAccountStore:        mockChAccStore,
-			AccountTokenService:        mockAccountTokenService,
+			TokenCacheWriter:           mockTokenCacheWriter,
 			MetricsService:             mockMetricsService,
 			GetLedgersLimit:            defaultGetLedgersLimit,
 			Network:                    network.TestNetworkPassphrase,
@@ -2269,7 +2269,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated to 100")
 
-		mockAccountTokenService.AssertExpectations(t)
+		mockTokenCacheWriter.AssertExpectations(t)
 	})
 
 	t.Run("Redis failure rolls back DB transaction", func(t *testing.T) {
@@ -2308,8 +2308,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
 		// Mock AccountTokenService to return error (simulating Redis failure)
-		mockAccountTokenService := &AccountTokenServiceMock{}
-		mockAccountTokenService.On("ProcessTokenChanges",
+		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
+		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
 			mock.Anything, // assetIDMap
 			mock.Anything, // trustlineChanges
@@ -2325,7 +2325,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			RPCService:                 mockRPCService,
 			LedgerBackend:              &LedgerBackendMock{},
 			ChannelAccountStore:        mockChAccStore,
-			AccountTokenService:        mockAccountTokenService,
+			TokenCacheWriter:           mockTokenCacheWriter,
 			MetricsService:             mockMetricsService,
 			GetLedgersLimit:            defaultGetLedgersLimit,
 			Network:                    network.TestNetworkPassphrase,
@@ -2358,7 +2358,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when Redis fails")
 
-		mockAccountTokenService.AssertExpectations(t)
+		mockTokenCacheWriter.AssertExpectations(t)
 	})
 
 	t.Run("retries on transient error then succeeds", func(t *testing.T) {
@@ -2397,14 +2397,14 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
 		// Mock AccountTokenService to fail once then succeed
-		mockAccountTokenService := &AccountTokenServiceMock{}
-		mockAccountTokenService.On("ProcessTokenChanges",
+		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
+		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
 		).Return(fmt.Errorf("transient error")).Once()
-		mockAccountTokenService.On("ProcessTokenChanges",
+		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
@@ -2420,7 +2420,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			RPCService:                 mockRPCService,
 			LedgerBackend:              &LedgerBackendMock{},
 			ChannelAccountStore:        mockChAccStore,
-			AccountTokenService:        mockAccountTokenService,
+			TokenCacheWriter:           mockTokenCacheWriter,
 			MetricsService:             mockMetricsService,
 			GetLedgersLimit:            defaultGetLedgersLimit,
 			Network:                    network.TestNetworkPassphrase,
@@ -2453,6 +2453,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated after successful retry")
 
-		mockAccountTokenService.AssertExpectations(t)
+		mockTokenCacheWriter.AssertExpectations(t)
 	})
 }

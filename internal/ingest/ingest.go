@@ -159,10 +159,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 
-	// Create pond pool for account token operations
-	accountTokenPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("account_token", accountTokenPool)
-
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
 	metricsService.RegisterPoolMetrics("contract_metadata", contractMetadataPool)
@@ -173,7 +169,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	// Initialize history archive once for use by both AccountTokenService and IngestService
+	// Initialize history archive once for use by both TokenCacheWriter and IngestService
 	archive, err := historyarchive.Connect(
 		cfg.ArchiveURL,
 		historyarchive.ArchiveOptions{
@@ -185,12 +181,9 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(models.DB, cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset, accountTokenPool)
+	tokenCacheWriter, err := services.NewTokenCacheWriter(context.Background(), models.DB, cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset)
 	if err != nil {
-		return nil, fmt.Errorf("instantiating account token service: %w", err)
-	}
-	if err := accountTokenService.InitializeTrustlineIDByAssetCache(context.Background()); err != nil {
-		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+		return nil, fmt.Errorf("instantiating token cache writer: %w", err)
 	}
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
@@ -208,7 +201,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackend:              ledgerBackend,
 		LedgerBackendFactory:       ledgerBackendFactory,
 		ChannelAccountStore:        chAccStore,
-		AccountTokenService:        accountTokenService,
+		TokenCacheWriter:           tokenCacheWriter,
 		ContractMetadataService:    contractMetadataService,
 		MetricsService:             metricsService,
 		GetLedgersLimit:            cfg.GetLedgersLimit,

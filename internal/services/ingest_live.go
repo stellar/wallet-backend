@@ -50,7 +50,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
@@ -162,7 +162,7 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 		default:
 		}
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			trustlineAssetIDMap, innerErr = m.accountTokenService.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
+			trustlineAssetIDMap, innerErr = m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
 			if innerErr != nil {
 				return fmt.Errorf("inserting trustline assets: %w", innerErr)
 			}
@@ -231,7 +231,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.accountTokenService.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 			if innerErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}

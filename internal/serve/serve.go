@@ -88,7 +88,7 @@ type handlerDeps struct {
 	MetricsService          metrics.MetricsService
 	TransactionService      services.TransactionService
 	RPCService              services.RPCService
-	AccountTokenService     services.AccountTokenService
+	TokenCacheReader        services.TokenCacheReader
 	ContractMetadataService services.ContractMetadataService
 
 	// GraphQL
@@ -166,14 +166,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
-	contractValidator := services.NewContractValidator()
 	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	accountTokenService, err := services.NewAccountTokenService(models.DB, cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
+	tokenCacheReader, err := services.NewTokenCacheReader(ctx, models.DB, redisStore, models.TrustlineAsset)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
-	}
-	if err := accountTokenService.InitializeTrustlineAssetByIDCache(ctx); err != nil {
-		return handlerDeps{}, fmt.Errorf("initializing trustline asset by ID cache: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating token cache reader: %w", err)
 	}
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
@@ -217,7 +213,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
-		AccountTokenService:         accountTokenService,
+		TokenCacheReader:            tokenCacheReader,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
@@ -270,7 +266,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				deps.AccountTokenService,
+				deps.TokenCacheReader,
 				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{

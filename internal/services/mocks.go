@@ -122,63 +122,71 @@ func NewRPCServiceMock(t interface {
 	return mock
 }
 
-type AccountTokenServiceMock struct {
+// TokenCacheReaderMock is a mock implementation of the TokenCacheReader interface
+type TokenCacheReaderMock struct {
 	mock.Mock
 }
 
-var _ AccountTokenService = (*AccountTokenServiceMock)(nil)
+var _ TokenCacheReader = (*TokenCacheReaderMock)(nil)
 
-func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
-	args := a.Called()
-	return args.Get(0).(uint32)
-}
-
-func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
-	args := a.Called(ctx, checkpointLedger, initializeCursors)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
-	args := a.Called(ctx, accountAddress)
+func (m *TokenCacheReaderMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
+	args := m.Called(ctx, accountAddress)
 	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
-	args := a.Called(ctx, accountAddress)
+func (m *TokenCacheReaderMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+	args := m.Called(ctx, accountAddress)
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
-	args := a.Called(ctx, trustlineChanges)
+// NewTokenCacheReaderMock creates a new instance of TokenCacheReaderMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewTokenCacheReaderMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TokenCacheReaderMock {
+	mock := &TokenCacheReaderMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// TokenCacheWriterMock is a mock implementation of the TokenCacheWriter interface
+type TokenCacheWriterMock struct {
+	mock.Mock
+}
+
+var _ TokenCacheWriter = (*TokenCacheWriterMock)(nil)
+
+func (m *TokenCacheWriterMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := m.Called(ctx, checkpointLedger, initializeCursors)
+	return args.Error(0)
+}
+
+func (m *TokenCacheWriterMock) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+	args := m.Called(ctx, trustlineChanges)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
-func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, assetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := a.Called(ctx, assetIDMap, trustlineChanges, contractChanges)
+func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, assetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := m.Called(ctx, assetIDMap, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
-	args := a.Called(ctx)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
-	args := a.Called(ctx)
-	return args.Error(0)
-}
-
-// NewAccountTokenServiceMock creates a new instance of AccountTokenServiceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// NewTokenCacheWriterMock creates a new instance of TokenCacheWriterMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
-func NewAccountTokenServiceMock(t interface {
+func NewTokenCacheWriterMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *AccountTokenServiceMock {
-	mock := &AccountTokenServiceMock{}
+) *TokenCacheWriterMock {
+	mock := &TokenCacheWriterMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })

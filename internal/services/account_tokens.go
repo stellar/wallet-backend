@@ -1,3 +1,5 @@
+// Account token caching service - manages Redis caching of account token holdings
+// including both classic Stellar trustlines and Stellar Asset Contract (SAC) balances.
 package services
 
 import (
@@ -11,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -66,13 +67,19 @@ type checkpointData struct {
 	TrustlineFrequency map[wbdata.TrustlineAsset]int64
 }
 
-// AccountTokenService manages Redis caching of account token holdings,
-// including both classic Stellar trustlines and Stellar Asset Contract (SAC) balances.
-type AccountTokenService interface {
-	// GetCheckpointLedger returns the ledger sequence number of the checkpoint
-	// used to populate the initial account token cache.
-	GetCheckpointLedger() uint32
+// TokenCacheReader provides read-only access to cached account tokens.
+// Used by the API server to query token holdings.
+type TokenCacheReader interface {
+	// GetAccountTrustlines retrieves all classic trustline assets for an account.
+	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
+	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
 
+	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
+	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
+}
+
+// TokenCacheWriter provides write access to the token cache during ingestion.
+type TokenCacheWriter interface {
 	// PopulateAccountTokens performs initial Redis cache population from Stellar
 	// history archive for a specific checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in Redis.
@@ -80,13 +87,6 @@ type AccountTokenService interface {
 	// The initializeCursors callback is invoked within the same DB transaction as
 	// the metadata storage to ensure atomic initialization.
 	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
-
-	// GetAccountTrustlines retrieves all classic trustline assets for an account.
-	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
-	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
-
-	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
-	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
 
 	// GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed
 	// transaction. This MUST be called BEFORE the main ingestion transaction to prevent orphan
@@ -107,25 +107,22 @@ type AccountTokenService interface {
 	//
 	// The trustlineAssetIDMap parameter must be pre-populated by calling GetOrInsertTrustlineAssets first.
 	ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
-
-	// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache.
-	InitializeTrustlineIDByAssetCache(ctx context.Context) error
-
-	// InitializeTrustlineAssetByIDCache initializes the trustline asset by ID cache.
-	InitializeTrustlineAssetByIDCache(ctx context.Context) error
 }
 
-var _ AccountTokenService = (*accountTokenService)(nil)
+// Verify interface compliance at compile time
+var (
+	_ TokenCacheReader = (*tokenCacheService)(nil)
+	_ TokenCacheWriter = (*tokenCacheService)(nil)
+)
 
-type accountTokenService struct {
+// tokenCacheService implements both TokenCacheReader and TokenCacheWriter.
+type tokenCacheService struct {
 	db                      db.ConnectionPool
-	checkpointLedger        uint32
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
 	redisStore              *store.RedisStore
 	contractMetadataService ContractMetadataService
 	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
-	pool                    pond.Pool
 	networkPassphrase       string
 	trustlinesPrefix        string
 	contractsPrefix         string
@@ -133,7 +130,10 @@ type accountTokenService struct {
 	trustlineIDByAsset      *ristretto.Cache[string, int64]
 }
 
-func NewAccountTokenService(
+// NewTokenCacheWriter creates a TokenCacheWriter for ingestion.
+// Initializes the asset ID encoding cache (trustlineIDByAsset) internally.
+func NewTokenCacheWriter(
+	ctx context.Context,
 	dbPool db.ConnectionPool,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
@@ -141,28 +141,56 @@ func NewAccountTokenService(
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
-	pool pond.Pool,
-) (AccountTokenService, error) {
-	return &accountTokenService{
+) (TokenCacheWriter, error) {
+	s := &tokenCacheService{
 		db:                      dbPool,
-		checkpointLedger:        0,
 		archive:                 archive,
 		contractValidator:       contractValidator,
 		redisStore:              redisStore,
 		contractMetadataService: contractMetadataService,
 		trustlineAssetModel:     trustlineAssetModel,
-		pool:                    pool,
 		networkPassphrase:       networkPassphrase,
 		trustlinesPrefix:        trustlinesKeyPrefix,
 		contractsPrefix:         contractsKeyPrefix,
-	}, nil
+	}
+
+	// Initialize trustlineIDByAsset cache for encoding during ingestion
+	if err := s.initializeTrustlineIDByAssetCache(ctx); err != nil {
+		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
+	}
+
+	return s, nil
+}
+
+// NewTokenCacheReader creates a TokenCacheReader for API queries.
+// Initializes the asset ID decoding cache (trustlineAssetByID) internally.
+func NewTokenCacheReader(
+	ctx context.Context,
+	dbPool db.ConnectionPool,
+	redisStore *store.RedisStore,
+	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
+) (TokenCacheReader, error) {
+	s := &tokenCacheService{
+		db:                  dbPool,
+		redisStore:          redisStore,
+		trustlineAssetModel: trustlineAssetModel,
+		trustlinesPrefix:    trustlinesKeyPrefix,
+		contractsPrefix:     contractsKeyPrefix,
+	}
+
+	// Initialize trustlineAssetByID cache for decoding during API queries
+	if err := s.initializeTrustlineAssetByIDCache(ctx); err != nil {
+		return nil, fmt.Errorf("initializing trustline asset by ID cache: %w", err)
+	}
+
+	return s, nil
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
-func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
 	}
@@ -174,7 +202,6 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 	}()
 
 	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", checkpointLedger)
-	s.checkpointLedger = checkpointLedger
 
 	// Create checkpoint change reader
 	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, checkpointLedger)
@@ -224,7 +251,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpo
 // Internally stores short integer IDs in varint binary format to reduce memory usage.
 //
 // The trustlineAssetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
-func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -354,8 +381,8 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	return nil
 }
 
-// InitializeTrustlineIDByAssetCache initializes the trustline ID by asset cache. This is used for encoding asset strings to IDs during live ingestion.
-func (s *accountTokenService) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
+// initializeTrustlineIDByAssetCache initializes the trustline ID by asset cache. This is used for encoding asset strings to IDs during live ingestion.
+func (s *tokenCacheService) initializeTrustlineIDByAssetCache(ctx context.Context) error {
 	trustlineIDByAssetCache, err := ristretto.NewCache(&ristretto.Config[string, int64]{
 		NumCounters: 1e7,
 		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
@@ -378,9 +405,9 @@ func (s *accountTokenService) InitializeTrustlineIDByAssetCache(ctx context.Cont
 	return nil
 }
 
-// InitializeTrustlineAssetByIDCache initializes the trustline asset by ID cache. This is used for decoding IDs to asset strings during API requests
+// initializeTrustlineAssetByIDCache initializes the trustline asset by ID cache. This is used for decoding IDs to asset strings during API requests
 // to get an account's trustline assets.
-func (s *accountTokenService) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
+func (s *tokenCacheService) initializeTrustlineAssetByIDCache(ctx context.Context) error {
 	trustlineAssetByIDCache, err := ristretto.NewCache(&ristretto.Config[int64, string]{
 		NumCounters: 1e7,
 		MaxCost:     numTrustlineAssetsInFrequencyCache, // this is the maximum size of our cache
@@ -465,7 +492,7 @@ func decodeAssetIDs(buf []byte) ([]int64, error) {
 // Uses FNV-1a hash to distribute accounts across buckets, avoiding Redis hot keys.
 // FNV-1a processes each byte: hash = (hash XOR byte) * prime, producing uniform
 // distribution across the 20,000 buckets (~500 accounts per bucket on mainnet).
-func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
+func (s *tokenCacheService) buildTrustlineKey(accountAddress string) string {
 	h := fnv.New32a()
 	h.Write([]byte(accountAddress))
 	bucket := h.Sum32() % numTrustlineBuckets
@@ -473,13 +500,13 @@ func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
 }
 
 // buildContractKey constructs the Redis key for an account's contracts set.
-func (s *accountTokenService) buildContractKey(accountAddress string) string {
+func (s *tokenCacheService) buildContractKey(accountAddress string) string {
 	return s.contractsPrefix + accountAddress
 }
 
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
 // Returns asset strings in "CODE:ISSUER" format after resolving from internal IDs.
-func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
+func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -513,7 +540,7 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 }
 
 // getAssetsFromIDs gets the trustline asset code and issuer from the IDs
-func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64) ([]*wbdata.TrustlineAsset, error) {
+func (s *tokenCacheService) getAssetsFromIDs(ctx context.Context, ids []int64) ([]*wbdata.TrustlineAsset, error) {
 	result := make([]*wbdata.TrustlineAsset, 0)
 	cacheMisses := make([]int64, 0)
 	for _, id := range ids {
@@ -559,7 +586,7 @@ func (s *accountTokenService) getAssetsFromIDs(ctx context.Context, ids []int64)
 // For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
 // For C-address: all contract tokens (SAC, custom)
 // Returns full contract addresses (C...).
-func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -576,14 +603,9 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 	return contracts, nil
 }
 
-// GetCheckpointLedger returns the ledger sequence number of the checkpoint used for initial cache population.
-func (s *accountTokenService) GetCheckpointLedger() uint32 {
-	return s.checkpointLedger
-}
-
 // GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed transaction.
 // This prevents orphan asset IDs when the main ingestion transaction rolls back.
-func (s *accountTokenService) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+func (s *tokenCacheService) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
 	if len(trustlineChanges) == 0 {
 		return make(map[string]int64), nil
 	}
@@ -637,7 +659,7 @@ func (s *accountTokenService) GetOrInsertTrustlineAssets(ctx context.Context, tr
 
 // processTrustlineChange extracts trustline information from a ledger change entry.
 // Returns the account address and asset string, with skip=true if the entry should be skipped.
-func (s *accountTokenService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, bool) {
+func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, bool) {
 	trustlineEntry := change.Post.Data.MustTrustLine()
 	accountAddress := trustlineEntry.AccountId.Address()
 	asset := trustlineEntry.Asset
@@ -661,7 +683,7 @@ func (s *accountTokenService) processTrustlineChange(change ingest.Change) (stri
 
 // processContractBalanceChange extracts contract balance information from a contract data entry.
 // Returns the holder address and contract ID, with skip=true if extraction fails.
-func (s *accountTokenService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
+func (s *tokenCacheService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
 	// Extract the account/contract address from the contract data entry key.
 	// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
 	// However, this could also be valid for any non-SEP41 contract that mimics the same format.
@@ -676,7 +698,7 @@ func (s *accountTokenService) processContractBalanceChange(contractDataEntry xdr
 
 // processContractInstanceChange extracts contract type information from a contract instance entry.
 // Updates the contractTypesByContractID map with SAC types, and returns WASM hash for non-SAC contracts.
-func (s *accountTokenService) processContractInstanceChange(
+func (s *tokenCacheService) processContractInstanceChange(
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
@@ -703,7 +725,7 @@ func (s *accountTokenService) processContractInstanceChange(
 
 // collectAccountTokensFromCheckpoint reads from a ChangeReader and collects all trustlines and contract balances.
 // Returns checkpointData containing maps of trustlines, contracts, contract types, and contract IDs grouped by WASM hash.
-func (s *accountTokenService) collectAccountTokensFromCheckpoint(
+func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
 	ctx context.Context,
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
@@ -800,7 +822,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 }
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
-func (s *accountTokenService) enrichContractTypes(
+func (s *tokenCacheService) enrichContractTypes(
 	_ context.Context,
 	contractTypesByContractID map[string]types.ContractType,
 	contractIDsByWasmHash map[xdr.Hash][]string,
@@ -823,7 +845,7 @@ func (s *accountTokenService) enrichContractTypes(
 // Assets are sorted by frequency before insertion so the most common assets get the lowest IDs,
 // which results in smaller varint encoding and reduced Redis memory usage.
 // Contract addresses are stored directly as full strings.
-func (s *accountTokenService) storeAccountTokensInRedis(
+func (s *tokenCacheService) storeAccountTokensInRedis(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	trustlinesByAccountAddress map[string][]string,
@@ -895,7 +917,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 // processTrustlineAssets sorts assets by frequency (descending) for optimal varint encoding.
 // Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
-func (s *accountTokenService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int64) []wbdata.TrustlineAsset {
+func (s *tokenCacheService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int64) []wbdata.TrustlineAsset {
 	type assetFreq struct {
 		asset wbdata.TrustlineAsset
 		count int64
@@ -921,7 +943,7 @@ func (s *accountTokenService) processTrustlineAssets(trustlineFrequency map[wbda
 // - First element: ScSymbol("Balance")
 // - Second element: ScAddress (the account/contract holder address)
 // Returns the holder address as a Stellar-encoded string, or empty string if invalid.
-func (s *accountTokenService) extractHolderAddress(key xdr.ScVal) (string, error) {
+func (s *tokenCacheService) extractHolderAddress(key xdr.ScVal) (string, error) {
 	// Verify the key is a vector
 	keyVecPtr, ok := key.GetVec()
 	if !ok || keyVecPtr == nil {

@@ -100,7 +100,7 @@ func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *store.RedisStore) {
 }
 
 func TestExtractHolderAddress(t *testing.T) {
-	service := &accountTokenService{
+	service := &tokenCacheService{
 		trustlinesPrefix: trustlinesKeyPrefix,
 		contractsPrefix:  contractsKeyPrefix,
 	}
@@ -353,7 +353,7 @@ func TestEncodeDecodeAssetIDs(t *testing.T) {
 }
 
 func TestBuildTrustlineKey(t *testing.T) {
-	service := &accountTokenService{
+	service := &tokenCacheService{
 		trustlinesPrefix: trustlinesKeyPrefix,
 	}
 
@@ -395,7 +395,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -403,7 +403,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		got, err := service.GetAccountTrustlines(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
-		assert.Nil(t, got)
+		assert.Empty(t, got)
 	})
 
 	t.Run("account with single trustline", func(t *testing.T) {
@@ -411,7 +411,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 		defer mr.Close()
 
 		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:          redisStore,
 			trustlineAssetModel: mockAssetModel,
 			trustlinesPrefix:    trustlinesKeyPrefix,
@@ -439,7 +439,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 		defer mr.Close()
 
 		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:          redisStore,
 			trustlineAssetModel: mockAssetModel,
 			trustlinesPrefix:    trustlinesKeyPrefix,
@@ -472,7 +472,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 		defer mr.Close()
 
 		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:          redisStore,
 			trustlineAssetModel: mockAssetModel,
 			trustlinesPrefix:    trustlinesKeyPrefix,
@@ -502,7 +502,7 @@ func TestGetAccountContracts(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -522,7 +522,7 @@ func TestGetAccountContracts(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -536,7 +536,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	ctx := context.Background()
-	service := &accountTokenService{
+	service := &tokenCacheService{
 		networkPassphrase: "Test SDF Network ; September 2015",
 		contractValidator: &mockContractValidator{returnType: types.ContractTypeUnknown, returnErr: nil},
 	}
@@ -987,7 +987,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1001,7 +1001,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1032,7 +1032,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1057,7 +1057,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1082,7 +1082,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1115,7 +1115,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1153,7 +1153,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1189,7 +1189,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1223,7 +1223,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1262,7 +1262,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1287,7 +1287,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1316,7 +1316,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		mr, redisStore := setupTestRedis(t)
 		defer mr.Close()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			redisStore:       redisStore,
 			trustlinesPrefix: trustlinesKeyPrefix,
 			contractsPrefix:  contractsKeyPrefix,
@@ -1456,7 +1456,7 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty changes returns empty map", func(t *testing.T) {
-		service := &accountTokenService{}
+		service := &tokenCacheService{}
 
 		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, []types.TrustlineChange{})
 		require.NoError(t, err)
@@ -1476,7 +1476,7 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 		cache.Set("EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", int64(2), 1)
 		cache.Wait()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			trustlineAssetModel: mockAssetModel,
 			trustlineIDByAsset:  cache,
 		}
@@ -1501,7 +1501,7 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 		cache, err := createTestRistrettoCache()
 		require.NoError(t, err)
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			trustlineIDByAsset: cache,
 		}
 
@@ -1523,7 +1523,7 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 		cache.Set("USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", int64(1), 1)
 		cache.Wait()
 
-		service := &accountTokenService{
+		service := &tokenCacheService{
 			trustlineIDByAsset: cache,
 		}
 
