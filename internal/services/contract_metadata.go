@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -47,9 +48,10 @@ type ContractMetadata struct {
 type ContractMetadataService interface {
 	// FetchAndStoreMetadata fetches metadata for the given contracts and stores in the database.
 	// Parameters:
+	//   - dbTx: the database transaction to use for storing metadata
 	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
 	// Returns error only for critical failures; individual fetch failures are logged.
-	FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error
+	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -89,7 +91,7 @@ func NewContractMetadataService(
 }
 
 // FetchAndStoreMetadata fetches metadata for contracts and stores in database.
-func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
+func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
 	if len(contractTypesByID) == 0 {
 		log.Ctx(ctx).Info("No contracts to fetch metadata for")
 		return nil
@@ -116,7 +118,7 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, con
 
 	// Store in database
 	start = time.Now()
-	err := s.storeInDB(ctx, metadataMap)
+	err := s.storeInDB(ctx, dbTx, metadataMap)
 	log.Ctx(ctx).Infof("Stored metadata for %d contracts in %.2f seconds", len(metadataMap), time.Since(start).Seconds())
 	return err
 }
@@ -315,7 +317,7 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 }
 
 // storeInDB stores contract metadata in the contract_tokens database table.
-func (s *contractMetadataService) storeInDB(ctx context.Context, metadataMap map[string]ContractMetadata) error {
+func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, metadataMap map[string]ContractMetadata) error {
 	if len(metadataMap) == 0 {
 		log.Ctx(ctx).Info("No contract metadata to store in database")
 		return nil
@@ -336,7 +338,7 @@ func (s *contractMetadataService) storeInDB(ctx context.Context, metadataMap map
 	}
 
 	// Batch insert all contracts
-	insertedIDs, err := s.contractModel.BatchInsert(ctx, nil, contracts)
+	insertedIDs, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
 	if err != nil {
 		return fmt.Errorf("storing contract metadata in database: %w", err)
 	}

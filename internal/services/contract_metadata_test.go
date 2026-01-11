@@ -161,7 +161,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, map[string]types.ContractType{})
+		err = service.FetchAndStoreMetadata(ctx, nil, map[string]types.ContractType{})
 		assert.NoError(t, err)
 
 		// Verify no RPC or DB calls were made
@@ -244,8 +244,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored correctly in database
 		contract, err := contractModel.GetByID(ctx, contractID)
@@ -335,8 +338,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored correctly in database
 		// SEP41 should NOT have Code/Issuer parsed (name is not in code:issuer format)
@@ -378,7 +384,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, nil, contractTypes)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storing contract metadata in database")
 		assert.Contains(t, err.Error(), "database connection failed")
@@ -426,8 +432,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
 		contract, err := contractModel.GetByID(ctx, contractID)
@@ -484,8 +493,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
 		contract, err := contractModel.GetByID(ctx, contractID)
@@ -542,8 +554,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
 		contract, err := contractModel.GetByID(ctx, contractID)
@@ -606,8 +621,11 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
 		contract, err := contractModel.GetByID(ctx, contractID)
@@ -635,7 +653,7 @@ func TestStoreInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, map[string]ContractMetadata{})
+		err = cms.storeInDB(ctx, nil, map[string]ContractMetadata{})
 		assert.NoError(t, err)
 
 		mockContractModel.AssertNotCalled(t, "BatchInsert")
@@ -691,9 +709,12 @@ func TestStoreInDB(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
 		require.NoError(t, err)
 
-		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, metadataMap)
+		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
+		cms := service.(*contractMetadataService)
+		err = cms.storeInDB(ctx, pgxTx, metadataMap)
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify CONTRACT1 was stored correctly
 		contract1, err := contractModel.GetByID(ctx, "CONTRACT1")
@@ -739,7 +760,7 @@ func TestStoreInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, metadataMap)
+		err = cms.storeInDB(ctx, nil, metadataMap)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storing contract metadata in database")

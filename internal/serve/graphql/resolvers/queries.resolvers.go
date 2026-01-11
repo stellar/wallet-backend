@@ -187,7 +187,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		ledgerKeys = append(ledgerKeys, accountKey)
 
 		// Fetch the current trustlines for the account
-		trustlines, err := r.accountTokenService.GetAccountTrustlines(ctx, address)
+		trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -214,7 +214,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	}
 
 	// Fetch the current contracts for the account
-	contractIDs, err := r.accountTokenService.GetAccountContracts(ctx, address)
+	contractIDs, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -433,7 +433,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 			// Get trustlines (skip for contract addresses)
 			if !info.isContract {
-				trustlines, err := r.accountTokenService.GetAccountTrustlines(ctx, address)
+				trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
 					accountInfos[index] = info
@@ -443,7 +443,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Get contract IDs for the account: note that this also contains contract tokens that we currently dont support (non SEP-41)
-			contractIDs, err := r.accountTokenService.GetAccountContracts(ctx, address)
+			contractIDs, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info
