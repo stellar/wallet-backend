@@ -491,7 +491,7 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
 	}
 	if idData == "" {
-		return nil, nil
+		return []*wbdata.TrustlineAsset{}, nil
 	}
 
 	// Decode varint binary format to asset IDs
@@ -500,7 +500,7 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 		return nil, fmt.Errorf("decoding trustline IDs for account %s: %w", accountAddress, err)
 	}
 	if len(ids) == 0 {
-		return nil, nil
+		return []*wbdata.TrustlineAsset{}, nil
 	}
 
 	// Get the trustline asset code and issuer from the IDs
