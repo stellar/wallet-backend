@@ -24,11 +24,6 @@ type ConnectionPool interface {
 	PgxPool() *pgxpool.Pool
 }
 
-// PgxQuerier is satisfied by both pgx.Tx and *pgxpool.Pool for read operations.
-type PgxQuerier interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
 // Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
 var _ ConnectionPool = (*ConnectionPoolImplementation)(nil)
 

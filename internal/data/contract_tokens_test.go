@@ -13,6 +13,9 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// Compile-time check that pgx.Tx is still used in other tests
+var _ pgx.Tx = (pgx.Tx)(nil)
+
 func TestContractModel_GetByID(t *testing.T) {
 	ctx := context.Background()
 
@@ -133,8 +136,10 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty IDs slice", func(t *testing.T) {
+	t.Run("returns empty slice for empty IDs slice", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -142,13 +147,9 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			contracts, txErr := m.BatchGetByIDs(ctx, dbTx, []string{})
-			require.NoError(t, txErr)
-			require.Nil(t, contracts)
-			return nil
-		})
+		contracts, err := m.BatchGetByIDs(ctx, []string{})
 		require.NoError(t, err)
+		require.Empty(t, contracts)
 	})
 
 	t.Run("returns empty slice when no contracts found", func(t *testing.T) {
@@ -163,13 +164,9 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			contracts, txErr := m.BatchGetByIDs(ctx, dbTx, []string{"nonexistent1", "nonexistent2"})
-			require.NoError(t, txErr)
-			require.Empty(t, contracts)
-			return nil
-		})
+		contracts, err := m.BatchGetByIDs(ctx, []string{"nonexistent1", "nonexistent2"})
 		require.NoError(t, err)
+		require.Empty(t, contracts)
 	})
 
 	t.Run("returns existing contracts by IDs", func(t *testing.T) {
@@ -227,29 +224,24 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 		require.NoError(t, err)
 
 		// Fetch contracts by IDs
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			fetchedContracts, txErr := m.BatchGetByIDs(ctx, dbTx, []string{"contract1", "contract2", "nonexistent"})
-			require.NoError(t, txErr)
-			require.Len(t, fetchedContracts, 2)
-
-			// Verify fetched contracts
-			contractMap := make(map[string]*Contract)
-			for _, c := range fetchedContracts {
-				contractMap[c.ID] = c
-			}
-
-			require.Equal(t, "sac", contractMap["contract1"].Type)
-			require.Equal(t, "TEST1", *contractMap["contract1"].Code)
-			require.Equal(t, "GTEST123", *contractMap["contract1"].Issuer)
-			require.Equal(t, uint32(7), contractMap["contract1"].Decimals)
-
-			require.Equal(t, "sep41", contractMap["contract2"].Type)
-			require.Equal(t, "TEST2", *contractMap["contract2"].Code)
-			require.Equal(t, uint32(18), contractMap["contract2"].Decimals)
-
-			return nil
-		})
+		fetchedContracts, err := m.BatchGetByIDs(ctx, []string{"contract1", "contract2", "nonexistent"})
 		require.NoError(t, err)
+		require.Len(t, fetchedContracts, 2)
+
+		// Verify fetched contracts
+		contractMap := make(map[string]*Contract)
+		for _, c := range fetchedContracts {
+			contractMap[c.ID] = c
+		}
+
+		require.Equal(t, "sac", contractMap["contract1"].Type)
+		require.Equal(t, "TEST1", *contractMap["contract1"].Code)
+		require.Equal(t, "GTEST123", *contractMap["contract1"].Issuer)
+		require.Equal(t, uint32(7), contractMap["contract1"].Decimals)
+
+		require.Equal(t, "sep41", contractMap["contract2"].Type)
+		require.Equal(t, "TEST2", *contractMap["contract2"].Code)
+		require.Equal(t, uint32(18), contractMap["contract2"].Decimals)
 
 		cleanUpDB()
 	})

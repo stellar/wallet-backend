@@ -223,7 +223,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			},
 		}
 	}
-	contractTokens, err := r.models.Contract.BatchGetByIDs(ctx, r.models.DB.PgxPool(), contractIDs)
+	contractTokens, err := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -452,7 +452,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 			// Get contract metadata: note that this will always return only the supported tokens irrespective of non-supported contract IDs
 			if len(contractIDs) > 0 {
-				contracts, contractErr := r.models.Contract.BatchGetByIDs(ctx, r.models.DB.PgxPool(), contractIDs)
+				contracts, contractErr := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
 				if contractErr != nil {
 					info.collectionErr = fmt.Errorf("getting contract metadata: %w", contractErr)
 					accountInfos[index] = info

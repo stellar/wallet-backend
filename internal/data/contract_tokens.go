@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -16,7 +17,7 @@ import (
 type ContractModelInterface interface {
 	GetByID(ctx context.Context, contractID string) (*Contract, error)
 	GetAllIDs(ctx context.Context) ([]string, error)
-	BatchGetByIDs(ctx context.Context, q db.PgxQuerier, contractIDs []string) ([]*Contract, error)
+	BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) ([]string, error)
 }
 
@@ -85,28 +86,16 @@ func (m *ContractModel) GetAllIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-func (m *ContractModel) BatchGetByIDs(ctx context.Context, q db.PgxQuerier, contractIDs []string) ([]*Contract, error) {
-	if len(contractIDs) == 0 {
-		return nil, nil
-	}
-
-	const query = `SELECT id, type, code, issuer, name, symbol, decimals, created_at, updated_at FROM contract_tokens WHERE id = ANY($1)`
-
+func (m *ContractModel) BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
 	start := time.Now()
-	rows, err := q.Query(ctx, query, contractIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("querying contracts by IDs: %w", err)
-	}
-
-	contracts, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Contract])
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("collecting contract rows: %w", err)
-	}
-
+	var contracts []*Contract
+	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contract_tokens WHERE id = ANY($1)", pq.Array(contractIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "contract_tokens", duration)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting contracts by IDs: %w", err)
+	}
 	m.MetricsService.IncDBQuery("BatchGetByIDs", "contract_tokens")
 	return contracts, nil
 }
