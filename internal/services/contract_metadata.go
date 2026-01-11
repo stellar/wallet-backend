@@ -111,7 +111,7 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbT
 	// Fetch metadata in parallel batches
 	start := time.Now()
 	metadataMap = s.fetchBatch(ctx, metadataMap, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(metadataMap), time.Since(start).Minutes())
+	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
 
 	// Parse SAC code:issuer from name field
 	s.parseSACMetadata(metadataMap)
@@ -119,7 +119,7 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbT
 	// Store in database
 	start = time.Now()
 	err := s.storeInDB(ctx, dbTx, metadataMap)
-	log.Ctx(ctx).Infof("Stored metadata for %d contracts in %.2f seconds", len(metadataMap), time.Since(start).Seconds())
+	log.Ctx(ctx).Infof("Inserted %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
 	return err
 }
 
@@ -338,12 +338,10 @@ func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, me
 	}
 
 	// Batch insert all contracts
-	insertedIDs, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
+	_, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
 	if err != nil {
 		return fmt.Errorf("storing contract metadata in database: %w", err)
 	}
-
-	log.Ctx(ctx).Infof("Successfully stored metadata for %d/%d contracts in database", len(insertedIDs), len(metadataMap))
 	return nil
 }
 
