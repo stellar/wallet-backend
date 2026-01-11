@@ -37,14 +37,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	}()
 
-	// Load known contract IDs into cache to avoid per-ledger DB lookups
-	ids, err := m.models.Contract.GetAllIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("loading contract IDs into cache: %w", err)
-	}
-	m.knownContractIDs.Append(ids...)
-	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
-
 	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
@@ -83,6 +75,14 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	}
 
+	// Load known contract IDs into cache to avoid per-ledger DB lookups
+	ids, err := m.models.Contract.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("loading contract IDs into cache: %w", err)
+	}
+	m.knownContractIDs.Append(ids...)
+	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
+
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
@@ -108,20 +108,19 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		start := time.Now()
+		totalStart := time.Now()
+		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
+		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
 
 		// Pre-commit asset IDs in a separate transaction before the main transaction
 		// to prevent orphan IDs if the main transaction rolls back
@@ -134,8 +133,6 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
-
-		// Record processing metrics
 		m.metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
 		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
@@ -144,7 +141,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.metricsService.IncIngestionLedgersProcessed(1)
 		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
 
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
+		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
 		currentLedger++
 	}
 }
