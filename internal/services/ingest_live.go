@@ -159,7 +159,10 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 				return fmt.Errorf("inserting trustline assets: %w", innerErr)
 			}
 			// Fetch and store metadata for new SAC/SEP-41 contracts
-			newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
+			newContractTypesByID, innerErr := m.filterNewContractTokens(ctx, dbTx, contractChanges)
+			if innerErr != nil {
+				return fmt.Errorf("filtering new contract tokens: %w", innerErr)
+			}
 			if len(newContractTypesByID) > 0 {
 				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
 				if innerErr != nil {
@@ -277,9 +280,9 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 
 // filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
 // checks which contracts already exist in the database, and returns a map of only new contracts.
-func (m *ingestService) filterNewContractTokens(ctx context.Context, contractChanges []types.ContractChange) map[string]types.ContractType {
+func (m *ingestService) filterNewContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]types.ContractType, error) {
 	if len(contractChanges) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Extract unique SAC and SEP-41 contract IDs and build type map
@@ -304,14 +307,13 @@ func (m *ingestService) filterNewContractTokens(ctx context.Context, contractCha
 	}
 
 	if len(contractIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Check which contracts already exist in the database
-	existingContracts, err := m.models.Contract.BatchGetByIDs(ctx, contractIDs)
+	existingContracts, err := m.models.Contract.BatchGetByIDs(ctx, dbTx, contractIDs)
 	if err != nil {
-		log.Ctx(ctx).Warnf("Failed to check existing contracts: %v", err)
-		return nil
+		return nil, fmt.Errorf("checking existing contracts: %w", err)
 	}
 
 	// Remove existing contracts from the map
@@ -319,5 +321,5 @@ func (m *ingestService) filterNewContractTokens(ctx context.Context, contractCha
 		delete(contractTypeMap, contract.ID)
 	}
 
-	return contractTypeMap
+	return contractTypeMap, nil
 }

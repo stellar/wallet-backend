@@ -6,6 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type ContractModelMock struct {
@@ -35,8 +37,8 @@ func (m *ContractModelMock) GetByID(ctx context.Context, contractID string) (*Co
 	return args.Get(0).(*Contract), args.Error(1)
 }
 
-func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
-	args := m.Called(ctx, contractIDs)
+func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, q db.PgxQuerier, contractIDs []string) ([]*Contract, error) {
+	args := m.Called(ctx, q, contractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
