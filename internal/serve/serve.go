@@ -170,10 +170,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (*cache.RedisStore, handl
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	tokenCacheReader, err := services.NewTokenCacheReader(ctx, models.DB, redisStore, models.TrustlineAsset)
-	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating token cache reader: %w", err)
-	}
+	tokenCacheReader := services.NewTokenCacheReader(models.DB, redisStore, models.TrustlineAsset)
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
