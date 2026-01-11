@@ -47,6 +47,78 @@ func TestContractModel_GetByID(t *testing.T) {
 	})
 }
 
+func TestContractModel_GetAllIDs(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		require.NoError(t, err)
+	}
+
+	t.Run("returns empty slice when table is empty", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAllIDs", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAllIDs", "contract_tokens").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &ContractModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		ids, err := m.GetAllIDs(ctx)
+		require.NoError(t, err)
+		require.Empty(t, ids)
+	})
+
+	t.Run("returns all contract IDs from DB", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAllIDs", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAllIDs", "contract_tokens").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &ContractModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		name := "Test"
+		symbol := "TST"
+		contracts := []*Contract{
+			{ID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
+			{ID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
+			{ID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
+		}
+
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			require.NoError(t, txErr)
+			require.Len(t, insertedIDs, 3)
+			return nil
+		})
+		require.NoError(t, err)
+
+		ids, err := m.GetAllIDs(ctx)
+		require.NoError(t, err)
+		require.Len(t, ids, 3)
+		require.ElementsMatch(t, []string{"contract1", "contract2", "contract3"}, ids)
+
+		cleanUpDB()
+	})
+}
+
 func TestContractModel_BatchGetByIDs(t *testing.T) {
 	ctx := context.Background()
 

@@ -37,6 +37,14 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	}()
 
+	// Load known contract IDs into cache to avoid per-ledger DB lookups
+	ids, err := m.models.Contract.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("loading contract IDs into cache: %w", err)
+	}
+	m.knownContractIDs.Append(ids...)
+	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
+
 	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
@@ -147,6 +155,9 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 	var innerErr error
 	var lastErr error
 
+	// Filter new contracts using in-memory cache (outside transaction - no DB call)
+	newContractTypesByID := m.filterNewContractTokens(contractChanges)
+
 	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
 		select {
 		case <-ctx.Done():
@@ -159,10 +170,6 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 				return fmt.Errorf("inserting trustline assets: %w", innerErr)
 			}
 			// Fetch and store metadata for new SAC/SEP-41 contracts
-			newContractTypesByID, innerErr := m.filterNewContractTokens(ctx, dbTx, contractChanges)
-			if innerErr != nil {
-				return fmt.Errorf("filtering new contract tokens: %w", innerErr)
-			}
 			if len(newContractTypesByID) > 0 {
 				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
 				if innerErr != nil {
@@ -172,6 +179,10 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 			return nil
 		})
 		if err == nil {
+			// Update cache AFTER transaction commits to avoid stale cache on rollback
+			for contractID := range newContractTypesByID {
+				m.knownContractIDs.Add(contractID)
+			}
 			return trustlineAssetIDMap, nil
 		}
 		lastErr = err
@@ -259,7 +270,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -269,7 +280,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
 	}
 
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, innerTxHashes...); err != nil {
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, dbTx, innerTxHashes...); err != nil {
 		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
 	} else if affectedRows > 0 {
 		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
@@ -279,47 +290,32 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx,
 }
 
 // filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
-// checks which contracts already exist in the database, and returns a map of only new contracts.
-func (m *ingestService) filterNewContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]types.ContractType, error) {
+// checks which contracts already exist in the in-memory cache, and returns a map of only new contracts.
+// This function uses the knownContractIDs cache to avoid per-ledger database queries.
+func (m *ingestService) filterNewContractTokens(contractChanges []types.ContractChange) map[string]types.ContractType {
 	if len(contractChanges) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	// Extract unique SAC and SEP-41 contract IDs and build type map
+	// Extract unique SAC and SEP-41 contract IDs not already in cache
 	seen := set.NewSet[string]()
-	contractTypeMap := make(map[string]types.ContractType)
-	var contractIDs []string
+	newContracts := make(map[string]types.ContractType)
 
 	for _, change := range contractChanges {
 		// Only process SAC and SEP-41 contracts
 		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
 			continue
 		}
-		if change.ContractID == "" {
-			continue
-		}
-		if seen.Contains(change.ContractID) {
+		if change.ContractID == "" || seen.Contains(change.ContractID) {
 			continue
 		}
 		seen.Add(change.ContractID)
-		contractIDs = append(contractIDs, change.ContractID)
-		contractTypeMap[change.ContractID] = change.ContractType
+
+		// Check cache - if not known, it's a new contract
+		if !m.knownContractIDs.Contains(change.ContractID) {
+			newContracts[change.ContractID] = change.ContractType
+		}
 	}
 
-	if len(contractIDs) == 0 {
-		return nil, nil
-	}
-
-	// Check which contracts already exist in the database
-	existingContracts, err := m.models.Contract.BatchGetByIDs(ctx, dbTx, contractIDs)
-	if err != nil {
-		return nil, fmt.Errorf("checking existing contracts: %w", err)
-	}
-
-	// Remove existing contracts from the map
-	for _, contract := range existingContracts {
-		delete(contractTypeMap, contract.ID)
-	}
-
-	return contractTypeMap, nil
+	return newContracts
 }

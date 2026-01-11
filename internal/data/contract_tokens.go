@@ -15,6 +15,7 @@ import (
 // ContractModelInterface defines the interface for contract token operations
 type ContractModelInterface interface {
 	GetByID(ctx context.Context, contractID string) (*Contract, error)
+	GetAllIDs(ctx context.Context) ([]string, error)
 	BatchGetByIDs(ctx context.Context, q db.PgxQuerier, contractIDs []string) ([]*Contract, error)
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) ([]string, error)
 }
@@ -50,6 +51,38 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 	}
 	m.MetricsService.IncDBQuery("GetByID", "contract_tokens")
 	return contract, nil
+}
+
+// GetAllIDs returns all contract token IDs from the database.
+func (m *ContractModel) GetAllIDs(ctx context.Context) ([]string, error) {
+	const query = `SELECT id FROM contract_tokens`
+
+	start := time.Now()
+	rows, err := m.DB.QueryxContext(ctx, query)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetAllIDs", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying contract IDs: %w", err)
+	}
+	defer utils.DeferredClose(ctx, rows, "closing contract IDs rows")
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			m.MetricsService.IncDBQueryError("GetAllIDs", "contract_tokens", utils.GetDBErrorType(err))
+			return nil, fmt.Errorf("scanning contract ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("GetAllIDs", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("iterating contract rows: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetAllIDs", "contract_tokens", duration)
+	m.MetricsService.IncDBQuery("GetAllIDs", "contract_tokens")
+	return ids, nil
 }
 
 func (m *ContractModel) BatchGetByIDs(ctx context.Context, q db.PgxQuerier, contractIDs []string) ([]*Contract, error) {
