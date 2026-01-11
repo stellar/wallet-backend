@@ -1450,6 +1450,165 @@ func TestProcessTokenChanges(t *testing.T) {
 				"Contracts for %s should be identical after reprocessing", acc)
 		}
 	})
+
+	t.Run("idempotent recovery after simulated partial failure", func(t *testing.T) {
+		// This test simulates a partial pipeline failure scenario where:
+		// 1. Some Redis operations succeed before an error occurs
+		// 2. The DB transaction rolls back, but Redis has partial state
+		// 3. The ledger is reprocessed with ProcessTokenChanges
+		// 4. Despite the corrupted partial state, the final result should be correct
+		//    because set operations (Add/Remove) are inherently idempotent.
+
+		mr, redisStore := setupTestRedis(t)
+		defer mr.Close()
+
+		service := &tokenCacheService{
+			redisStore:       redisStore,
+			trustlinesPrefix: trustlinesKeyPrefix,
+			contractsPrefix:  contractsKeyPrefix,
+		}
+
+		// Test accounts
+		accountA := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		accountB := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		accountC := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
+
+		// Contract IDs
+		contractC1 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+		contractC2 := "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+		// Asset definitions
+		usdcAsset := "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+		eurcAsset := "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"
+		btcAsset := "BTC:GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF"
+		ethAsset := "ETH:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+
+		// Pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
+		assetIDMap := map[string]int64{
+			usdcAsset: 1,
+			eurcAsset: 2,
+			btcAsset:  3,
+			ethAsset:  4,
+		}
+
+		// --- Initial state (before any changes) ---
+		// Account A: [1, 2] (USDC, EURC)
+		// Account B: [3] (BTC)
+		// Account C: empty
+		keyA := service.buildTrustlineKey(accountA)
+		keyB := service.buildTrustlineKey(accountB)
+
+		// Changes to be applied
+		trustlineChanges := []types.TrustlineChange{
+			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpRemove, OperationID: 1},
+			{AccountID: accountA, Asset: btcAsset, Operation: types.TrustlineOpAdd, OperationID: 2},
+			{AccountID: accountA, Asset: ethAsset, Operation: types.TrustlineOpAdd, OperationID: 3},
+			{AccountID: accountB, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 4},
+			{AccountID: accountB, Asset: btcAsset, Operation: types.TrustlineOpRemove, OperationID: 5},
+			{AccountID: accountC, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 6},
+			{AccountID: accountC, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 7},
+		}
+
+		contractChanges := []types.ContractChange{
+			{AccountID: accountA, ContractID: contractC1, ContractType: types.ContractTypeSAC},
+			{AccountID: accountA, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
+			{AccountID: accountB, ContractID: contractC1, ContractType: types.ContractTypeSAC},
+			{AccountID: accountC, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
+		}
+
+		// --- Expected final state after all changes ---
+		// Account A: [2, 3, 4] (EURC, BTC, ETH) - removed USDC, added BTC, ETH
+		// Account B: [2] (EURC) - added EURC, removed BTC
+		// Account C: [1, 2] (USDC, EURC) - added both
+		expectedTrustlines := map[string][]int64{
+			accountA: {2, 3, 4},
+			accountB: {2},
+			accountC: {1, 2},
+		}
+		expectedContracts := map[string][]string{
+			accountA: {contractC1, contractC2},
+			accountB: {contractC1},
+			accountC: {contractC2},
+		}
+
+		// --- Simulate partial failure scenario ---
+		// Imagine a previous run where:
+		// - Account A's trustline operations succeeded (already at final state)
+		// - Account B's contract operations succeeded (already has contractC1)
+		// - Account C is still at initial state (operations didn't complete)
+
+		// Account A: Set to final trustline state (simulates successful partial write)
+		mr.HSet(keyA, accountA, testEncodeAssetIDs([]int64{2, 3, 4}))
+
+		// Account B: Set to initial trustline state BUT with contract already added
+		mr.HSet(keyB, accountB, testEncodeAssetIDs([]int64{3})) // Still has BTC (initial)
+		_, err := mr.SetAdd(service.buildContractKey(accountB), contractC1)
+		require.NoError(t, err)
+
+		// Account C: At initial state (empty trustlines, no contracts)
+		// No setup needed - this is the default
+
+		// --- Process all changes (simulating reprocessing after rollback) ---
+		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
+		require.NoError(t, err)
+
+		// --- Verify ALL accounts have correct final state ---
+		// Helper to capture state
+		captureState := func() (map[string][]int64, map[string][]string) {
+			trustlines := make(map[string][]int64)
+			contracts := make(map[string][]string)
+
+			var decodeErr error
+			for _, acc := range []string{accountA, accountB, accountC} {
+				key := service.buildTrustlineKey(acc)
+				val := mr.HGet(key, acc)
+				if val != "" {
+					trustlines[acc], decodeErr = decodeAssetIDs([]byte(val))
+					require.NoError(t, decodeErr)
+				} else {
+					trustlines[acc] = []int64{}
+				}
+
+				contractKey := service.buildContractKey(acc)
+				members, sErr := mr.SMembers(contractKey)
+				if sErr != nil {
+					contracts[acc] = []string{}
+				} else {
+					contracts[acc] = members
+				}
+			}
+			return trustlines, contracts
+		}
+
+		finalTrustlines, finalContracts := captureState()
+
+		// Assert trustlines match expected (order-independent)
+		for acc, expected := range expectedTrustlines {
+			assert.ElementsMatch(t, expected, finalTrustlines[acc],
+				"Account %s trustlines should match expected after recovery from partial failure", acc)
+		}
+
+		// Assert contracts match expected (order-independent)
+		for acc, expected := range expectedContracts {
+			assert.ElementsMatch(t, expected, finalContracts[acc],
+				"Account %s contracts should match expected after recovery from partial failure", acc)
+		}
+
+		// --- Verify idempotency: processing again should produce same result ---
+		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
+		require.NoError(t, err)
+
+		finalTrustlines2, finalContracts2 := captureState()
+
+		for acc := range expectedTrustlines {
+			assert.ElementsMatch(t, finalTrustlines[acc], finalTrustlines2[acc],
+				"Account %s trustlines should be unchanged after second processing", acc)
+		}
+		for acc := range expectedContracts {
+			assert.ElementsMatch(t, finalContracts[acc], finalContracts2[acc],
+				"Account %s contracts should be unchanged after second processing", acc)
+		}
+	})
 }
 
 func TestGetOrInsertTrustlineAssets(t *testing.T) {
