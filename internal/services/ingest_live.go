@@ -128,7 +128,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 
 		// Record processing metrics
-		m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
+		m.metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
 		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
 		m.metricsService.IncIngestionTransactionsProcessed(numTransactionProcessed)
