@@ -102,6 +102,7 @@ func (r *RedisStore) HGet(ctx context.Context, key string, field string) (string
 	return val, nil
 }
 
+// HMGet retrieves the values of multiple fields and their values in a hash stored at key.
 func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (map[string]string, error) {
 	vals, err := r.client.HMGet(ctx, key, fields...).Result()
 	if err != nil {
@@ -110,6 +111,10 @@ func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (m
 
 	result := make(map[string]string)
 	for i, field := range fields {
+		if vals[i] == nil {
+			// Field doesn't exist in Redis - this is normal for new accounts
+			continue
+		}
 		str, ok := vals[i].(string)
 		if !ok {
 			return nil, fmt.Errorf("getting field %s from key %s: %w", field, key, err)

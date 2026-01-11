@@ -134,6 +134,172 @@ func TestRedisStore_Get(t *testing.T) {
 	})
 }
 
+func TestRedisStore_HGet(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("successfully retrieves existing hash field", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Set hash field directly in miniredis
+		mr.HSet("test:hash", "field1", "value1")
+
+		value, err := store.HGet(ctx, "test:hash", "field1")
+		require.NoError(t, err)
+		assert.Equal(t, "value1", value)
+	})
+
+	t.Run("returns empty string for non-existent field", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		value, err := store.HGet(ctx, "test:hash", "nonexistent")
+		require.NoError(t, err)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("returns empty string for non-existent key", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		value, err := store.HGet(ctx, "nonexistent:hash", "field1")
+		require.NoError(t, err)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("handles error when Redis is unavailable", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		mr.Close() // Close to simulate connection error
+
+		value, err := store.HGet(ctx, "test:hash", "field1")
+		assert.Error(t, err)
+		assert.Equal(t, "", value)
+		assert.Contains(t, err.Error(), "getting key test:hash")
+	})
+}
+
+func TestRedisStore_HMGet(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("successfully retrieves multiple hash fields", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Set hash fields directly in miniredis
+		mr.HSet("test:hash", "field1", "value1")
+		mr.HSet("test:hash", "field2", "value2")
+		mr.HSet("test:hash", "field3", "value3")
+
+		result, err := store.HMGet(ctx, "test:hash", "field1", "field2", "field3")
+		require.NoError(t, err)
+		assert.Len(t, result, 3)
+		assert.Equal(t, "value1", result["field1"])
+		assert.Equal(t, "value2", result["field2"])
+		assert.Equal(t, "value3", result["field3"])
+	})
+
+	t.Run("skips non-existent fields", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Set only some fields
+		mr.HSet("test:hash", "field1", "value1")
+		mr.HSet("test:hash", "field3", "value3")
+
+		result, err := store.HMGet(ctx, "test:hash", "field1", "field2", "field3")
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "value1", result["field1"])
+		assert.Equal(t, "value3", result["field3"])
+		_, exists := result["field2"]
+		assert.False(t, exists, "field2 should not exist in result")
+	})
+
+	t.Run("returns empty map for non-existent key", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		result, err := store.HMGet(ctx, "nonexistent:hash", "field1", "field2")
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("returns empty map when all fields are non-existent", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Create a hash with different fields
+		mr.HSet("test:hash", "other_field", "other_value")
+
+		result, err := store.HMGet(ctx, "test:hash", "field1", "field2")
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("handles single field request", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		mr.HSet("test:hash", "field1", "value1")
+
+		result, err := store.HMGet(ctx, "test:hash", "field1")
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "value1", result["field1"])
+	})
+
+	t.Run("handles error when Redis is unavailable", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		mr.Close() // Close to simulate connection error
+
+		result, err := store.HMGet(ctx, "test:hash", "field1")
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "getting key test:hash")
+	})
+}
+
+func TestRedisStore_HSet(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("successfully stores hash field", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		err := store.HSet(ctx, "test:hash", "field1", "value1")
+		require.NoError(t, err)
+
+		// Verify value was stored
+		value := mr.HGet("test:hash", "field1")
+		assert.Equal(t, "value1", value)
+	})
+
+	t.Run("successfully overwrites existing field", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		defer mr.Close()
+
+		// Set initial value
+		mr.HSet("test:hash", "field1", "old_value")
+
+		// Overwrite with new value
+		err := store.HSet(ctx, "test:hash", "field1", "new_value")
+		require.NoError(t, err)
+
+		// Verify value was overwritten
+		value := mr.HGet("test:hash", "field1")
+		assert.Equal(t, "new_value", value)
+	})
+
+	t.Run("handles error when Redis is unavailable", func(t *testing.T) {
+		store, mr := setupTestRedis(t)
+		mr.Close() // Close to simulate connection error
+
+		err := store.HSet(ctx, "test:hash", "field1", "value1")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "setting key test:hash")
+	})
+}
+
 func TestRedisStore_Set(t *testing.T) {
 	ctx := context.Background()
 
