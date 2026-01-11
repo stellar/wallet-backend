@@ -1364,8 +1364,8 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			// Call flushBatchBuffer
-			err = svc.flushBatchBuffer(ctx, buffer, tc.updateCursorTo)
+			// Call flushBatchBuffer (nil for catchupData as we're not testing catchup mode)
+			err = svc.flushBatchBuffer(ctx, buffer, tc.updateCursorTo, nil)
 			require.NoError(t, err)
 
 			// Verify the cursor value
