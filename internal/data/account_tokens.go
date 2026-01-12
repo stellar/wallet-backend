@@ -238,7 +238,12 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 		if err != nil {
 			return fmt.Errorf("marshaling add IDs for %s: %w", accountAddress, err)
 		}
-		batch.Queue(query, accountAddress, addJSON, change.RemoveIDs)
+
+		removeIDs := change.RemoveIDs
+		if removeIDs == nil {
+			removeIDs = []int64{}
+		}
+		batch.Queue(query, accountAddress, addJSON, removeIDs)
 	}
 
 	br := dbTx.SendBatch(ctx, batch)
