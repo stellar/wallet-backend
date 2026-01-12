@@ -2900,7 +2900,7 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushBatchBuffer(ctx, buffer, nil, tc.catchupData)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.catchupData)
 			require.NoError(t, err)
 
 			// Verify collected data counts
