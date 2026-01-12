@@ -206,6 +206,7 @@ func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses 
 
 // BatchUpsertTrustlines adds/removes asset IDs for multiple accounts atomically.
 // For each account, it merges the current asset_ids with new additions and removes specified IDs.
+// Uses pgx.Batch for single round-trip efficiency.
 func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error {
 	if len(changes) == 0 {
 		return nil
@@ -213,43 +214,48 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 
 	start := time.Now()
 
-	for accountAddress, change := range changes {
-		// Build the new asset_ids by combining existing + additions - removals
-		const query = `
-			INSERT INTO account_trustlines (account_address, asset_ids, updated_at)
-			VALUES ($1, $2::jsonb, NOW())
-			ON CONFLICT (account_address) DO UPDATE SET
-				asset_ids = (
-					SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-					FROM (
-						SELECT jsonb_array_elements(account_trustlines.asset_ids) AS elem
-						UNION ALL
-						SELECT jsonb_array_elements($2::jsonb) AS elem
-					) combined
-					WHERE NOT (elem::bigint = ANY($3::bigint[]))
-				),
-				updated_at = NOW()`
+	const query = `
+		INSERT INTO account_trustlines (account_address, asset_ids, updated_at)
+		VALUES ($1, $2::jsonb, NOW())
+		ON CONFLICT (account_address) DO UPDATE SET
+			asset_ids = (
+				SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+				FROM jsonb_array_elements(account_trustlines.asset_ids || $2::jsonb) elem
+				WHERE NOT (elem::bigint = ANY($3::bigint[]))
+			),
+			updated_at = NOW()`
 
-		addJSON, err := json.Marshal(change.AddIDs)
+	batch := &pgx.Batch{}
+	addresses := make([]string, 0, len(changes))
+	for accountAddress, change := range changes {
+		addresses = append(addresses, accountAddress)
+
+		addIDs := change.AddIDs
+		if addIDs == nil {
+			addIDs = []int64{}
+		}
+		addJSON, err := json.Marshal(addIDs)
 		if err != nil {
 			return fmt.Errorf("marshaling add IDs for %s: %w", accountAddress, err)
 		}
+		batch.Queue(query, accountAddress, addJSON, change.RemoveIDs)
+	}
 
-		_, err = dbTx.Exec(ctx, query, accountAddress, addJSON, change.RemoveIDs)
-		if err != nil {
-			return fmt.Errorf("upserting trustlines for %s: %w", accountAddress, err)
+	br := dbTx.SendBatch(ctx, batch)
+	for range changes {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("upserting trustlines: %w", err)
 		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing trustline batch: %w", err)
 	}
 
 	// Clean up accounts with empty arrays
 	const cleanupQuery = `
 		DELETE FROM account_trustlines
 		WHERE account_address = ANY($1) AND asset_ids = '[]'::jsonb`
-
-	addresses := make([]string, 0, len(changes))
-	for addr := range changes {
-		addresses = append(addresses, addr)
-	}
 
 	_, err := dbTx.Exec(ctx, cleanupQuery, addresses)
 	if err != nil {
@@ -262,6 +268,7 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 }
 
 // BatchAddContracts appends numeric contract IDs for multiple accounts (contracts never removed).
+// Uses pgx.Batch for single round-trip efficiency.
 func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
 	if len(contractsByAccount) == 0 {
 		return nil
@@ -269,34 +276,43 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 
 	start := time.Now()
 
+	const query = `
+		INSERT INTO account_contracts (account_address, contract_ids, updated_at)
+		VALUES ($1, $2::jsonb, NOW())
+		ON CONFLICT (account_address) DO UPDATE SET
+			contract_ids = (
+				SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+				FROM jsonb_array_elements(account_contracts.contract_ids || $2::jsonb) elem
+			),
+			updated_at = NOW()`
+
+	batch := &pgx.Batch{}
+	count := 0
 	for accountAddress, contractIDs := range contractsByAccount {
 		if len(contractIDs) == 0 {
 			continue
 		}
-
-		const query = `
-			INSERT INTO account_contracts (account_address, contract_ids, updated_at)
-			VALUES ($1, $2::jsonb, NOW())
-			ON CONFLICT (account_address) DO UPDATE SET
-				contract_ids = (
-					SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-					FROM (
-						SELECT jsonb_array_elements(account_contracts.contract_ids) AS elem
-						UNION
-						SELECT jsonb_array_elements($2::jsonb) AS elem
-					) combined
-				),
-				updated_at = NOW()`
-
 		idsJSON, err := json.Marshal(contractIDs)
 		if err != nil {
 			return fmt.Errorf("marshaling contract IDs for %s: %w", accountAddress, err)
 		}
+		batch.Queue(query, accountAddress, idsJSON)
+		count++
+	}
 
-		_, err = dbTx.Exec(ctx, query, accountAddress, idsJSON)
-		if err != nil {
-			return fmt.Errorf("adding contracts for %s: %w", accountAddress, err)
+	if count == 0 {
+		return nil
+	}
+
+	br := dbTx.SendBatch(ctx, batch)
+	for i := 0; i < count; i++ {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("adding contracts: %w", err)
 		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing contracts batch: %w", err)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchAddContracts", "account_contracts", time.Since(start).Seconds())
