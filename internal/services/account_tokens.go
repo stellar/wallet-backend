@@ -223,14 +223,19 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 
 	// We sort the trustline changes in the order they happened and then apply them in that order.
 	// The last operation for (account, trustline) will be applied.
+	// We only store the net change for each (account, trustline) pair.
 	type changeKey struct {
 		accountID string
 		trustlineID int64
 	}
+	type opPair struct {
+		first types.TrustlineOpType
+		last types.TrustlineOpType
+	}
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
-	lastTrustlineOpPerAccountAndTrustline := make(map[changeKey]types.TrustlineOpType)
+	opsPerKey := make(map[changeKey]*opPair)
 	for _, change := range trustlineChanges {
 		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
@@ -242,25 +247,25 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 			return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
 		}
 
-		if _, ok := lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}]; !ok {
-			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = ""
+		key := changeKey{accountID: change.AccountID, trustlineID: assetID}
+		if opsPerKey[key] == nil {
+			opsPerKey[key] = &opPair{first: change.Operation}
 		}
-
-		switch change.Operation {
-		case types.TrustlineOpAdd:
-			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = types.TrustlineOpAdd
-		case types.TrustlineOpRemove:
-			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = types.TrustlineOpRemove
-		}
+		opsPerKey[key].last = change.Operation
 	}
 
 	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
-	for trustlineKey, lastOp := range lastTrustlineOpPerAccountAndTrustline {
+	for trustlineKey, ops := range opsPerKey {
+		// We skip this trustline change if the first and last operations result in no net change.
+		if ops.first == types.TrustlineOpAdd && ops.last == types.TrustlineOpRemove {
+			continue
+		}
+
 		if _, ok := trustlineChangesByAccount[trustlineKey.accountID]; !ok {
 			trustlineChangesByAccount[trustlineKey.accountID] = &wbdata.TrustlineChanges{}
 		}
 
-		switch lastOp {
+		switch ops.last {
 		case types.TrustlineOpAdd:
 			trustlineChangesByAccount[trustlineKey.accountID].AddIDs = append(trustlineChangesByAccount[trustlineKey.accountID].AddIDs, trustlineKey.trustlineID)
 		case types.TrustlineOpRemove:
