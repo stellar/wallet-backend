@@ -52,7 +52,7 @@ type TokenCacheReader interface {
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
 
 	// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
-	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
+	GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error)
 }
 
 // TokenCacheWriter provides write access to the token cache during ingestion.
@@ -99,6 +99,7 @@ type tokenCacheService struct {
 	contractMetadataService ContractMetadataService
 	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
 	accountTokensModel      wbdata.AccountTokensModelInterface
+	contractModel           wbdata.ContractModelInterface
 	networkPassphrase       string
 }
 
@@ -111,6 +112,7 @@ func NewTokenCacheWriter(
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	accountTokensModel wbdata.AccountTokensModelInterface,
+	contractModel wbdata.ContractModelInterface,
 ) TokenCacheWriter {
 	return &tokenCacheService{
 		db:                      dbPool,
@@ -119,6 +121,7 @@ func NewTokenCacheWriter(
 		contractMetadataService: contractMetadataService,
 		trustlineAssetModel:     trustlineAssetModel,
 		accountTokensModel:      accountTokensModel,
+		contractModel:           contractModel,
 		networkPassphrase:       networkPassphrase,
 	}
 }
@@ -128,11 +131,13 @@ func NewTokenCacheReader(
 	dbPool db.ConnectionPool,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	accountTokensModel wbdata.AccountTokensModelInterface,
+	contractModel wbdata.ContractModelInterface,
 ) TokenCacheReader {
 	return &tokenCacheService{
 		db:                  dbPool,
 		trustlineAssetModel: trustlineAssetModel,
 		accountTokensModel:  accountTokensModel,
+		contractModel:       contractModel,
 	}
 }
 
@@ -231,14 +236,14 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		}
 	}
 
-	// Group contract changes by account (filter empty contract IDs)
-	contractsByAccount := make(map[string][]string)
+	// Collect unique contract addresses from changes (filter empty contract IDs)
+	uniqueContractAddresses := set.NewSet[string]()
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
 			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
 			continue
 		}
-		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], change.ContractID)
+		uniqueContractAddresses.Add(change.ContractID)
 	}
 
 	// Execute all changes in a transaction
@@ -250,10 +255,40 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 			}
 		}
 
-		// Batch add contracts
-		if len(contractsByAccount) > 0 {
-			if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
-				return fmt.Errorf("adding contracts: %w", txErr)
+		// Get or insert contract IDs to get numeric IDs
+		if uniqueContractAddresses.Cardinality() > 0 {
+			// Build minimal contract structs for BatchGetOrInsert
+			contracts := make([]*wbdata.Contract, 0, uniqueContractAddresses.Cardinality())
+			for contractAddr := range uniqueContractAddresses.Iter() {
+				contracts = append(contracts, &wbdata.Contract{
+					ContractID: contractAddr,
+					Type:       string(types.ContractTypeUnknown),
+				})
+			}
+
+			contractIDMap, txErr := s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
+			if txErr != nil {
+				return fmt.Errorf("getting/inserting contract IDs: %w", txErr)
+			}
+
+			// Group contract changes by account using numeric IDs
+			contractsByAccount := make(map[string][]int64)
+			for _, change := range contractChanges {
+				if change.ContractID == "" {
+					continue
+				}
+				numericID, exists := contractIDMap[change.ContractID]
+				if !exists {
+					return fmt.Errorf("numeric ID not found for contract %s", change.ContractID)
+				}
+				contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
+			}
+
+			// Batch add contracts
+			if len(contractsByAccount) > 0 {
+				if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
+					return fmt.Errorf("adding contracts: %w", txErr)
+				}
 			}
 		}
 
@@ -307,21 +342,28 @@ func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAdd
 	return assets, nil
 }
 
-// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
+// GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.
 // For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
 // For C-address: all contract tokens (SAC, custom)
-// Returns full contract addresses (C...).
-func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+// Returns full Contract objects with metadata.
+func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	contracts, err := s.accountTokensModel.GetContractIDs(ctx, accountAddress)
+	// Get numeric contract IDs from PostgreSQL
+	numericIDs, err := s.accountTokensModel.GetContractIDs(ctx, accountAddress)
 	if err != nil {
-		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("getting contract IDs for account %s: %w", accountAddress, err)
 	}
-	if len(contracts) == 0 {
-		return []string{}, nil
+	if len(numericIDs) == 0 {
+		return []*wbdata.Contract{}, nil
+	}
+
+	// Resolve numeric IDs to contract objects
+	contracts, err := s.contractModel.BatchGetByIDs(ctx, numericIDs)
+	if err != nil {
+		return nil, fmt.Errorf("resolving contract IDs: %w", err)
 	}
 
 	return contracts, nil
@@ -549,7 +591,7 @@ func (s *tokenCacheService) enrichContractTypes(
 // storeAccountTokensInPostgres stores all collected trustlines and contracts into PostgreSQL.
 // Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
 // Assets are sorted by frequency before insertion so the most common assets get the lowest IDs.
-// Contract addresses are stored directly as full strings.
+// Contract addresses are also converted to numeric IDs for consistent storage.
 func (s *tokenCacheService) storeAccountTokensInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
@@ -586,9 +628,48 @@ func (s *tokenCacheService) storeAccountTokensInPostgres(
 		return fmt.Errorf("bulk inserting account trustlines: %w", err)
 	}
 
-	// Bulk insert contracts
-	if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractsByAccountAddress); err != nil {
-		return fmt.Errorf("bulk inserting account contracts: %w", err)
+	// Collect all unique contract addresses and insert them to get numeric IDs
+	uniqueContractAddresses := set.NewSet[string]()
+	for _, contracts := range contractsByAccountAddress {
+		for _, contractAddr := range contracts {
+			uniqueContractAddresses.Add(contractAddr)
+		}
+	}
+
+	if uniqueContractAddresses.Cardinality() > 0 {
+		// Build contract structs for batch insert
+		contracts := make([]*wbdata.Contract, 0, uniqueContractAddresses.Cardinality())
+		for contractAddr := range uniqueContractAddresses.Iter() {
+			contracts = append(contracts, &wbdata.Contract{
+				ContractID: contractAddr,
+				Type:       string(types.ContractTypeUnknown),
+			})
+		}
+
+		contractIDMap, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
+		if err != nil {
+			return fmt.Errorf("batch inserting contracts: %w", err)
+		}
+		log.Ctx(ctx).Infof("Inserted %d unique contracts", len(contractIDMap))
+
+		// Convert contract addresses to numeric IDs for bulk insert
+		contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
+		for accountAddress, contractAddrs := range contractsByAccountAddress {
+			ids := make([]int64, 0, len(contractAddrs))
+			for _, contractAddr := range contractAddrs {
+				if id, ok := contractIDMap[contractAddr]; ok {
+					ids = append(ids, id)
+				}
+			}
+			if len(ids) > 0 {
+				contractIDsByAccount[accountAddress] = ids
+			}
+		}
+
+		// Bulk insert contracts
+		if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractIDsByAccount); err != nil {
+			return fmt.Errorf("bulk inserting account contracts: %w", err)
+		}
 	}
 
 	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in PostgreSQL in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
