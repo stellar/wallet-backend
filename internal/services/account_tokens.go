@@ -434,7 +434,11 @@ func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx 
 	// BatchGetOrInsert handles everything:
 	// - SELECTs existing → returns their IDs
 	// - INSERTs new with metadata → returns their IDs
-	return s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
+	idMap, err := s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
+	if err != nil {
+		return nil, fmt.Errorf("batch get or insert contracts: %w", err)
+	}
+	return idMap, nil
 }
 
 // extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.

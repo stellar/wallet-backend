@@ -477,7 +477,10 @@ func (m *ingestService) processTokenChanges(
 	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		var txErr error
 		contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
-		return txErr
+		if txErr != nil {
+			return fmt.Errorf("getting or inserting contract tokens: %w", txErr)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("getting or inserting contract tokens: %w", err)
