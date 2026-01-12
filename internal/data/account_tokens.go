@@ -5,11 +5,11 @@ package data
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -50,7 +50,7 @@ type AccountTokensModel struct {
 
 var _ AccountTokensModelInterface = (*AccountTokensModel)(nil)
 
-// GetTrustlineAssetIDs retrieves asset IDs for a single account.
+// GetTrustlineAssetIDs retrieves asset IDs for a single account using pgx.
 func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
@@ -63,10 +63,10 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 
 	start := time.Now()
 	var assetIDsJSON []byte
-	err := m.DB.QueryRowContext(ctx, query, accountAddress).Scan(&assetIDsJSON)
+	err := m.DB.PgxPool().QueryRow(ctx, query, accountAddress).Scan(&assetIDsJSON)
 	m.MetricsService.ObserveDBQueryDuration("GetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
 
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		m.MetricsService.IncDBQuery("GetTrustlineAssetIDs", "account_trustlines")
 		return []int64{}, nil
 	}
@@ -84,7 +84,7 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 	return assetIDs, nil
 }
 
-// BatchGetTrustlineAssetIDs retrieves asset IDs for multiple accounts.
+// BatchGetTrustlineAssetIDs retrieves asset IDs for multiple accounts using pgx.
 func (m *AccountTokensModel) BatchGetTrustlineAssetIDs(ctx context.Context, addresses []string) (map[string][]int64, error) {
 	if len(addresses) == 0 {
 		return make(map[string][]int64), nil
@@ -96,7 +96,7 @@ func (m *AccountTokensModel) BatchGetTrustlineAssetIDs(ctx context.Context, addr
 		WHERE account_address = ANY($1)`
 
 	start := time.Now()
-	rows, err := m.DB.QueryContext(ctx, query, pq.Array(addresses))
+	rows, err := m.DB.PgxPool().Query(ctx, query, addresses)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetTrustlineAssetIDs", "account_trustlines", "query_error")
 		return nil, fmt.Errorf("querying trustline asset IDs: %w", err)
@@ -127,7 +127,7 @@ func (m *AccountTokensModel) BatchGetTrustlineAssetIDs(ctx context.Context, addr
 	return result, nil
 }
 
-// GetContractIDs retrieves contract IDs for a single account.
+// GetContractIDs retrieves contract IDs for a single account using pgx.
 func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]string, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
@@ -140,10 +140,10 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 
 	start := time.Now()
 	var contractIDsJSON []byte
-	err := m.DB.QueryRowContext(ctx, query, accountAddress).Scan(&contractIDsJSON)
+	err := m.DB.PgxPool().QueryRow(ctx, query, accountAddress).Scan(&contractIDsJSON)
 	m.MetricsService.ObserveDBQueryDuration("GetContractIDs", "account_contracts", time.Since(start).Seconds())
 
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		m.MetricsService.IncDBQuery("GetContractIDs", "account_contracts")
 		return []string{}, nil
 	}
@@ -161,7 +161,7 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	return contractIDs, nil
 }
 
-// BatchGetContractIDs retrieves contract IDs for multiple accounts.
+// BatchGetContractIDs retrieves contract IDs for multiple accounts using pgx.
 func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]string, error) {
 	if len(addresses) == 0 {
 		return make(map[string][]string), nil
@@ -173,7 +173,7 @@ func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses 
 		WHERE account_address = ANY($1)`
 
 	start := time.Now()
-	rows, err := m.DB.QueryContext(ctx, query, pq.Array(addresses))
+	rows, err := m.DB.PgxPool().Query(ctx, query, addresses)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetContractIDs", "account_contracts", "query_error")
 		return nil, fmt.Errorf("querying contract IDs: %w", err)
