@@ -27,19 +27,19 @@ type AccountTokensModelInterface interface {
 	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error)
 	BatchGetTrustlineAssetIDs(ctx context.Context, addresses []string) (map[string][]int64, error)
 
-	// Contract read operations
-	GetContractIDs(ctx context.Context, accountAddress string) ([]string, error)
-	BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]string, error)
+	// Contract read operations (returns numeric IDs referencing contract_tokens.id)
+	GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error)
+	BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]int64, error)
 
 	// Trustline write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
 
 	// Contract write operations (contracts only add, never remove)
-	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]string) error
+	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error
 
 	// Bulk operations (for initial population)
 	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]int64) error
-	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]string) error
+	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error
 }
 
 // AccountTokensModel implements AccountTokensModelInterface.
@@ -127,8 +127,8 @@ func (m *AccountTokensModel) BatchGetTrustlineAssetIDs(ctx context.Context, addr
 	return result, nil
 }
 
-// GetContractIDs retrieves contract IDs for a single account using pgx.
-func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]string, error) {
+// GetContractIDs retrieves numeric contract IDs for a single account using pgx.
+func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -145,14 +145,14 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		m.MetricsService.IncDBQuery("GetContractIDs", "account_contracts")
-		return []string{}, nil
+		return []int64{}, nil
 	}
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetContractIDs", "account_contracts", "query_error")
 		return nil, fmt.Errorf("getting contract IDs for %s: %w", accountAddress, err)
 	}
 
-	var contractIDs []string
+	var contractIDs []int64
 	if err := json.Unmarshal(contractIDsJSON, &contractIDs); err != nil {
 		return nil, fmt.Errorf("unmarshaling contract IDs for %s: %w", accountAddress, err)
 	}
@@ -161,10 +161,10 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	return contractIDs, nil
 }
 
-// BatchGetContractIDs retrieves contract IDs for multiple accounts using pgx.
-func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]string, error) {
+// BatchGetContractIDs retrieves numeric contract IDs for multiple accounts using pgx.
+func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]int64, error) {
 	if len(addresses) == 0 {
-		return make(map[string][]string), nil
+		return make(map[string][]int64), nil
 	}
 
 	const query = `
@@ -180,7 +180,7 @@ func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses 
 	}
 	defer rows.Close()
 
-	result := make(map[string][]string, len(addresses))
+	result := make(map[string][]int64, len(addresses))
 	for rows.Next() {
 		var accountAddress string
 		var contractIDsJSON []byte
@@ -188,7 +188,7 @@ func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses 
 			return nil, fmt.Errorf("scanning contract row: %w", err)
 		}
 
-		var contractIDs []string
+		var contractIDs []int64
 		if err := json.Unmarshal(contractIDsJSON, &contractIDs); err != nil {
 			return nil, fmt.Errorf("unmarshaling contract IDs for %s: %w", accountAddress, err)
 		}
@@ -261,8 +261,8 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 	return nil
 }
 
-// BatchAddContracts appends contract IDs for multiple accounts (contracts never removed).
-func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]string) error {
+// BatchAddContracts appends numeric contract IDs for multiple accounts (contracts never removed).
+func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
 	if len(contractsByAccount) == 0 {
 		return nil
 	}
@@ -313,9 +313,9 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 	start := time.Now()
 
-	// Build batch data
+	// Build batch data - use []string to avoid pgx encoding issues with [][]byte
 	addresses := make([]string, 0, len(trustlinesByAccount))
-	assetIDsJSONs := make([][]byte, 0, len(trustlinesByAccount))
+	assetIDsJSONs := make([]string, 0, len(trustlinesByAccount))
 
 	for accountAddress, assetIDs := range trustlinesByAccount {
 		if len(assetIDs) == 0 {
@@ -327,7 +327,7 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 			return fmt.Errorf("marshaling asset IDs for %s: %w", accountAddress, err)
 		}
 		addresses = append(addresses, accountAddress)
-		assetIDsJSONs = append(assetIDsJSONs, jsonData)
+		assetIDsJSONs = append(assetIDsJSONs, string(jsonData))
 	}
 
 	if len(addresses) == 0 {
@@ -338,7 +338,7 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 	const query = `
 		INSERT INTO account_trustlines (account_address, asset_ids, updated_at)
 		SELECT addr, ids::jsonb, NOW()
-		FROM UNNEST($1::text[], $2::jsonb[]) AS t(addr, ids)
+		FROM UNNEST($1::text[], $2::text[]) AS t(addr, ids)
 		ON CONFLICT (account_address) DO UPDATE SET
 			asset_ids = EXCLUDED.asset_ids,
 			updated_at = NOW()`
@@ -355,16 +355,16 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 // BulkInsertContracts performs bulk insert for initial population.
 // Uses batch INSERT for efficient loading of many accounts at once.
-func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]string) error {
+func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
 	if len(contractsByAccount) == 0 {
 		return nil
 	}
 
 	start := time.Now()
 
-	// Build batch data
+	// Build batch data - use []string to avoid pgx encoding issues with [][]byte
 	addresses := make([]string, 0, len(contractsByAccount))
-	contractIDsJSONs := make([][]byte, 0, len(contractsByAccount))
+	contractIDsJSONs := make([]string, 0, len(contractsByAccount))
 
 	for accountAddress, contractIDs := range contractsByAccount {
 		if len(contractIDs) == 0 {
@@ -376,7 +376,7 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 			return fmt.Errorf("marshaling contract IDs for %s: %w", accountAddress, err)
 		}
 		addresses = append(addresses, accountAddress)
-		contractIDsJSONs = append(contractIDsJSONs, jsonData)
+		contractIDsJSONs = append(contractIDsJSONs, string(jsonData))
 	}
 
 	if len(addresses) == 0 {
@@ -387,7 +387,7 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 	const query = `
 		INSERT INTO account_contracts (account_address, contract_ids, updated_at)
 		SELECT addr, ids::jsonb, NOW()
-		FROM UNNEST($1::text[], $2::jsonb[]) AS t(addr, ids)
+		FROM UNNEST($1::text[], $2::text[]) AS t(addr, ids)
 		ON CONFLICT (account_address) DO UPDATE SET
 			contract_ids = EXCLUDED.contract_ids,
 			updated_at = NOW()`
