@@ -53,6 +53,9 @@ type ContractMetadataService interface {
 	// Returns a map of contractID to numeric database ID, and error for critical failures.
 	// Individual fetch failures are logged but don't cause the function to fail.
 	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) (map[string]int64, error)
+	// FetchMetadata fetches metadata for the given contracts via RPC without storing.
+	// Returns []*data.Contract with metadata populated for use with BatchGetOrInsert.
+	FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -123,6 +126,49 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbT
 	contractIDMap, err := s.storeInDB(ctx, dbTx, metadataMap)
 	log.Ctx(ctx).Infof("Inserted %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
 	return contractIDMap, err
+}
+
+// FetchMetadata fetches metadata for contracts via RPC without storing in database.
+// Returns []*data.Contract with metadata populated for use with BatchGetOrInsert.
+func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
+	if len(contractTypesByID) == 0 {
+		return []*data.Contract{}, nil
+	}
+
+	// Build initial metadata map and contract IDs slice
+	metadataMap := make(map[string]ContractMetadata, len(contractTypesByID))
+	contractIDs := make([]string, 0, len(contractTypesByID))
+	for contractID, contractType := range contractTypesByID {
+		metadataMap[contractID] = ContractMetadata{
+			ContractID: contractID,
+			Type:       contractType,
+		}
+		contractIDs = append(contractIDs, contractID)
+	}
+
+	// Fetch metadata in parallel batches
+	start := time.Now()
+	metadataMap = s.fetchBatch(ctx, metadataMap, contractIDs)
+	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
+
+	// Parse SAC code:issuer from name field
+	s.parseSACMetadata(metadataMap)
+
+	// Convert to []*data.Contract
+	contracts := make([]*data.Contract, 0, len(metadataMap))
+	for _, metadata := range metadataMap {
+		contracts = append(contracts, &data.Contract{
+			ContractID: metadata.ContractID,
+			Type:       string(metadata.Type),
+			Code:       &metadata.Code,
+			Issuer:     &metadata.Issuer,
+			Name:       &metadata.Name,
+			Symbol:     &metadata.Symbol,
+			Decimals:   metadata.Decimals,
+		})
+	}
+
+	return contracts, nil
 }
 
 // fetchMetadata fetches name, symbol, and decimals for a single contract in parallel.
