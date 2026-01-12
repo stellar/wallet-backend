@@ -50,8 +50,9 @@ type ContractMetadataService interface {
 	// Parameters:
 	//   - dbTx: the database transaction to use for storing metadata
 	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
-	// Returns error only for critical failures; individual fetch failures are logged.
-	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error
+	// Returns a map of contractID to numeric database ID, and error for critical failures.
+	// Individual fetch failures are logged but don't cause the function to fail.
+	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) (map[string]int64, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -91,10 +92,11 @@ func NewContractMetadataService(
 }
 
 // FetchAndStoreMetadata fetches metadata for contracts and stores in database.
-func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
+// Returns a map of contractID (C...) to numeric database ID for use by callers.
+func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) (map[string]int64, error) {
 	if len(contractTypesByID) == 0 {
 		log.Ctx(ctx).Info("No contracts to fetch metadata for")
-		return nil
+		return make(map[string]int64), nil
 	}
 
 	// Build initial metadata map and contract IDs slice
@@ -116,11 +118,11 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbT
 	// Parse SAC code:issuer from name field
 	s.parseSACMetadata(metadataMap)
 
-	// Store in database
+	// Store in database and return the ID map
 	start = time.Now()
-	err := s.storeInDB(ctx, dbTx, metadataMap)
+	contractIDMap, err := s.storeInDB(ctx, dbTx, metadataMap)
 	log.Ctx(ctx).Infof("Inserted %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-	return err
+	return contractIDMap, err
 }
 
 // fetchMetadata fetches name, symbol, and decimals for a single contract in parallel.
@@ -317,10 +319,11 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 }
 
 // storeInDB stores contract metadata in the contract_tokens database table.
-func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, metadataMap map[string]ContractMetadata) error {
+// Returns a map of contractID (C...) to numeric database ID.
+func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, metadataMap map[string]ContractMetadata) (map[string]int64, error) {
 	if len(metadataMap) == 0 {
 		log.Ctx(ctx).Info("No contract metadata to store in database")
-		return nil
+		return make(map[string]int64), nil
 	}
 
 	// Build contracts slice from metadata map
@@ -337,12 +340,12 @@ func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, me
 		})
 	}
 
-	// Batch insert all contracts
-	_, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
+	// Batch insert all contracts and return the ID map
+	contractIDMap, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
 	if err != nil {
-		return fmt.Errorf("storing contract metadata in database: %w", err)
+		return nil, fmt.Errorf("storing contract metadata in database: %w", err)
 	}
-	return nil
+	return contractIDMap, nil
 }
 
 // parseSACMetadata parses the code:issuer format from SAC token names and populates the Code and Issuer fields.
