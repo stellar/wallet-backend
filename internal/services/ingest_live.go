@@ -234,7 +234,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.unlockChannelAccounts(ctx, dbTx, filteredData.txs)
+			innerErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions())
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}

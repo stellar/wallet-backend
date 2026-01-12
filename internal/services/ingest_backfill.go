@@ -46,15 +46,14 @@ type BackfillResult struct {
 	LedgersCount int
 	Duration     time.Duration
 	Error        error
-	CatchupData  *BatchCatchupData // Only populated for catchup mode
+	TokenChanges *BatchTokenChanges // Only populated for catchup mode
 }
 
-// BatchCatchupData holds data collected from a backfill batch for catchup mode.
+// BatchTokenChanges holds token data collected from a backfill batch for catchup mode.
 // This data is processed after all parallel batches complete to ensure proper ordering.
-type BatchCatchupData struct {
+type BatchTokenChanges struct {
 	TrustlineChanges []types.TrustlineChange
 	ContractChanges  []types.ContractChange
-	Transactions     []*types.Transaction // For channel account unlocking
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -126,21 +125,19 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
 		}
 
-		// Aggregate catchup data from all batch results
+		// Aggregate token changes from all batch results
 		var allTrustlineChanges []types.TrustlineChange
 		var allContractChanges []types.ContractChange
-		var allTransactions []*types.Transaction
 		for _, result := range results {
-			if result.CatchupData != nil {
-				allTrustlineChanges = append(allTrustlineChanges, result.CatchupData.TrustlineChanges...)
-				allContractChanges = append(allContractChanges, result.CatchupData.ContractChanges...)
-				allTransactions = append(allTransactions, result.CatchupData.Transactions...)
+			if result.TokenChanges != nil {
+				allTrustlineChanges = append(allTrustlineChanges, result.TokenChanges.TrustlineChanges...)
+				allContractChanges = append(allContractChanges, result.TokenChanges.ContractChanges...)
 			}
 		}
 
-		// Process aggregated catchup data (token cache updates, channel account unlocking)
-		if err := m.processCatchupData(ctx, allTrustlineChanges, allContractChanges, allTransactions); err != nil {
-			return fmt.Errorf("processing catchup data: %w", err)
+		// Process aggregated token changes (token cache updates)
+		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges); err != nil {
+			return fmt.Errorf("processing token changes: %w", err)
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
@@ -278,9 +275,9 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	}()
 
 	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
-	ledgersCount, catchupData, err := m.processLedgersInBatch(ctx, backend, batch, mode)
+	ledgersCount, tokenChanges, err := m.processLedgersInBatch(ctx, backend, batch, mode)
 	result.LedgersCount = ledgersCount
-	result.CatchupData = catchupData
+	result.TokenChanges = tokenChanges
 	if err != nil {
 		result.Error = err
 		result.Duration = time.Since(start)
@@ -317,7 +314,7 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 
 // flushBatchBufferWithRetry persists buffered data to the database within a transaction.
 // If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, catchupData *BatchCatchupData) error {
+func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, tokenChanges *BatchTokenChanges) error {
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -331,14 +328,17 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if err != nil {
 				return fmt.Errorf("filtering participant data: %w", err)
 			}
-			// Collect catchup data for post-catchup processing if requested
-			if catchupData != nil {
-				catchupData.TrustlineChanges = append(catchupData.TrustlineChanges, filteredData.trustlineChanges...)
-				catchupData.ContractChanges = append(catchupData.ContractChanges, filteredData.contractTokenChanges...)
-				catchupData.Transactions = append(catchupData.Transactions, filteredData.txs...)
+			// Collect token changes for post-catchup processing if requested
+			if tokenChanges != nil {
+				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
+				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
+			}
+			// Unlock channel accounts using all transactions (not filtered)
+			if err := m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); err != nil {
+				return fmt.Errorf("unlocking channel accounts: %w", err)
 			}
 			// Update cursor atomically with data insertion if requested
 			if updateCursorTo != nil {
@@ -371,22 +371,22 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 
 // processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
 // For historical backfill mode, the cursor is updated atomically with the final data flush.
-// For catchup mode, returns collected catchup data for post-catchup processing.
-// Returns the count of ledgers processed and catchup data (nil for historical mode).
+// For catchup mode, returns collected token changes for post-catchup processing.
+// Returns the count of ledgers processed and token changes (nil for historical mode).
 func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
 	mode BackfillMode,
-) (int, *BatchCatchupData, error) {
+) (int, *BatchTokenChanges, error) {
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 	ledgersProcessed := 0
 
-	// Initialize catchup data collector for catchup mode
-	var catchupData *BatchCatchupData
+	// Initialize token changes collector for catchup mode
+	var tokenChanges *BatchTokenChanges
 	if mode.isCatchup() {
-		catchupData = &BatchCatchupData{}
+		tokenChanges = &BatchTokenChanges{}
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
@@ -403,8 +403,8 @@ func (m *ingestService) processLedgersInBatch(
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, catchupData); err != nil {
-				return ledgersProcessed, catchupData, err
+			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, tokenChanges); err != nil {
+				return ledgersProcessed, tokenChanges, err
 			}
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
@@ -417,8 +417,8 @@ func (m *ingestService) processLedgersInBatch(
 		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
-		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, catchupData); err != nil {
-			return ledgersProcessed, catchupData, err
+		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, tokenChanges); err != nil {
+			return ledgersProcessed, tokenChanges, err
 		}
 	} else if mode.isHistorical() {
 		// All data was flushed in intermediate batches, but we still need to update the cursor
@@ -428,7 +428,7 @@ func (m *ingestService) processLedgersInBatch(
 		}
 	}
 
-	return ledgersProcessed, catchupData, nil
+	return ledgersProcessed, tokenChanges, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
@@ -442,13 +442,12 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 	return nil
 }
 
-// processCatchupData processes aggregated catchup data after all parallel batches complete.
-// This ensures proper ordering of token changes and unlocks channel accounts.
-func (m *ingestService) processCatchupData(
+// processTokenChanges processes aggregated token changes after all parallel batches complete.
+// This ensures proper ordering of token changes for cache updates.
+func (m *ingestService) processTokenChanges(
 	ctx context.Context,
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
-	transactions []*types.Transaction,
 ) error {
 	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
 	sort.Slice(trustlineChanges, func(i, j int) bool {
@@ -490,18 +489,8 @@ func (m *ingestService) processCatchupData(
 		return fmt.Errorf("processing token changes: %w", err)
 	}
 
-	// Unlock channel accounts
-	if len(transactions) > 0 {
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			return m.unlockChannelAccounts(ctx, dbTx, transactions)
-		})
-		if err != nil {
-			return fmt.Errorf("unlocking channel accounts: %w", err)
-		}
-	}
-
-	log.Ctx(ctx).Infof("Processed catchup data: %d trustline changes, %d contract changes, %d transactions",
-		len(trustlineChanges), len(contractChanges), len(transactions))
+	log.Ctx(ctx).Infof("Processed token changes: %d trustline changes, %d contract changes",
+		len(trustlineChanges), len(contractChanges))
 
 	return nil
 }

@@ -1345,6 +1345,13 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			// Use variadic mock.Anything for any number of tx hashes
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:              IngestionModeBackfill,
 				Models:                     models,
@@ -1353,6 +1360,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				AppTracker:                 &apptracker.MockAppTracker{},
 				RPCService:                 mockRPCService,
 				LedgerBackend:              &LedgerBackendMock{},
+				ChannelAccountStore:        mockChAccStore,
 				MetricsService:             mockMetricsService,
 				GetLedgersLimit:            defaultGetLedgersLimit,
 				Network:                    network.TestNetworkPassphrase,
@@ -2457,9 +2465,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 	})
 }
 
-// Test_ingestService_processCatchupData tests the processCatchupData method which processes
-// aggregated catchup data after all parallel batches complete.
-func Test_ingestService_processCatchupData(t *testing.T) {
+// Test_ingestService_processTokenChanges tests the processTokenChanges method which processes
+// aggregated token changes after all parallel batches complete.
+func Test_ingestService_processTokenChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2472,8 +2480,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 		name                string
 		trustlineChanges    []types.TrustlineChange
 		contractChanges     []types.ContractChange
-		transactions        []*types.Transaction
-		setupMocks          func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock)
+		setupMocks          func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock)
 		wantErr             bool
 		wantErrContains     string
 		verifySortedChanges func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock)
@@ -2482,13 +2489,11 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 			name:             "empty_data_no_calls",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges:  []types.ContractChange{},
-			transactions:     []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// GetOrInsertTrustlineAssets should be called even with empty data
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, []types.TrustlineChange{}).Return(map[string]int64{}, nil)
 				// ProcessTokenChanges should be called even with empty data
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, map[string]int64{}, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
-				// unlockChannelAccounts should NOT be called when transactions is empty
 			},
 			wantErr: false,
 		},
@@ -2500,8 +2505,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: 5, LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
-			transactions:    []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// Verify sorted order: (100, 5), (100, 10), (101, 1)
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					if len(changes) != 3 {
@@ -2533,8 +2537,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				{AccountID: "GA2", ContractID: "C2", OperationID: 5, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
 				{AccountID: "GA3", ContractID: "C3", OperationID: 1, LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
 			},
-			transactions: []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
 				// Verify sorted order: (200, 5), (200, 20), (201, 1)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
@@ -2564,8 +2567,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				{AccountID: "GA1", Asset: "USDC:GISSUER", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
 			contractChanges: []types.ContractChange{},
-			transactions:    []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					return len(changes) == 1 && changes[0].Asset == "USDC:GISSUER"
 				})).Return(map[string]int64{"USDC:GISSUER": 42}, nil)
@@ -2579,8 +2581,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA1", ContractID: "CNEWCONTRACT", OperationID: 1, LedgerNumber: 100, ContractType: types.ContractTypeSAC},
 			},
-			transactions: []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
 				contractMetadataSvc.On("FetchAndStoreMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(contracts map[string]types.ContractType) bool {
 					return len(contracts) == 1 && contracts["CNEWCONTRACT"] == types.ContractTypeSAC
@@ -2597,27 +2598,11 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA2", ContractID: "C1", OperationID: 2, LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
-			transactions: []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.MatchedBy(func(assetMap map[string]int64) bool {
 					return assetMap["USDC:GA"] == 1
 				}), mock.Anything, mock.Anything).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:             "calls_unlockChannelAccounts",
-			trustlineChanges: []types.TrustlineChange{},
-			contractChanges:  []types.ContractChange{},
-			transactions: []*types.Transaction{
-				{Hash: "tx1", InnerTransactionHash: "inner1"},
-				{Hash: "tx2", InnerTransactionHash: "inner2"},
-			},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				chAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, "inner1", "inner2").Return(int64(2), nil)
 			},
 			wantErr: false,
 		},
@@ -2627,8 +2612,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
-			transactions:    []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
 			},
 			wantErr:         true,
@@ -2640,28 +2624,12 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
-			transactions:    []*types.Transaction{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
-		},
-		{
-			name:             "propagates_unlockChannelAccounts_error",
-			trustlineChanges: []types.TrustlineChange{},
-			contractChanges:  []types.ContractChange{},
-			transactions: []*types.Transaction{
-				{Hash: "tx1", InnerTransactionHash: "inner1"},
-			},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock, chAccStore *store.ChannelAccountStoreMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				chAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, "inner1").Return(int64(0), fmt.Errorf("db error"))
-			},
-			wantErr:         true,
-			wantErrContains: "unlocking channel accounts",
 		},
 	}
 
@@ -2684,9 +2652,8 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 
 			mockTokenCacheWriter := NewTokenCacheWriterMock(t)
 			mockContractMetadataSvc := NewContractMetadataServiceMock(t)
-			mockChAccStore := &store.ChannelAccountStoreMock{}
 
-			tc.setupMocks(t, mockTokenCacheWriter, mockContractMetadataSvc, mockChAccStore)
+			tc.setupMocks(t, mockTokenCacheWriter, mockContractMetadataSvc)
 
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:           IngestionModeBackfill,
@@ -2696,7 +2663,6 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 				AppTracker:              &apptracker.MockAppTracker{},
 				RPCService:              mockRPCService,
 				LedgerBackend:           &LedgerBackendMock{},
-				ChannelAccountStore:     mockChAccStore,
 				TokenCacheWriter:        mockTokenCacheWriter,
 				ContractMetadataService: mockContractMetadataSvc,
 				MetricsService:          mockMetricsService,
@@ -2707,7 +2673,7 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.processCatchupData(ctx, tc.trustlineChanges, tc.contractChanges, tc.transactions)
+			err = svc.processTokenChanges(ctx, tc.trustlineChanges, tc.contractChanges)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -2725,9 +2691,9 @@ func Test_ingestService_processCatchupData(t *testing.T) {
 	}
 }
 
-// Test_ingestService_flushBatchBuffer_catchupData tests that catchup data is collected
-// when flushBatchBuffer is called with a non-nil catchupData parameter.
-func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
+// Test_ingestService_flushBatchBuffer_tokenChanges tests that token changes are collected
+// when flushBatchBuffer is called with a non-nil tokenChanges parameter.
+func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2739,13 +2705,12 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 	testCases := []struct {
 		name                      string
 		setupBuffer               func() *indexer.IndexerBuffer
-		catchupData               *BatchCatchupData
+		tokenChanges              *BatchTokenChanges
 		wantTrustlineChangesCount int
 		wantContractChangesCount  int
-		wantTransactionsCount     int
 	}{
 		{
-			name: "collects_trustline_changes_when_catchupData_provided",
+			name: "collects_trustline_changes_when_tokenChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_1", 1)
@@ -2759,13 +2724,12 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 				})
 				return buf
 			},
-			catchupData:               &BatchCatchupData{},
+			tokenChanges:              &BatchTokenChanges{},
 			wantTrustlineChangesCount: 1,
 			wantContractChangesCount:  0,
-			wantTransactionsCount:     1,
 		},
 		{
-			name: "collects_contract_changes_when_catchupData_provided",
+			name: "collects_contract_changes_when_tokenChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_2", 2)
@@ -2779,28 +2743,12 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 				})
 				return buf
 			},
-			catchupData:               &BatchCatchupData{},
+			tokenChanges:              &BatchTokenChanges{},
 			wantTrustlineChangesCount: 0,
 			wantContractChangesCount:  1,
-			wantTransactionsCount:     1,
 		},
 		{
-			name: "collects_transactions_when_catchupData_provided",
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_3", 3)
-				tx2 := createTestTransaction("catchup_tx_4", 4)
-				buf.PushTransaction("GTEST333333333333333333333333333333333333333333333333", tx1)
-				buf.PushTransaction("GTEST444444444444444444444444444444444444444444444444", tx2)
-				return buf
-			},
-			catchupData:               &BatchCatchupData{},
-			wantTrustlineChangesCount: 0,
-			wantContractChangesCount:  0,
-			wantTransactionsCount:     2,
-		},
-		{
-			name: "nil_catchupData_does_not_collect",
+			name: "nil_tokenChanges_does_not_collect",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_5", 5)
@@ -2814,10 +2762,9 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 				})
 				return buf
 			},
-			catchupData:               nil, // nil means historical mode
+			tokenChanges:              nil, // nil means historical mode
 			wantTrustlineChangesCount: 0,   // no collection happens
 			wantContractChangesCount:  0,
-			wantTransactionsCount:     0,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2834,18 +2781,14 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 				})
 				return buf
 			},
-			// Pre-populate catchupData to simulate accumulation
-			catchupData: &BatchCatchupData{
+			// Pre-populate tokenChanges to simulate accumulation
+			tokenChanges: &BatchTokenChanges{
 				TrustlineChanges: []types.TrustlineChange{
 					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999},
-				},
-				Transactions: []*types.Transaction{
-					{Hash: "prev_tx"},
 				},
 			},
 			wantTrustlineChangesCount: 2, // 1 existing + 1 new
 			wantContractChangesCount:  0,
-			wantTransactionsCount:     2, // 1 existing + 1 new
 		},
 	}
 
@@ -2881,6 +2824,12 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			// Use variadic mock.Anything for any number of tx hashes
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:              IngestionModeBackfill,
 				Models:                     models,
@@ -2889,6 +2838,7 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 				AppTracker:                 &apptracker.MockAppTracker{},
 				RPCService:                 mockRPCService,
 				LedgerBackend:              &LedgerBackendMock{},
+				ChannelAccountStore:        mockChAccStore,
 				MetricsService:             mockMetricsService,
 				GetLedgersLimit:            defaultGetLedgersLimit,
 				Network:                    network.TestNetworkPassphrase,
@@ -2900,14 +2850,13 @@ func Test_ingestService_flushBatchBuffer_catchupData(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.catchupData)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.tokenChanges)
 			require.NoError(t, err)
 
 			// Verify collected data counts
-			if tc.catchupData != nil {
-				assert.Equal(t, tc.wantTrustlineChangesCount, len(tc.catchupData.TrustlineChanges), "trustline changes count mismatch")
-				assert.Equal(t, tc.wantContractChangesCount, len(tc.catchupData.ContractChanges), "contract changes count mismatch")
-				assert.Equal(t, tc.wantTransactionsCount, len(tc.catchupData.Transactions), "transactions count mismatch")
+			if tc.tokenChanges != nil {
+				assert.Equal(t, tc.wantTrustlineChangesCount, len(tc.tokenChanges.TrustlineChanges), "trustline changes count mismatch")
+				assert.Equal(t, tc.wantContractChangesCount, len(tc.tokenChanges.ContractChanges), "contract changes count mismatch")
 			}
 		})
 	}
@@ -2930,19 +2879,19 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name               string
-		mode               BackfillMode
-		wantCatchupDataNil bool
+		name                string
+		mode                BackfillMode
+		wantTokenChangesNil bool
 	}{
 		{
-			name:               "catchup_mode_returns_catchup_data",
-			mode:               BackfillModeCatchup,
-			wantCatchupDataNil: false,
+			name:                "catchup_mode_returns_token_changes",
+			mode:                BackfillModeCatchup,
+			wantTokenChangesNil: false,
 		},
 		{
-			name:               "historical_mode_returns_nil_catchup_data",
-			mode:               BackfillModeHistorical,
-			wantCatchupDataNil: true,
+			name:                "historical_mode_returns_nil_token_changes",
+			mode:                BackfillModeHistorical,
+			wantTokenChangesNil: true,
 		},
 	}
 
@@ -2973,6 +2922,10 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockLedgerBackend.On("GetLedger", mock.Anything, uint32(4599)).Return(ledgerMeta, nil)
 
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			// Use variadic mock.Anything for any number of tx hashes
+			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
@@ -2981,6 +2934,7 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
+				ChannelAccountStore:    mockChAccStore,
 				MetricsService:         mockMetricsService,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -2990,15 +2944,15 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, catchupData, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, tokenChanges, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
 
-			if tc.wantCatchupDataNil {
-				assert.Nil(t, catchupData, "expected nil catchup data for historical mode")
+			if tc.wantTokenChangesNil {
+				assert.Nil(t, tokenChanges, "expected nil token changes for historical mode")
 			} else {
-				assert.NotNil(t, catchupData, "expected non-nil catchup data for catchup mode")
+				assert.NotNil(t, tokenChanges, "expected non-nil token changes for catchup mode")
 			}
 		})
 	}
