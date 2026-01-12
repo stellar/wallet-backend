@@ -406,8 +406,8 @@ func TestGetAccountContracts(t *testing.T) {
 		// Insert contract into contract_tokens first to get a numeric ID
 		var numericID int64
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			inserted, insertErr := contractModel.BatchInsert(ctx, dbTx, []wbdata.Contract{
-				{ContractID: contractID, ContractType: "SAC"},
+			inserted, insertErr := contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+				{ContractID: contractID, Type: "SAC"},
 			})
 			if insertErr != nil {
 				return insertErr

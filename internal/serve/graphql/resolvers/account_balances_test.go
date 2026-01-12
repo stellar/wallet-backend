@@ -241,21 +241,21 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 // Helper to create SAC contract data
 func createSACContract(contractID, code, issuer string) *data.Contract {
 	return &data.Contract{
-		ID:     contractID,
-		Type:   string(types.ContractTypeSAC),
-		Code:   &code,
-		Issuer: &issuer,
+		ContractID: contractID,
+		Type:       string(types.ContractTypeSAC),
+		Code:       &code,
+		Issuer:     &issuer,
 	}
 }
 
 // Helper to create SEP-41 contract data
 func createSEP41Contract(contractID, name, symbol string, decimals uint32) *data.Contract { //nolint:unparam
 	return &data.Contract{
-		ID:       contractID,
-		Type:     string(types.ContractTypeSEP41),
-		Name:     &name,
-		Symbol:   &symbol,
-		Decimals: decimals,
+		ContractID: contractID,
+		Type:       string(types.ContractTypeSEP41),
+		Name:       &name,
+		Symbol:     &symbol,
+		Decimals:   decimals,
 	}
 }
 
@@ -1053,14 +1053,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockContract := data.NewContractModelMock(t)
 
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]*data.TrustlineAsset{}, nil)
-		mockTokenCacheReader.On("GetAccountContracts", ctx, testAccountAddress).
-			Return([]string{testContractAddress}, nil)
-		// Return contract with unknown/empty type
+		// GetAccountContracts now returns full Contract objects directly
 		unknownContract := &data.Contract{
-			ID:   testContractAddress,
-			Type: string(types.ContractTypeUnknown),
+			ContractID: testContractAddress,
+			Type:       string(types.ContractTypeUnknown),
 		}
-		mockContract.On("BatchGetByIDs", ctx, []string{testContractAddress}).
+		mockTokenCacheReader.On("GetAccountContracts", ctx, testAccountAddress).
 			Return([]*data.Contract{unknownContract}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 

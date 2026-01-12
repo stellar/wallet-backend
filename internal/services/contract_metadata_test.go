@@ -251,9 +251,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored correctly in database
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSAC), contract.Type)
 		assert.Equal(t, "USDC", *contract.Code)
 		assert.Equal(t, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", *contract.Issuer)
@@ -346,9 +346,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		// Verify contract was stored correctly in database
 		// SEP41 should NOT have Code/Issuer parsed (name is not in code:issuer format)
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
 		assert.Equal(t, "", *contract.Code)
 		assert.Equal(t, "", *contract.Issuer)
@@ -439,9 +439,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
 		assert.Equal(t, "", *contract.Name)
 		assert.Equal(t, "", *contract.Symbol)
@@ -500,9 +500,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
 		assert.Equal(t, "", *contract.Name)
 		assert.Equal(t, "", *contract.Symbol)
@@ -561,9 +561,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
 		assert.Equal(t, "", *contract.Name)
 		assert.Equal(t, "", *contract.Symbol)
@@ -628,9 +628,9 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
+		contract, err := contractModel.GetByContractID(ctx, contractID)
 		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
+		assert.Equal(t, contractID, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
 		assert.Equal(t, "", *contract.Name)
 		assert.Equal(t, "", *contract.Symbol)
@@ -717,7 +717,7 @@ func TestStoreInDB(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify CONTRACT1 was stored correctly
-		contract1, err := contractModel.GetByID(ctx, "CONTRACT1")
+		contract1, err := contractModel.GetByContractID(ctx, "CONTRACT1")
 		require.NoError(t, err)
 		assert.Equal(t, "CONTRACT1", contract1.ID)
 		assert.Equal(t, string(types.ContractTypeSAC), contract1.Type)
@@ -728,7 +728,7 @@ func TestStoreInDB(t *testing.T) {
 		assert.Equal(t, uint32(7), contract1.Decimals)
 
 		// Verify CONTRACT2 was stored correctly
-		contract2, err := contractModel.GetByID(ctx, "CONTRACT2")
+		contract2, err := contractModel.GetByContractID(ctx, "CONTRACT2")
 		require.NoError(t, err)
 		assert.Equal(t, "CONTRACT2", contract2.ID)
 		assert.Equal(t, string(types.ContractTypeSEP41), contract2.Type)
