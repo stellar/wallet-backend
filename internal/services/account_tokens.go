@@ -71,6 +71,12 @@ type TokenCacheWriter interface {
 	// Returns a map of "CODE:ISSUER" -> ID for use in ProcessTokenChanges.
 	GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error)
 
+	// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
+	// For new contracts (not in knownContractIDs cache), fetches metadata via RPC.
+	// Uses BatchGetOrInsert to handle both new and existing contracts.
+	// Returns a map of contractID (C...) -> numeric database ID.
+	GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error)
+
 	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
 	//
@@ -384,6 +390,75 @@ func (s *tokenCacheService) GetOrInsertTrustlineAssets(ctx context.Context, trus
 	}
 
 	return assetIDMap, nil
+}
+
+// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
+// For new contracts, fetches metadata via RPC. Uses BatchGetOrInsert for DB operations.
+func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error) {
+	// Extract unique SAC/SEP-41 contracts from changes
+	contractTypesByID := extractUniqueSACAndSEP41Contracts(contractChanges)
+	if len(contractTypesByID) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	// Separate new vs existing using cache
+	newContractTypesByID := make(map[string]types.ContractType)
+	existingContractIDs := make([]string, 0)
+	for id, ctype := range contractTypesByID {
+		if knownContractIDs.Contains(id) {
+			existingContractIDs = append(existingContractIDs, id)
+		} else {
+			newContractTypesByID[id] = ctype
+		}
+	}
+
+	// Fetch metadata for NEW contracts only (no DB write yet)
+	var contracts []*wbdata.Contract
+	if len(newContractTypesByID) > 0 {
+		newContracts, err := s.contractMetadataService.FetchMetadata(ctx, newContractTypesByID)
+		if err != nil {
+			return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
+		}
+		contracts = append(contracts, newContracts...)
+	}
+
+	// Add minimal contracts for existing ones (just need ContractID for lookup)
+	for _, id := range existingContractIDs {
+		contracts = append(contracts, &wbdata.Contract{ContractID: id})
+	}
+
+	if len(contracts) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	// BatchGetOrInsert handles everything:
+	// - SELECTs existing → returns their IDs
+	// - INSERTs new with metadata → returns their IDs
+	return s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
+}
+
+// extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.
+func extractUniqueSACAndSEP41Contracts(contractChanges []types.ContractChange) map[string]types.ContractType {
+	if len(contractChanges) == 0 {
+		return nil
+	}
+
+	seen := set.NewSet[string]()
+	result := make(map[string]types.ContractType)
+
+	for _, change := range contractChanges {
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
+		}
+		if change.ContractID == "" || seen.Contains(change.ContractID) {
+			continue
+		}
+		seen.Add(change.ContractID)
+		result[change.ContractID] = change.ContractType
+	}
+
+	return result
 }
 
 // processTrustlineChange extracts trustline information from a ledger change entry.

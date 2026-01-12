@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -168,6 +169,14 @@ func (m *TokenCacheWriterMock) PopulateAccountTokens(ctx context.Context, checkp
 
 func (m *TokenCacheWriterMock) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
 	args := m.Called(ctx, trustlineChanges)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
+func (m *TokenCacheWriterMock) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error) {
+	args := m.Called(ctx, dbTx, contractChanges, knownContractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
