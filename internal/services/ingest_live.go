@@ -132,11 +132,11 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		// Pre-commit asset IDs in a separate transaction before the main transaction
 		// to prevent orphan IDs if the main transaction rolls back
 		dbStart := time.Now()
-		trustlineAssetIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
+		trustlineAssetIDMap, contractIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
 		if err != nil {
 			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
 		}
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap, contractIDMap)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -154,8 +154,10 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 }
 
 // insertTrustlinesAndContractTokensWithRetry inserts trustlines and contract tokens into the database.
-func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, error) {
+// Returns both trustlineAssetIDMap and contractIDMap for use in processing token changes.
+func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, map[string]int64, error) {
 	var trustlineAssetIDMap map[string]int64
+	var contractIDMap map[string]int64
 	var innerErr error
 	var lastErr error
 
@@ -165,7 +167,7 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("context done: %w", ctx.Err())
+			return nil, nil, fmt.Errorf("context done: %w", ctx.Err())
 		default:
 		}
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
@@ -173,12 +175,14 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 			if innerErr != nil {
 				return fmt.Errorf("inserting trustline assets: %w", innerErr)
 			}
-			// Fetch and store metadata for new SAC/SEP-41 contracts
+			// Fetch and store metadata for new SAC/SEP-41 contracts, get their numeric IDs
 			if len(newContractTypesByID) > 0 {
-				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
+				contractIDMap, innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
 				if innerErr != nil {
 					return fmt.Errorf("fetching and storing new contract tokens metadata: %w", innerErr)
 				}
+			} else {
+				contractIDMap = make(map[string]int64)
 			}
 			return nil
 		})
@@ -187,7 +191,7 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 			for contractID := range newContractTypesByID {
 				m.knownContractIDs.Add(contractID)
 			}
-			return trustlineAssetIDMap, nil
+			return trustlineAssetIDMap, contractIDMap, nil
 		}
 		lastErr = err
 
@@ -200,20 +204,21 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+			return nil, nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
 		case <-time.After(backoff):
 		}
 	}
 	if lastErr != nil {
-		return nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
+		return nil, nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
 	}
-	return trustlineAssetIDMap, nil
+	return trustlineAssetIDMap, contractIDMap, nil
 }
 
 // ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
 // unlocks channel accounts, and processes token changes.
 // The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
-func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
+// The contractIDMap must be pre-populated by calling FetchAndStoreMetadata before this function.
+func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64, contractIDMap map[string]int64) (int, int, error) {
 	numTransactionProcessed := 0
 	numOperationProcessed := 0
 
@@ -238,7 +243,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, contractIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 			if innerErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}
