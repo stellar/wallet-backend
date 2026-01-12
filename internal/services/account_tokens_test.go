@@ -1,12 +1,12 @@
+// Tests for account token caching service using PostgreSQL.
 package services
 
 import (
 	"context"
 	"io"
-	"strconv"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -20,13 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/store"
 )
-
-// Helper function to encode asset IDs for test setup
-func testEncodeAssetIDs(ids []int64) string {
-	return string(encodeAssetIDs(ids))
-}
 
 // Mock ChangeReader for testing
 type mockChangeReader struct {
@@ -92,21 +86,8 @@ func ptrToScVec(vals []xdr.ScVal) **xdr.ScVec {
 	return &ptr
 }
 
-// setupTestRedis creates a miniredis instance for testing
-func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *store.RedisStore) {
-	mr := miniredis.RunT(t)
-	// miniredis Port() returns a string, convert to int
-	port, err := strconv.Atoi(mr.Port())
-	require.NoError(t, err)
-	redisStore := store.NewRedisStore(mr.Host(), port, "")
-	return mr, redisStore
-}
-
 func TestExtractHolderAddress(t *testing.T) {
-	service := &tokenCacheService{
-		trustlinesPrefix: trustlinesKeyPrefix,
-		contractsPrefix:  contractsKeyPrefix,
-	}
+	service := &tokenCacheService{}
 
 	tests := []struct {
 		name    string
@@ -299,241 +280,137 @@ func TestParseAssetString(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeAssetIDs(t *testing.T) {
-	t.Run("empty slice returns nil", func(t *testing.T) {
-		encoded := encodeAssetIDs([]int64{})
-		assert.Nil(t, encoded)
-
-		decoded, err := decodeAssetIDs(nil)
-		assert.NoError(t, err)
-		assert.Nil(t, decoded)
-
-		decoded, err = decodeAssetIDs([]byte{})
-		assert.NoError(t, err)
-		assert.Nil(t, decoded)
-	})
-
-	t.Run("single ID roundtrip", func(t *testing.T) {
-		ids := []int64{42}
-		encoded := encodeAssetIDs(ids)
-		decoded, err := decodeAssetIDs(encoded)
-		assert.NoError(t, err)
-		assert.Equal(t, ids, decoded)
-	})
-
-	t.Run("multiple IDs roundtrip", func(t *testing.T) {
-		ids := []int64{1, 2, 3, 100, 1000, 163006, 253529}
-		encoded := encodeAssetIDs(ids)
-		decoded, err := decodeAssetIDs(encoded)
-		assert.NoError(t, err)
-		assert.Equal(t, ids, decoded)
-	})
-
-	t.Run("large IDs roundtrip", func(t *testing.T) {
-		ids := []int64{1, 127, 128, 16383, 16384, 2097151, 2097152, 268435455}
-		encoded := encodeAssetIDs(ids)
-		decoded, err := decodeAssetIDs(encoded)
-		assert.NoError(t, err)
-		assert.Equal(t, ids, decoded)
-	})
-
-	t.Run("varint is smaller than ASCII for typical IDs", func(t *testing.T) {
-		// Typical trustline IDs from production
-		ids := []int64{163006, 153698, 22755, 197674, 162872}
-		encoded := encodeAssetIDs(ids)
-
-		// ASCII would be "163006,153698,22755,197674,162872" = 34 bytes
-		asciiLen := len("163006,153698,22755,197674,162872")
-		assert.Less(t, len(encoded), asciiLen, "varint should be smaller than ASCII")
-	})
-
-	t.Run("corrupted data returns error", func(t *testing.T) {
-		// 0xFF with continuation bit set but no following byte is invalid varint
-		corruptedData := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}
-		_, err := decodeAssetIDs(corruptedData)
-		assert.Error(t, err)
-	})
-}
-
-func TestBuildTrustlineKey(t *testing.T) {
-	service := &tokenCacheService{
-		trustlinesPrefix: trustlinesKeyPrefix,
-	}
-
-	t.Run("same account always maps to same bucket", func(t *testing.T) {
-		account := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key1 := service.buildTrustlineKey(account)
-		key2 := service.buildTrustlineKey(account)
-		assert.Equal(t, key1, key2)
-	})
-
-	t.Run("key format is trustlines prefix plus bucket number", func(t *testing.T) {
-		account := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(account)
-		assert.True(t, len(key) > len(trustlinesKeyPrefix))
-		assert.Equal(t, trustlinesKeyPrefix, key[:len(trustlinesKeyPrefix)])
-	})
-
-	t.Run("different accounts can map to different buckets", func(t *testing.T) {
-		// Test with multiple accounts - at least some should hash to different buckets
-		accounts := []string{
-			"GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-			"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-			"GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-			"GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-		}
-		keys := make(map[string]bool)
-		for _, acc := range accounts {
-			keys[service.buildTrustlineKey(acc)] = true
-		}
-		// With 4 accounts, we expect at least 2 different bucket keys
-		assert.GreaterOrEqual(t, len(keys), 2, "expected different accounts to potentially hash to different buckets")
-	})
-}
-
 func TestGetAccountTrustlines(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("account with no trustlines returns empty", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
 
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustlines`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+	}
+
+	t.Run("account with no trustlines returns empty", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		service := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel)
 
 		got, err := service.GetAccountTrustlines(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
 
-	t.Run("account with single trustline", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+	t.Run("account with trustlines returns assets", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
 
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &tokenCacheService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
-		}
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
 
-		// Insert trustline ID in varint binary format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
+		// Insert trustline assets first
+		var assetIDMap map[string]int64
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			assetIDMap, err = trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
+				{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+			})
+			return err
+		})
+		require.NoError(t, err)
 
-		// Mock BatchGetByIDs to return the asset
-		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1}).Return([]*wbdata.TrustlineAsset{
-			{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-		}, nil)
+		// Insert account trustlines
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return accountTokensModel.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{
+				accountAddress: {assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"]},
+			})
+		})
+		require.NoError(t, err)
+
+		service := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel)
 
 		got, err := service.GetAccountTrustlines(ctx, accountAddress)
 		assert.NoError(t, err)
-		assert.Equal(t, []*wbdata.TrustlineAsset{{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"}}, got)
-	})
-
-	t.Run("account with multiple trustlines", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &tokenCacheService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Insert multiple trustline IDs in varint binary format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2, 3}))
-
-		// Mock BatchGetByIDs to return multiple assets
-		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1, 2, 3}).Return([]*wbdata.TrustlineAsset{
-			{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
-			{ID: 2, Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"},
-			{ID: 3, Code: "BTC", Issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"},
-		}, nil)
-
-		got, err := service.GetAccountTrustlines(ctx, accountAddress)
-		assert.NoError(t, err)
-		assert.Len(t, got, 3)
-		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 1, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"})
-		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 2, Code: "EUROC", Issuer: "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"})
-		assert.Contains(t, got, &wbdata.TrustlineAsset{ID: 3, Code: "BTC", Issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"})
-	})
-
-	t.Run("handles BatchGetByIDs error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		mockAssetModel := wbdata.NewTrustlineAssetModelMock(t)
-		service := &tokenCacheService{
-			redisStore:          redisStore,
-			trustlineAssetModel: mockAssetModel,
-			trustlinesPrefix:    trustlinesKeyPrefix,
-			contractsPrefix:     contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Insert trustline ID in varint binary format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
-
-		// Mock returns error
-		mockAssetModel.On("BatchGetByIDs", ctx, []int64{1}).Return(nil, assert.AnError)
-
-		got, err := service.GetAccountTrustlines(ctx, accountAddress)
-		assert.Error(t, err)
-		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "resolving asset IDs")
+		assert.Len(t, got, 1)
+		assert.Equal(t, "USDC", got[0].Code)
+		assert.Equal(t, "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", got[0].Issuer)
 	})
 }
 
 func TestGetAccountContracts(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("account with contracts", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
 
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// Insert contracts directly into Redis
-		key := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		_, err := mr.SetAdd(key, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4", "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
 		require.NoError(t, err)
-
-		got, err := service.GetAccountContracts(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.NoError(t, err)
-		assert.ElementsMatch(t, []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4", "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}, got)
-	})
+	}
 
 	t.Run("account with no contracts returns empty", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
 
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		service := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel)
 
 		got, err := service.GetAccountContracts(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
 		assert.Empty(t, got)
+	})
+
+	t.Run("account with contracts returns contract IDs", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+
+		// Insert account contracts
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return accountTokensModel.BulkInsertContracts(ctx, dbTx, map[string][]string{
+				accountAddress: {contractID},
+			})
+		})
+		require.NoError(t, err)
+
+		service := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel)
+
+		got, err := service.GetAccountContracts(ctx, accountAddress)
+		assert.NoError(t, err)
+		assert.Len(t, got, 1)
+		assert.Equal(t, contractID, got[0])
 	})
 }
 
@@ -574,17 +451,12 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, cpData.TrustlinesByAccountAddress, 1)
 		assert.Contains(t, cpData.TrustlinesByAccountAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		// TrustlinesByAccountAddress contains asset strings in "CODE:ISSUER" format
 		expectedAsset := "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 		assert.Contains(t, cpData.TrustlinesByAccountAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], expectedAsset)
 		assert.Empty(t, cpData.ContractsByHolderAddress)
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("reads contract balance entries", func(t *testing.T) {
-		// Create a contract balance entry with ScVec key type
 		contractHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 		contractID := xdr.ContractId(contractHash)
 
@@ -636,66 +508,18 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, cpData.TrustlinesByAccountAddress)
 		assert.Len(t, cpData.ContractsByHolderAddress, 1)
 		assert.Contains(t, cpData.ContractsByHolderAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		holderContracts := cpData.ContractsByHolderAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"]
-		assert.Equal(t, 1, len(holderContracts))
-		// Contract address should start with C
-		for _, contractAddr := range holderContracts {
-			assert.Equal(t, "C", string(contractAddr[0]))
-		}
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
-	})
-
-	t.Run("reads contract code entries", func(t *testing.T) {
-		// Create a CONTRACT_CODE ledger entry
-		wasmHash := xdr.Hash{100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131}
-		wasmCode := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00} // Minimal WASM header
-
-		contractCodeEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractCode,
-				ContractCode: &xdr.ContractCodeEntry{
-					Hash: wasmHash,
-					Code: wasmCode,
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractCode,
-				Post: &contractCodeEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		// ContractTypesByWasmHash should contain the validated contract type
-		assert.Len(t, cpData.ContractTypesByWasmHash, 1)
-		assert.Equal(t, types.ContractTypeUnknown, cpData.ContractTypesByWasmHash[wasmHash])
 	})
 
 	t.Run("reads valid SAC contract instance entries", func(t *testing.T) {
-		// Create a valid SAC (Stellar Asset Contract) using the sac.AssetToContractData helper
 		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 		asset := xdr.MustNewCreditAsset("USDC", issuer)
 
-		// Get the proper contract ID for this asset
 		contractID, err := asset.ContractID(service.networkPassphrase)
 		require.NoError(t, err)
 
-		// Create valid SAC contract data with proper storage structure
 		contractData, err := sac.AssetToContractData(false, "USDC", issuer, contractID)
 		require.NoError(t, err)
 
-		// Wrap in a LedgerEntry
 		contractDataEntry := xdr.LedgerEntry{
 			Data: contractData,
 		}
@@ -714,239 +538,16 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, cpData.TrustlinesByAccountAddress)
 		assert.Empty(t, cpData.ContractsByHolderAddress)
 
-		// Valid SAC should be immediately classified as ContractTypeSAC
 		assert.Len(t, cpData.ContractTypesByContractID, 1)
-
-		// Get the contract address from the contract ID
 		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
 		require.NoError(t, err)
-
-		// Verify the SAC was properly detected and classified
 		assert.Contains(t, cpData.ContractTypesByContractID, contractAddress)
 		assert.Equal(t, types.ContractTypeSAC, cpData.ContractTypesByContractID[contractAddress])
-
-		// SAC contracts should NOT be added to contractsByWasm (they don't need WASM validation)
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
-	})
-
-	t.Run("reads non-SAC WASM contract instance entries", func(t *testing.T) {
-		// Create a WASM-based contract instance (non-SAC)
-		contractHash := xdr.Hash{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 26, 27, 28, 29, 30, 31, 32}
-		contractID := xdr.ContractId(contractHash)
-
-		// Create a WASM hash for the contract bytecode
-		wasmHash := xdr.Hash{5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160}
-
-		// Create a WASM contract instance
-		contractInstance := xdr.ScContractInstance{
-			Executable: xdr.ContractExecutable{
-				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
-				WasmHash: &wasmHash,
-			},
-			Storage: nil,
-		}
-
-		instanceKey := xdr.ScVal{
-			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
-		}
-
-		contractDataEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractData,
-				ContractData: &xdr.ContractDataEntry{
-					Contract: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: &contractID,
-					},
-					Key:        instanceKey,
-					Durability: xdr.ContractDataDurabilityPersistent,
-					Val: xdr.ScVal{
-						Type:     xdr.ScValTypeScvContractInstance,
-						Instance: &contractInstance,
-					},
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &contractDataEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-		// Non-SAC contracts should NOT be classified yet (happens in enrichContractTypes)
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		// Non-SAC contracts should be added to contractsByWasm for validation
-		assert.Len(t, cpData.ContractIDsByWasmHash, 1)
-		contractAddresses, found := cpData.ContractIDsByWasmHash[wasmHash]
-		require.True(t, found, "WASM hash should be in map")
-		assert.Len(t, contractAddresses, 1)
-
-		// Get the contract address from the contract ID
-		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
-		require.NoError(t, err)
-		assert.Equal(t, contractAddress, contractAddresses[0])
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
-	})
-
-	t.Run("skips contract instances with nil WASM hash", func(t *testing.T) {
-		// Create a WASM-based contract instance but with nil WASM hash
-		// This is an edge case that should be handled gracefully
-		contractHash := xdr.Hash{11, 22, 33, 44, 55, 66, 77, 88, 99, 111, 122, 133, 144, 155, 166, 177, 188, 199, 210, 221, 232, 243, 254, 9, 18, 27, 36, 45, 54, 63, 72, 81}
-		contractID := xdr.ContractId(contractHash)
-
-		// Create a WASM contract instance with nil WASM hash
-		contractInstance := xdr.ScContractInstance{
-			Executable: xdr.ContractExecutable{
-				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
-				WasmHash: nil, // nil hash - should be skipped
-			},
-			Storage: nil,
-		}
-
-		instanceKey := xdr.ScVal{
-			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
-		}
-
-		contractDataEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractData,
-				ContractData: &xdr.ContractDataEntry{
-					Contract: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: &contractID,
-					},
-					Key:        instanceKey,
-					Durability: xdr.ContractDataDurabilityPersistent,
-					Val: xdr.ScVal{
-						Type:     xdr.ScValTypeScvContractInstance,
-						Instance: &contractInstance,
-					},
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &contractDataEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		// Should not error, just skip the entry
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		// Contract with nil WASM hash should NOT be added to contractsByWasm
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
-	})
-
-	t.Run("handles mixed SAC and WASM contract instances", func(t *testing.T) {
-		// Test processing both a valid SAC and a WASM contract in the same batch
-		// This verifies that both types are processed correctly without interfering with each other
-
-		// Create a valid SAC
-		sacIssuer := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
-		sacAsset := xdr.MustNewCreditAsset("EUROC", sacIssuer)
-		sacContractID, err := sacAsset.ContractID(service.networkPassphrase)
-		require.NoError(t, err)
-
-		sacContractData, err := sac.AssetToContractData(false, "EUROC", sacIssuer, sacContractID)
-		require.NoError(t, err)
-
-		sacEntry := xdr.LedgerEntry{
-			Data: sacContractData,
-		}
-
-		// Create a WASM contract
-		wasmContractHash := xdr.Hash{200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231}
-		wasmID := xdr.ContractId(wasmContractHash)
-		wasmBytecodeHash := xdr.Hash{50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81}
-		wasmInstance := xdr.ScContractInstance{
-			Executable: xdr.ContractExecutable{
-				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
-				WasmHash: &wasmBytecodeHash,
-			},
-			Storage: nil,
-		}
-
-		instanceKey := xdr.ScVal{
-			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
-		}
-
-		wasmEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractData,
-				ContractData: &xdr.ContractDataEntry{
-					Contract: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: &wasmID,
-					},
-					Key:        instanceKey,
-					Durability: xdr.ContractDataDurabilityPersistent,
-					Val: xdr.ScVal{
-						Type:     xdr.ScValTypeScvContractInstance,
-						Instance: &wasmInstance,
-					},
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &sacEntry,
-			},
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &wasmEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-
-		// SAC should be in contractTypes
-		assert.Len(t, cpData.ContractTypesByContractID, 1)
-		sacAddress, err := strkey.Encode(strkey.VersionByteContract, sacContractID[:])
-		require.NoError(t, err)
-		assert.Contains(t, cpData.ContractTypesByContractID, sacAddress)
-		assert.Equal(t, types.ContractTypeSAC, cpData.ContractTypesByContractID[sacAddress])
-
-		// WASM contract should be in contractsByWasm
-		assert.Len(t, cpData.ContractIDsByWasmHash, 1)
-		wasmAddresses, found := cpData.ContractIDsByWasmHash[wasmBytecodeHash]
-		require.True(t, found, "WASM hash should be in map")
-		assert.Len(t, wasmAddresses, 1)
-		wasmAddress, err := strkey.Encode(strkey.VersionByteContract, wasmID[:])
-		require.NoError(t, err)
-		assert.Equal(t, wasmAddress, wasmAddresses[0])
-
-		// Ensure they're different contracts
-		assert.NotEqual(t, sacAddress, wasmAddress)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
 		cancelledCtx, cancel := context.WithCancel(ctx)
-		cancel() // Cancel immediately
+		cancel()
 
 		reader := &mockChangeReader{
 			changes: []ingest.Change{},
@@ -966,651 +567,69 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "reading checkpoint changes")
 	})
-
-	t.Run("handles EOF correctly", func(t *testing.T) {
-		reader := &mockChangeReader{
-			changes: []ingest.Change{}, // Empty, will return EOF immediately
-		}
-
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-		assert.Empty(t, cpData.ContractTypesByContractID)
-		assert.Empty(t, cpData.ContractIDsByWasmHash)
-		assert.Empty(t, cpData.ContractTypesByWasmHash)
-	})
 }
 
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("empty changes returns no error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
 
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustlines`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+	}
+
+	t.Run("empty changes returns no error", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		defer mockMetricsService.AssertExpectations(t)
+
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel)
 
 		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{})
 		assert.NoError(t, err)
 	})
 
-	t.Run("add contract stores full address directly", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
+	t.Run("add contract stores contract ID", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
 
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
+		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
+		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel)
+
+		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+
 		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{
 			{
-				AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-				ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+				AccountID:    accountAddress,
+				ContractID:   contractID,
 				ContractType: types.ContractTypeSAC,
 			},
 		})
 		assert.NoError(t, err)
 
-		// Verify contract is stored directly
-		contracts, err := service.GetAccountContracts(ctx, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		// Verify contract is stored
+		reader := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel)
+		contracts, err := reader.GetAccountContracts(ctx, accountAddress)
 		assert.NoError(t, err)
-		assert.Contains(t, contracts, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-
-		// Also verify in raw Redis (no ID conversion)
-		members, err := mr.SMembers(contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.NoError(t, err)
-		assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-	})
-
-	t.Run("skip empty contract ID", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// No trustline changes, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{
-			{
-				AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-				ContractID:   "",
-				ContractType: types.ContractTypeSAC,
-			},
-		})
-		assert.NoError(t, err)
-
-		// No key should be created for empty contract ID
-		key := contractsKeyPrefix + "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		assert.False(t, mr.Exists(key))
-	})
-
-	t.Run("empty asset in trustline gives error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// Empty asset is skipped during parsing, so BatchGetOrInsert is not called (early return for empty assets)
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
-			{
-				AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-				Asset:     "",
-				Operation: types.TrustlineOpAdd,
-			},
-		}, []types.ContractChange{})
-		require.Error(t, err)
-
-		// No key should be created for empty asset
-		key := trustlinesKeyPrefix + "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		assert.False(t, mr.Exists(key))
-	})
-
-	t.Run("add trustline to new account", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-
-		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpAdd,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.NoError(t, err)
-
-		// Verify trustline is stored in Redis in varint format
-		key := service.buildTrustlineKey(accountAddress)
-		val := mr.HGet(key, accountAddress)
-		decodedIDs, err := decodeAssetIDs([]byte(val))
-		require.NoError(t, err)
-		assert.Equal(t, []int64{1}, decodedIDs)
-	})
-
-	t.Run("add trustline to existing account", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Pre-populate with existing trustline in varint format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
-
-		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ": 2}
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
-				Operation:   types.TrustlineOpAdd,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.NoError(t, err)
-
-		// Verify both trustlines exist by decoding the varint data
-		val := mr.HGet(key, accountAddress)
-		decodedIDs, err := decodeAssetIDs([]byte(val))
-		require.NoError(t, err)
-		assert.Len(t, decodedIDs, 2)
-		assert.Contains(t, decodedIDs, int64(1))
-		assert.Contains(t, decodedIDs, int64(2))
-	})
-
-	t.Run("remove trustline from account with multiple", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Pre-populate with multiple trustlines in varint format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1, 2}))
-
-		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpRemove,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.NoError(t, err)
-
-		// Verify only ID 2 remains
-		val := mr.HGet(key, accountAddress)
-		decodedIDs, err := decodeAssetIDs([]byte(val))
-		require.NoError(t, err)
-		assert.Equal(t, []int64{2}, decodedIDs)
-	})
-
-	t.Run("remove last trustline deletes field", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		key := service.buildTrustlineKey(accountAddress)
-
-		// Pre-populate with single trustline in varint format
-		mr.HSet(key, accountAddress, testEncodeAssetIDs([]int64{1}))
-
-		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpRemove,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.NoError(t, err)
-
-		// Verify the field was deleted (HGet returns empty string for non-existent field)
-		val := mr.HGet(key, accountAddress)
-		assert.Empty(t, val)
-	})
-
-	t.Run("multiple changes sorted by operation ID", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-
-		// Pass pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-
-		// Send changes out of order - remove then add (by opID)
-		// Op 2: Remove, Op 1: Add - should be processed as Add first, then Remove
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpRemove,
-				OperationID: 2,
-			},
-			{
-				AccountID:   accountAddress,
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpAdd,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.NoError(t, err)
-
-		// After Add (op 1) then Remove (op 2), no trustlines should remain
-		key := service.buildTrustlineKey(accountAddress)
-		val := mr.HGet(key, accountAddress)
-		assert.Empty(t, val)
-	})
-
-	t.Run("missing asset ID in map returns error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// Pass empty assetIDMap - asset ID will not be found
-		assetIDMap := map[string]int64{}
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, []types.TrustlineChange{
-			{
-				AccountID:   "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-				Asset:       "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-				Operation:   types.TrustlineOpAdd,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "asset ID not found")
-	})
-
-	t.Run("invalid asset format produces error", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-
-		// Invalid asset throws an error
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{
-			{
-				AccountID:   accountAddress,
-				Asset:       "INVALIDASSET", // No colon
-				Operation:   types.TrustlineOpAdd,
-				OperationID: 1,
-			},
-		}, []types.ContractChange{})
-		assert.Error(t, err)
-
-		// No trustline should be stored
-		key := service.buildTrustlineKey(accountAddress)
-		val := mr.HGet(key, accountAddress)
-		assert.Empty(t, val)
-	})
-
-	t.Run("idempotent - reprocessing intermingled operations produces same result", func(t *testing.T) {
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// Test accounts
-		accountA := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		accountB := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-		accountC := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
-
-		// Contract IDs
-		contractC1 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-		contractC2 := "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-
-		// Asset definitions
-		usdcAsset := "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		eurcAsset := "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"
-		btcAsset := "BTC:GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF"
-
-		// Pre-populate Redis with initial trustlines
-		// Account A: [1, 2] (USDC, EURC)
-		keyA := service.buildTrustlineKey(accountA)
-		mr.HSet(keyA, accountA, testEncodeAssetIDs([]int64{1, 2}))
-
-		// Account B: [3] (BTC)
-		keyB := service.buildTrustlineKey(accountB)
-		mr.HSet(keyB, accountB, testEncodeAssetIDs([]int64{3}))
-
-		// Account C: empty (no pre-population needed)
-
-		// Pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{
-			usdcAsset: 1,
-			eurcAsset: 2,
-			btcAsset:  3,
-		}
-
-		// Intermingled trustline changes across multiple accounts
-		trustlineChanges := []types.TrustlineChange{
-			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpRemove, OperationID: 1},
-			{AccountID: accountB, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 2},
-			{AccountID: accountA, Asset: btcAsset, Operation: types.TrustlineOpAdd, OperationID: 3},
-			{AccountID: accountC, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 4},
-			{AccountID: accountB, Asset: btcAsset, Operation: types.TrustlineOpRemove, OperationID: 5},
-			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 6}, // Re-add USDC
-			{AccountID: accountC, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 7},
-		}
-
-		// Contract changes
-		contractChanges := []types.ContractChange{
-			{AccountID: accountA, ContractID: contractC1, ContractType: types.ContractTypeSAC},
-			{AccountID: accountB, ContractID: contractC1, ContractType: types.ContractTypeSAC},
-			{AccountID: accountB, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
-			{AccountID: accountC, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
-		}
-
-		// Helper function to capture current state
-		captureState := func() (map[string][]int64, map[string][]string) {
-			trustlines := make(map[string][]int64)
-			contracts := make(map[string][]string)
-
-			var err error
-			for _, acc := range []string{accountA, accountB, accountC} {
-				// Get trustlines
-				key := service.buildTrustlineKey(acc)
-				val := mr.HGet(key, acc)
-				if val != "" {
-					trustlines[acc], err = decodeAssetIDs([]byte(val))
-					require.NoError(t, err)
-				} else {
-					trustlines[acc] = []int64{}
-				}
-
-				// Get contracts
-				contractKey := contractsKeyPrefix + acc
-				members, err := mr.SMembers(contractKey)
-				if err != nil {
-					contracts[acc] = []string{}
-				} else {
-					contracts[acc] = members
-				}
-			}
-
-			return trustlines, contracts
-		}
-
-		// --- First processing run ---
-
-		err := service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
-		require.NoError(t, err)
-
-		// Capture state after first run
-		trustlinesRun1, contractsRun1 := captureState()
-
-		// Verify expected final state after first run
-		// Account A: [2, 3, 1] → EURC, BTC, USDC (removed then re-added)
-		assert.Len(t, trustlinesRun1[accountA], 3)
-		assert.Contains(t, trustlinesRun1[accountA], int64(1)) // USDC
-		assert.Contains(t, trustlinesRun1[accountA], int64(2)) // EURC
-		assert.Contains(t, trustlinesRun1[accountA], int64(3)) // BTC
-
-		// Account B: [2] → EURC only (BTC removed)
-		assert.Equal(t, []int64{2}, trustlinesRun1[accountB])
-
-		// Account C: [1, 2] → USDC, EURC
-		assert.Len(t, trustlinesRun1[accountC], 2)
-		assert.Contains(t, trustlinesRun1[accountC], int64(1))
-		assert.Contains(t, trustlinesRun1[accountC], int64(2))
-
-		// Contracts
-		assert.ElementsMatch(t, []string{contractC1}, contractsRun1[accountA])
-		assert.ElementsMatch(t, []string{contractC1, contractC2}, contractsRun1[accountB])
-		assert.ElementsMatch(t, []string{contractC2}, contractsRun1[accountC])
-
-		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
-		require.NoError(t, err)
-
-		// Capture state after second run
-		trustlinesRun2, contractsRun2 := captureState()
-
-		// --- Assert idempotency: both runs produce identical state ---
-		// Trustlines (order-independent comparison)
-		for _, acc := range []string{accountA, accountB, accountC} {
-			assert.ElementsMatch(t, trustlinesRun1[acc], trustlinesRun2[acc],
-				"Trustlines for %s should be identical after reprocessing", acc)
-		}
-
-		// Contracts (order-independent comparison)
-		for _, acc := range []string{accountA, accountB, accountC} {
-			assert.ElementsMatch(t, contractsRun1[acc], contractsRun2[acc],
-				"Contracts for %s should be identical after reprocessing", acc)
-		}
-	})
-
-	t.Run("idempotent recovery after simulated partial failure", func(t *testing.T) {
-		// This test simulates a partial pipeline failure scenario where:
-		// 1. Some Redis operations succeed before an error occurs
-		// 2. The DB transaction rolls back, but Redis has partial state
-		// 3. The ledger is reprocessed with ProcessTokenChanges
-		// 4. Despite the corrupted partial state, the final result should be correct
-		//    because set operations (Add/Remove) are inherently idempotent.
-
-		mr, redisStore := setupTestRedis(t)
-		defer mr.Close()
-
-		service := &tokenCacheService{
-			redisStore:       redisStore,
-			trustlinesPrefix: trustlinesKeyPrefix,
-			contractsPrefix:  contractsKeyPrefix,
-		}
-
-		// Test accounts
-		accountA := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		accountB := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-		accountC := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
-
-		// Contract IDs
-		contractC1 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-		contractC2 := "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-
-		// Asset definitions
-		usdcAsset := "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		eurcAsset := "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"
-		btcAsset := "BTC:GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF"
-		ethAsset := "ETH:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-
-		// Pre-computed assetIDMap (simulating GetOrInsertTrustlineAssets was called first)
-		assetIDMap := map[string]int64{
-			usdcAsset: 1,
-			eurcAsset: 2,
-			btcAsset:  3,
-			ethAsset:  4,
-		}
-
-		// --- Initial state (before any changes) ---
-		// Account A: [1, 2] (USDC, EURC)
-		// Account B: [3] (BTC)
-		// Account C: empty
-		keyA := service.buildTrustlineKey(accountA)
-		keyB := service.buildTrustlineKey(accountB)
-
-		// Changes to be applied
-		trustlineChanges := []types.TrustlineChange{
-			{AccountID: accountA, Asset: usdcAsset, Operation: types.TrustlineOpRemove, OperationID: 1},
-			{AccountID: accountA, Asset: btcAsset, Operation: types.TrustlineOpAdd, OperationID: 2},
-			{AccountID: accountA, Asset: ethAsset, Operation: types.TrustlineOpAdd, OperationID: 3},
-			{AccountID: accountB, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 4},
-			{AccountID: accountB, Asset: btcAsset, Operation: types.TrustlineOpRemove, OperationID: 5},
-			{AccountID: accountC, Asset: usdcAsset, Operation: types.TrustlineOpAdd, OperationID: 6},
-			{AccountID: accountC, Asset: eurcAsset, Operation: types.TrustlineOpAdd, OperationID: 7},
-		}
-
-		contractChanges := []types.ContractChange{
-			{AccountID: accountA, ContractID: contractC1, ContractType: types.ContractTypeSAC},
-			{AccountID: accountA, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
-			{AccountID: accountB, ContractID: contractC1, ContractType: types.ContractTypeSAC},
-			{AccountID: accountC, ContractID: contractC2, ContractType: types.ContractTypeSEP41},
-		}
-
-		// --- Expected final state after all changes ---
-		// Account A: [2, 3, 4] (EURC, BTC, ETH) - removed USDC, added BTC, ETH
-		// Account B: [2] (EURC) - added EURC, removed BTC
-		// Account C: [1, 2] (USDC, EURC) - added both
-		expectedTrustlines := map[string][]int64{
-			accountA: {2, 3, 4},
-			accountB: {2},
-			accountC: {1, 2},
-		}
-		expectedContracts := map[string][]string{
-			accountA: {contractC1, contractC2},
-			accountB: {contractC1},
-			accountC: {contractC2},
-		}
-
-		// --- Simulate partial failure scenario ---
-		// Imagine a previous run where:
-		// - Account A's trustline operations succeeded (already at final state)
-		// - Account B's contract operations succeeded (already has contractC1)
-		// - Account C is still at initial state (operations didn't complete)
-
-		// Account A: Set to final trustline state (simulates successful partial write)
-		mr.HSet(keyA, accountA, testEncodeAssetIDs([]int64{2, 3, 4}))
-
-		// Account B: Set to initial trustline state BUT with contract already added
-		mr.HSet(keyB, accountB, testEncodeAssetIDs([]int64{3})) // Still has BTC (initial)
-		_, err := mr.SetAdd(service.buildContractKey(accountB), contractC1)
-		require.NoError(t, err)
-
-		// Account C: At initial state (empty trustlines, no contracts)
-		// No setup needed - this is the default
-
-		// --- Process all changes (simulating reprocessing after rollback) ---
-		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
-		require.NoError(t, err)
-
-		// --- Verify ALL accounts have correct final state ---
-		// Helper to capture state
-		captureState := func() (map[string][]int64, map[string][]string) {
-			trustlines := make(map[string][]int64)
-			contracts := make(map[string][]string)
-
-			var decodeErr error
-			for _, acc := range []string{accountA, accountB, accountC} {
-				key := service.buildTrustlineKey(acc)
-				val := mr.HGet(key, acc)
-				if val != "" {
-					trustlines[acc], decodeErr = decodeAssetIDs([]byte(val))
-					require.NoError(t, decodeErr)
-				} else {
-					trustlines[acc] = []int64{}
-				}
-
-				contractKey := service.buildContractKey(acc)
-				members, sErr := mr.SMembers(contractKey)
-				if sErr != nil {
-					contracts[acc] = []string{}
-				} else {
-					contracts[acc] = members
-				}
-			}
-			return trustlines, contracts
-		}
-
-		finalTrustlines, finalContracts := captureState()
-
-		// Assert trustlines match expected (order-independent)
-		for acc, expected := range expectedTrustlines {
-			assert.ElementsMatch(t, expected, finalTrustlines[acc],
-				"Account %s trustlines should match expected after recovery from partial failure", acc)
-		}
-
-		// Assert contracts match expected (order-independent)
-		for acc, expected := range expectedContracts {
-			assert.ElementsMatch(t, expected, finalContracts[acc],
-				"Account %s contracts should match expected after recovery from partial failure", acc)
-		}
-
-		// --- Verify idempotency: processing again should produce same result ---
-		err = service.ProcessTokenChanges(ctx, assetIDMap, trustlineChanges, contractChanges)
-		require.NoError(t, err)
-
-		finalTrustlines2, finalContracts2 := captureState()
-
-		for acc := range expectedTrustlines {
-			assert.ElementsMatch(t, finalTrustlines[acc], finalTrustlines2[acc],
-				"Account %s trustlines should be unchanged after second processing", acc)
-		}
-		for acc := range expectedContracts {
-			assert.ElementsMatch(t, finalContracts[acc], finalContracts2[acc],
-				"Account %s contracts should be unchanged after second processing", acc)
-		}
+		assert.Contains(t, contracts, contractID)
 	})
 }
 
@@ -1666,85 +685,10 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, changes)
 		require.NoError(t, err)
 
-		// Verify IDs were assigned (they will be auto-generated by PostgreSQL)
 		assert.Len(t, assetIDMap, 2)
 		assert.Contains(t, assetIDMap, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 		assert.Contains(t, assetIDMap, "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2")
 		assert.Greater(t, assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"], int64(0))
 		assert.Greater(t, assetIDMap["EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"], int64(0))
-	})
-
-	t.Run("deduplicates assets from multiple changes", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		mockMetrics := &metrics.MockMetricsService{}
-		mockMetrics.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
-
-		assetModel := &wbdata.TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetrics,
-		}
-
-		service := &tokenCacheService{
-			db:                  dbConnectionPool,
-			trustlineAssetModel: assetModel,
-		}
-
-		// Same asset appears in multiple changes
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
-			{AccountID: "GTEST2", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
-			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpRemove},
-		}
-
-		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, changes)
-		require.NoError(t, err)
-
-		// Only one unique asset should be in the map
-		assert.Len(t, assetIDMap, 1)
-		assert.Contains(t, assetIDMap, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-	})
-
-	t.Run("returns same IDs for existing assets", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		mockMetrics := &metrics.MockMetricsService{}
-		mockMetrics.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
-
-		assetModel := &wbdata.TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetrics,
-		}
-
-		service := &tokenCacheService{
-			db:                  dbConnectionPool,
-			trustlineAssetModel: assetModel,
-		}
-
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
-		}
-
-		// First call - inserts the asset
-		assetIDMap1, err := service.GetOrInsertTrustlineAssets(ctx, changes)
-		require.NoError(t, err)
-
-		// Second call - should return the same ID
-		assetIDMap2, err := service.GetOrInsertTrustlineAssets(ctx, changes)
-		require.NoError(t, err)
-
-		// IDs should be identical
-		assert.Equal(t, assetIDMap1["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"],
-			assetIDMap2["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"])
 	})
 }
