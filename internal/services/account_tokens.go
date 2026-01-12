@@ -221,8 +221,16 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		return nil
 	}
 
-	// Group trustline changes by account
-	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
+	// We sort the trustline changes in the order they happened and then apply them in that order.
+	// The last operation for (account, trustline) will be applied.
+	type changeKey struct {
+		accountID string
+		trustlineID int64
+	}
+	sort.Slice(trustlineChanges, func(i, j int) bool {
+		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+	})
+	lastTrustlineOpPerAccountAndTrustline := make(map[changeKey]types.TrustlineOpType)
 	for _, change := range trustlineChanges {
 		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
@@ -234,17 +242,29 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 			return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
 		}
 
-		if _, ok := trustlineChangesByAccount[change.AccountID]; !ok {
-			trustlineChangesByAccount[change.AccountID] = &wbdata.TrustlineChanges{}
+		if _, ok := lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}]; !ok {
+			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = ""
 		}
 
 		switch change.Operation {
 		case types.TrustlineOpAdd:
-			trustlineChangesByAccount[change.AccountID].AddIDs = append(
-				trustlineChangesByAccount[change.AccountID].AddIDs, assetID)
+			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = types.TrustlineOpAdd
 		case types.TrustlineOpRemove:
-			trustlineChangesByAccount[change.AccountID].RemoveIDs = append(
-				trustlineChangesByAccount[change.AccountID].RemoveIDs, assetID)
+			lastTrustlineOpPerAccountAndTrustline[changeKey{accountID: change.AccountID, trustlineID: assetID}] = types.TrustlineOpRemove
+		}
+	}
+
+	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
+	for trustlineKey, lastOp := range lastTrustlineOpPerAccountAndTrustline {
+		if _, ok := trustlineChangesByAccount[trustlineKey.accountID]; !ok {
+			trustlineChangesByAccount[trustlineKey.accountID] = &wbdata.TrustlineChanges{}
+		}
+
+		switch lastOp {
+		case types.TrustlineOpAdd:
+			trustlineChangesByAccount[trustlineKey.accountID].AddIDs = append(trustlineChangesByAccount[trustlineKey.accountID].AddIDs, trustlineKey.trustlineID)
+		case types.TrustlineOpRemove:
+			trustlineChangesByAccount[trustlineKey.accountID].RemoveIDs = append(trustlineChangesByAccount[trustlineKey.accountID].RemoveIDs, trustlineKey.trustlineID)
 		}
 	}
 
