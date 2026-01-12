@@ -1189,7 +1189,7 @@ func Test_hasRegisteredParticipant(t *testing.T) {
 	}
 }
 
-func Test_ingestService_flushBatchBuffer(t *testing.T) {
+func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -1365,7 +1365,7 @@ func Test_ingestService_flushBatchBuffer(t *testing.T) {
 			buffer := tc.setupBuffer()
 
 			// Call flushBatchBuffer
-			err = svc.flushBatchBuffer(ctx, buffer, tc.updateCursorTo)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, tc.updateCursorTo)
 			require.NoError(t, err)
 
 			// Verify the cursor value
