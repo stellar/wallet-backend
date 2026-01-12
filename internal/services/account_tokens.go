@@ -182,10 +182,12 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 
 	// Wrap DB operations in a single transaction
 	err = db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		if txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); txErr != nil {
+		// FetchAndStoreMetadata inserts SAC/SEP-41 contracts and returns their IDs
+		contractIDMap, txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID)
+		if txErr != nil {
 			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
 		}
-		if txErr := s.storeAccountTokensInPostgres(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency); txErr != nil {
+		if txErr := s.storeAccountTokensInPostgres(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency, contractIDMap); txErr != nil {
 			return fmt.Errorf("storing account tokens in postgres: %w", txErr)
 		}
 		if txErr := initializeCursors(dbTx); txErr != nil {
@@ -570,13 +572,15 @@ func (s *tokenCacheService) enrichContractTypes(
 // storeAccountTokensInPostgres stores all collected trustlines and contracts into PostgreSQL.
 // Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
 // Assets are sorted by frequency before insertion so the most common assets get the lowest IDs.
-// Contract addresses are also converted to numeric IDs for consistent storage.
+// The contractIDMap contains pre-inserted SAC/SEP-41 contracts from FetchAndStoreMetadata;
+// unknown contracts are skipped (not stored).
 func (s *tokenCacheService) storeAccountTokensInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	trustlinesByAccountAddress map[string][]string,
 	contractsByAccountAddress map[string][]string,
 	trustlineFrequency map[wbdata.TrustlineAsset]int64,
+	contractIDMap map[string]int64,
 ) error {
 	startTime := time.Now()
 
@@ -607,31 +611,9 @@ func (s *tokenCacheService) storeAccountTokensInPostgres(
 		return fmt.Errorf("bulk inserting account trustlines: %w", err)
 	}
 
-	// Collect all unique contract addresses and insert them to get numeric IDs
-	uniqueContractAddresses := set.NewSet[string]()
-	for _, contracts := range contractsByAccountAddress {
-		for _, contractAddr := range contracts {
-			uniqueContractAddresses.Add(contractAddr)
-		}
-	}
-
-	if uniqueContractAddresses.Cardinality() > 0 {
-		// Build contract structs for batch insert
-		contracts := make([]*wbdata.Contract, 0, uniqueContractAddresses.Cardinality())
-		for contractAddr := range uniqueContractAddresses.Iter() {
-			contracts = append(contracts, &wbdata.Contract{
-				ContractID: contractAddr,
-				Type:       string(types.ContractTypeUnknown),
-			})
-		}
-
-		contractIDMap, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
-		if err != nil {
-			return fmt.Errorf("batch inserting contracts: %w", err)
-		}
-		log.Ctx(ctx).Infof("Inserted %d unique contracts", len(contractIDMap))
-
-		// Convert contract addresses to numeric IDs for bulk insert
+	// Convert contract addresses to numeric IDs for bulk insert using pre-populated contractIDMap.
+	// Only SAC/SEP-41 contracts exist in the map; unknown contracts are skipped.
+	if len(contractIDMap) > 0 {
 		contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
 		for accountAddress, contractAddrs := range contractsByAccountAddress {
 			ids := make([]int64, 0, len(contractAddrs))
@@ -639,19 +621,21 @@ func (s *tokenCacheService) storeAccountTokensInPostgres(
 				if id, ok := contractIDMap[contractAddr]; ok {
 					ids = append(ids, id)
 				}
+				// Unknown contracts not in contractIDMap are silently skipped
 			}
 			if len(ids) > 0 {
 				contractIDsByAccount[accountAddress] = ids
 			}
 		}
 
-		// Bulk insert contracts
+		// Bulk insert account-contract relationships
 		if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractIDsByAccount); err != nil {
 			return fmt.Errorf("bulk inserting account contracts: %w", err)
 		}
+		log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts", len(contractIDMap))
 	}
 
-	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in PostgreSQL in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Stored %d account trustline sets in PostgreSQL in %.2f minutes", len(trustlinesByAccountAddress), time.Since(startTime).Minutes())
 	return nil
 }
 

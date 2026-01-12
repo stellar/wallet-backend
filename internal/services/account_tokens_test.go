@@ -393,6 +393,7 @@ func TestGetAccountContracts(t *testing.T) {
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
@@ -430,7 +431,7 @@ func TestGetAccountContracts(t *testing.T) {
 		got, err := service.GetAccountContracts(ctx, accountAddress)
 		assert.NoError(t, err)
 		assert.Len(t, got, 1)
-		assert.Equal(t, contractID, got[0])
+		assert.Equal(t, contractID, got[0].ContractID)
 	})
 }
 
@@ -618,7 +619,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{})
+		err := service.ProcessTokenChanges(ctx, nil, nil, []types.TrustlineChange{}, []types.ContractChange{})
 		assert.NoError(t, err)
 	})
 
@@ -628,6 +629,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
@@ -640,7 +642,24 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{
+		// First insert the contract into contract_tokens (simulating FetchAndStoreMetadata)
+		var numericID int64
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			inserted, insertErr := contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+				{ContractID: contractID, Type: "SAC"},
+			})
+			if insertErr != nil {
+				return insertErr
+			}
+			numericID = inserted[contractID]
+			return nil
+		})
+		require.NoError(t, err)
+
+		// Build contractIDMap with the inserted contract's numeric ID
+		contractIDMap := map[string]int64{contractID: numericID}
+
+		err = service.ProcessTokenChanges(ctx, nil, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    accountAddress,
 				ContractID:   contractID,
@@ -649,11 +668,12 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		// Verify contract is stored
+		// Verify contract relationship is stored
 		reader := NewTokenCacheReader(dbConnectionPool, trustlineAssetModel, accountTokensModel, contractModel)
 		contracts, err := reader.GetAccountContracts(ctx, accountAddress)
 		assert.NoError(t, err)
-		assert.Contains(t, contracts, contractID)
+		require.Len(t, contracts, 1)
+		assert.Equal(t, contractID, contracts[0].ContractID)
 	})
 }
 
