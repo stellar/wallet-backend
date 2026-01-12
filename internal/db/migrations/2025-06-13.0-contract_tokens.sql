@@ -1,8 +1,10 @@
 -- +migrate Up
 
--- Table: token_contracts
+-- Table: contract_tokens
+-- Stores Soroban contract tokens with auto-incrementing IDs for memory-efficient storage.
 CREATE TABLE contract_tokens (
-    id TEXT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
+    contract_id TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,
     code TEXT NULL,
     issuer TEXT NULL,
@@ -12,6 +14,8 @@ CREATE TABLE contract_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_contract_tokens_contract_id ON contract_tokens(contract_id);
 
 CREATE TRIGGER contract_tokens_set_updated_at BEFORE UPDATE ON contract_tokens FOR EACH ROW EXECUTE PROCEDURE
   refresh_updated_at_column();
