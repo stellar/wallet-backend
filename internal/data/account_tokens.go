@@ -257,16 +257,6 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 		return fmt.Errorf("closing trustline batch: %w", err)
 	}
 
-	// Clean up accounts with empty arrays
-	const cleanupQuery = `
-		DELETE FROM account_trustlines
-		WHERE account_address = ANY($1) AND asset_ids = '[]'::jsonb`
-
-	_, err := dbTx.Exec(ctx, cleanupQuery, addresses)
-	if err != nil {
-		return fmt.Errorf("cleaning up empty trustlines: %w", err)
-	}
-
 	m.MetricsService.ObserveDBQueryDuration("BatchUpsertTrustlines", "account_trustlines", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BatchUpsertTrustlines", "account_trustlines")
 	return nil
