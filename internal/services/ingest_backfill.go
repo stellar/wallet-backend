@@ -469,24 +469,22 @@ func (m *ingestService) processTokenChanges(
 		return fmt.Errorf("getting or inserting trustline assets: %w", err)
 	}
 
-	// Filter and process new contract tokens, get their numeric IDs
+	// Track which contracts are new (for cache update after transaction commits)
+	newContractIDs := m.identifyNewContractIDs(contractChanges)
+
+	// Get IDs for all SAC/SEP-41 contracts (new + existing)
 	var contractIDMap map[string]int64
-	newContractTypesByID := m.filterNewContractTokens(contractChanges)
-	if len(newContractTypesByID) > 0 {
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			var txErr error
-			contractIDMap, txErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
-			return txErr
-		})
-		if err != nil {
-			return fmt.Errorf("fetching and storing contract metadata: %w", err)
-		}
-		// Update cache after transaction commits
-		for contractID := range newContractTypesByID {
-			m.knownContractIDs.Add(contractID)
-		}
-	} else {
-		contractIDMap = make(map[string]int64)
+	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		var txErr error
+		contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
+		return txErr
+	})
+	if err != nil {
+		return fmt.Errorf("getting or inserting contract tokens: %w", err)
+	}
+	// Update cache after transaction commits
+	for _, contractID := range newContractIDs {
+		m.knownContractIDs.Add(contractID)
 	}
 
 	// Apply token changes to PostgreSQL

@@ -161,8 +161,8 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 	var innerErr error
 	var lastErr error
 
-	// Filter new contracts using in-memory cache (outside transaction - no DB call)
-	newContractTypesByID := m.filterNewContractTokens(contractChanges)
+	// Track which contracts are new (for cache update after transaction commits)
+	newContractIDs := m.identifyNewContractIDs(contractChanges)
 
 	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -175,20 +175,16 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 			if innerErr != nil {
 				return fmt.Errorf("inserting trustline assets: %w", innerErr)
 			}
-			// Fetch and store metadata for new SAC/SEP-41 contracts, get their numeric IDs
-			if len(newContractTypesByID) > 0 {
-				contractIDMap, innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
-				if innerErr != nil {
-					return fmt.Errorf("fetching and storing new contract tokens metadata: %w", innerErr)
-				}
-			} else {
-				contractIDMap = make(map[string]int64)
+			// Get IDs for all SAC/SEP-41 contracts (new + existing)
+			contractIDMap, innerErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
+			if innerErr != nil {
+				return fmt.Errorf("getting or inserting contract tokens: %w", innerErr)
 			}
 			return nil
 		})
 		if err == nil {
 			// Update cache AFTER transaction commits to avoid stale cache on rollback
-			for contractID := range newContractTypesByID {
+			for _, contractID := range newContractIDs {
 				m.knownContractIDs.Add(contractID)
 			}
 			return trustlineAssetIDMap, contractIDMap, nil
@@ -298,17 +294,15 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	return nil
 }
 
-// filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
-// checks which contracts already exist in the in-memory cache, and returns a map of only new contracts.
-// This function uses the knownContractIDs cache to avoid per-ledger database queries.
-func (m *ingestService) filterNewContractTokens(contractChanges []types.ContractChange) map[string]types.ContractType {
+// identifyNewContractIDs returns unique SAC/SEP-41 contract IDs that are not in the cache.
+// Used to update the cache after transaction commits.
+func (m *ingestService) identifyNewContractIDs(contractChanges []types.ContractChange) []string {
 	if len(contractChanges) == 0 {
 		return nil
 	}
 
-	// Extract unique SAC and SEP-41 contract IDs not already in cache
 	seen := set.NewSet[string]()
-	newContracts := make(map[string]types.ContractType)
+	var newIDs []string
 
 	for _, change := range contractChanges {
 		// Only process SAC and SEP-41 contracts
@@ -322,9 +316,9 @@ func (m *ingestService) filterNewContractTokens(contractChanges []types.Contract
 
 		// Check cache - if not known, it's a new contract
 		if !m.knownContractIDs.Contains(change.ContractID) {
-			newContracts[change.ContractID] = change.ContractType
+			newIDs = append(newIDs, change.ContractID)
 		}
 	}
 
-	return newContracts
+	return newIDs
 }
