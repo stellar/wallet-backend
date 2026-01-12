@@ -327,13 +327,13 @@ func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, me
 	contracts := make([]*data.Contract, 0, len(metadataMap))
 	for _, metadata := range metadataMap {
 		contracts = append(contracts, &data.Contract{
-			ID:       metadata.ContractID,
-			Type:     string(metadata.Type),
-			Code:     &metadata.Code,
-			Issuer:   &metadata.Issuer,
-			Name:     &metadata.Name,
-			Symbol:   &metadata.Symbol,
-			Decimals: metadata.Decimals,
+			ContractID: metadata.ContractID,
+			Type:       string(metadata.Type),
+			Code:       &metadata.Code,
+			Issuer:     &metadata.Issuer,
+			Name:       &metadata.Name,
+			Symbol:     &metadata.Symbol,
+			Decimals:   metadata.Decimals,
 		})
 	}
 

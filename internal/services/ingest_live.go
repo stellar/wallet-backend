@@ -100,7 +100,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 
 // initializeKnownContractIDs populates the in-memory cache of known contract IDs.
 func (m *ingestService) initializeKnownContractIDs(ctx context.Context) error {
-	ids, err := m.models.Contract.GetAllIDs(ctx)
+	ids, err := m.models.Contract.GetAllContractIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("loading contract IDs into cache: %w", err)
 	}

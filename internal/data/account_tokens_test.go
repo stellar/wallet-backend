@@ -220,9 +220,9 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		expectedContracts := []string{"CONTRACT1", "CONTRACT2", "CONTRACT3"}
+		expectedContracts := []int64{1, 2, 3}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]string{accountAddress: expectedContracts})
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{accountAddress: expectedContracts})
 		})
 		require.NoError(t, err)
 
@@ -259,7 +259,7 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]string{})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{})
 		})
 		require.NoError(t, err)
 	})
@@ -279,10 +279,10 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		}
 
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		contracts := []string{"CONTRACT1", "CONTRACT2"}
+		contracts := []int64{1, 2}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]string{accountAddress: contracts})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contracts})
 		})
 		require.NoError(t, err)
 
@@ -312,13 +312,13 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 
 		// First add
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]string{accountAddress: {"CONTRACT1", "CONTRACT2"}})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: {1, 2}})
 		})
 		require.NoError(t, err)
 
 		// Second add with overlap
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]string{accountAddress: {"CONTRACT2", "CONTRACT3"}})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: {2, 3}})
 		})
 		require.NoError(t, err)
 
@@ -326,7 +326,7 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		result, err := m.GetContractIDs(ctx, accountAddress)
 		require.NoError(t, err)
 		require.Len(t, result, 3)
-		require.ElementsMatch(t, []string{"CONTRACT1", "CONTRACT2", "CONTRACT3"}, result)
+		require.ElementsMatch(t, []int64{1, 2, 3}, result)
 
 		cleanUpDB()
 	})
@@ -462,7 +462,7 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]string{})
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{})
 		})
 		require.NoError(t, err)
 	})
@@ -483,11 +483,11 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 
 		account1 := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		account2 := "GCQYG3MNNPFNFUBWXF5IDNNC7V3ZDLWLKSQVHFZEBWNPPQ4XVRCVHWQJ"
-		contracts1 := []string{"CONTRACT1", "CONTRACT2"}
-		contracts2 := []string{"CONTRACT3"}
+		contracts1 := []int64{1, 2}
+		contracts2 := []int64{3}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]string{
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{
 				account1: contracts1,
 				account2: contracts2,
 			})
