@@ -77,12 +77,14 @@ type TokenCacheWriter interface {
 	// Storage semantics differ between trustlines and contracts:
 	// - Trustlines: Can be added or removed. When all trustlines for an account are removed,
 	//   the account's entry is deleted from PostgreSQL.
-	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
-	//   persist in the ledger even when balance is zero, so we track all contracts an account
-	//   has ever held a balance in.
+	// - Contracts: Only SAC/SEP-41 contracts are tracked (contracts accumulate). Unknown contracts
+	//   are skipped. Contract balance entries persist in the ledger even when balance is zero,
+	//   so we track all contracts an account has ever held a balance in.
 	//
 	// The trustlineAssetIDMap parameter must be pre-populated by calling GetOrInsertTrustlineAssets first.
-	ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	// The contractIDMap parameter must be pre-populated by calling FetchAndStoreMetadata first.
+	// Contracts not in contractIDMap (e.g., unknown contracts) are silently skipped.
+	ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 // Verify interface compliance at compile time
@@ -201,10 +203,12 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 // This is called by the indexer for each ledger's state changes during live ingestion.
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
-// For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
+// For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
+// (not in contractIDMap) are silently skipped as we only track SAC/SEP-41 tokens.
 //
 // The trustlineAssetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+// The contractIDMap must be pre-populated by calling FetchAndStoreMetadata before the main transaction.
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -236,14 +240,19 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		}
 	}
 
-	// Collect unique contract addresses from changes (filter empty contract IDs)
-	uniqueContractAddresses := set.NewSet[string]()
+	// Group contract changes by account using pre-computed numeric IDs from contractIDMap.
+	// Unknown contracts (not in the map) are silently skipped - we only track SAC/SEP-41 tokens.
+	contractsByAccount := make(map[string][]int64)
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
-			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
 			continue
 		}
-		uniqueContractAddresses.Add(change.ContractID)
+		// Only process contracts that exist in the pre-computed map (SAC/SEP-41)
+		numericID, exists := contractIDMap[change.ContractID]
+		if !exists {
+			continue // Skip unknown contracts
+		}
+		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
 	}
 
 	// Execute all changes in a transaction
@@ -255,40 +264,10 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 			}
 		}
 
-		// Get or insert contract IDs to get numeric IDs
-		if uniqueContractAddresses.Cardinality() > 0 {
-			// Build minimal contract structs for BatchGetOrInsert
-			contracts := make([]*wbdata.Contract, 0, uniqueContractAddresses.Cardinality())
-			for contractAddr := range uniqueContractAddresses.Iter() {
-				contracts = append(contracts, &wbdata.Contract{
-					ContractID: contractAddr,
-					Type:       string(types.ContractTypeUnknown),
-				})
-			}
-
-			contractIDMap, txErr := s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
-			if txErr != nil {
-				return fmt.Errorf("getting/inserting contract IDs: %w", txErr)
-			}
-
-			// Group contract changes by account using numeric IDs
-			contractsByAccount := make(map[string][]int64)
-			for _, change := range contractChanges {
-				if change.ContractID == "" {
-					continue
-				}
-				numericID, exists := contractIDMap[change.ContractID]
-				if !exists {
-					return fmt.Errorf("numeric ID not found for contract %s", change.ContractID)
-				}
-				contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
-			}
-
-			// Batch add contracts
-			if len(contractsByAccount) > 0 {
-				if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
-					return fmt.Errorf("adding contracts: %w", txErr)
-				}
+		// Batch add contracts
+		if len(contractsByAccount) > 0 {
+			if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
+				return fmt.Errorf("adding contracts: %w", txErr)
 			}
 		}
 
