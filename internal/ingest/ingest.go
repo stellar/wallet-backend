@@ -177,7 +177,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.AccountTokens)
+	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.AccountTokens, models.Contract)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {

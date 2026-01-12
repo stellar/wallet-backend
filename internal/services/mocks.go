@@ -134,9 +134,9 @@ func (m *TokenCacheReaderMock) GetAccountTrustlines(ctx context.Context, account
 	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
 }
 
-func (m *TokenCacheReaderMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+func (m *TokenCacheReaderMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]*data.Contract, error) {
 	args := m.Called(ctx, accountAddress)
-	return args.Get(0).([]string), args.Error(1)
+	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 // NewTokenCacheReaderMock creates a new instance of TokenCacheReaderMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
