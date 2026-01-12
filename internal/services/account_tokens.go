@@ -1,13 +1,11 @@
-// Account token caching service - manages Redis caching of account token holdings
+// Account token caching service - manages PostgreSQL storage of account token holdings
 // including both classic Stellar trustlines and Stellar Asset Contract (SAC) balances.
 package services
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"sort"
 	"strings"
@@ -26,22 +24,6 @@ import (
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/store"
-)
-
-const (
-	// Redis key prefixes for account token storage
-	trustlinesKeyPrefix = "trustlines:"
-	contractsKeyPrefix  = "contracts:"
-
-	// redisPipelineBatchSize is the number of operations to batch
-	// in a single Redis pipeline for token cache population.
-	redisPipelineBatchSize = 50000
-
-	// numTrustlineBuckets distributes accounts across Redis hashes to avoid hot-key issues.
-	// With ~10M mainnet accounts, 20,000 buckets yields ~500 accounts per bucket on average.
-	// This provides good distribution while keeping the number of Redis keys manageable.
-	numTrustlineBuckets = 20000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -69,15 +51,15 @@ type TokenCacheReader interface {
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
 
-	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
+	// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
 }
 
 // TokenCacheWriter provides write access to the token cache during ingestion.
 type TokenCacheWriter interface {
-	// PopulateAccountTokens performs initial Redis cache population from Stellar
+	// PopulateAccountTokens performs initial PostgreSQL cache population from Stellar
 	// history archive for a specific checkpoint. It extracts all trustlines and contract
-	// tokens from checkpoint ledger entries and stores them in Redis.
+	// tokens from checkpoint ledger entries and stores them in PostgreSQL.
 	// The checkpointLedger parameter specifies which checkpoint to use for population.
 	// The initializeCursors callback is invoked within the same DB transaction as
 	// the metadata storage to ensure atomic initialization.
@@ -89,13 +71,12 @@ type TokenCacheWriter interface {
 	// Returns a map of "CODE:ISSUER" -> ID for use in ProcessTokenChanges.
 	GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error)
 
-	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
-	// using pipelining for performance. This is called by the indexer for each ledger's
-	// state changes during live ingestion.
+	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
+	// This is called by the indexer for each ledger's state changes during live ingestion.
 	//
 	// Storage semantics differ between trustlines and contracts:
 	// - Trustlines: Can be added or removed. When all trustlines for an account are removed,
-	//   the account's entry is deleted from Redis.
+	//   the account's entry is deleted from PostgreSQL.
 	// - Contracts: Only additions are tracked (contracts accumulate). Contract balance entries
 	//   persist in the ledger even when balance is zero, so we track all contracts an account
 	//   has ever held a balance in.
@@ -115,12 +96,10 @@ type tokenCacheService struct {
 	db                      db.ConnectionPool
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
-	redisStore              *store.RedisStore
 	contractMetadataService ContractMetadataService
 	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
+	accountTokensModel      wbdata.AccountTokensModelInterface
 	networkPassphrase       string
-	trustlinesPrefix        string
-	contractsPrefix         string
 }
 
 // NewTokenCacheWriter creates a TokenCacheWriter for ingestion.
@@ -128,40 +107,36 @@ func NewTokenCacheWriter(
 	dbPool db.ConnectionPool,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
-	redisStore *store.RedisStore,
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
+	accountTokensModel wbdata.AccountTokensModelInterface,
 ) TokenCacheWriter {
 	return &tokenCacheService{
 		db:                      dbPool,
 		archive:                 archive,
 		contractValidator:       contractValidator,
-		redisStore:              redisStore,
 		contractMetadataService: contractMetadataService,
 		trustlineAssetModel:     trustlineAssetModel,
+		accountTokensModel:      accountTokensModel,
 		networkPassphrase:       networkPassphrase,
-		trustlinesPrefix:        trustlinesKeyPrefix,
-		contractsPrefix:         contractsKeyPrefix,
 	}
 }
 
 // NewTokenCacheReader creates a TokenCacheReader for API queries.
 func NewTokenCacheReader(
 	dbPool db.ConnectionPool,
-	redisStore *store.RedisStore,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
+	accountTokensModel wbdata.AccountTokensModelInterface,
 ) TokenCacheReader {
 	return &tokenCacheService{
 		db:                  dbPool,
-		redisStore:          redisStore,
 		trustlineAssetModel: trustlineAssetModel,
-		trustlinesPrefix:    trustlinesKeyPrefix,
-		contractsPrefix:     contractsKeyPrefix,
+		accountTokensModel:  accountTokensModel,
 	}
 }
 
-// PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
+// PopulateAccountTokens performs initial PostgreSQL cache population from Stellar history archive.
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
@@ -203,8 +178,8 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 		if txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); txErr != nil {
 			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
 		}
-		if txErr := s.storeAccountTokensInRedis(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency); txErr != nil {
-			return fmt.Errorf("storing account tokens in redis: %w", txErr)
+		if txErr := s.storeAccountTokensInPostgres(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency); txErr != nil {
+			return fmt.Errorf("storing account tokens in postgres: %w", txErr)
 		}
 		if txErr := initializeCursors(dbTx); txErr != nil {
 			return fmt.Errorf("initializing cursors: %w", txErr)
@@ -217,13 +192,11 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 	return nil
 }
 
-// ProcessTokenChanges processes token changes efficiently using Redis pipelining.
-// This reduces network round trips from N operations to 1, significantly improving performance
-// during live ingestion. Called by the indexer for each ledger's state changes.
+// ProcessTokenChanges processes token changes and stores them in PostgreSQL.
+// This is called by the indexer for each ledger's state changes during live ingestion.
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
-// Internally stores short integer IDs in varint binary format to reduce memory usage.
 //
 // The trustlineAssetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
 func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
@@ -231,126 +204,63 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		return nil
 	}
 
-	// Calculate capacity: each trustline = 1 op, each contract = 1 op
-	operations := make([]store.RedisPipelineOperation, 0)
-
-	// Build unique prefix buckets and group changes by account
-	addressesByBucketPrefix := make(map[string]set.Set[string])
-	trustlineChangesByAccount := make(map[string][]types.TrustlineChange)
-	accountToPrefix := make(map[string]string) // Map account -> its prefix bucket
-
+	// Group trustline changes by account
+	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
 	for _, change := range trustlineChanges {
-		prefix := s.buildTrustlineKey(change.AccountID)
-		if addressesByBucketPrefix[prefix] == nil {
-			addressesByBucketPrefix[prefix] = set.NewSet[string]()
-		}
-		addressesByBucketPrefix[prefix].Add(change.AccountID)
-		trustlineChangesByAccount[change.AccountID] = append(trustlineChangesByAccount[change.AccountID], change)
-		accountToPrefix[change.AccountID] = prefix
-	}
-
-	// Process each prefix bucket - decode varint binary format to int64 sets
-	trustlinesSetByAccount := make(map[string]set.Set[int64])
-	for prefix := range addressesByBucketPrefix {
-		accountsInThisBucket := addressesByBucketPrefix[prefix].ToSlice()
-		existingTrustlines, err := s.redisStore.HMGet(ctx, prefix, accountsInThisBucket...)
+		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
-			return fmt.Errorf("getting key %s: %w", prefix, err)
+			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
 		}
 
-		// Parse existing trustlines (varint format) into sets
-		for accountAddress, trustlineData := range existingTrustlines {
-			if trustlineData != "" {
-				ids, err := decodeAssetIDs([]byte(trustlineData))
-				if err != nil {
-					return fmt.Errorf("decoding trustline IDs for address %s: %w", accountAddress, err)
-				}
-				trustlinesSetByAccount[accountAddress] = set.NewSet(ids...)
-			}
-		}
-	}
-
-	// Process trustline changes (sorted by operation ID)
-	for accountAddress, changes := range trustlineChangesByAccount {
-		// Sort by operation ID to maintain order
-		sort.Slice(changes, func(i, j int) bool {
-			return changes[i].OperationID < changes[j].OperationID
-		})
-
-		// Initialize set if account doesn't exist yet
-		if _, exists := trustlinesSetByAccount[accountAddress]; !exists {
-			trustlinesSetByAccount[accountAddress] = set.NewSet[int64]()
+		assetID, exists := trustlineAssetIDMap[code+":"+issuer]
+		if !exists {
+			return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
 		}
 
-		for _, change := range changes {
-			code, issuer, err := parseAssetString(change.Asset)
-			if err != nil {
-				return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", accountAddress, change.Asset, err)
-			}
+		if _, ok := trustlineChangesByAccount[change.AccountID]; !ok {
+			trustlineChangesByAccount[change.AccountID] = &wbdata.TrustlineChanges{}
+		}
 
-			assetID, exists := trustlineAssetIDMap[code+":"+issuer]
-			if !exists {
-				return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
-			}
-
-			switch change.Operation {
-			case types.TrustlineOpAdd:
-				trustlinesSetByAccount[accountAddress].Add(assetID)
-			case types.TrustlineOpRemove:
-				trustlinesSetByAccount[accountAddress].Remove(assetID)
-			}
+		switch change.Operation {
+		case types.TrustlineOpAdd:
+			trustlineChangesByAccount[change.AccountID].AddIDs = append(
+				trustlineChangesByAccount[change.AccountID].AddIDs, assetID)
+		case types.TrustlineOpRemove:
+			trustlineChangesByAccount[change.AccountID].RemoveIDs = append(
+				trustlineChangesByAccount[change.AccountID].RemoveIDs, assetID)
 		}
 	}
 
-	// Build operations - only for accounts that had changes
-	for accountAddress := range trustlineChangesByAccount {
-		prefix := accountToPrefix[accountAddress]
-		trustlineSet := trustlinesSetByAccount[accountAddress]
-
-		if trustlineSet.Cardinality() == 0 {
-			// Delete field if no trustlines remain
-			operations = append(operations, store.RedisPipelineOperation{
-				Op:    store.OpHDel,
-				Key:   prefix,
-				Field: accountAddress,
-			})
-		} else {
-			// Encode asset IDs to varint binary format
-			operations = append(operations, store.RedisPipelineOperation{
-				Op:    store.OpHSet,
-				Key:   prefix,
-				Field: accountAddress,
-				Value: string(encodeAssetIDs(trustlineSet.ToSlice())),
-			})
-		}
-	}
-
-	// Convert contract changes to Redis pipeline operations.
-	// Contracts use simple Redis sets with raw contract IDs (C...) rather than the
-	// hash-bucketed varint encoding used for trustlines. This is because:
-	// 1. Contract addresses are already fixed-length (56 chars vs variable trustline strings)
-	// 2. Accounts typically hold fewer contract balances than trustlines
-	// 3. The memory savings from ID encoding would be minimal for fixed-length C addresses
+	// Group contract changes by account (filter empty contract IDs)
+	contractsByAccount := make(map[string][]string)
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
 			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
 			continue
 		}
-
-		// For contract changes, we always add contract IDs and never remove them.
-		// This is because contract balance entries persist in the ledger even when balance is zero,
-		// unlike trustlines which can be completely deleted. We track all contracts an account has
-		// ever interacted with.
-		operations = append(operations, store.RedisPipelineOperation{
-			Op:      store.SetOpAdd,
-			Key:     s.buildContractKey(change.AccountID),
-			Members: []string{change.ContractID},
-		})
+		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], change.ContractID)
 	}
 
-	// Execute all operations in a single pipeline
-	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
-		return fmt.Errorf("executing token changes pipeline: %w", err)
+	// Execute all changes in a transaction
+	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		// Batch upsert trustlines
+		if len(trustlineChangesByAccount) > 0 {
+			if txErr := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, trustlineChangesByAccount); txErr != nil {
+				return fmt.Errorf("upserting trustlines: %w", txErr)
+			}
+		}
+
+		// Batch add contracts
+		if len(contractsByAccount) > 0 {
+			if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
+				return fmt.Errorf("adding contracts: %w", txErr)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("executing token changes: %w", err)
 	}
 
 	return nil
@@ -372,85 +282,17 @@ func parseAssetString(asset string) (code, issuer string, err error) {
 	return code, issuer, nil
 }
 
-// encodeAssetIDs encodes a slice of asset IDs to varint binary format.
-//
-// Varint encoding uses 7 bits per byte for data + 1 continuation bit, allowing
-// small values to use fewer bytes (e.g., IDs < 128 use 1 byte, < 16384 use 2 bytes).
-// This saves 40-60% memory vs string encoding for typical asset ID distributions.
-//
-// Pre-allocates max possible size (10 bytes per int64) then returns only used portion.
-func encodeAssetIDs(ids []int64) []byte {
-	if len(ids) == 0 {
-		return nil
-	}
-	buf := make([]byte, len(ids)*binary.MaxVarintLen64)
-	offset := 0
-	for _, id := range ids {
-		n := binary.PutUvarint(buf[offset:], uint64(id))
-		offset += n
-	}
-	return buf[:offset]
-}
-
-// decodeAssetIDs decodes varint binary format to slice of asset IDs.
-//
-// Reads consecutive varint-encoded integers from the buffer until exhausted.
-// Each varint uses 7 data bits + 1 continuation bit per byte, so small IDs
-// (< 128) use 1 byte, medium IDs (< 16384) use 2 bytes, etc.
-func decodeAssetIDs(buf []byte) ([]int64, error) {
-	if len(buf) == 0 {
-		return nil, nil
-	}
-	result := make([]int64, 0)
-	for len(buf) > 0 {
-		val, n := binary.Uvarint(buf)
-		if n <= 0 {
-			return nil, fmt.Errorf("decoding varint for buffer %v: %d bytes remaining", buf, len(buf))
-		}
-		result = append(result, int64(val))
-		buf = buf[n:]
-	}
-	return result, nil
-}
-
-// buildTrustlineKey constructs the Redis key for an account's trustlines set.
-//
-// Uses FNV-1a hash to distribute accounts across buckets, avoiding Redis hot keys.
-// FNV-1a processes each byte: hash = (hash XOR byte) * prime, producing uniform
-// distribution across the 20,000 buckets (~500 accounts per bucket on mainnet).
-func (s *tokenCacheService) buildTrustlineKey(accountAddress string) string {
-	h := fnv.New32a()
-	h.Write([]byte(accountAddress))
-	bucket := h.Sum32() % numTrustlineBuckets
-	return fmt.Sprintf("%s%d", s.trustlinesPrefix, bucket)
-}
-
-// buildContractKey constructs the Redis key for an account's contracts set.
-func (s *tokenCacheService) buildContractKey(accountAddress string) string {
-	return s.contractsPrefix + accountAddress
-}
-
-// GetAccountTrustlines retrieves all trustlines for an account from Redis.
-// Returns asset strings in "CODE:ISSUER" format after resolving from internal IDs.
+// GetAccountTrustlines retrieves all trustlines for an account from PostgreSQL.
+// Returns asset objects after resolving from internal IDs.
 func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
-	key := s.buildTrustlineKey(accountAddress)
 
-	// Get varint-encoded IDs from Redis hash
-	idData, err := s.redisStore.HGet(ctx, key, accountAddress)
+	// Get asset IDs from PostgreSQL
+	ids, err := s.accountTokensModel.GetTrustlineAssetIDs(ctx, accountAddress)
 	if err != nil {
-		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
-	}
-	if idData == "" {
-		return []*wbdata.TrustlineAsset{}, nil
-	}
-
-	// Decode varint binary format to asset IDs
-	ids, err := decodeAssetIDs([]byte(idData))
-	if err != nil {
-		return nil, fmt.Errorf("decoding trustline IDs for account %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("getting trustline asset IDs for account %s: %w", accountAddress, err)
 	}
 	if len(ids) == 0 {
 		return []*wbdata.TrustlineAsset{}, nil
@@ -465,7 +307,7 @@ func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAdd
 	return assets, nil
 }
 
-// GetAccountContracts retrieves all contract token IDs for an account from Redis.
+// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
 // For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
 // For C-address: all contract tokens (SAC, custom)
 // Returns full contract addresses (C...).
@@ -473,9 +315,8 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
-	key := s.buildContractKey(accountAddress)
 
-	contracts, err := s.redisStore.SMembers(ctx, key)
+	contracts, err := s.accountTokensModel.GetContractIDs(ctx, accountAddress)
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
 	}
@@ -705,12 +546,11 @@ func (s *tokenCacheService) enrichContractTypes(
 	}
 }
 
-// storeAccountTokensInRedis stores all collected trustlines and contracts into Redis using pipelining.
+// storeAccountTokensInPostgres stores all collected trustlines and contracts into PostgreSQL.
 // Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
-// Assets are sorted by frequency before insertion so the most common assets get the lowest IDs,
-// which results in smaller varint encoding and reduced Redis memory usage.
+// Assets are sorted by frequency before insertion so the most common assets get the lowest IDs.
 // Contract addresses are stored directly as full strings.
-func (s *tokenCacheService) storeAccountTokensInRedis(
+func (s *tokenCacheService) storeAccountTokensInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	trustlinesByAccountAddress map[string][]string,
@@ -723,15 +563,12 @@ func (s *tokenCacheService) storeAccountTokensInRedis(
 	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
 	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, uniqueTrustlines)
 	if err != nil {
-		return fmt.Errorf("batch get or insert trustline assets: %w", err)
+		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
 	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
 
-	// Build pipeline operations
-	totalOps := len(trustlinesByAccountAddress) + len(contractsByAccountAddress)
-	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
-
-	// Add trustline operations with asset IDs from PostgreSQL, encoded as varint
+	// Convert asset strings to IDs for bulk insert
+	trustlineIDsByAccount := make(map[string][]int64, len(trustlinesByAccountAddress))
 	for accountAddress, assets := range trustlinesByAccountAddress {
 		ids := make([]int64, 0, len(assets))
 		for _, asset := range assets {
@@ -740,38 +577,26 @@ func (s *tokenCacheService) storeAccountTokensInRedis(
 			}
 		}
 		if len(ids) > 0 {
-			redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-				Op:    store.OpHSet,
-				Key:   s.buildTrustlineKey(accountAddress),
-				Field: accountAddress,
-				Value: string(encodeAssetIDs(ids)),
-			})
+			trustlineIDsByAccount[accountAddress] = ids
 		}
 	}
 
-	// Add contract operations with full contract addresses
-	for accountAddress, contractAddresses := range contractsByAccountAddress {
-		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-			Op:      store.SetOpAdd,
-			Key:     s.buildContractKey(accountAddress),
-			Members: contractAddresses,
-		})
+	// Bulk insert trustlines
+	if err := s.accountTokensModel.BulkInsertTrustlines(ctx, dbTx, trustlineIDsByAccount); err != nil {
+		return fmt.Errorf("bulk inserting account trustlines: %w", err)
 	}
 
-	// Execute operations in batches
-	for i := 0; i < len(redisPipelineOps); i += redisPipelineBatchSize {
-		end := min(i+redisPipelineBatchSize, len(redisPipelineOps))
-		if err := s.redisStore.ExecutePipeline(ctx, redisPipelineOps[i:end]); err != nil {
-			return fmt.Errorf("executing account tokens pipeline: %w", err)
-		}
+	// Bulk insert contracts
+	if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractsByAccountAddress); err != nil {
+		return fmt.Errorf("bulk inserting account contracts: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in Redis in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Stored %d account trustline sets and %d account contract sets in PostgreSQL in %.2f minutes", len(trustlinesByAccountAddress), len(contractsByAccountAddress), time.Since(startTime).Minutes())
 	return nil
 }
 
-// processTrustlineAssets sorts assets by frequency (descending) for optimal varint encoding.
-// Most frequent assets get lowest IDs (1, 2, 3...) which use fewer bytes in varint format.
+// processTrustlineAssets sorts assets by frequency (descending) for optimal storage.
+// Most frequent assets get lowest IDs (1, 2, 3...).
 func (s *tokenCacheService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int64) []wbdata.TrustlineAsset {
 	type assetFreq struct {
 		asset wbdata.TrustlineAsset
