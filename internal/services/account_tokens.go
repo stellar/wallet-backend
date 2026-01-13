@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -45,7 +46,7 @@ type checkpointData struct {
 // trustlineBatch holds a batch of trustlines for streaming insertion.
 type trustlineBatch struct {
 	// accountTrustlines maps account address to list of computed asset IDs
-	accountTrustlines map[string][]int64
+	accountTrustlines map[string][]uuid.UUID
 	// uniqueAssets tracks unique assets with their computed IDs for batch insert
 	uniqueAssets map[string]wbdata.TrustlineAsset
 	// count tracks total trustline entries in this batch
@@ -54,7 +55,7 @@ type trustlineBatch struct {
 
 func newTrustlineBatch() *trustlineBatch {
 	return &trustlineBatch{
-		accountTrustlines: make(map[string][]int64),
+		accountTrustlines: make(map[string][]uuid.UUID),
 		uniqueAssets:      make(map[string]wbdata.TrustlineAsset),
 	}
 }
@@ -78,7 +79,7 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset)
 }
 
 func (b *trustlineBatch) reset() {
-	b.accountTrustlines = make(map[string][]int64)
+	b.accountTrustlines = make(map[string][]uuid.UUID)
 	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
 	b.count = 0
 }
@@ -260,7 +261,7 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	// We only store the net change for each (account, trustline) pair.
 	type changeKey struct {
 		accountID   string
-		trustlineID int64
+		trustlineID uuid.UUID
 	}
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
@@ -301,7 +302,7 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 
 	// Group contract changes by account using deterministic IDs.
 	// Only SAC/SEP-41 contracts are processed; others are silently skipped.
-	contractsByAccount := make(map[string][]int64)
+	contractsByAccount := make(map[string][]uuid.UUID)
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
 			continue
@@ -310,8 +311,8 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
 			continue
 		}
-		numericID := wbdata.DeterministicContractID(change.ContractID)
-		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
+		contractID := wbdata.DeterministicContractID(change.ContractID)
+		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], contractID)
 	}
 
 	// Execute all changes using the provided transaction
@@ -618,11 +619,11 @@ func (s *tokenCacheService) storeContractsInPostgres(
 
 	startTime := time.Now()
 
-	// Convert contract addresses to numeric IDs for bulk insert using deterministic IDs.
+	// Convert contract addresses to UUIDs for bulk insert using deterministic IDs.
 	// Only SAC/SEP-41 contracts (in contractTypesByContractID) are processed.
-	contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
+	contractIDsByAccount := make(map[string][]uuid.UUID, len(contractsByAccountAddress))
 	for accountAddress, contractAddrs := range contractsByAccountAddress {
-		ids := make([]int64, 0, len(contractAddrs))
+		ids := make([]uuid.UUID, 0, len(contractAddrs))
 		for _, contractAddr := range contractAddrs {
 			// Only include contracts that are known SAC/SEP-41 types
 			if _, ok := contractTypesByContractID[contractAddr]; ok {
