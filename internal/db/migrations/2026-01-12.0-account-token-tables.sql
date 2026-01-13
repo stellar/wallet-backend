@@ -1,24 +1,26 @@
 -- +migrate Up
 
 -- Table: account_trustlines
--- Stores account-to-trustline-asset relationships using JSONB arrays for efficient storage.
--- Each row represents one account with all its trustline asset IDs stored as a JSONB array.
--- This replaces Redis hash storage for trustlines.
+-- Junction table mapping accounts to their trustline assets.
 CREATE TABLE account_trustlines (
-    account_address TEXT PRIMARY KEY,
-    asset_ids JSONB NOT NULL DEFAULT '[]',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    account_address TEXT NOT NULL,
+    asset_id BIGINT NOT NULL REFERENCES trustline_assets(id),
+    PRIMARY KEY (account_address, asset_id)
 );
 
+-- Index for reverse lookups (find accounts holding a specific asset)
+CREATE INDEX ON account_trustlines(asset_id);
+
 -- Table: account_contracts
--- Stores account-to-contract relationships using JSONB arrays for efficient storage.
--- Each row represents one account with all contract IDs (C...) it has ever held balances in.
--- This replaces Redis set storage for contracts.
+-- Junction table mapping accounts to their contract tokens.
 CREATE TABLE account_contracts (
-    account_address TEXT PRIMARY KEY,
-    contract_ids JSONB NOT NULL DEFAULT '[]',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    account_address TEXT NOT NULL,
+    contract_id BIGINT NOT NULL REFERENCES contract_tokens(id),
+    PRIMARY KEY (account_address, contract_id)
 );
+
+-- Index for reverse lookups (find accounts holding a specific contract)
+CREATE INDEX ON account_contracts(contract_id);
 
 -- +migrate Down
 
