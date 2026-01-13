@@ -2265,9 +2265,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed
-		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
-		contractIDMap := map[string]int64{}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify success
 		require.NoError(t, err)
@@ -2356,9 +2355,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should fail after retries due to Redis error
-		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
-		contractIDMap := map[string]int64{}
-		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -2454,9 +2452,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed after retry
-		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
-		contractIDMap := map[string]int64{}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify success after retry
 		require.NoError(t, err)
@@ -2997,6 +2994,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// Token cache calls
 				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("GetOrInsertContractTokens", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
@@ -3016,6 +3014,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// Token cache calls - fail on ProcessTokenChanges
 				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("GetOrInsertContractTokens", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
 
 				// Backend factory

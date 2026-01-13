@@ -426,7 +426,9 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
-		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{})
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return service.ProcessTokenChanges(ctx, dbTx, nil, []types.TrustlineChange{}, []types.ContractChange{})
+		})
 		assert.NoError(t, err)
 	})
 
@@ -466,12 +468,14 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Build contractIDMap with the inserted contract's numeric ID
 		contractIDMap := map[string]int64{contractID: numericID}
 
-		err = service.ProcessTokenChanges(ctx, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
-			{
-				AccountID:    accountAddress,
-				ContractID:   contractID,
-				ContractType: types.ContractTypeSAC,
-			},
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return service.ProcessTokenChanges(ctx, dbTx, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
+				{
+					AccountID:    accountAddress,
+					ContractID:   contractID,
+					ContractType: types.ContractTypeSAC,
+				},
+			})
 		})
 		assert.NoError(t, err)
 
@@ -490,7 +494,8 @@ func TestEnsureTrustlineAssetsExist(t *testing.T) {
 	t.Run("empty changes returns nil error", func(t *testing.T) {
 		service := &tokenCacheService{}
 
-		err := service.EnsureTrustlineAssetsExist(ctx, []types.TrustlineChange{})
+		// nil dbTx is fine for empty changes since function returns early
+		err := service.EnsureTrustlineAssetsExist(ctx, nil, []types.TrustlineChange{})
 		require.NoError(t, err)
 	})
 
@@ -517,7 +522,8 @@ func TestEnsureTrustlineAssetsExist(t *testing.T) {
 			{AccountID: "GTEST1", Asset: "INVALID_NO_COLON", Operation: types.TrustlineOpAdd},
 		}
 
-		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		// nil dbTx is fine since error occurs during asset parsing, before DB access
+		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parsing asset")
 	})
@@ -556,7 +562,8 @@ func TestEnsureTrustlineAssetsExist(t *testing.T) {
 			{AccountID: "GTEST2", Asset: "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", Operation: types.TrustlineOpAdd},
 		}
 
-		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		// nil dbTx is fine for this test - it creates its own transaction internally
+		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
 		require.NoError(t, err)
 
 		// Verify assets were inserted with correct deterministic IDs
@@ -603,12 +610,12 @@ func TestEnsureTrustlineAssetsExist(t *testing.T) {
 			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
 		}
 
-		// First call
-		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		// First call - nil dbTx creates its own transaction internally
+		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
 		require.NoError(t, err)
 
 		// Second call - should succeed due to ON CONFLICT DO NOTHING
-		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
 		require.NoError(t, err)
 
 		// Clean up
