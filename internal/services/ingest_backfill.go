@@ -463,35 +463,28 @@ func (m *ingestService) processTokenChanges(
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 
-	// Ensure trustline assets exist in PostgreSQL (IDs computed via DeterministicAssetID)
-	if err := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, trustlineChanges); err != nil {
-		return fmt.Errorf("ensuring trustline assets exist: %w", err)
-	}
-
-	// Track which contracts are new (for cache update after transaction commits)
-	newContractIDs := m.identifyNewContractIDs(contractChanges)
-
-	// Get IDs for all SAC/SEP-41 contracts (new + existing)
-	var contractIDMap map[string]int64
+	// All token operations in a single atomic transaction
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		var txErr error
-		contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
+		// 1. Ensure trustline assets exist in PostgreSQL (IDs computed via DeterministicAssetID)
+		if txErr := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, dbTx, trustlineChanges); txErr != nil {
+			return fmt.Errorf("ensuring trustline assets exist: %w", txErr)
+		}
+
+		// 2. Get IDs for all SAC/SEP-41 contracts (new + existing)
+		contractIDMap, txErr := m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges)
 		if txErr != nil {
 			return fmt.Errorf("getting or inserting contract tokens: %w", txErr)
 		}
+
+		// 3. Apply token changes to PostgreSQL
+		if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, contractIDMap, trustlineChanges, contractChanges); txErr != nil {
+			return fmt.Errorf("processing token changes: %w", txErr)
+		}
+
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("getting or inserting contract tokens: %w", err)
-	}
-	// Update cache after transaction commits
-	for _, contractID := range newContractIDs {
-		m.knownContractIDs.Add(contractID)
-	}
-
-	// Apply token changes to PostgreSQL
-	if err := m.tokenCacheWriter.ProcessTokenChanges(ctx, contractIDMap, trustlineChanges, contractChanges); err != nil {
-		return fmt.Errorf("processing token changes: %w", err)
+		return fmt.Errorf("processing token changes in transaction: %w", err)
 	}
 
 	log.Ctx(ctx).Infof("Processed token changes: %d trustline changes, %d contract changes",
