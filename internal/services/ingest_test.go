@@ -2966,6 +2966,11 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 	require.NoError(t, err)
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
+	// NOTE: processTokenChanges now only calls:
+	// 1. models.TrustlineAsset.BatchInsert (real DB operation)
+	// 2. contractMetadataService.FetchMetadata (mocked, but not triggered with empty data)
+	// 3. models.Contract.BatchInsert (real DB operation)
+	// 4. tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges)
 	testCases := []struct {
 		name             string
 		setupMocks       func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error))
@@ -2976,9 +2981,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "successful_catchup_processes_token_changes",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls
-				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
-				tokenCacheWriter.On("GetOrInsertContractTokens", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
+				// ProcessTokenChanges is the only mock needed on tokenCacheWriter
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
@@ -2996,9 +2999,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls - fail on ProcessTokenChanges
-				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
-				tokenCacheWriter.On("GetOrInsertContractTokens", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
+				// ProcessTokenChanges fails
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
 
 				// Backend factory
@@ -3017,8 +3018,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "cursor_not_updated_if_token_processing_fails",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls - fail on EnsureTrustlineAssetsExist
-				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
+				// ProcessTokenChanges fails - cursor should not be updated
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
