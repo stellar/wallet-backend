@@ -21,16 +21,12 @@ type TrustlineChanges struct {
 
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
-	// Trustline read operations (for API/balances queries)
+	// Trustline and contract tokens read operations (for API/balances queries)
 	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error)
-
-	// Contract read operations (returns numeric IDs referencing contract_tokens.id)
 	GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error)
 
-	// Trustline write operations (for live ingestion)
+	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
-
-	// Contract write operations (contracts only add, never remove)
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error
 
 	// Bulk operations (for initial population)

@@ -226,14 +226,10 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		accountID   string
 		trustlineID int64
 	}
-	type opPair struct {
-		first types.TrustlineOpType
-		last  types.TrustlineOpType
-	}
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
-	opsPerKey := make(map[changeKey]*opPair)
+	opsPerKey := make(map[changeKey]*types.TrustlineOpType)
 	for _, change := range trustlineChanges {
 		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
@@ -246,24 +242,22 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 		}
 
 		key := changeKey{accountID: change.AccountID, trustlineID: assetID}
-		if opsPerKey[key] == nil {
-			opsPerKey[key] = &opPair{first: change.Operation}
+		// If the last operation is ADD, we remove the key from the map. This ensures we only track the net changes for an (account, trustline) pair.
+		// Otherwise, we update the operation to REMOVE - this means we want to remove an existing trustline from the DB.
+		if change.Operation == types.TrustlineOpRemove && opsPerKey[key] != nil && *opsPerKey[key] == types.TrustlineOpAdd {
+			delete(opsPerKey, key)
+		} else {
+			opsPerKey[key] = &change.Operation
 		}
-		opsPerKey[key].last = change.Operation
 	}
 
 	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
-	for trustlineKey, ops := range opsPerKey {
-		// We skip this trustline change if the first and last operations result in no net change.
-		if ops.first == types.TrustlineOpAdd && ops.last == types.TrustlineOpRemove {
-			continue
-		}
-
+	for trustlineKey, operation := range opsPerKey {
 		if _, ok := trustlineChangesByAccount[trustlineKey.accountID]; !ok {
 			trustlineChangesByAccount[trustlineKey.accountID] = &wbdata.TrustlineChanges{}
 		}
 
-		switch ops.last {
+		switch *operation {
 		case types.TrustlineOpAdd:
 			trustlineChangesByAccount[trustlineKey.accountID].AddIDs = append(trustlineChangesByAccount[trustlineKey.accountID].AddIDs, trustlineKey.trustlineID)
 		case types.TrustlineOpRemove:
