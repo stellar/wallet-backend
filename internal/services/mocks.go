@@ -167,12 +167,9 @@ func (m *TokenCacheWriterMock) PopulateAccountTokens(ctx context.Context, checkp
 	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+func (m *TokenCacheWriterMock) EnsureTrustlineAssetsExist(ctx context.Context, trustlineChanges []types.TrustlineChange) error {
 	args := m.Called(ctx, trustlineChanges)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]int64), args.Error(1)
+	return args.Error(0)
 }
 
 func (m *TokenCacheWriterMock) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error) {
@@ -183,8 +180,8 @@ func (m *TokenCacheWriterMock) GetOrInsertContractTokens(ctx context.Context, db
 	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
-func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, assetIDMap map[string]int64, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := m.Called(ctx, assetIDMap, contractIDMap, trustlineChanges, contractChanges)
+func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := m.Called(ctx, contractIDMap, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 

@@ -445,12 +445,16 @@ func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, trus
 	}
 
 	// Insert all unique assets (ON CONFLICT DO NOTHING)
-	return db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
 			return fmt.Errorf("batch inserting trustline assets: %w", err)
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("running transaction for trustline assets: %w", err)
+	}
+	return nil
 }
 
 // GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
@@ -593,7 +597,7 @@ func (s *tokenCacheService) processContractInstanceChange(
 }
 
 // streamCheckpointData reads from a ChangeReader and streams trustlines to DB in batches.
-// Contracts are collected in memory (much fewer entries than trustlines).
+// Contract tokens are collected in memory (much fewer entries than trustlines).
 // Returns checkpointData containing contract data for later processing.
 func (s *tokenCacheService) streamCheckpointData(
 	ctx context.Context,

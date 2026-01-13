@@ -2265,9 +2265,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
 		contractIDMap := map[string]int64{}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap, contractIDMap)
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
 
 		// Verify success
 		require.NoError(t, err)
@@ -2356,9 +2356,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should fail after retries due to Redis error
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
 		contractIDMap := map[string]int64{}
-		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap, contractIDMap)
+		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -2454,9 +2454,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed after retry
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
+		// Note: assetIDMap is no longer passed - IDs are computed using DeterministicAssetID
 		contractIDMap := map[string]int64{}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap, contractIDMap)
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, contractIDMap)
 
 		// Verify success after retry
 		require.NoError(t, err)
@@ -2497,10 +2497,11 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges:  []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// GetOrInsertTrustlineAssets should be called even with empty data
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, []types.TrustlineChange{}).Return(map[string]int64{}, nil)
+				// EnsureTrustlineAssetsExist should be called even with empty data
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, []types.TrustlineChange{}).Return(nil)
 				// ProcessTokenChanges should be called even with empty data
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, map[string]int64{}, map[string]int64{}, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
+				// New signature: (ctx, contractIDMap, trustlineChanges, contractChanges)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, map[string]int64{}, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2514,7 +2515,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// Verify sorted order: (100, 5), (100, 10), (101, 1)
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
@@ -2531,8 +2532,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 						return false
 					}
 					return true
-				})).Return(map[string]int64{"USD:GA1": 1, "EUR:GA2": 2, "GBP:GA3": 3}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				})).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2545,9 +2546,10 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA3", ContractID: "C3", OperationID: 1, LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
 				// Verify sorted order: (200, 5), (200, 20), (201, 1)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
+				// New signature: (ctx, contractIDMap, trustlineChanges, contractChanges)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
@@ -2569,16 +2571,16 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "calls_GetOrInsertTrustlineAssets",
+			name: "calls_EnsureTrustlineAssetsExist",
 			trustlineChanges: []types.TrustlineChange{
 				{AccountID: "GA1", Asset: "USDC:GISSUER", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					return len(changes) == 1 && changes[0].Asset == "USDC:GISSUER"
-				})).Return(map[string]int64{"USDC:GISSUER": 42}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				})).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2589,11 +2591,11 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA1", ContractID: "CNEWCONTRACT", OperationID: 1, LedgerNumber: 100, ContractType: types.ContractTypeSAC},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
 				contractMetadataSvc.On("FetchAndStoreMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(contracts map[string]types.ContractType) bool {
 					return len(contracts) == 1 && contracts["CNEWCONTRACT"] == types.ContractTypeSAC
-				})).Return(map[string]int64{"CNEWCONTRACT": 1}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				})).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2606,24 +2608,23 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA2", ContractID: "C1", OperationID: 2, LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.MatchedBy(func(assetMap map[string]int64) bool {
-					return assetMap["USDC:GA"] == 1
-				}), mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				// ProcessTokenChanges now computes asset IDs using DeterministicAssetID
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "propagates_GetOrInsertTrustlineAssets_error",
+			name: "propagates_EnsureTrustlineAssetsExist_error",
 			trustlineChanges: []types.TrustlineChange{
 				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 			},
 			wantErr:         true,
-			wantErrContains: "getting or inserting trustline assets",
+			wantErrContains: "ensuring trustline assets exist",
 		},
 		{
 			name: "propagates_ProcessTokenChanges_error",
@@ -2632,8 +2633,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -2995,8 +2996,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			name: "successful_catchup_processes_token_changes",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// Token cache calls
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3014,8 +3015,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// Token cache calls - fail on ProcessTokenChanges
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3033,8 +3034,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "cursor_not_updated_if_token_processing_fails",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls - fail on GetOrInsertTrustlineAssets
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
+				// Token cache calls - fail on EnsureTrustlineAssetsExist
+				tokenCacheWriter.On("EnsureTrustlineAssetsExist", mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {

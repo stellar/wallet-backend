@@ -179,7 +179,10 @@ func (m *ingestService) ensureTokensExistWithRetry(ctx context.Context, currentL
 		innerErr = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			var txErr error
 			contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
-			return txErr
+			if txErr != nil {
+				return fmt.Errorf("calling GetOrInsertContractTokens: %w", txErr)
+			}
+			return nil
 		})
 		if innerErr != nil {
 			lastErr = fmt.Errorf("getting or inserting contract tokens: %w", innerErr)

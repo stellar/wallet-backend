@@ -3,13 +3,9 @@ package services
 
 import (
 	"context"
-	"io"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/ingest/sac"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -21,43 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
-
-// Mock ChangeReader for testing
-type mockChangeReader struct {
-	changes []ingest.Change
-	index   int
-	err     error
-}
-
-func (m *mockChangeReader) Read() (ingest.Change, error) {
-	if m.err != nil {
-		return ingest.Change{}, m.err
-	}
-	if m.index >= len(m.changes) {
-		return ingest.Change{}, io.EOF
-	}
-	change := m.changes[m.index]
-	m.index++
-	return change, nil
-}
-
-func (m *mockChangeReader) Close() error {
-	return nil
-}
-
-// mockContractValidator implements ContractValidator for testing
-type mockContractValidator struct {
-	returnType types.ContractType
-	returnErr  error
-}
-
-func (m *mockContractValidator) ValidateFromContractCode(_ context.Context, _ []byte) (types.ContractType, error) {
-	return m.returnType, m.returnErr
-}
-
-func (m *mockContractValidator) Close(_ context.Context) error {
-	return nil
-}
 
 // Helper functions for creating test XDR values
 func ptrToScSymbol(s string) *xdr.ScSymbol {
@@ -327,20 +286,19 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Insert trustline assets first
-		var assetIDMap map[string]int64
+		// Insert trustline assets first using deterministic IDs
+		assetID := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			assetIDMap, err = trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
-				{Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+			return trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
+				{ID: assetID, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 			})
-			return err
 		})
 		require.NoError(t, err)
 
 		// Insert account trustlines
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return accountTokensModel.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{
-				accountAddress: {assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"]},
+				accountAddress: {assetID},
 			})
 		})
 		require.NoError(t, err)
@@ -435,160 +393,9 @@ func TestGetAccountContracts(t *testing.T) {
 	})
 }
 
-func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
-	ctx := context.Background()
-	service := &tokenCacheService{
-		networkPassphrase: "Test SDF Network ; September 2015",
-		contractValidator: &mockContractValidator{returnType: types.ContractTypeUnknown, returnErr: nil},
-	}
-
-	t.Run("reads trustline entries", func(t *testing.T) {
-		// Create a trustline entry
-		accountID := xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		asset := xdr.MustNewCreditAsset("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		trustlineAsset := asset.ToTrustLineAsset()
-
-		trustlineEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeTrustline,
-				TrustLine: &xdr.TrustLineEntry{
-					AccountId: accountID,
-					Asset:     trustlineAsset,
-					Balance:   100,
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeTrustline,
-				Post: &trustlineEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Len(t, cpData.TrustlinesByAccountAddress, 1)
-		assert.Contains(t, cpData.TrustlinesByAccountAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		expectedAsset := "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-		assert.Contains(t, cpData.TrustlinesByAccountAddress["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], expectedAsset)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-	})
-
-	t.Run("reads contract balance entries", func(t *testing.T) {
-		contractHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-		contractID := xdr.ContractId(contractHash)
-
-		balanceKey := xdr.ScVal{
-			Type: xdr.ScValTypeScvVec,
-			Vec: ptrToScVec([]xdr.ScVal{
-				{
-					Type: xdr.ScValTypeScvSymbol,
-					Sym:  ptrToScSymbol("Balance"),
-				},
-				{
-					Type: xdr.ScValTypeScvAddress,
-					Address: &xdr.ScAddress{
-						Type:      xdr.ScAddressTypeScAddressTypeAccount,
-						AccountId: ptrToAccountID("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
-					},
-				},
-			}),
-		}
-
-		contractDataEntry := xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractData,
-				ContractData: &xdr.ContractDataEntry{
-					Contract: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: &contractID,
-					},
-					Key:        balanceKey,
-					Durability: xdr.ContractDataDurabilityPersistent,
-					Val: xdr.ScVal{
-						Type: xdr.ScValTypeScvI128,
-					},
-				},
-			},
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &contractDataEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Len(t, cpData.ContractsByHolderAddress, 1)
-		assert.Contains(t, cpData.ContractsByHolderAddress, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-	})
-
-	t.Run("reads valid SAC contract instance entries", func(t *testing.T) {
-		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-		asset := xdr.MustNewCreditAsset("USDC", issuer)
-
-		contractID, err := asset.ContractID(service.networkPassphrase)
-		require.NoError(t, err)
-
-		contractData, err := sac.AssetToContractData(false, "USDC", issuer, contractID)
-		require.NoError(t, err)
-
-		contractDataEntry := xdr.LedgerEntry{
-			Data: contractData,
-		}
-
-		changes := []ingest.Change{
-			{
-				Type: xdr.LedgerEntryTypeContractData,
-				Post: &contractDataEntry,
-			},
-		}
-
-		reader := &mockChangeReader{changes: changes}
-		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-
-		require.NoError(t, err)
-		assert.Empty(t, cpData.TrustlinesByAccountAddress)
-		assert.Empty(t, cpData.ContractsByHolderAddress)
-
-		assert.Len(t, cpData.ContractTypesByContractID, 1)
-		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
-		require.NoError(t, err)
-		assert.Contains(t, cpData.ContractTypesByContractID, contractAddress)
-		assert.Equal(t, types.ContractTypeSAC, cpData.ContractTypesByContractID[contractAddress])
-	})
-
-	t.Run("handles context cancellation", func(t *testing.T) {
-		cancelledCtx, cancel := context.WithCancel(ctx)
-		cancel()
-
-		reader := &mockChangeReader{
-			changes: []ingest.Change{},
-		}
-
-		_, err := service.collectAccountTokensFromCheckpoint(cancelledCtx, reader)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cancelled")
-	})
-
-	t.Run("handles reader errors", func(t *testing.T) {
-		reader := &mockChangeReader{
-			err: assert.AnError,
-		}
-
-		_, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "reading checkpoint changes")
-	})
-}
+// Note: The streaming checkpoint functionality (streamCheckpointData) is tested via
+// integration tests since it requires database transactions for streaming inserts.
+// Unit tests for helper functions like processTrustlineChange are kept below.
 
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
@@ -619,7 +426,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
-		err := service.ProcessTokenChanges(ctx, nil, nil, []types.TrustlineChange{}, []types.ContractChange{})
+		err := service.ProcessTokenChanges(ctx, nil, []types.TrustlineChange{}, []types.ContractChange{})
 		assert.NoError(t, err)
 	})
 
@@ -659,7 +466,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		// Build contractIDMap with the inserted contract's numeric ID
 		contractIDMap := map[string]int64{contractID: numericID}
 
-		err = service.ProcessTokenChanges(ctx, nil, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
+		err = service.ProcessTokenChanges(ctx, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
 			{
 				AccountID:    accountAddress,
 				ContractID:   contractID,
@@ -677,30 +484,17 @@ func TestProcessTokenChanges(t *testing.T) {
 	})
 }
 
-func TestGetOrInsertTrustlineAssets(t *testing.T) {
+func TestEnsureTrustlineAssetsExist(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("empty changes returns empty map", func(t *testing.T) {
+	t.Run("empty changes returns nil error", func(t *testing.T) {
 		service := &tokenCacheService{}
 
-		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, []types.TrustlineChange{})
+		err := service.EnsureTrustlineAssetsExist(ctx, []types.TrustlineChange{})
 		require.NoError(t, err)
-		assert.Empty(t, assetIDMap)
 	})
 
 	t.Run("invalid asset format returns error", func(t *testing.T) {
-		service := &tokenCacheService{}
-
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "INVALID_NO_COLON", Operation: types.TrustlineOpAdd},
-		}
-
-		_, err := service.GetOrInsertTrustlineAssets(ctx, changes)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "parsing asset")
-	})
-
-	t.Run("returns asset IDs from PostgreSQL", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -708,8 +502,44 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 		defer dbConnectionPool.Close()
 
 		mockMetrics := &metrics.MockMetricsService{}
-		mockMetrics.On("ObserveDBQueryDuration", "BatchGetOrInsert", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchGetOrInsert", "trustline_assets").Return()
+
+		assetModel := &wbdata.TrustlineAssetModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetrics,
+		}
+
+		service := &tokenCacheService{
+			db:                  dbConnectionPool,
+			trustlineAssetModel: assetModel,
+		}
+
+		changes := []types.TrustlineChange{
+			{AccountID: "GTEST1", Asset: "INVALID_NO_COLON", Operation: types.TrustlineOpAdd},
+		}
+
+		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parsing asset")
+	})
+
+	t.Run("inserts assets into PostgreSQL with deterministic IDs", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		// Clean up
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+
+		mockMetrics := &metrics.MockMetricsService{}
+		mockMetrics.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
+		mockMetrics.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
+		mockMetrics.On("IncDBTransaction", mock.Anything).Return()
+		mockMetrics.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return()
+		mockMetrics.On("ObserveDBQueryDuration", "BatchGetByIDs", "trustline_assets", mock.Anything).Return()
+		mockMetrics.On("IncDBQuery", "BatchGetByIDs", "trustline_assets").Return()
 
 		assetModel := &wbdata.TrustlineAssetModel{
 			DB:             dbConnectionPool,
@@ -726,13 +556,63 @@ func TestGetOrInsertTrustlineAssets(t *testing.T) {
 			{AccountID: "GTEST2", Asset: "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", Operation: types.TrustlineOpAdd},
 		}
 
-		assetIDMap, err := service.GetOrInsertTrustlineAssets(ctx, changes)
+		err = service.EnsureTrustlineAssetsExist(ctx, changes)
 		require.NoError(t, err)
 
-		assert.Len(t, assetIDMap, 2)
-		assert.Contains(t, assetIDMap, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		assert.Contains(t, assetIDMap, "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2")
-		assert.Greater(t, assetIDMap["USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"], int64(0))
-		assert.Greater(t, assetIDMap["EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"], int64(0))
+		// Verify assets were inserted with correct deterministic IDs
+		expectedID1 := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+		expectedID2 := wbdata.DeterministicAssetID("EURC", "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2")
+
+		assets, err := assetModel.BatchGetByIDs(ctx, []int64{expectedID1, expectedID2})
+		require.NoError(t, err)
+		assert.Len(t, assets, 2)
+
+		// Clean up
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+	})
+
+	t.Run("idempotent - calling twice with same assets succeeds", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		// Clean up
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+
+		mockMetrics := &metrics.MockMetricsService{}
+		mockMetrics.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
+		mockMetrics.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
+		mockMetrics.On("IncDBTransaction", mock.Anything).Return()
+		mockMetrics.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return()
+
+		assetModel := &wbdata.TrustlineAssetModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetrics,
+		}
+
+		service := &tokenCacheService{
+			db:                  dbConnectionPool,
+			trustlineAssetModel: assetModel,
+		}
+
+		changes := []types.TrustlineChange{
+			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
+		}
+
+		// First call
+		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		require.NoError(t, err)
+
+		// Second call - should succeed due to ON CONFLICT DO NOTHING
+		err = service.EnsureTrustlineAssetsExist(ctx, changes)
+		require.NoError(t, err)
+
+		// Clean up
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
 	})
 }
