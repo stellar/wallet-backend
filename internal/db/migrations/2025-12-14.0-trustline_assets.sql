@@ -1,9 +1,9 @@
 -- +migrate Up
 
 -- Table: trustline_assets
--- Stores classic Stellar trustline assets with deterministic hash IDs (FNV-1a 64-bit from CODE:ISSUER).
+-- Stores classic Stellar trustline assets with deterministic UUID IDs (UUID v5 from CODE:ISSUER).
 CREATE TABLE trustline_assets (
-    id BIGINT PRIMARY KEY,
+    id UUID PRIMARY KEY,
     code TEXT NOT NULL,
     issuer TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
