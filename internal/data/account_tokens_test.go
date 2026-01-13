@@ -14,6 +14,38 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// setupTrustlineAssets inserts test trustline assets and returns their IDs.
+func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
+	ids := make([]int64, count)
+	for i := 0; i < count; i++ {
+		var id int64
+		err := dbPool.PgxPool().QueryRow(ctx,
+			`INSERT INTO trustline_assets (code, issuer) VALUES ($1, $2) RETURNING id`,
+			"TEST"+string(rune('A'+i)),
+			"GISSUER"+string(rune('A'+i))+"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+		).Scan(&id)
+		require.NoError(t, err)
+		ids[i] = id
+	}
+	return ids
+}
+
+// setupContractTokens inserts test contract tokens and returns their IDs.
+func setupContractTokens(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
+	ids := make([]int64, count)
+	for i := 0; i < count; i++ {
+		var id int64
+		contractID := "CCONTRACT" + string(rune('A'+i)) + "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+		err := dbPool.PgxPool().QueryRow(ctx,
+			`INSERT INTO contract_tokens (contract_id, type, decimals) VALUES ($1, $2, $3) RETURNING id`,
+			contractID, "SAC", 7,
+		).Scan(&id)
+		require.NoError(t, err)
+		ids[i] = id
+	}
+	return ids
+}
+
 func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 	ctx := context.Background()
 
@@ -25,6 +57,8 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustlines`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -74,18 +108,20 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test trustline assets first
+		assetIDs := setupTrustlineAssets(t, ctx, dbConnectionPool, 3)
+
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		expectedIDs := []int64{1, 2, 3}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: expectedIDs})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs})
 		})
 		require.NoError(t, err)
 
 		// Retrieve and verify
 		ids, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, expectedIDs, ids)
+		require.ElementsMatch(t, assetIDs, ids)
 
 		cleanUpDB()
 	})
@@ -102,6 +138,8 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -151,18 +189,20 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test contract tokens first
+		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 3)
+
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		expectedContracts := []int64{1, 2, 3}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{accountAddress: expectedContracts})
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
 		// Retrieve and verify
 		ids, err := m.GetContractIDs(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, expectedContracts, ids)
+		require.ElementsMatch(t, contractIDs, ids)
 
 		cleanUpDB()
 	})
@@ -179,6 +219,8 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -211,18 +253,20 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test contract tokens first
+		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 2)
+
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		contracts := []int64{1, 2}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contracts})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
 		// Verify
 		result, err := m.GetContractIDs(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, contracts, result)
+		require.ElementsMatch(t, contractIDs, result)
 
 		cleanUpDB()
 	})
@@ -241,17 +285,20 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test contract tokens first
+		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 3)
+
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
 		// First add
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: {1, 2}})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs[:2]})
 		})
 		require.NoError(t, err)
 
-		// Second add with overlap
+		// Second add with overlap (contractIDs[1] is duplicated)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: {2, 3}})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs[1:]})
 		})
 		require.NoError(t, err)
 
@@ -259,7 +306,90 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		result, err := m.GetContractIDs(ctx, accountAddress)
 		require.NoError(t, err)
 		require.Len(t, result, 3)
-		require.ElementsMatch(t, []int64{1, 2, 3}, result)
+		require.ElementsMatch(t, contractIDs, result)
+
+		cleanUpDB()
+	})
+}
+
+func TestAccountTokensModel_BatchUpsertTrustlines(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustlines`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		require.NoError(t, err)
+	}
+
+	t.Run("returns nil for empty input", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountTokensModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchUpsertTrustlines(ctx, dbTx, map[string]*TrustlineChanges{})
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("adds and removes trustlines", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsertTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchUpsertTrustlines", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountTokensModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		// Setup test trustline assets
+		assetIDs := setupTrustlineAssets(t, ctx, dbConnectionPool, 5)
+		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+
+		// First add some trustlines
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchUpsertTrustlines(ctx, dbTx, map[string]*TrustlineChanges{
+				accountAddress: {AddIDs: assetIDs[:3]}, // Add first 3
+			})
+		})
+		require.NoError(t, err)
+
+		// Verify first add
+		result, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
+		require.NoError(t, err)
+		require.ElementsMatch(t, assetIDs[:3], result)
+
+		// Now add 2 more and remove 1
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchUpsertTrustlines(ctx, dbTx, map[string]*TrustlineChanges{
+				accountAddress: {
+					AddIDs:    assetIDs[3:5],     // Add last 2
+					RemoveIDs: assetIDs[0:1],     // Remove first 1
+				},
+			})
+		})
+		require.NoError(t, err)
+
+		// Verify - should have IDs[1], IDs[2], IDs[3], IDs[4]
+		result, err = m.GetTrustlineAssetIDs(ctx, accountAddress)
+		require.NoError(t, err)
+		require.Len(t, result, 4)
+		require.ElementsMatch(t, assetIDs[1:5], result)
 
 		cleanUpDB()
 	})
@@ -276,6 +406,8 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustlines`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -308,10 +440,13 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test trustline assets
+		assetIDs := setupTrustlineAssets(t, ctx, dbConnectionPool, 5)
+
 		account1 := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		account2 := "GCQYG3MNNPFNFUBWXF5IDNNC7V3ZDLWLKSQVHFZEBWNPPQ4XVRCVHWQJ"
-		ids1 := []int64{1, 2, 3}
-		ids2 := []int64{4, 5}
+		ids1 := assetIDs[:3]
+		ids2 := assetIDs[3:]
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{
@@ -334,7 +469,7 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		cleanUpDB()
 	})
 
-	t.Run("overwrites existing trustlines on conflict", func(t *testing.T) {
+	t.Run("ignores duplicates on conflict", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
@@ -348,24 +483,28 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test trustline assets
+		assetIDs := setupTrustlineAssets(t, ctx, dbConnectionPool, 5)
+
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
 		// First insert
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: {1, 2}})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[:2]})
 		})
 		require.NoError(t, err)
 
-		// Second insert should overwrite
+		// Second insert with some overlap - should add new ones, ignore duplicates
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: {3, 4, 5}})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[1:4]})
 		})
 		require.NoError(t, err)
 
-		// Verify - should only have the new IDs
+		// Verify - should have first 4 IDs (0,1,2,3)
 		result, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, []int64{3, 4, 5}, result)
+		require.Len(t, result, 4)
+		require.ElementsMatch(t, assetIDs[:4], result)
 
 		cleanUpDB()
 	})
@@ -382,6 +521,8 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -414,10 +555,13 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		// Setup test contract tokens
+		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 3)
+
 		account1 := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		account2 := "GCQYG3MNNPFNFUBWXF5IDNNC7V3ZDLWLKSQVHFZEBWNPPQ4XVRCVHWQJ"
-		contracts1 := []int64{1, 2}
-		contracts2 := []int64{3}
+		contracts1 := contractIDs[:2]
+		contracts2 := contractIDs[2:]
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{
