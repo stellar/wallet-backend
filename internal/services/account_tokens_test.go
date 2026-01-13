@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -298,7 +299,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		// Insert account trustlines
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountTokensModel.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{
+			return accountTokensModel.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{
 				accountAddress: {assetID},
 			})
 		})
@@ -372,9 +373,9 @@ func TestGetAccountContracts(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Insert account contracts using deterministic numeric ID
+		// Insert account contracts using deterministic UUID
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountTokensModel.BulkInsertContracts(ctx, dbTx, map[string][]int64{
+			return accountTokensModel.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{
 				accountAddress: {numericID},
 			})
 		})

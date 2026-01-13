@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -145,7 +146,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		contracts, err := m.BatchGetByIDs(ctx, []int64{})
+		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{})
 		require.NoError(t, err)
 		require.Empty(t, contracts)
 	})
@@ -162,8 +163,8 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		// Use non-existent numeric IDs
-		contracts, err := m.BatchGetByIDs(ctx, []int64{999999, 999998})
+		// Use random UUIDs that don't exist in the database
+		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{uuid.New(), uuid.New()})
 		require.NoError(t, err)
 		require.Empty(t, contracts)
 	})
@@ -223,9 +224,9 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Fetch contracts by deterministic numeric IDs (including a non-existent one)
-		numericIDs := []int64{DeterministicContractID("contract1"), DeterministicContractID("contract2"), 999999}
-		fetchedContracts, err := m.BatchGetByIDs(ctx, numericIDs)
+		// Fetch contracts by deterministic UUIDs (including a non-existent one)
+		uuids := []uuid.UUID{DeterministicContractID("contract1"), DeterministicContractID("contract2"), uuid.New()}
+		fetchedContracts, err := m.BatchGetByIDs(ctx, uuids)
 		require.NoError(t, err)
 		require.Len(t, fetchedContracts, 2)
 

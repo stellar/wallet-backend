@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/alitto/pond/v2"
+	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -329,12 +330,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
 			Return([]*data.TrustlineAsset{
 				{
-					ID:     1,
+					ID:     data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:   "USDC",
 					Issuer: testUSDCIssuer,
 				},
 				{
-					ID:     2,
+					ID:     data.DeterministicAssetID("EUR", testEURIssuer),
 					Code:   "EUR",
 					Issuer: testEURIssuer,
 				},
@@ -525,7 +526,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
 			Return([]*data.TrustlineAsset{
 				{
-					ID:     1,
+					ID:     data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:   "USDC",
 					Issuer: testUSDCIssuer,
 				},
@@ -642,7 +643,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
 			Return([]*data.TrustlineAsset{
 				{
-					ID:     1,
+					ID:     data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:   "USDC",
 					Issuer: testUSDCIssuer,
 				},
@@ -764,7 +765,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		// Return invalid trustline format (missing colon)
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
 			Return([]*data.TrustlineAsset{
-				{ID: 1, Code: ":", Issuer: "@:::"},
+				{ID: uuid.New(), Code: ":", Issuer: "@:::"},
 			}, nil)
 
 		resolver := &queryResolver{
@@ -1006,12 +1007,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
 			Return([]*data.TrustlineAsset{
 				{
-					ID:     1,
+					ID:     data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:   "USDC",
 					Issuer: testUSDCIssuer,
 				},
 				{
-					ID:     2,
+					ID:     data.DeterministicAssetID("EUR", testEURIssuer),
 					Code:   "EUR",
 					Issuer: testEURIssuer,
 				},
@@ -1126,7 +1127,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		// Setup for account 1 (native + trustline)
 		mockTokenCacheReader.On("GetAccountTrustlines", ctx, testAccountAddress).
-			Return([]*data.TrustlineAsset{{ID: 1, Code: "USDC", Issuer: testUSDCIssuer}}, nil)
+			Return([]*data.TrustlineAsset{{ID: data.DeterministicAssetID("USDC", testUSDCIssuer), Code: "USDC", Issuer: testUSDCIssuer}}, nil)
 		mockTokenCacheReader.On("GetAccountContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 
 		// Setup for account 2 (native only)

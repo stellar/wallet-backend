@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -15,8 +16,8 @@ import (
 )
 
 // setupTrustlineAssets inserts test trustline assets and returns their IDs.
-func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
-	ids := make([]int64, count)
+func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []uuid.UUID {
+	ids := make([]uuid.UUID, count)
 	for i := 0; i < count; i++ {
 		code := "TEST" + string(rune('A'+i))
 		issuer := "GISSUER" + string(rune('A'+i)) + "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -32,8 +33,8 @@ func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.Connectio
 }
 
 // setupContractTokens inserts test contract tokens and returns their IDs.
-func setupContractTokens(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
-	ids := make([]int64, count)
+func setupContractTokens(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []uuid.UUID {
+	ids := make([]uuid.UUID, count)
 	for i := 0; i < count; i++ {
 		contractID := "CCONTRACT" + string(rune('A'+i)) + "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 		id := DeterministicContractID(contractID)
@@ -115,7 +116,7 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs})
 		})
 		require.NoError(t, err)
 
@@ -196,7 +197,7 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs})
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
@@ -235,7 +236,7 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{})
 		})
 		require.NoError(t, err)
 	})
@@ -260,7 +261,7 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
@@ -293,13 +294,13 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 
 		// First add
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs[:2]})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[:2]})
 		})
 		require.NoError(t, err)
 
 		// Second add with overlap (contractIDs[1] is duplicated)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]int64{accountAddress: contractIDs[1:]})
+			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[1:]})
 		})
 		require.NoError(t, err)
 
@@ -422,7 +423,7 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{})
 		})
 		require.NoError(t, err)
 	})
@@ -450,7 +451,7 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		ids2 := assetIDs[3:]
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{
 				account1: ids1,
 				account2: ids2,
 			})
@@ -491,13 +492,13 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 
 		// First insert succeeds
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[:2]})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs[:2]})
 		})
 		require.NoError(t, err)
 
 		// Second insert with overlap fails (COPY doesn't support ON CONFLICT)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[1:4]})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs[1:4]})
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "duplicate key")
@@ -532,7 +533,7 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{})
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{})
 		})
 		require.NoError(t, err)
 	})
@@ -560,7 +561,7 @@ func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
 		contracts2 := contractIDs[2:]
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]int64{
+			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{
 				account1: contracts1,
 				account2: contracts2,
 			})

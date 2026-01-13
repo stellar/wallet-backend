@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,7 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		assets, err := m.BatchGetByIDs(ctx, []int64{})
+		assets, err := m.BatchGetByIDs(ctx, []uuid.UUID{})
 		require.NoError(t, err)
 		require.Nil(t, assets)
 	})
@@ -85,12 +86,12 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Retrieve them
-		retrievedAssets, err := m.BatchGetByIDs(ctx, []int64{id1, id2})
+		retrievedAssets, err := m.BatchGetByIDs(ctx, []uuid.UUID{id1, id2})
 		require.NoError(t, err)
 		require.Len(t, retrievedAssets, 2)
 
 		// Build map for easier assertion
-		assetMap := make(map[int64]*TrustlineAsset)
+		assetMap := make(map[uuid.UUID]*TrustlineAsset)
 		for _, a := range retrievedAssets {
 			assetMap[a.ID] = a
 		}
@@ -115,7 +116,8 @@ func TestTrustlineAssetModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		assets, err := m.BatchGetByIDs(ctx, []int64{999, 1000})
+		// Use random UUIDs that don't exist in the database
+		assets, err := m.BatchGetByIDs(ctx, []uuid.UUID{uuid.New(), uuid.New()})
 		require.NoError(t, err)
 		require.Empty(t, assets)
 
@@ -181,7 +183,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify inserted asset can be retrieved
-		retrieved, err := m.BatchGetByIDs(ctx, []int64{expectedID})
+		retrieved, err := m.BatchGetByIDs(ctx, []uuid.UUID{expectedID})
 		require.NoError(t, err)
 		require.Len(t, retrieved, 1)
 		require.Equal(t, expectedID, retrieved[0].ID)
@@ -226,7 +228,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.NotEqual(t, id2, id3)
 
 		// Verify all assets can be retrieved
-		retrieved, err := m.BatchGetByIDs(ctx, []int64{id1, id2, id3})
+		retrieved, err := m.BatchGetByIDs(ctx, []uuid.UUID{id1, id2, id3})
 		require.NoError(t, err)
 		require.Len(t, retrieved, 3)
 
@@ -300,7 +302,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.NoError(t, pgxTx.Commit(ctx))
 
 		// Verify both were inserted
-		retrieved, err := m.BatchGetByIDs(ctx, []int64{id1, id2})
+		retrieved, err := m.BatchGetByIDs(ctx, []uuid.UUID{id1, id2})
 		require.NoError(t, err)
 		require.Len(t, retrieved, 2)
 
@@ -310,7 +312,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 func TestTrustlineAsset_AssetKey(t *testing.T) {
 	asset := &TrustlineAsset{
-		ID:     1,
+		ID:     DeterministicAssetID("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
 		Code:   "USDC",
 		Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
 	}
