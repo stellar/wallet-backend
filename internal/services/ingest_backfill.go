@@ -463,10 +463,9 @@ func (m *ingestService) processTokenChanges(
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 
-	// Get or insert trustline assets into PostgreSQL
-	trustlineAssetIDMap, err := m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
-	if err != nil {
-		return fmt.Errorf("getting or inserting trustline assets: %w", err)
+	// Ensure trustline assets exist in PostgreSQL (IDs computed via DeterministicAssetID)
+	if err := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, trustlineChanges); err != nil {
+		return fmt.Errorf("ensuring trustline assets exist: %w", err)
 	}
 
 	// Track which contracts are new (for cache update after transaction commits)
@@ -474,7 +473,7 @@ func (m *ingestService) processTokenChanges(
 
 	// Get IDs for all SAC/SEP-41 contracts (new + existing)
 	var contractIDMap map[string]int64
-	err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		var txErr error
 		contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
 		if txErr != nil {
@@ -491,7 +490,7 @@ func (m *ingestService) processTokenChanges(
 	}
 
 	// Apply token changes to PostgreSQL
-	if err := m.tokenCacheWriter.ProcessTokenChanges(ctx, trustlineAssetIDMap, contractIDMap, trustlineChanges, contractChanges); err != nil {
+	if err := m.tokenCacheWriter.ProcessTokenChanges(ctx, contractIDMap, trustlineChanges, contractChanges); err != nil {
 		return fmt.Errorf("processing token changes: %w", err)
 	}
 
