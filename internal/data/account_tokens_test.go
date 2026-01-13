@@ -378,8 +378,8 @@ func TestAccountTokensModel_BatchUpsertTrustlines(t *testing.T) {
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return m.BatchUpsertTrustlines(ctx, dbTx, map[string]*TrustlineChanges{
 				accountAddress: {
-					AddIDs:    assetIDs[3:5],     // Add last 2
-					RemoveIDs: assetIDs[0:1],     // Remove first 1
+					AddIDs:    assetIDs[3:5], // Add last 2
+					RemoveIDs: assetIDs[0:1], // Remove first 1
 				},
 			})
 		})

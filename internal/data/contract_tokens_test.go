@@ -44,7 +44,7 @@ func TestContractModel_GetByID(t *testing.T) {
 		contract, err := m.GetByContractID(context.Background(), "nonexistent")
 		require.Error(t, err)
 		require.Nil(t, contract)
-		require.Contains(t, err.Error(), "getting contract by ID nonexistent")
+		require.Contains(t, err.Error(), "getting contract by contract_id nonexistent")
 
 		cleanUpDB()
 	})
@@ -138,8 +138,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 
 	t.Run("returns empty slice for empty IDs slice", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "contract_tokens").Return()
+		// No metrics expected - early return for empty input
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -277,7 +276,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
 			require.NoError(t, txErr)
-			require.Nil(t, insertedIDs)
+			require.Empty(t, insertedIDs)
 			return nil
 		})
 		require.NoError(t, err)
@@ -290,8 +289,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -374,8 +373,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -429,7 +428,10 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 1) // Only contract2 should be inserted
+			// BatchInsert returns all contract IDs (both existing and newly inserted)
+			require.Len(t, insertedIDs, 2)
+			_, hasContract1 := insertedIDs["contract1"]
+			require.True(t, hasContract1)
 			_, hasContract2 := insertedIDs["contract2"]
 			require.True(t, hasContract2)
 			return nil
