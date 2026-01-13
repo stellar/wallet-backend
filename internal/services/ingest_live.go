@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -186,6 +190,11 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
 
+			// 6.5. Update trustline balances from DEBIT/CREDIT state changes (all accounts, not filtered)
+			if txErr = m.updateTrustlineBalances(ctx, dbTx, buffer.GetStateChanges(), currentLedger); txErr != nil {
+				return fmt.Errorf("updating trustline balances for ledger %d: %w", currentLedger, txErr)
+			}
+
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, txErr)
@@ -268,4 +277,117 @@ func (m *ingestService) prepareNewContracts(ctx context.Context, contractsByID m
 		return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
 	}
 	return contracts, nil
+}
+
+// updateTrustlineBalances processes DEBIT/CREDIT state changes and updates trustline balances.
+// It filters for SAC balance changes on G-addresses (trustlines), computes asset IDs from
+// the TrustlineAsset field, groups deltas by (account, asset_id), and applies batch updates.
+func (m *ingestService) updateTrustlineBalances(ctx context.Context, dbTx pgx.Tx, stateChanges []types.StateChange, ledger uint32) error {
+	if len(stateChanges) == 0 {
+		return nil
+	}
+
+	// Sort state changes by temporal order: ledger_created_at, to_id (toid), state_change_order
+	sortedChanges := make([]types.StateChange, len(stateChanges))
+	copy(sortedChanges, stateChanges)
+	sort.Slice(sortedChanges, func(i, j int) bool {
+		if !sortedChanges[i].LedgerCreatedAt.Equal(sortedChanges[j].LedgerCreatedAt) {
+			return sortedChanges[i].LedgerCreatedAt.Before(sortedChanges[j].LedgerCreatedAt)
+		}
+		if sortedChanges[i].ToID != sortedChanges[j].ToID {
+			return sortedChanges[i].ToID < sortedChanges[j].ToID
+		}
+		return sortedChanges[i].StateChangeOrder < sortedChanges[j].StateChangeOrder
+	})
+
+	// Group balance deltas by (account, assetID)
+	type deltaKey struct {
+		accountAddress string
+		assetID        string // code:issuer
+	}
+	deltas := make(map[deltaKey]int64)
+
+	for _, sc := range sortedChanges {
+		// Filter: only BALANCE category with DEBIT/CREDIT reason
+		if sc.StateChangeCategory != types.StateChangeCategoryBalance {
+			continue
+		}
+		if sc.StateChangeReason == nil {
+			continue
+		}
+		reason := *sc.StateChangeReason
+		if reason != types.StateChangeReasonDebit && reason != types.StateChangeReasonCredit {
+			continue
+		}
+
+		// Filter: only SAC contracts (trustlines)
+		if sc.ContractType != types.ContractTypeSAC {
+			continue
+		}
+
+		// Filter: only G-addresses (accounts with trustlines)
+		if !strkey.IsValidEd25519PublicKey(sc.AccountID) {
+			continue
+		}
+
+		// Filter: must have TrustlineAsset populated
+		if sc.TrustlineAsset == "" {
+			continue
+		}
+
+		// Parse amount
+		if !sc.Amount.Valid {
+			continue
+		}
+		amount, err := strconv.ParseInt(sc.Amount.String, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		// CREDIT adds to balance, DEBIT subtracts
+		delta := amount
+		if reason == types.StateChangeReasonDebit {
+			delta = -amount
+		}
+
+		key := deltaKey{
+			accountAddress: sc.AccountID,
+			assetID:        sc.TrustlineAsset,
+		}
+		deltas[key] += delta
+	}
+
+	if len(deltas) == 0 {
+		return nil
+	}
+
+	// Convert to BalanceUpdate slice
+	updates := make([]data.BalanceUpdate, 0, len(deltas))
+	for key, delta := range deltas {
+		// Parse code:issuer from TrustlineAsset
+		parts := strings.SplitN(key.assetID, ":", 2)
+		if len(parts) != 2 {
+			log.Ctx(ctx).Warnf("invalid trustline asset format: %s", key.assetID)
+			continue
+		}
+		code, issuer := parts[0], parts[1]
+		assetID := data.DeterministicAssetID(code, issuer)
+
+		updates = append(updates, data.BalanceUpdate{
+			AccountAddress: key.accountAddress,
+			AssetID:        assetID,
+			Delta:          delta,
+		})
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := m.models.AccountTokens.BatchUpdateBalances(ctx, dbTx, updates, ledger); err != nil {
+		return fmt.Errorf("batch updating trustline balances: %w", err)
+	}
+
+	log.Ctx(ctx).Infof("✅ updated %d trustline balances", len(updates))
+	return nil
 }
