@@ -28,7 +28,7 @@ import (
 
 const (
 	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
-	TrustlineBatchSize = 100_000
+	trustlineBatchSize = 500_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -644,7 +644,7 @@ func (s *tokenCacheService) streamCheckpointData(
 			batch.add(accountAddress, asset)
 
 			// Flush batch when full
-			if batch.count >= TrustlineBatchSize {
+			if batch.count >= trustlineBatchSize {
 				if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
 					return checkpointData{}, fmt.Errorf("flushing trustline batch: %w", err)
 				}
