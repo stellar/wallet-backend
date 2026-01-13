@@ -146,12 +146,12 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			// 1. Ensure trustline assets exist (satisfies FK constraint)
+			// 1. Ensure trustline assets exist
 			if txErr := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, dbTx, buffer.GetTrustlineChanges()); txErr != nil {
 				return fmt.Errorf("ensuring trustline assets exist for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 2. Ensure contract tokens exist (satisfies FK constraint)
+			// 2. Ensure contract tokens exist
 			if txErr := m.tokenCacheWriter.EnsureContractTokensExist(ctx, dbTx, buffer.GetContractChanges()); txErr != nil {
 				return fmt.Errorf("ensuring contract tokens exist for ledger %d: %w", currentLedger, txErr)
 			}
