@@ -5,9 +5,9 @@ package data
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
@@ -16,22 +16,23 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// DeterministicContractID computes a deterministic 64-bit ID for a contract token
-// using FNV-1a hash of the contract address (C...). This enables streaming checkpoint
+// contractNamespace is derived from table name for reproducibility.
+var contractNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("contract_tokens"))
+
+// DeterministicContractID computes a deterministic UUID for a contract token
+// using UUID v5 (SHA-1) of the contract address (C...). This enables streaming checkpoint
 // processing without needing DB roundtrips to get auto-generated IDs.
-func DeterministicContractID(contractID string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(contractID))
-	return int64(h.Sum64())
+func DeterministicContractID(contractID string) uuid.UUID {
+	return uuid.NewSHA1(contractNamespace, []byte(contractID))
 }
 
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
 	GetByContractID(ctx context.Context, contractID string) (*Contract, error)
 	GetAllContractIDs(ctx context.Context) ([]string, error)
-	BatchGetByIDs(ctx context.Context, ids []int64) ([]*Contract, error)
+	BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
-	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotent operations.
+	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error
 }
@@ -46,7 +47,7 @@ var _ ContractModelInterface = (*ContractModel)(nil)
 
 // Contract represents a Soroban contract token.
 type Contract struct {
-	ID         int64     `db:"id" json:"id"`
+	ID         uuid.UUID `db:"id" json:"id"`
 	ContractID string    `db:"contract_id" json:"contractId"`
 	Type       string    `db:"type" json:"type"`
 	Code       *string   `db:"code" json:"code"`
@@ -105,8 +106,8 @@ func (m *ContractModel) GetAllContractIDs(ctx context.Context) ([]string, error)
 	return ids, nil
 }
 
-// BatchGetByIDs retrieves contracts by their numeric IDs.
-func (m *ContractModel) BatchGetByIDs(ctx context.Context, ids []int64) ([]*Contract, error) {
+// BatchGetByIDs retrieves contracts by their UUIDs.
+func (m *ContractModel) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -125,14 +126,14 @@ func (m *ContractModel) BatchGetByIDs(ctx context.Context, ids []int64) ([]*Cont
 }
 
 // BatchInsert inserts multiple contracts with pre-computed deterministic IDs.
-// Uses INSERT ... ON CONFLICT DO NOTHING for idempotent operations.
+// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 // Contracts must have their ID field set via DeterministicContractID before calling.
 func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
 	if len(contracts) == 0 {
 		return nil
 	}
 
-	ids := make([]int64, len(contracts))
+	ids := make([]uuid.UUID, len(contracts))
 	contractIDs := make([]string, len(contracts))
 	types := make([]string, len(contracts))
 	codes := make([]*string, len(contracts))
@@ -154,8 +155,8 @@ func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts 
 
 	const query = `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, name, symbol, decimals)
-		SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::smallint[])
-		ON CONFLICT DO NOTHING
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::smallint[])
+		ON CONFLICT (contract_id) DO NOTHING
 	`
 
 	start := time.Now()
