@@ -87,42 +87,6 @@ func NewContractMetadataService(
 	}, nil
 }
 
-// FetchAndStoreMetadata fetches metadata for contracts and stores in database.
-// Uses deterministic IDs computed from contract addresses.
-func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
-	if len(contractTypesByID) == 0 {
-		log.Ctx(ctx).Info("No contracts to fetch metadata for")
-		return nil
-	}
-
-	// Build initial metadata map and contract IDs slice
-	metadataMap := make(map[string]ContractMetadata, len(contractTypesByID))
-	contractIDs := make([]string, 0, len(contractTypesByID))
-	for contractID, contractType := range contractTypesByID {
-		metadataMap[contractID] = ContractMetadata{
-			ContractID: contractID,
-			Type:       contractType,
-		}
-		contractIDs = append(contractIDs, contractID)
-	}
-
-	// Fetch metadata in parallel batches
-	start := time.Now()
-	metadataMap = s.fetchBatch(ctx, metadataMap, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-
-	// Parse SAC code:issuer from name field
-	s.parseSACMetadata(metadataMap)
-
-	// Store in database
-	start = time.Now()
-	if err := s.storeInDB(ctx, dbTx, metadataMap); err != nil {
-		return err
-	}
-	log.Ctx(ctx).Infof("Inserted %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-	return nil
-}
-
 // FetchMetadata fetches metadata for contracts via RPC without storing in database.
 // Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
 func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
