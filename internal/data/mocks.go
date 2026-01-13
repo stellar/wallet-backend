@@ -5,6 +5,7 @@ package data
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 )
@@ -46,7 +47,7 @@ func (m *ContractModelMock) GetAllContractIDs(ctx context.Context) ([]string, er
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, ids []int64) ([]*Contract, error) {
+func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error) {
 	args := m.Called(ctx, ids)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
