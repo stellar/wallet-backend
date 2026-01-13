@@ -27,6 +27,12 @@ type BalanceUpdate struct {
 	Delta          int64
 }
 
+// TrustlineWithBalance represents a trustline with its balance for bulk insertion.
+type TrustlineWithBalance struct {
+	AssetID uuid.UUID
+	Balance int64
+}
+
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
@@ -39,7 +45,7 @@ type AccountTokensModelInterface interface {
 	BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error
 
 	// Bulk operations (for initial population)
-	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]uuid.UUID) error
+	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error
 	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 }
 
@@ -208,25 +214,25 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 }
 
 // BulkInsertTrustlines performs bulk insert using COPY protocol for speed.
-func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]uuid.UUID) error {
+func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error {
 	if len(trustlinesByAccount) == 0 {
 		return nil
 	}
 
 	start := time.Now()
 
-	// Build rows for COPY
+	// Build rows for COPY (account_address, asset_id, balance, last_modified_ledger)
 	var rows [][]any
-	for addr, ids := range trustlinesByAccount {
-		for _, id := range ids {
-			rows = append(rows, []any{addr, id})
+	for addr, entries := range trustlinesByAccount {
+		for _, entry := range entries {
+			rows = append(rows, []any{addr, entry.AssetID, entry.Balance, ledger})
 		}
 	}
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"account_trustlines"},
-		[]string{"account_address", "asset_id"},
+		[]string{"account_address", "asset_id", "balance", "last_modified_ledger"},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
