@@ -113,10 +113,10 @@ type TokenCacheWriter interface {
 	EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error
 
 	// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
-	// For new contracts (not in knownContractIDs cache), fetches metadata via RPC.
+	// For new contracts (not already in DB), fetches metadata via RPC.
 	// Uses BatchGetOrInsert to handle both new and existing contracts.
 	// Returns a map of contractID (C...) -> numeric database ID.
-	GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error)
+	GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]int64, error)
 
 	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
@@ -449,19 +449,26 @@ func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, dbTx
 }
 
 // GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
-// For new contracts, fetches metadata via RPC. Uses BatchGetOrInsert for DB operations.
-func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange, knownContractIDs set.Set[string]) (map[string]int64, error) {
+// For new contracts (not already in DB), fetches metadata via RPC. Uses BatchGetOrInsert for DB operations.
+func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]int64, error) {
 	// Extract unique SAC/SEP-41 contracts from changes
 	contractTypesByID := extractUniqueSACAndSEP41Contracts(contractChanges)
 	if len(contractTypesByID) == 0 {
 		return make(map[string]int64), nil
 	}
 
-	// Separate new vs existing using cache
+	// Query DB for existing contract IDs (< 10k contracts, fast query)
+	existingIDs, err := s.contractModel.GetAllContractIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
+	}
+	existingSet := set.NewSet[string](existingIDs...)
+
+	// Separate new vs existing based on DB query
 	newContractTypesByID := make(map[string]types.ContractType)
 	existingContractIDs := make([]string, 0)
 	for id, ctype := range contractTypesByID {
-		if knownContractIDs.Contains(id) {
+		if existingSet.Contains(id) {
 			existingContractIDs = append(existingContractIDs, id)
 		} else {
 			newContractTypesByID[id] = ctype
