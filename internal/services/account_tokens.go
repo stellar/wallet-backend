@@ -8,21 +8,19 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -105,18 +103,6 @@ type TokenCacheWriter interface {
 	// The initializeCursors callback is invoked within the same DB transaction as
 	// the metadata storage to ensure atomic initialization.
 	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
-
-	// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
-	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
-	// Must be called before ProcessTokenChanges to satisfy FK constraints.
-	EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error
-
-	// EnsureContractTokensExist inserts contract tokens into PostgreSQL with deterministic IDs.
-	// For new contracts (not already in DB), fetches metadata via RPC.
-	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
-	// Must be called before ProcessTokenChanges to satisfy FK constraints.
-	// Contract IDs are computed using DeterministicContractID, no return value needed.
-	EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error
 
 	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
@@ -281,7 +267,7 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	})
 	opsPerKey := make(map[changeKey]*types.TrustlineOpType)
 	for _, change := range trustlineChanges {
-		code, issuer, err := parseAssetString(change.Asset)
+		code, issuer, err := indexer.ParseAssetString(change.Asset)
 		if err != nil {
 			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
 		}
@@ -346,22 +332,6 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	return nil
 }
 
-// parseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
-func parseAssetString(asset string) (code, issuer string, err error) {
-	parts := strings.SplitN(asset, ":", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid asset format: expected CODE:ISSUER, got %s", asset)
-	}
-	code, issuer = parts[0], parts[1]
-
-	// Validate using txnbuild
-	creditAsset := txnbuild.CreditAsset{Code: code, Issuer: issuer}
-	if _, err := creditAsset.ToXDR(); err != nil {
-		return "", "", fmt.Errorf("invalid asset %s: %w", asset, err)
-	}
-	return code, issuer, nil
-}
-
 // GetAccountTrustlines retrieves all trustlines for an account from PostgreSQL.
 // Returns asset objects after resolving from internal IDs.
 func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
@@ -412,111 +382,6 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 	}
 
 	return contracts, nil
-}
-
-// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
-// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
-// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error {
-	if len(trustlineChanges) == 0 {
-		return nil
-	}
-
-	// Extract unique assets from trustline changes and compute their IDs
-	seen := set.NewSet[string]()
-	var assets []wbdata.TrustlineAsset
-	for _, change := range trustlineChanges {
-		code, issuer, err := parseAssetString(change.Asset)
-		if err != nil {
-			return fmt.Errorf("parsing asset %s: %w", change.Asset, err)
-		}
-		key := code + ":" + issuer
-		if seen.Contains(key) {
-			continue
-		}
-		seen.Add(key)
-		assets = append(assets, wbdata.TrustlineAsset{
-			ID:     wbdata.DeterministicAssetID(code, issuer),
-			Code:   code,
-			Issuer: issuer,
-		})
-	}
-
-	// Insert all unique assets (ON CONFLICT DO NOTHING) using the provided transaction
-	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
-		return fmt.Errorf("batch inserting trustline assets: %w", err)
-	}
-	return nil
-}
-
-// EnsureContractTokensExist inserts contract tokens into PostgreSQL with deterministic IDs.
-// For new contracts (not already in DB), fetches metadata via RPC.
-// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
-func (s *tokenCacheService) EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error {
-	// Extract unique SAC/SEP-41 contracts from changes
-	contractTypesByID := extractUniqueSACAndSEP41Contracts(contractChanges)
-	if len(contractTypesByID) == 0 {
-		return nil
-	}
-
-	// Query DB for existing contract IDs (< 10k contracts, fast query)
-	existingIDs, err := s.contractModel.GetAllContractIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("getting existing contract IDs: %w", err)
-	}
-	existingSet := set.NewSet(existingIDs...)
-
-	// Filter to only new contracts (not already in DB)
-	newContractTypesByID := make(map[string]types.ContractType)
-	for id, ctype := range contractTypesByID {
-		if !existingSet.Contains(id) {
-			newContractTypesByID[id] = ctype
-		}
-	}
-
-	if len(newContractTypesByID) == 0 {
-		return nil
-	}
-
-	// Fetch metadata for NEW contracts only
-	contracts, err := s.contractMetadataService.FetchMetadata(ctx, newContractTypesByID)
-	if err != nil {
-		return fmt.Errorf("fetching metadata for new contracts: %w", err)
-	}
-
-	if len(contracts) == 0 {
-		return nil
-	}
-
-	// BatchInsert with deterministic IDs (ON CONFLICT DO NOTHING)
-	if err := s.contractModel.BatchInsert(ctx, dbTx, contracts); err != nil {
-		return fmt.Errorf("batch inserting contracts: %w", err)
-	}
-	return nil
-}
-
-// extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.
-func extractUniqueSACAndSEP41Contracts(contractChanges []types.ContractChange) map[string]types.ContractType {
-	if len(contractChanges) == 0 {
-		return nil
-	}
-
-	seen := set.NewSet[string]()
-	result := make(map[string]types.ContractType)
-
-	for _, change := range contractChanges {
-		// Only process SAC and SEP-41 contracts
-		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
-			continue
-		}
-		if change.ContractID == "" || seen.Contains(change.ContractID) {
-			continue
-		}
-		seen.Add(change.ContractID)
-		result[change.ContractID] = change.ContractType
-	}
-
-	return result
 }
 
 // processTrustlineChange extracts trustline information from a ledger change entry.

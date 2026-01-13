@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -463,16 +464,32 @@ func (m *ingestService) processTokenChanges(
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 
+	// Extract unique trustline assets from changes
+	uniqueAssets := extractUniqueTrustlineAssets(trustlineChanges)
+
+	// Extract unique SAC/SEP-41 contracts from changes
+	uniqueContracts := extractUniqueSACAndSEP41Contracts(contractChanges)
+
 	// All token operations in a single atomic transaction
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		// 1. Ensure trustline assets exist in PostgreSQL (IDs computed via DeterministicAssetID)
-		if txErr := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, dbTx, trustlineChanges); txErr != nil {
-			return fmt.Errorf("ensuring trustline assets exist: %w", txErr)
+		// 1. Insert unique trustline assets
+		if len(uniqueAssets) > 0 {
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
+				return fmt.Errorf("inserting trustline assets: %w", txErr)
+			}
 		}
 
-		// 2. Ensure contract tokens exist (IDs computed via DeterministicContractID)
-		if txErr := m.tokenCacheWriter.EnsureContractTokensExist(ctx, dbTx, contractChanges); txErr != nil {
-			return fmt.Errorf("ensuring contract tokens exist: %w", txErr)
+		// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
+		if len(uniqueContracts) > 0 {
+			contracts, txErr := m.prepareNewContracts(ctx, uniqueContracts)
+			if txErr != nil {
+				return fmt.Errorf("preparing contracts: %w", txErr)
+			}
+			if len(contracts) > 0 {
+				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+					return fmt.Errorf("inserting contracts: %w", txErr)
+				}
+			}
 		}
 
 		// 3. Apply token changes to PostgreSQL
@@ -490,4 +507,55 @@ func (m *ingestService) processTokenChanges(
 		len(trustlineChanges), len(contractChanges))
 
 	return nil
+}
+
+// extractUniqueTrustlineAssets extracts unique trustline assets from changes with pre-computed IDs.
+func extractUniqueTrustlineAssets(trustlineChanges []types.TrustlineChange) []data.TrustlineAsset {
+	if len(trustlineChanges) == 0 {
+		return nil
+	}
+
+	seen := set.NewSet[string]()
+	var assets []data.TrustlineAsset
+	for _, change := range trustlineChanges {
+		code, issuer, err := indexer.ParseAssetString(change.Asset)
+		if err != nil {
+			continue
+		}
+		key := code + ":" + issuer
+		if seen.Contains(key) {
+			continue
+		}
+		seen.Add(key)
+		assets = append(assets, data.TrustlineAsset{
+			ID:     data.DeterministicAssetID(code, issuer),
+			Code:   code,
+			Issuer: issuer,
+		})
+	}
+	return assets
+}
+
+// extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.
+func extractUniqueSACAndSEP41Contracts(contractChanges []types.ContractChange) map[string]types.ContractType {
+	if len(contractChanges) == 0 {
+		return nil
+	}
+
+	seen := set.NewSet[string]()
+	result := make(map[string]types.ContractType)
+
+	for _, change := range contractChanges {
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
+		}
+		if change.ContractID == "" || seen.Contains(change.ContractID) {
+			continue
+		}
+		seen.Add(change.ContractID)
+		result[change.ContractID] = change.ContractType
+	}
+
+	return result
 }

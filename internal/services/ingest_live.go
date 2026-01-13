@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -146,14 +148,20 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			// 1. Ensure trustline assets exist
-			if txErr := m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, dbTx, buffer.GetTrustlineChanges()); txErr != nil {
-				return fmt.Errorf("ensuring trustline assets exist for ledger %d: %w", currentLedger, txErr)
+			// 1. Insert unique trustline assets (pre-tracked in buffer)
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
+				return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 2. Ensure contract tokens exist
-			if txErr := m.tokenCacheWriter.EnsureContractTokensExist(ctx, dbTx, buffer.GetContractChanges()); txErr != nil {
-				return fmt.Errorf("ensuring contract tokens exist for ledger %d: %w", currentLedger, txErr)
+			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
+			contracts, txErr := m.prepareNewContracts(ctx, buffer.GetUniqueContractsByID())
+			if txErr != nil {
+				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
+			}
+			if len(contracts) > 0 {
+				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
+				}
 			}
 
 			// 3. Filter participant data
@@ -227,4 +235,37 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	}
 
 	return nil
+}
+
+// prepareNewContracts filters out existing contracts and fetches metadata for new ones.
+func (m *ingestService) prepareNewContracts(ctx context.Context, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
+	if len(contractsByID) == 0 {
+		return nil, nil
+	}
+
+	// Get existing contract IDs from DB
+	existingIDs, err := m.models.Contract.GetAllContractIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
+	}
+	existingSet := set.NewSet(existingIDs...)
+
+	// Filter to only new contracts
+	newContractsByID := make(map[string]types.ContractType)
+	for id, ctype := range contractsByID {
+		if !existingSet.Contains(id) {
+			newContractsByID[id] = ctype
+		}
+	}
+
+	if len(newContractsByID) == 0 {
+		return nil, nil
+	}
+
+	// Fetch metadata for new contracts via RPC
+	contracts, err := m.contractMetadataService.FetchMetadata(ctx, newContractsByID)
+	if err != nil {
+		return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
+	}
+	return contracts, nil
 }

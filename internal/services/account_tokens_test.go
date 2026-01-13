@@ -14,6 +14,7 @@ import (
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
@@ -227,7 +228,7 @@ func TestParseAssetString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, issuer, err := parseAssetString(tt.asset)
+			code, issuer, err := indexer.ParseAssetString(tt.asset)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -473,141 +474,5 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.NoError(t, err)
 		require.Len(t, contracts, 1)
 		assert.Equal(t, contractID, contracts[0].ContractID)
-	})
-}
-
-func TestEnsureTrustlineAssetsExist(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("empty changes returns nil error", func(t *testing.T) {
-		service := &tokenCacheService{}
-
-		// nil dbTx is fine for empty changes since function returns early
-		err := service.EnsureTrustlineAssetsExist(ctx, nil, []types.TrustlineChange{})
-		require.NoError(t, err)
-	})
-
-	t.Run("invalid asset format returns error", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		mockMetrics := &metrics.MockMetricsService{}
-
-		assetModel := &wbdata.TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetrics,
-		}
-
-		service := &tokenCacheService{
-			db:                  dbConnectionPool,
-			trustlineAssetModel: assetModel,
-		}
-
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "INVALID_NO_COLON", Operation: types.TrustlineOpAdd},
-		}
-
-		// nil dbTx is fine since error occurs during asset parsing, before DB access
-		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "parsing asset")
-	})
-
-	t.Run("inserts assets into PostgreSQL with deterministic IDs", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
-		require.NoError(t, err)
-
-		mockMetrics := &metrics.MockMetricsService{}
-		mockMetrics.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		mockMetrics.On("IncDBTransaction", mock.Anything).Return()
-		mockMetrics.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return()
-		mockMetrics.On("ObserveDBQueryDuration", "BatchGetByIDs", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchGetByIDs", "trustline_assets").Return()
-
-		assetModel := &wbdata.TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetrics,
-		}
-
-		service := &tokenCacheService{
-			db:                  dbConnectionPool,
-			trustlineAssetModel: assetModel,
-		}
-
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
-			{AccountID: "GTEST2", Asset: "EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2", Operation: types.TrustlineOpAdd},
-		}
-
-		// nil dbTx is fine for this test - it creates its own transaction internally
-		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
-		require.NoError(t, err)
-
-		// Verify assets were inserted with correct deterministic IDs
-		expectedID1 := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		expectedID2 := wbdata.DeterministicAssetID("EURC", "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2")
-
-		assets, err := assetModel.BatchGetByIDs(ctx, []int64{expectedID1, expectedID2})
-		require.NoError(t, err)
-		assert.Len(t, assets, 2)
-
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
-		require.NoError(t, err)
-	})
-
-	t.Run("idempotent - calling twice with same assets succeeds", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
-		require.NoError(t, err)
-
-		mockMetrics := &metrics.MockMetricsService{}
-		mockMetrics.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetrics.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		mockMetrics.On("IncDBTransaction", mock.Anything).Return()
-		mockMetrics.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return()
-
-		assetModel := &wbdata.TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetrics,
-		}
-
-		service := &tokenCacheService{
-			db:                  dbConnectionPool,
-			trustlineAssetModel: assetModel,
-		}
-
-		changes := []types.TrustlineChange{
-			{AccountID: "GTEST1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", Operation: types.TrustlineOpAdd},
-		}
-
-		// First call - nil dbTx creates its own transaction internally
-		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
-		require.NoError(t, err)
-
-		// Second call - should succeed due to ON CONFLICT DO NOTHING
-		err = service.EnsureTrustlineAssetsExist(ctx, nil, changes)
-		require.NoError(t, err)
-
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
-		require.NoError(t, err)
 	})
 }

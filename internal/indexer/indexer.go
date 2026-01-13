@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -39,6 +40,8 @@ type IndexerBufferInterface interface {
 	GetContractChanges() []types.ContractChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
+	GetUniqueTrustlineAssets() []data.TrustlineAsset
+	GetUniqueContractsByID() map[string]types.ContractType
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
