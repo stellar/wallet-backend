@@ -129,14 +129,13 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
 
-		// Pre-commit asset IDs in a separate transaction before the main transaction
-		// to prevent orphan IDs if the main transaction rolls back
+		// Pre-commit trustline assets and contract tokens to satisfy FK constraints
 		dbStart := time.Now()
-		trustlineAssetIDMap, contractIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
+		contractIDMap, err := m.ensureTokensExistWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
 		if err != nil {
-			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("ensuring tokens exist for ledger %d: %w", currentLedger, err)
 		}
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap, contractIDMap)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, contractIDMap)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -153,10 +152,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// insertTrustlinesAndContractTokensWithRetry inserts trustlines and contract tokens into the database.
-// Returns both trustlineAssetIDMap and contractIDMap for use in processing token changes.
-func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, map[string]int64, error) {
-	var trustlineAssetIDMap map[string]int64
+// ensureTokensExistWithRetry ensures trustline assets and contract tokens exist in the database.
+// Returns contractIDMap for use in processing token changes (trustline IDs are computed via DeterministicAssetID).
+func (m *ingestService) ensureTokensExistWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, error) {
 	var contractIDMap map[string]int64
 	var innerErr error
 	var lastErr error
@@ -167,54 +165,54 @@ func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.C
 	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, nil, fmt.Errorf("context done: %w", ctx.Err())
+			return nil, fmt.Errorf("context done: %w", ctx.Err())
 		default:
 		}
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			trustlineAssetIDMap, innerErr = m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
-			if innerErr != nil {
-				return fmt.Errorf("inserting trustline assets: %w", innerErr)
-			}
-			// Get IDs for all SAC/SEP-41 contracts (new + existing)
-			contractIDMap, innerErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
-			if innerErr != nil {
-				return fmt.Errorf("getting or inserting contract tokens: %w", innerErr)
-			}
-			return nil
-		})
-		if err == nil {
-			// Update cache AFTER transaction commits to avoid stale cache on rollback
-			for _, contractID := range newContractIDs {
-				m.knownContractIDs.Add(contractID)
-			}
-			return trustlineAssetIDMap, contractIDMap, nil
-		}
-		lastErr = err
 
+		// Ensure trustline assets exist (no return value needed - IDs computed via hash)
+		if innerErr = m.tokenCacheWriter.EnsureTrustlineAssetsExist(ctx, trustlineChanges); innerErr != nil {
+			lastErr = fmt.Errorf("ensuring trustline assets exist: %w", innerErr)
+			goto retry
+		}
+
+		// Get IDs for all SAC/SEP-41 contracts (new + existing)
+		innerErr = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			var txErr error
+			contractIDMap, txErr = m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges, m.knownContractIDs)
+			return txErr
+		})
+		if innerErr != nil {
+			lastErr = fmt.Errorf("getting or inserting contract tokens: %w", innerErr)
+			goto retry
+		}
+
+		// Update cache AFTER transaction commits to avoid stale cache on rollback
+		for _, contractID := range newContractIDs {
+			m.knownContractIDs.Add(contractID)
+		}
+		return contractIDMap, nil
+
+	retry:
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {
 			backoff = maxIngestProcessedDataRetryBackoff
 		}
-		log.Ctx(ctx).Warnf("Error ingesting trustline and contract tokens for ledger %d (attempt %d/%d): %v, retrying in %v...",
+		log.Ctx(ctx).Warnf("Error ensuring tokens exist for ledger %d (attempt %d/%d): %v, retrying in %v...",
 			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
 
 		select {
 		case <-ctx.Done():
-			return nil, nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+			return nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
 		case <-time.After(backoff):
 		}
 	}
-	if lastErr != nil {
-		return nil, nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
-	}
-	return trustlineAssetIDMap, contractIDMap, nil
+	return nil, fmt.Errorf("ensuring tokens exist: %w", lastErr)
 }
 
 // ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
 // unlocks channel accounts, and processes token changes.
-// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
-// The contractIDMap must be pre-populated by calling FetchAndStoreMetadata before this function.
-func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64, contractIDMap map[string]int64) (int, int, error) {
+// The contractIDMap must be pre-populated by calling GetOrInsertContractTokens before this function.
+func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, contractIDMap map[string]int64) (int, int, error) {
 	numTransactionProcessed := 0
 	numOperationProcessed := 0
 
@@ -239,7 +237,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, contractIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, contractIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
 			if innerErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
 			}
