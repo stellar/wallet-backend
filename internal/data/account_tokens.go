@@ -4,8 +4,6 @@ package data
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -48,118 +46,110 @@ type AccountTokensModel struct {
 
 var _ AccountTokensModelInterface = (*AccountTokensModel)(nil)
 
-// GetTrustlineAssetIDs retrieves asset IDs for a single account using pgx.
+// GetTrustlineAssetIDs retrieves asset IDs for a single account.
 func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	const query = `
-		SELECT asset_ids
-		FROM account_trustlines
-		WHERE account_address = $1`
+	const query = `SELECT asset_id FROM account_trustlines WHERE account_address = $1`
 
 	start := time.Now()
-	var assetIDsJSON []byte
-	err := m.DB.PgxPool().QueryRow(ctx, query, accountAddress).Scan(&assetIDsJSON)
-	m.MetricsService.ObserveDBQueryDuration("GetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		m.MetricsService.IncDBQuery("GetTrustlineAssetIDs", "account_trustlines")
-		return []int64{}, nil
-	}
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetTrustlineAssetIDs", "account_trustlines", "query_error")
-		return nil, fmt.Errorf("getting trustline asset IDs for %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("querying trustline asset IDs for %s: %w", accountAddress, err)
 	}
+	defer rows.Close()
 
 	var assetIDs []int64
-	if err := json.Unmarshal(assetIDsJSON, &assetIDs); err != nil {
-		return nil, fmt.Errorf("unmarshaling asset IDs for %s: %w", accountAddress, err)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning asset ID: %w", err)
+		}
+		assetIDs = append(assetIDs, id)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating asset IDs: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetTrustlineAssetIDs", "account_trustlines")
 	return assetIDs, nil
 }
 
-// GetContractIDs retrieves numeric contract IDs for a single account using pgx.
+// GetContractIDs retrieves contract IDs for a single account.
 func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	const query = `
-		SELECT contract_ids
-		FROM account_contracts
-		WHERE account_address = $1`
+	const query = `SELECT contract_id FROM account_contracts WHERE account_address = $1`
 
 	start := time.Now()
-	var contractIDsJSON []byte
-	err := m.DB.PgxPool().QueryRow(ctx, query, accountAddress).Scan(&contractIDsJSON)
-	m.MetricsService.ObserveDBQueryDuration("GetContractIDs", "account_contracts", time.Since(start).Seconds())
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		m.MetricsService.IncDBQuery("GetContractIDs", "account_contracts")
-		return []int64{}, nil
-	}
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetContractIDs", "account_contracts", "query_error")
-		return nil, fmt.Errorf("getting contract IDs for %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("querying contract IDs for %s: %w", accountAddress, err)
 	}
+	defer rows.Close()
 
 	var contractIDs []int64
-	if err := json.Unmarshal(contractIDsJSON, &contractIDs); err != nil {
-		return nil, fmt.Errorf("unmarshaling contract IDs for %s: %w", accountAddress, err)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning contract ID: %w", err)
+		}
+		contractIDs = append(contractIDs, id)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating contract IDs: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetContractIDs", "account_contracts", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetContractIDs", "account_contracts")
 	return contractIDs, nil
 }
 
-// BatchUpsertTrustlines adds/removes asset IDs for multiple accounts atomically.
-// For each account, it merges the current asset_ids with new additions and removes specified IDs.
-// Uses pgx.Batch for single round-trip efficiency.
+// BatchUpsertTrustlines adds/removes trustlines for multiple accounts.
 func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error {
 	if len(changes) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-
-	const query = `
-		INSERT INTO account_trustlines (account_address, asset_ids, updated_at)
-		VALUES ($1, $2::jsonb, NOW())
-		ON CONFLICT (account_address) DO UPDATE SET
-			asset_ids = (
-				SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-				FROM jsonb_array_elements(account_trustlines.asset_ids || $2::jsonb) elem
-				WHERE NOT (elem::bigint = ANY($3::bigint[]))
-			),
-			updated_at = NOW()`
-
 	batch := &pgx.Batch{}
-	for accountAddress, change := range changes {
-		addIDs := change.AddIDs
-		if addIDs == nil {
-			addIDs = []int64{}
-		}
-		addJSON, err := json.Marshal(addIDs)
-		if err != nil {
-			return fmt.Errorf("marshaling add IDs for %s: %w", accountAddress, err)
-		}
 
-		removeIDs := change.RemoveIDs
-		if removeIDs == nil {
-			removeIDs = []int64{}
+	const insertQuery = `
+		INSERT INTO account_trustlines (account_address, asset_id)
+		SELECT $1, unnest($2::bigint[])
+		ON CONFLICT DO NOTHING`
+
+	const deleteQuery = `
+		DELETE FROM account_trustlines
+		WHERE account_address = $1 AND asset_id = ANY($2::bigint[])`
+
+	for accountAddress, change := range changes {
+		if len(change.AddIDs) > 0 {
+			batch.Queue(insertQuery, accountAddress, change.AddIDs)
 		}
-		batch.Queue(query, accountAddress, addJSON, removeIDs)
+		if len(change.RemoveIDs) > 0 {
+			batch.Queue(deleteQuery, accountAddress, change.RemoveIDs)
+		}
+	}
+
+	if batch.Len() == 0 {
+		return nil
 	}
 
 	br := dbTx.SendBatch(ctx, batch)
-	for range changes {
+	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
-			return fmt.Errorf("upserting trustlines: %w", err)
+			closeErr := br.Close()
+			return fmt.Errorf("upserting trustlines: %w (close err: %v)", err, closeErr)
 		}
 	}
 	if err := br.Close(); err != nil {
@@ -171,8 +161,7 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 	return nil
 }
 
-// BatchAddContracts appends numeric contract IDs for multiple accounts (contracts never removed).
-// Uses pgx.Batch for single round-trip efficiency.
+// BatchAddContracts adds contract IDs for multiple accounts (contracts are never removed).
 func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
 	if len(contractsByAccount) == 0 {
 		return nil
@@ -181,38 +170,27 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 	start := time.Now()
 
 	const query = `
-		INSERT INTO account_contracts (account_address, contract_ids, updated_at)
-		VALUES ($1, $2::jsonb, NOW())
-		ON CONFLICT (account_address) DO UPDATE SET
-			contract_ids = (
-				SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-				FROM jsonb_array_elements(account_contracts.contract_ids || $2::jsonb) elem
-			),
-			updated_at = NOW()`
+		INSERT INTO account_contracts (account_address, contract_id)
+		SELECT $1, unnest($2::bigint[])
+		ON CONFLICT DO NOTHING`
 
 	batch := &pgx.Batch{}
-	count := 0
 	for accountAddress, contractIDs := range contractsByAccount {
 		if len(contractIDs) == 0 {
 			continue
 		}
-		idsJSON, err := json.Marshal(contractIDs)
-		if err != nil {
-			return fmt.Errorf("marshaling contract IDs for %s: %w", accountAddress, err)
-		}
-		batch.Queue(query, accountAddress, idsJSON)
-		count++
+		batch.Queue(query, accountAddress, contractIDs)
 	}
 
-	if count == 0 {
+	if batch.Len() == 0 {
 		return nil
 	}
 
 	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < count; i++ {
+	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
-			return fmt.Errorf("adding contracts: %w", err)
+			closeErr := br.Close()
+			return fmt.Errorf("adding contracts: %w (close err: %v)", err, closeErr)
 		}
 	}
 	if err := br.Close(); err != nil {
@@ -225,7 +203,6 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 }
 
 // BulkInsertTrustlines performs bulk insert for initial population.
-// Uses batch INSERT for efficient loading of many accounts at once.
 func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]int64) error {
 	if len(trustlinesByAccount) == 0 {
 		return nil
@@ -233,37 +210,26 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 	start := time.Now()
 
-	// Build batch data - use []string to avoid pgx encoding issues with [][]byte
-	addresses := make([]string, 0, len(trustlinesByAccount))
-	assetIDsJSONs := make([]string, 0, len(trustlinesByAccount))
-
-	for accountAddress, assetIDs := range trustlinesByAccount {
-		if len(assetIDs) == 0 {
-			continue
+	// Flatten to parallel arrays for UNNEST
+	var addresses []string
+	var assetIDs []int64
+	for accountAddress, ids := range trustlinesByAccount {
+		for _, id := range ids {
+			addresses = append(addresses, accountAddress)
+			assetIDs = append(assetIDs, id)
 		}
-
-		jsonData, err := json.Marshal(assetIDs)
-		if err != nil {
-			return fmt.Errorf("marshaling asset IDs for %s: %w", accountAddress, err)
-		}
-		addresses = append(addresses, accountAddress)
-		assetIDsJSONs = append(assetIDsJSONs, string(jsonData))
 	}
 
 	if len(addresses) == 0 {
 		return nil
 	}
 
-	// Use UNNEST for efficient bulk insert
 	const query = `
-		INSERT INTO account_trustlines (account_address, asset_ids, updated_at)
-		SELECT addr, ids::jsonb, NOW()
-		FROM UNNEST($1::text[], $2::text[]) AS t(addr, ids)
-		ON CONFLICT (account_address) DO UPDATE SET
-			asset_ids = EXCLUDED.asset_ids,
-			updated_at = NOW()`
+		INSERT INTO account_trustlines (account_address, asset_id)
+		SELECT unnest($1::text[]), unnest($2::bigint[])
+		ON CONFLICT DO NOTHING`
 
-	_, err := dbTx.Exec(ctx, query, addresses, assetIDsJSONs)
+	_, err := dbTx.Exec(ctx, query, addresses, assetIDs)
 	if err != nil {
 		return fmt.Errorf("bulk inserting trustlines: %w", err)
 	}
@@ -274,7 +240,6 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 }
 
 // BulkInsertContracts performs bulk insert for initial population.
-// Uses batch INSERT for efficient loading of many accounts at once.
 func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
 	if len(contractsByAccount) == 0 {
 		return nil
@@ -282,37 +247,26 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 
 	start := time.Now()
 
-	// Build batch data - use []string to avoid pgx encoding issues with [][]byte
-	addresses := make([]string, 0, len(contractsByAccount))
-	contractIDsJSONs := make([]string, 0, len(contractsByAccount))
-
-	for accountAddress, contractIDs := range contractsByAccount {
-		if len(contractIDs) == 0 {
-			continue
+	// Flatten to parallel arrays for UNNEST
+	var addresses []string
+	var contractIDs []int64
+	for accountAddress, ids := range contractsByAccount {
+		for _, id := range ids {
+			addresses = append(addresses, accountAddress)
+			contractIDs = append(contractIDs, id)
 		}
-
-		jsonData, err := json.Marshal(contractIDs)
-		if err != nil {
-			return fmt.Errorf("marshaling contract IDs for %s: %w", accountAddress, err)
-		}
-		addresses = append(addresses, accountAddress)
-		contractIDsJSONs = append(contractIDsJSONs, string(jsonData))
 	}
 
 	if len(addresses) == 0 {
 		return nil
 	}
 
-	// Use UNNEST for efficient bulk insert
 	const query = `
-		INSERT INTO account_contracts (account_address, contract_ids, updated_at)
-		SELECT addr, ids::jsonb, NOW()
-		FROM UNNEST($1::text[], $2::text[]) AS t(addr, ids)
-		ON CONFLICT (account_address) DO UPDATE SET
-			contract_ids = EXCLUDED.contract_ids,
-			updated_at = NOW()`
+		INSERT INTO account_contracts (account_address, contract_id)
+		SELECT unnest($1::text[]), unnest($2::bigint[])
+		ON CONFLICT DO NOTHING`
 
-	_, err := dbTx.Exec(ctx, query, addresses, contractIDsJSONs)
+	_, err := dbTx.Exec(ctx, query, addresses, contractIDs)
 	if err != nil {
 		return fmt.Errorf("bulk inserting contracts: %w", err)
 	}
