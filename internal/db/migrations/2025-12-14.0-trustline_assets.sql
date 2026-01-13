@@ -1,9 +1,9 @@
 -- +migrate Up
 
 -- Table: trustline_assets
--- Stores classic Stellar trustline assets with auto-incrementing IDs for memory-efficient storage.
+-- Stores classic Stellar trustline assets with deterministic hash IDs (FNV-1a 64-bit from CODE:ISSUER).
 CREATE TABLE trustline_assets (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     code TEXT NOT NULL,
     issuer TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
