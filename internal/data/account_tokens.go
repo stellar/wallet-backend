@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -15,23 +16,23 @@ import (
 
 // TrustlineChanges represents add/remove operations for an account's trustlines.
 type TrustlineChanges struct {
-	AddIDs    []int64
-	RemoveIDs []int64
+	AddIDs    []uuid.UUID
+	RemoveIDs []uuid.UUID
 }
 
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
-	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error)
-	GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error)
+	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
+	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
-	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error
+	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 
 	// Bulk operations (for initial population)
-	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]int64) error
-	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error
+	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]uuid.UUID) error
+	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 }
 
 // AccountTokensModel implements AccountTokensModelInterface.
@@ -43,7 +44,7 @@ type AccountTokensModel struct {
 var _ AccountTokensModelInterface = (*AccountTokensModel)(nil)
 
 // GetTrustlineAssetIDs retrieves asset IDs for a single account.
-func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error) {
+func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -58,9 +59,9 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 	}
 	defer rows.Close()
 
-	var assetIDs []int64
+	var assetIDs []uuid.UUID
 	for rows.Next() {
-		var id int64
+		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("scanning asset ID: %w", err)
 		}
@@ -77,7 +78,7 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 }
 
 // GetContractIDs retrieves contract IDs for a single account.
-func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error) {
+func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -92,9 +93,9 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	}
 	defer rows.Close()
 
-	var contractIDs []int64
+	var contractIDs []uuid.UUID
 	for rows.Next() {
-		var id int64
+		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("scanning contract ID: %w", err)
 		}
@@ -121,12 +122,12 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 
 	const insertQuery = `
 		INSERT INTO account_trustlines (account_address, asset_id)
-		SELECT $1, unnest($2::bigint[])
+		SELECT $1, unnest($2::uuid[])
 		ON CONFLICT DO NOTHING`
 
 	const deleteQuery = `
 		DELETE FROM account_trustlines
-		WHERE account_address = $1 AND asset_id = ANY($2::bigint[])`
+		WHERE account_address = $1 AND asset_id = ANY($2::uuid[])`
 
 	for accountAddress, change := range changes {
 		if len(change.AddIDs) > 0 {
@@ -158,7 +159,7 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 }
 
 // BatchAddContracts adds contract IDs for multiple accounts (contracts are never removed).
-func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
+func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	if len(contractsByAccount) == 0 {
 		return nil
 	}
@@ -167,7 +168,7 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 
 	const query = `
 		INSERT INTO account_contracts (account_address, contract_id)
-		SELECT $1, unnest($2::bigint[])
+		SELECT $1, unnest($2::uuid[])
 		ON CONFLICT DO NOTHING`
 
 	batch := &pgx.Batch{}
@@ -199,7 +200,7 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 }
 
 // BulkInsertTrustlines performs bulk insert using COPY protocol for speed.
-func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]int64) error {
+func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]uuid.UUID) error {
 	if len(trustlinesByAccount) == 0 {
 		return nil
 	}
@@ -234,7 +235,7 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 }
 
 // BulkInsertContracts performs bulk insert for initial population.
-func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]int64) error {
+func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	if len(contractsByAccount) == 0 {
 		return nil
 	}
@@ -243,7 +244,7 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 
 	// Flatten to parallel arrays for UNNEST
 	var addresses []string
-	var contractIDs []int64
+	var contractIDs []uuid.UUID
 	for accountAddress, ids := range contractsByAccount {
 		for _, id := range ids {
 			addresses = append(addresses, accountAddress)
@@ -257,7 +258,7 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 
 	const query = `
 		INSERT INTO account_contracts (account_address, contract_id)
-		SELECT unnest($1::text[]), unnest($2::bigint[])
+		SELECT unnest($1::text[]), unnest($2::uuid[])
 		ON CONFLICT DO NOTHING`
 
 	_, err := dbTx.Exec(ctx, query, addresses, contractIDs)
