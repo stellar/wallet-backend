@@ -161,7 +161,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
 		require.NoError(t, err)
 
-		_, err = service.FetchAndStoreMetadata(ctx, nil, map[string]types.ContractType{})
+		err = service.FetchAndStoreMetadata(ctx, nil, map[string]types.ContractType{})
 		assert.NoError(t, err)
 
 		// Verify no RPC or DB calls were made
@@ -246,7 +246,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -340,7 +340,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -384,7 +384,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
 		require.NoError(t, err)
 
-		_, err = service.FetchAndStoreMetadata(ctx, nil, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, nil, contractTypes)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storing contract metadata in database")
 		assert.Contains(t, err.Error(), "database connection failed")
@@ -434,7 +434,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -495,7 +495,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -556,7 +556,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -623,7 +623,7 @@ func TestFetchAndStoreMetadata(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		_, err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
+		err = service.FetchAndStoreMetadata(ctx, pgxTx, contractTypes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -653,7 +653,7 @@ func TestStoreInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.storeInDB(ctx, nil, map[string]ContractMetadata{})
+		err = cms.storeInDB(ctx, nil, map[string]ContractMetadata{})
 		assert.NoError(t, err)
 
 		mockContractModel.AssertNotCalled(t, "BatchInsert")
@@ -712,7 +712,7 @@ func TestStoreInDB(t *testing.T) {
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
 		cms := service.(*contractMetadataService)
-		_, err = cms.storeInDB(ctx, pgxTx, metadataMap)
+		err = cms.storeInDB(ctx, pgxTx, metadataMap)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -753,14 +753,14 @@ func TestStoreInDB(t *testing.T) {
 		}
 
 		mockContractModel.On("BatchInsert", ctx, mock.Anything, mock.Anything).Return(
-			map[string]int64{}, errors.New("unique constraint violation"),
+			errors.New("unique constraint violation"),
 		)
 
 		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.storeInDB(ctx, nil, metadataMap)
+		err = cms.storeInDB(ctx, nil, metadataMap)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storing contract metadata in database")

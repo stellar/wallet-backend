@@ -362,21 +362,16 @@ func TestGetAccountContracts(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 
-		// Insert contract into contract_tokens first to get a numeric ID
-		var numericID int64
+		// Insert contract into contract_tokens using deterministic ID
+		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			inserted, insertErr := contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ContractID: contractID, Type: "SAC"},
+			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+				{ID: numericID, ContractID: contractID, Type: "SAC"},
 			})
-			if insertErr != nil {
-				return insertErr
-			}
-			numericID = inserted[contractID]
-			return nil
 		})
 		require.NoError(t, err)
 
-		// Insert account contracts using numeric ID
+		// Insert account contracts using deterministic numeric ID
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return accountTokensModel.BulkInsertContracts(ctx, dbTx, map[string][]int64{
 				accountAddress: {numericID},
@@ -427,7 +422,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, nil, []types.TrustlineChange{}, []types.ContractChange{})
+			return service.ProcessTokenChanges(ctx, dbTx, []types.TrustlineChange{}, []types.ContractChange{})
 		})
 		assert.NoError(t, err)
 	})
@@ -451,25 +446,18 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 
-		// First insert the contract into contract_tokens (simulating FetchAndStoreMetadata)
-		var numericID int64
+		// First insert the contract into contract_tokens using deterministic ID (simulating FetchAndStoreMetadata)
+		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			inserted, insertErr := contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ContractID: contractID, Type: "SAC"},
+			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+				{ID: numericID, ContractID: contractID, Type: "SAC"},
 			})
-			if insertErr != nil {
-				return insertErr
-			}
-			numericID = inserted[contractID]
-			return nil
 		})
 		require.NoError(t, err)
 
-		// Build contractIDMap with the inserted contract's numeric ID
-		contractIDMap := map[string]int64{contractID: numericID}
-
+		// ProcessTokenChanges now computes IDs internally using DeterministicContractID
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, contractIDMap, []types.TrustlineChange{}, []types.ContractChange{
+			return service.ProcessTokenChanges(ctx, dbTx, []types.TrustlineChange{}, []types.ContractChange{
 				{
 					AccountID:    accountAddress,
 					ContractID:   contractID,

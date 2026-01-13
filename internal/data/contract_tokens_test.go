@@ -100,15 +100,14 @@ func TestContractModel_GetAllContractIDs(t *testing.T) {
 		name := "Test"
 		symbol := "TST"
 		contracts := []*Contract{
-			{ContractID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
-			{ContractID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
-			{ContractID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
+			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
+			{ID: DeterministicContractID("contract3"), ContractID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 3)
 			return nil
 		})
 		require.NoError(t, err)
@@ -195,6 +194,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 		symbol2 := "TST2"
 		contracts := []*Contract{
 			{
+				ID:         DeterministicContractID("contract1"),
 				ContractID: "contract1",
 				Type:       "sac",
 				Code:       &code1,
@@ -204,6 +204,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 				Decimals:   7,
 			},
 			{
+				ID:         DeterministicContractID("contract2"),
 				ContractID: "contract2",
 				Type:       "sep41",
 				Code:       &code2,
@@ -214,19 +215,16 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			},
 		}
 
-		// Insert contracts first and capture numeric IDs
-		var insertedIDMap map[string]int64
+		// Insert contracts first
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			var txErr error
-			insertedIDMap, txErr = m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDMap, 2)
 			return nil
 		})
 		require.NoError(t, err)
 
-		// Fetch contracts by numeric IDs (including a non-existent one)
-		numericIDs := []int64{insertedIDMap["contract1"], insertedIDMap["contract2"], 999999}
+		// Fetch contracts by deterministic numeric IDs (including a non-existent one)
+		numericIDs := []int64{DeterministicContractID("contract1"), DeterministicContractID("contract2"), 999999}
 		fetchedContracts, err := m.BatchGetByIDs(ctx, numericIDs)
 		require.NoError(t, err)
 		require.Len(t, fetchedContracts, 2)
@@ -274,9 +272,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
+			txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
 			require.NoError(t, txErr)
-			require.Empty(t, insertedIDs)
 			return nil
 		})
 		require.NoError(t, err)
@@ -310,6 +307,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		symbol3 := "TST3"
 		contracts := []*Contract{
 			{
+				ID:         DeterministicContractID("contract1"),
 				ContractID: "contract1",
 				Type:       "sac",
 				Code:       &code1,
@@ -319,6 +317,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 				Decimals:   7,
 			},
 			{
+				ID:         DeterministicContractID("contract2"),
 				ContractID: "contract2",
 				Type:       "sep41",
 				Code:       &code2,
@@ -328,6 +327,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 				Decimals:   18,
 			},
 			{
+				ID:         DeterministicContractID("contract3"),
 				ContractID: "contract3",
 				Type:       "unknown",
 				Name:       &name3,
@@ -337,9 +337,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 3)
 			return nil
 		})
 		require.NoError(t, err)
@@ -387,6 +386,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		origSymbol := "ORIG"
 		contracts := []*Contract{
 			{
+				ID:         DeterministicContractID("contract1"),
 				ContractID: "contract1",
 				Type:       "sac",
 				Name:       &origName,
@@ -396,20 +396,20 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 1)
 			return nil
 		})
 		require.NoError(t, err)
 
-		// Second insert with same ContractID and different data - should be skipped
+		// Second insert with same ContractID and different data - should be skipped (ON CONFLICT DO NOTHING)
 		newName := "New Name"
 		newSymbol := "NEW"
 		contract2Name := "Contract 2"
 		contract2Symbol := "C2"
 		contracts = []*Contract{
 			{
+				ID:         DeterministicContractID("contract1"),
 				ContractID: "contract1",
 				Type:       "sep41",
 				Name:       &newName,
@@ -417,6 +417,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 				Decimals:   18,
 			},
 			{
+				ID:         DeterministicContractID("contract2"),
 				ContractID: "contract2",
 				Type:       "unknown",
 				Name:       &contract2Name,
@@ -426,14 +427,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			// BatchInsert returns all contract IDs (both existing and newly inserted)
-			require.Len(t, insertedIDs, 2)
-			_, hasContract1 := insertedIDs["contract1"]
-			require.True(t, hasContract1)
-			_, hasContract2 := insertedIDs["contract2"]
-			require.True(t, hasContract2)
 			return nil
 		})
 		require.NoError(t, err)
