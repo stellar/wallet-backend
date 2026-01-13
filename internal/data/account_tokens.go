@@ -20,6 +20,13 @@ type TrustlineChanges struct {
 	RemoveIDs []uuid.UUID
 }
 
+// BalanceUpdate represents a balance delta for a single trustline.
+type BalanceUpdate struct {
+	AccountAddress string
+	AssetID        uuid.UUID
+	Delta          int64
+}
+
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
@@ -29,6 +36,7 @@ type AccountTokensModelInterface interface {
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
+	BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error
 
 	// Bulk operations (for initial population)
 	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]uuid.UUID) error
@@ -268,5 +276,43 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 
 	m.MetricsService.ObserveDBQueryDuration("BulkInsertContracts", "account_contracts", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BulkInsertContracts", "account_contracts")
+	return nil
+}
+
+// BatchUpdateBalances applies balance deltas to trustlines using a single batched query.
+func (m *AccountTokensModel) BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	// Flatten to parallel arrays for UNNEST
+	addresses := make([]string, len(updates))
+	assetIDs := make([]uuid.UUID, len(updates))
+	deltas := make([]int64, len(updates))
+	for i, u := range updates {
+		addresses[i] = u.AccountAddress
+		assetIDs[i] = u.AssetID
+		deltas[i] = u.Delta
+	}
+
+	// Use UNNEST to batch all updates in a single query
+	const query = `
+		UPDATE account_trustlines AS t
+		SET balance = t.balance + u.delta,
+		    last_modified_ledger = $4
+		FROM (SELECT unnest($1::text[]) AS account_address,
+		             unnest($2::uuid[]) AS asset_id,
+		             unnest($3::bigint[]) AS delta) AS u
+		WHERE t.account_address = u.account_address AND t.asset_id = u.asset_id`
+
+	_, err := dbTx.Exec(ctx, query, addresses, assetIDs, deltas, ledger)
+	if err != nil {
+		return fmt.Errorf("batch updating trustline balances: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchUpdateBalances", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpdateBalances", "account_trustlines")
 	return nil
 }
