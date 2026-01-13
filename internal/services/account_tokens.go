@@ -228,9 +228,15 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 		// Extract contract spec from WASM hash and validate SEP-41 contracts
 		s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
-		// FetchAndStoreMetadata inserts SAC/SEP-41 contracts with deterministic IDs
-		if txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); txErr != nil {
-			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
+		// Fetch metadata for SAC/SEP-41 contracts and store in database
+		contracts, txErr := s.contractMetadataService.FetchMetadata(ctx, cpData.ContractTypesByContractID)
+		if txErr != nil {
+			return fmt.Errorf("fetching contract metadata: %w", txErr)
+		}
+		if len(contracts) > 0 {
+			if txErr = s.contractModel.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				return fmt.Errorf("storing contract metadata: %w", txErr)
+			}
 		}
 
 		// Store contract relationships using deterministic IDs
