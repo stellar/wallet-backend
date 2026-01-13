@@ -26,10 +26,14 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
+	TrustlineBatchSize = 50_000
+)
+
 // checkpointData holds all data collected from processing a checkpoint ledger.
+// Note: Trustlines are streamed directly to DB in batches, not stored here.
 type checkpointData struct {
-	// Trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
-	TrustlinesByAccountAddress map[string][]string
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string][]string
 	// ContractTypesByContractID tracks the token type for each unique contract ID
@@ -38,8 +42,47 @@ type checkpointData struct {
 	ContractIDsByWasmHash map[xdr.Hash][]string
 	// ContractTypesByWasmHash maps WASM hashes to their contract code bytes
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
-	// TrustlineFrequency tracks how many accounts hold each trustline asset for frequency-based ID assignment
-	TrustlineFrequency map[wbdata.TrustlineAsset]int64
+}
+
+// trustlineBatch holds a batch of trustlines for streaming insertion.
+type trustlineBatch struct {
+	// accountTrustlines maps account address to list of computed asset IDs
+	accountTrustlines map[string][]int64
+	// uniqueAssets tracks unique assets with their computed IDs for batch insert
+	uniqueAssets map[string]wbdata.TrustlineAsset
+	// count tracks total trustline entries in this batch
+	count int
+}
+
+func newTrustlineBatch() *trustlineBatch {
+	return &trustlineBatch{
+		accountTrustlines: make(map[string][]int64),
+		uniqueAssets:      make(map[string]wbdata.TrustlineAsset),
+	}
+}
+
+func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset) {
+	key := asset.Code + ":" + asset.Issuer
+	assetID := wbdata.DeterministicAssetID(asset.Code, asset.Issuer)
+
+	// Track unique asset
+	if _, exists := b.uniqueAssets[key]; !exists {
+		b.uniqueAssets[key] = wbdata.TrustlineAsset{
+			ID:     assetID,
+			Code:   asset.Code,
+			Issuer: asset.Issuer,
+		}
+	}
+
+	// Add to account's trustlines
+	b.accountTrustlines[accountAddress] = append(b.accountTrustlines[accountAddress], assetID)
+	b.count++
+}
+
+func (b *trustlineBatch) reset() {
+	b.accountTrustlines = make(map[string][]int64)
+	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
+	b.count = 0
 }
 
 // TokenCacheReader provides read-only access to cached account tokens.
@@ -63,11 +106,10 @@ type TokenCacheWriter interface {
 	// the metadata storage to ensure atomic initialization.
 	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
 
-	// GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed
-	// transaction. This MUST be called BEFORE the main ingestion transaction to prevent orphan
-	// asset IDs when the main transaction rolls back (PostgreSQL sequences don't roll back).
-	// Returns a map of "CODE:ISSUER" -> ID for use in ProcessTokenChanges.
-	GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error)
+	// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
+	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
+	// Must be called before ProcessTokenChanges to satisfy FK constraints.
+	EnsureTrustlineAssetsExist(ctx context.Context, trustlineChanges []types.TrustlineChange) error
 
 	// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
 	// For new contracts (not in knownContractIDs cache), fetches metadata via RPC.
@@ -85,10 +127,10 @@ type TokenCacheWriter interface {
 	//   are skipped. Contract balance entries persist in the ledger even when balance is zero,
 	//   so we track all contracts an account has ever held a balance in.
 	//
-	// The trustlineAssetIDMap parameter must be pre-populated by calling GetOrInsertTrustlineAssets first.
-	// The contractIDMap parameter must be pre-populated by calling FetchAndStoreMetadata first.
+	// Trustline asset IDs are computed using DeterministicAssetID (no map needed).
+	// The contractIDMap parameter must be pre-populated by calling GetOrInsertContractTokens first.
 	// Contracts not in contractIDMap (e.g., unknown contracts) are silently skipped.
-	ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 // Verify interface compliance at compile time
@@ -149,6 +191,7 @@ func NewTokenCacheReader(
 
 // PopulateAccountTokens performs initial PostgreSQL cache population from Stellar history archive.
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
+// Trustlines are streamed in batches of 50K to avoid memory pressure with 30M+ entries.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
 func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
@@ -175,25 +218,28 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 		}
 	}()
 
-	// Collect account tokens from checkpoint (~7 mins, no transaction needed)
-	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
-	if err != nil {
-		return err
-	}
-
-	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
-
-	// Wrap DB operations in a single transaction
+	// Wrap ALL DB operations in a single transaction for atomicity
 	err = db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		// Stream trustlines and collect contracts from checkpoint
+		cpData, txErr := s.streamCheckpointData(ctx, dbTx, reader)
+		if txErr != nil {
+			return fmt.Errorf("streaming checkpoint data: %w", txErr)
+		}
+
+		// Extract contract spec from WASM hash and validate SEP-41 contracts
+		s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
+
 		// FetchAndStoreMetadata inserts SAC/SEP-41 contracts and returns their IDs
 		contractIDMap, txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID)
 		if txErr != nil {
 			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
 		}
-		if txErr := s.storeAccountTokensInPostgres(ctx, dbTx, cpData.TrustlinesByAccountAddress, cpData.ContractsByHolderAddress, cpData.TrustlineFrequency, contractIDMap); txErr != nil {
-			return fmt.Errorf("storing account tokens in postgres: %w", txErr)
+
+		// Store contract relationships (contracts are fewer, still collected in memory)
+		if txErr := s.storeContractsInPostgres(ctx, dbTx, cpData.ContractsByHolderAddress, contractIDMap); txErr != nil {
+			return fmt.Errorf("storing contracts in postgres: %w", txErr)
 		}
+
 		if txErr := initializeCursors(dbTx); txErr != nil {
 			return fmt.Errorf("initializing cursors: %w", txErr)
 		}
@@ -212,9 +258,9 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
 // (not in contractIDMap) are silently skipped as we only track SAC/SEP-41 tokens.
 //
-// The trustlineAssetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before the main transaction.
-// The contractIDMap must be pre-populated by calling FetchAndStoreMetadata before the main transaction.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAssetIDMap map[string]int64, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+// Trustline asset IDs are computed using DeterministicAssetID (no map needed).
+// The contractIDMap must be pre-populated by calling GetOrInsertContractTokens before the main transaction.
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -236,10 +282,8 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
 		}
 
-		assetID, exists := trustlineAssetIDMap[code+":"+issuer]
-		if !exists {
-			return fmt.Errorf("asset ID not found for asset %s", code+":"+issuer)
-		}
+		// Compute deterministic asset ID directly
+		assetID := wbdata.DeterministicAssetID(code, issuer)
 
 		key := changeKey{accountID: change.AccountID, trustlineID: assetID}
 		// If the last operation is ADD, we remove the key from the map. This ensures we only track the net changes for an (account, trustline) pair.
@@ -373,40 +417,40 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 	return contracts, nil
 }
 
-// GetOrInsertTrustlineAssets gets IDs of trustline assets in the changes and inserts any new assets into PostgreSQL in a separate committed transaction.
-// This prevents orphan asset IDs when the main ingestion transaction rolls back.
-func (s *tokenCacheService) GetOrInsertTrustlineAssets(ctx context.Context, trustlineChanges []types.TrustlineChange) (map[string]int64, error) {
+// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
+// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
+func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, trustlineChanges []types.TrustlineChange) error {
 	if len(trustlineChanges) == 0 {
-		return make(map[string]int64), nil
+		return nil
 	}
 
-	// Extract unique assets from trustline changes
-	uniqueAssets := set.NewSet[wbdata.TrustlineAsset]()
+	// Extract unique assets from trustline changes and compute their IDs
+	seen := set.NewSet[string]()
+	var assets []wbdata.TrustlineAsset
 	for _, change := range trustlineChanges {
 		code, issuer, err := parseAssetString(change.Asset)
 		if err != nil {
-			return nil, fmt.Errorf("parsing asset %s: %w", change.Asset, err)
+			return fmt.Errorf("parsing asset %s: %w", change.Asset, err)
 		}
-		uniqueAssets.Add(wbdata.TrustlineAsset{Code: code, Issuer: issuer})
+		key := code + ":" + issuer
+		if seen.Contains(key) {
+			continue
+		}
+		seen.Add(key)
+		assets = append(assets, wbdata.TrustlineAsset{
+			ID:     wbdata.DeterministicAssetID(code, issuer),
+			Code:   code,
+			Issuer: issuer,
+		})
 	}
 
-	// Get or insert all unique assets in PostgreSQL
-	assetIDMap := make(map[string]int64)
-	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		idMap, txErr := s.trustlineAssetModel.BatchGetOrInsert(ctx, dbTx, uniqueAssets.ToSlice())
-		if txErr != nil {
-			return fmt.Errorf("batch get or insert trustline assets: %w", txErr)
-		}
-		for asset, id := range idMap {
-			assetIDMap[asset] = id
+	// Insert all unique assets (ON CONFLICT DO NOTHING)
+	return db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
+			return fmt.Errorf("batch inserting trustline assets: %w", err)
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("inserting trustline assets: %w", err)
-	}
-
-	return assetIDMap, nil
 }
 
 // GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
@@ -548,22 +592,25 @@ func (s *tokenCacheService) processContractInstanceChange(
 	return nil, true
 }
 
-// collectAccountTokensFromCheckpoint reads from a ChangeReader and collects all trustlines and contract balances.
-// Returns checkpointData containing maps of trustlines, contracts, contract types, and contract IDs grouped by WASM hash.
-func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
+// streamCheckpointData reads from a ChangeReader and streams trustlines to DB in batches.
+// Contracts are collected in memory (much fewer entries than trustlines).
+// Returns checkpointData containing contract data for later processing.
+func (s *tokenCacheService) streamCheckpointData(
 	ctx context.Context,
+	dbTx pgx.Tx,
 	reader ingest.ChangeReader,
 ) (checkpointData, error) {
 	data := checkpointData{
-		TrustlinesByAccountAddress: make(map[string][]string),
-		ContractsByHolderAddress:   make(map[string][]string),
-		ContractTypesByContractID:  make(map[string]types.ContractType),
-		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
-		ContractTypesByWasmHash:    make(map[xdr.Hash]types.ContractType),
-		TrustlineFrequency:         make(map[wbdata.TrustlineAsset]int64),
+		ContractsByHolderAddress:  make(map[string][]string),
+		ContractTypesByContractID: make(map[string]types.ContractType),
+		ContractIDsByWasmHash:     make(map[xdr.Hash][]string),
+		ContractTypesByWasmHash:   make(map[xdr.Hash]types.ContractType),
 	}
 
+	batch := newTrustlineBatch()
 	entries := 0
+	trustlineCount := 0
+	batchCount := 0
 	startTime := time.Now()
 
 	for {
@@ -590,12 +637,19 @@ func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
 				continue
 			}
 			entries++
+			trustlineCount++
 
-			if _, ok := data.TrustlinesByAccountAddress[accountAddress]; !ok {
-				data.TrustlinesByAccountAddress[accountAddress] = []string{}
+			batch.add(accountAddress, asset)
+
+			// Flush batch when full
+			if batch.count >= TrustlineBatchSize {
+				if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
+					return checkpointData{}, fmt.Errorf("flushing trustline batch: %w", err)
+				}
+				batchCount++
+				log.Ctx(ctx).Infof("Flushed trustline batch %d (%d entries so far)", batchCount, trustlineCount)
+				batch.reset()
 			}
-			data.TrustlinesByAccountAddress[accountAddress] = append(data.TrustlinesByAccountAddress[accountAddress], asset.Code+":"+asset.Issuer)
-			data.TrustlineFrequency[asset]++
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -640,8 +694,36 @@ func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
 		}
 	}
 
-	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
+	// Flush remaining trustlines
+	if batch.count > 0 {
+		if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
+			return checkpointData{}, fmt.Errorf("flushing final trustline batch: %w", err)
+		}
+		batchCount++
+	}
+
+	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines in %d batches) in %.2f minutes",
+		entries, trustlineCount, batchCount, time.Since(startTime).Minutes())
 	return data, nil
+}
+
+// flushTrustlineBatch inserts the batch's trustline assets and account relationships.
+func (s *tokenCacheService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch) error {
+	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
+	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
+	for _, asset := range batch.uniqueAssets {
+		assets = append(assets, asset)
+	}
+	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
+		return fmt.Errorf("batch inserting assets: %w", err)
+	}
+
+	// 2. Bulk insert account trustlines (uses COPY protocol)
+	if err := s.accountTokensModel.BulkInsertTrustlines(ctx, dbTx, batch.accountTrustlines); err != nil {
+		return fmt.Errorf("bulk inserting account trustlines: %w", err)
+	}
+
+	return nil
 }
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
@@ -663,97 +745,45 @@ func (s *tokenCacheService) enrichContractTypes(
 	}
 }
 
-// storeAccountTokensInPostgres stores all collected trustlines and contracts into PostgreSQL.
-// Trustline assets are converted to short integer IDs (stored in PostgreSQL) to reduce memory usage.
-// Assets are sorted by frequency before insertion so the most common assets get the lowest IDs.
+// storeContractsInPostgres stores collected contract relationships into PostgreSQL.
 // The contractIDMap contains pre-inserted SAC/SEP-41 contracts from FetchAndStoreMetadata;
 // unknown contracts are skipped (not stored).
-func (s *tokenCacheService) storeAccountTokensInPostgres(
+func (s *tokenCacheService) storeContractsInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
-	trustlinesByAccountAddress map[string][]string,
 	contractsByAccountAddress map[string][]string,
-	trustlineFrequency map[wbdata.TrustlineAsset]int64,
 	contractIDMap map[string]int64,
 ) error {
+	if len(contractIDMap) == 0 {
+		return nil
+	}
+
 	startTime := time.Now()
-
-	// Batch-assign IDs to all unique trustline assets using PostgreSQL
-	uniqueTrustlines := s.processTrustlineAssets(trustlineFrequency)
-	assetIDMap, err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, uniqueTrustlines)
-	if err != nil {
-		return fmt.Errorf("batch inserting trustline assets: %w", err)
-	}
-	log.Ctx(ctx).Infof("Inserted %d unique trustline assets", len(assetIDMap))
-
-	// Convert asset strings to IDs for bulk insert
-	trustlineIDsByAccount := make(map[string][]int64, len(trustlinesByAccountAddress))
-	for accountAddress, assets := range trustlinesByAccountAddress {
-		ids := make([]int64, 0, len(assets))
-		for _, asset := range assets {
-			if id, ok := assetIDMap[asset]; ok {
-				ids = append(ids, id)
-			}
-		}
-		if len(ids) > 0 {
-			trustlineIDsByAccount[accountAddress] = ids
-		}
-	}
-
-	// Bulk insert trustlines
-	if err := s.accountTokensModel.BulkInsertTrustlines(ctx, dbTx, trustlineIDsByAccount); err != nil {
-		return fmt.Errorf("bulk inserting account trustlines: %w", err)
-	}
 
 	// Convert contract addresses to numeric IDs for bulk insert using pre-populated contractIDMap.
 	// Only SAC/SEP-41 contracts exist in the map; unknown contracts are skipped.
-	if len(contractIDMap) > 0 {
-		contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
-		for accountAddress, contractAddrs := range contractsByAccountAddress {
-			ids := make([]int64, 0, len(contractAddrs))
-			for _, contractAddr := range contractAddrs {
-				if id, ok := contractIDMap[contractAddr]; ok {
-					ids = append(ids, id)
-				}
-				// Unknown contracts not in contractIDMap are silently skipped
+	contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
+	for accountAddress, contractAddrs := range contractsByAccountAddress {
+		ids := make([]int64, 0, len(contractAddrs))
+		for _, contractAddr := range contractAddrs {
+			if id, ok := contractIDMap[contractAddr]; ok {
+				ids = append(ids, id)
 			}
-			if len(ids) > 0 {
-				contractIDsByAccount[accountAddress] = ids
-			}
+			// Unknown contracts not in contractIDMap are silently skipped
 		}
-
-		// Bulk insert account-contract relationships
-		if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractIDsByAccount); err != nil {
-			return fmt.Errorf("bulk inserting account contracts: %w", err)
+		if len(ids) > 0 {
+			contractIDsByAccount[accountAddress] = ids
 		}
-		log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts", len(contractIDMap))
 	}
 
-	log.Ctx(ctx).Infof("Stored %d account trustline sets in PostgreSQL in %.2f minutes", len(trustlinesByAccountAddress), time.Since(startTime).Minutes())
+	// Bulk insert account-contract relationships
+	if err := s.accountTokensModel.BulkInsertContracts(ctx, dbTx, contractIDsByAccount); err != nil {
+		return fmt.Errorf("bulk inserting account contracts: %w", err)
+	}
+	log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts in %.2f minutes",
+		len(contractIDMap), time.Since(startTime).Minutes())
+
 	return nil
-}
-
-// processTrustlineAssets sorts assets by frequency (descending) for optimal storage.
-// Most frequent assets get lowest IDs (1, 2, 3...).
-func (s *tokenCacheService) processTrustlineAssets(trustlineFrequency map[wbdata.TrustlineAsset]int64) []wbdata.TrustlineAsset {
-	type assetFreq struct {
-		asset wbdata.TrustlineAsset
-		count int64
-	}
-	sortedAssets := make([]assetFreq, 0, len(trustlineFrequency))
-	for asset, count := range trustlineFrequency {
-		sortedAssets = append(sortedAssets, assetFreq{asset, count})
-	}
-	sort.Slice(sortedAssets, func(i, j int) bool {
-		return sortedAssets[i].count > sortedAssets[j].count
-	})
-
-	// Extract sorted asset slice for batch insert
-	uniqueTrustlines := make([]wbdata.TrustlineAsset, len(sortedAssets))
-	for i, af := range sortedAssets {
-		uniqueTrustlines[i] = af.asset
-	}
-	return uniqueTrustlines
 }
 
 // extractHolderAddress extracts the account address from a contract balance entry key.
