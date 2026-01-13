@@ -210,7 +210,6 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 	start := time.Now()
 
-	// Flatten to parallel arrays for UNNEST
 	var addresses []string
 	var assetIDs []int64
 	for accountAddress, ids := range trustlinesByAccount {
@@ -220,18 +219,28 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 		}
 	}
 
-	if len(addresses) == 0 {
-		return nil
+	const query = `
+          INSERT INTO account_trustlines (account_address, asset_id)
+          SELECT $1, unnest($2::bigint[])
+          ON CONFLICT DO NOTHING`
+
+	batch := &pgx.Batch{}
+	for accountAddress, ids := range trustlinesByAccount {
+		if len(ids) == 0 {
+			continue
+		}
+		batch.Queue(query, accountAddress, ids)
 	}
 
-	const query = `
-		INSERT INTO account_trustlines (account_address, asset_id)
-		SELECT unnest($1::text[]), unnest($2::bigint[])
-		ON CONFLICT DO NOTHING`
-
-	_, err := dbTx.Exec(ctx, query, addresses, assetIDs)
-	if err != nil {
-		return fmt.Errorf("bulk inserting trustlines: %w", err)
+	br := dbTx.SendBatch(ctx, batch)
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
+			return fmt.Errorf("bulk inserting trustlines: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing trustlines batch: %w", err)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BulkInsertTrustlines", "account_trustlines", time.Since(start).Seconds())
