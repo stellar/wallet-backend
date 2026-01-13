@@ -130,7 +130,8 @@ type TokenCacheWriter interface {
 	// Trustline asset IDs are computed using DeterministicAssetID (no map needed).
 	// The contractIDMap parameter must be pre-populated by calling GetOrInsertContractTokens first.
 	// Contracts not in contractIDMap (e.g., unknown contracts) are silently skipped.
-	ProcessTokenChanges(ctx context.Context, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 // Verify interface compliance at compile time
@@ -260,7 +261,8 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 //
 // Trustline asset IDs are computed using DeterministicAssetID (no map needed).
 // The contractIDMap must be pre-populated by calling GetOrInsertContractTokens before the main transaction.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -324,26 +326,19 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, contractIDM
 		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
 	}
 
-	// Execute all changes in a transaction
-	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		// Batch upsert trustlines
-		if len(trustlineChangesByAccount) > 0 {
-			if txErr := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, trustlineChangesByAccount); txErr != nil {
-				return fmt.Errorf("upserting trustlines: %w", txErr)
-			}
+	// Execute all changes using the provided transaction
+	// Batch upsert trustlines
+	if len(trustlineChangesByAccount) > 0 {
+		if err := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, trustlineChangesByAccount); err != nil {
+			return fmt.Errorf("upserting trustlines: %w", err)
 		}
+	}
 
-		// Batch add contracts
-		if len(contractsByAccount) > 0 {
-			if txErr := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); txErr != nil {
-				return fmt.Errorf("adding contracts: %w", txErr)
-			}
+	// Batch add contracts
+	if len(contractsByAccount) > 0 {
+		if err := s.accountTokensModel.BatchAddContracts(ctx, dbTx, contractsByAccount); err != nil {
+			return fmt.Errorf("adding contracts: %w", err)
 		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("executing token changes: %w", err)
 	}
 
 	return nil
