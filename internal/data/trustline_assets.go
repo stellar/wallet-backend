@@ -4,9 +4,9 @@ package data
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 
@@ -16,22 +16,23 @@ import (
 
 // Note: pq is still used by BatchGetByIDs for sqlx compatibility
 
-// DeterministicAssetID computes a deterministic 64-bit ID for a trustline asset
-// using FNV-1a hash of "CODE:ISSUER". This enables streaming checkpoint processing
+// assetNamespace is derived from table name for reproducibility.
+var assetNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("trustline_assets"))
+
+// DeterministicAssetID computes a deterministic UUID for a trustline asset
+// using UUID v5 (SHA-1) of "CODE:ISSUER". This enables streaming checkpoint processing
 // without needing DB roundtrips to get auto-generated IDs.
-func DeterministicAssetID(code, issuer string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(code + ":" + issuer))
-	return int64(h.Sum64())
+func DeterministicAssetID(code, issuer string) uuid.UUID {
+	return uuid.NewSHA1(assetNamespace, []byte(code+":"+issuer))
 }
 
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
 	// BatchInsert inserts multiple trustline assets with pre-computed IDs.
-	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotent operations.
+	// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error
 	// BatchGetByIDs retrieves trustline assets by their IDs.
-	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
+	BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*TrustlineAsset, error)
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -44,7 +45,7 @@ var _ TrustlineAssetModelInterface = (*TrustlineAssetModel)(nil)
 
 // TrustlineAsset represents a classic Stellar trustline asset.
 type TrustlineAsset struct {
-	ID        int64     `db:"id" json:"id"`
+	ID        uuid.UUID `db:"id" json:"id"`
 	Code      string    `db:"code" json:"code"`
 	Issuer    string    `db:"issuer" json:"issuer"`
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
@@ -56,14 +57,14 @@ func (a *TrustlineAsset) AssetKey() string {
 }
 
 // BatchInsert inserts multiple trustline assets with pre-computed deterministic IDs.
-// Uses INSERT ... ON CONFLICT DO NOTHING for idempotent operations.
+// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
 // Assets must have their ID field set via DeterministicAssetID before calling.
 func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
 	if len(assets) == 0 {
 		return nil
 	}
 
-	ids := make([]int64, len(assets))
+	ids := make([]uuid.UUID, len(assets))
 	codes := make([]string, len(assets))
 	issuers := make([]string, len(assets))
 	for i, a := range assets {
@@ -74,8 +75,8 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, asse
 
 	const query = `
 		INSERT INTO trustline_assets (id, code, issuer)
-		SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::text[])
-		ON CONFLICT DO NOTHING
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[])
+		ON CONFLICT (code, issuer) DO NOTHING
 	`
 
 	start := time.Now()
@@ -91,7 +92,7 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, asse
 
 // BatchGetByIDs retrieves trustline assets by their IDs.
 // Returns assets in arbitrary order (not necessarily matching input order).
-func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error) {
+func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*TrustlineAsset, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
