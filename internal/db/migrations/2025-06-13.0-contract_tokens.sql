@@ -1,9 +1,9 @@
 -- +migrate Up
 
 -- Table: contract_tokens
--- Stores Soroban contract tokens with auto-incrementing IDs for memory-efficient storage.
+-- Stores Soroban contract tokens with deterministic FNV-1a hash IDs for memory-efficient storage.
 CREATE TABLE contract_tokens (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     contract_id TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,
     code TEXT NULL,

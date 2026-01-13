@@ -54,18 +54,7 @@ func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, ids []int64) ([]*
 	return args.Get(0).([]*Contract), args.Error(1)
 }
 
-func (m *ContractModelMock) BatchGetOrInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) (map[string]int64, error) {
+func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
 	args := m.Called(ctx, dbTx, contracts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]int64), args.Error(1)
-}
-
-func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) (map[string]int64, error) {
-	args := m.Called(ctx, dbTx, contracts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]int64), args.Error(1)
+	return args.Error(0)
 }

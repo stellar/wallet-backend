@@ -109,14 +109,14 @@ type TokenCacheWriter interface {
 	// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
 	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
 	// Must be called before ProcessTokenChanges to satisfy FK constraints.
-	// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
 	EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error
 
-	// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
+	// EnsureContractTokensExist inserts contract tokens into PostgreSQL with deterministic IDs.
 	// For new contracts (not already in DB), fetches metadata via RPC.
-	// Uses BatchGetOrInsert to handle both new and existing contracts.
-	// Returns a map of contractID (C...) -> numeric database ID.
-	GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]int64, error)
+	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
+	// Must be called before ProcessTokenChanges to satisfy FK constraints.
+	// Contract IDs are computed using DeterministicContractID, no return value needed.
+	EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error
 
 	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
@@ -128,11 +128,8 @@ type TokenCacheWriter interface {
 	//   are skipped. Contract balance entries persist in the ledger even when balance is zero,
 	//   so we track all contracts an account has ever held a balance in.
 	//
-	// Trustline asset IDs are computed using DeterministicAssetID (no map needed).
-	// The contractIDMap parameter must be pre-populated by calling GetOrInsertContractTokens first.
-	// Contracts not in contractIDMap (e.g., unknown contracts) are silently skipped.
-	// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 // Verify interface compliance at compile time
@@ -231,14 +228,13 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 		// Extract contract spec from WASM hash and validate SEP-41 contracts
 		s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
-		// FetchAndStoreMetadata inserts SAC/SEP-41 contracts and returns their IDs
-		contractIDMap, txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID)
-		if txErr != nil {
+		// FetchAndStoreMetadata inserts SAC/SEP-41 contracts with deterministic IDs
+		if txErr := s.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, cpData.ContractTypesByContractID); txErr != nil {
 			return fmt.Errorf("fetching and storing contract metadata: %w", txErr)
 		}
 
-		// Store contract relationships (contracts are fewer, still collected in memory)
-		if txErr := s.storeContractsInPostgres(ctx, dbTx, cpData.ContractsByHolderAddress, contractIDMap); txErr != nil {
+		// Store contract relationships using deterministic IDs
+		if txErr := s.storeContractsInPostgres(ctx, dbTx, cpData.ContractsByHolderAddress, cpData.ContractTypesByContractID); txErr != nil {
 			return fmt.Errorf("storing contracts in postgres: %w", txErr)
 		}
 
@@ -258,12 +254,11 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
-// (not in contractIDMap) are silently skipped as we only track SAC/SEP-41 tokens.
+// (not SAC/SEP-41) are silently skipped.
 //
-// Trustline asset IDs are computed using DeterministicAssetID (no map needed).
-// The contractIDMap must be pre-populated by calling GetOrInsertContractTokens before the main transaction.
+// Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
@@ -312,18 +307,18 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 		}
 	}
 
-	// Group contract changes by account using pre-computed numeric IDs from contractIDMap.
-	// Unknown contracts (not in the map) are silently skipped - we only track SAC/SEP-41 tokens.
+	// Group contract changes by account using deterministic IDs.
+	// Only SAC/SEP-41 contracts are processed; others are silently skipped.
 	contractsByAccount := make(map[string][]int64)
 	for _, change := range contractChanges {
 		if change.ContractID == "" {
 			continue
 		}
-		// Only process contracts that exist in the pre-computed map (SAC/SEP-41)
-		numericID, exists := contractIDMap[change.ContractID]
-		if !exists {
-			continue // Skip unknown contracts
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
 		}
+		numericID := wbdata.DeterministicContractID(change.ContractID)
 		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], numericID)
 	}
 
@@ -448,60 +443,50 @@ func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, dbTx
 	return nil
 }
 
-// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
-// For new contracts (not already in DB), fetches metadata via RPC. Uses BatchGetOrInsert for DB operations.
-func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]int64, error) {
+// EnsureContractTokensExist inserts contract tokens into PostgreSQL with deterministic IDs.
+// For new contracts (not already in DB), fetches metadata via RPC.
+// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
+func (s *tokenCacheService) EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error {
 	// Extract unique SAC/SEP-41 contracts from changes
 	contractTypesByID := extractUniqueSACAndSEP41Contracts(contractChanges)
 	if len(contractTypesByID) == 0 {
-		return make(map[string]int64), nil
+		return nil
 	}
 
 	// Query DB for existing contract IDs (< 10k contracts, fast query)
 	existingIDs, err := s.contractModel.GetAllContractIDs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
+		return fmt.Errorf("getting existing contract IDs: %w", err)
 	}
 	existingSet := set.NewSet(existingIDs...)
 
-	// Separate new vs existing based on DB query
+	// Filter to only new contracts (not already in DB)
 	newContractTypesByID := make(map[string]types.ContractType)
-	existingContractIDs := make([]string, 0)
 	for id, ctype := range contractTypesByID {
-		if existingSet.Contains(id) {
-			existingContractIDs = append(existingContractIDs, id)
-		} else {
+		if !existingSet.Contains(id) {
 			newContractTypesByID[id] = ctype
 		}
 	}
 
-	// Fetch metadata for NEW contracts only (no DB write yet)
-	var contracts []*wbdata.Contract
-	if len(newContractTypesByID) > 0 {
-		newContracts, err := s.contractMetadataService.FetchMetadata(ctx, newContractTypesByID)
-		if err != nil {
-			return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
-		}
-		contracts = append(contracts, newContracts...)
+	if len(newContractTypesByID) == 0 {
+		return nil
 	}
 
-	// Add minimal contracts for existing ones (just need ContractID for lookup)
-	for _, id := range existingContractIDs {
-		contracts = append(contracts, &wbdata.Contract{ContractID: id})
+	// Fetch metadata for NEW contracts only
+	contracts, err := s.contractMetadataService.FetchMetadata(ctx, newContractTypesByID)
+	if err != nil {
+		return fmt.Errorf("fetching metadata for new contracts: %w", err)
 	}
 
 	if len(contracts) == 0 {
-		return make(map[string]int64), nil
+		return nil
 	}
 
-	// BatchGetOrInsert handles everything:
-	// - SELECTs existing → returns their IDs
-	// - INSERTs new with metadata → returns their IDs
-	idMap, err := s.contractModel.BatchGetOrInsert(ctx, dbTx, contracts)
-	if err != nil {
-		return nil, fmt.Errorf("batch get or insert contracts: %w", err)
+	// BatchInsert with deterministic IDs (ON CONFLICT DO NOTHING)
+	if err := s.contractModel.BatchInsert(ctx, dbTx, contracts); err != nil {
+		return fmt.Errorf("batch inserting contracts: %w", err)
 	}
-	return idMap, nil
+	return nil
 }
 
 // extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.
@@ -748,30 +733,31 @@ func (s *tokenCacheService) enrichContractTypes(
 }
 
 // storeContractsInPostgres stores collected contract relationships into PostgreSQL.
-// The contractIDMap contains pre-inserted SAC/SEP-41 contracts from FetchAndStoreMetadata;
-// unknown contracts are skipped (not stored).
+// The contractTypesByContractID maps contract addresses to their types (SAC/SEP-41);
+// unknown contracts (not in the map) are skipped.
 func (s *tokenCacheService) storeContractsInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	contractsByAccountAddress map[string][]string,
-	contractIDMap map[string]int64,
+	contractTypesByContractID map[string]types.ContractType,
 ) error {
-	if len(contractIDMap) == 0 {
+	if len(contractTypesByContractID) == 0 {
 		return nil
 	}
 
 	startTime := time.Now()
 
-	// Convert contract addresses to numeric IDs for bulk insert using pre-populated contractIDMap.
-	// Only SAC/SEP-41 contracts exist in the map; unknown contracts are skipped.
+	// Convert contract addresses to numeric IDs for bulk insert using deterministic IDs.
+	// Only SAC/SEP-41 contracts (in contractTypesByContractID) are processed.
 	contractIDsByAccount := make(map[string][]int64, len(contractsByAccountAddress))
 	for accountAddress, contractAddrs := range contractsByAccountAddress {
 		ids := make([]int64, 0, len(contractAddrs))
 		for _, contractAddr := range contractAddrs {
-			if id, ok := contractIDMap[contractAddr]; ok {
-				ids = append(ids, id)
+			// Only include contracts that are known SAC/SEP-41 types
+			if _, ok := contractTypesByContractID[contractAddr]; ok {
+				ids = append(ids, wbdata.DeterministicContractID(contractAddr))
 			}
-			// Unknown contracts not in contractIDMap are silently skipped
+			// Unknown contracts not in contractTypesByContractID are silently skipped
 		}
 		if len(ids) > 0 {
 			contractIDsByAccount[accountAddress] = ids
@@ -783,7 +769,7 @@ func (s *tokenCacheService) storeContractsInPostgres(
 		return fmt.Errorf("bulk inserting account contracts: %w", err)
 	}
 	log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts in %.2f minutes",
-		len(contractIDMap), time.Since(startTime).Minutes())
+		len(contractTypesByContractID), time.Since(startTime).Minutes())
 
 	return nil
 }

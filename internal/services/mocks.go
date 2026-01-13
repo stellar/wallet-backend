@@ -171,16 +171,13 @@ func (m *TokenCacheWriterMock) EnsureTrustlineAssetsExist(ctx context.Context, d
 	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) GetOrInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) (map[string]int64, error) {
+func (m *TokenCacheWriterMock) EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error {
 	args := m.Called(ctx, dbTx, contractChanges)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]int64), args.Error(1)
+	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, contractIDMap map[string]int64, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := m.Called(ctx, dbTx, contractIDMap, trustlineChanges, contractChanges)
+func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges)
 	return args.Error(0)
 }
 
@@ -313,12 +310,9 @@ type ContractMetadataServiceMock struct {
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
 
-func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) (map[string]int64, error) {
+func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
 	args := c.Called(ctx, dbTx, contractTypesByID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]int64), args.Error(1)
+	return args.Error(0)
 }
 
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {

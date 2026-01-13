@@ -470,14 +470,13 @@ func (m *ingestService) processTokenChanges(
 			return fmt.Errorf("ensuring trustline assets exist: %w", txErr)
 		}
 
-		// 2. Get IDs for all SAC/SEP-41 contracts (new + existing)
-		contractIDMap, txErr := m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, contractChanges)
-		if txErr != nil {
-			return fmt.Errorf("getting or inserting contract tokens: %w", txErr)
+		// 2. Ensure contract tokens exist (IDs computed via DeterministicContractID)
+		if txErr := m.tokenCacheWriter.EnsureContractTokensExist(ctx, dbTx, contractChanges); txErr != nil {
+			return fmt.Errorf("ensuring contract tokens exist: %w", txErr)
 		}
 
 		// 3. Apply token changes to PostgreSQL
-		if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, contractIDMap, trustlineChanges, contractChanges); txErr != nil {
+		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges); txErr != nil {
 			return fmt.Errorf("processing token changes: %w", txErr)
 		}
 

@@ -151,10 +151,9 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("ensuring trustline assets exist for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 2. Get/insert contract tokens
-			contractIDMap, txErr := m.tokenCacheWriter.GetOrInsertContractTokens(ctx, dbTx, buffer.GetContractChanges())
-			if txErr != nil {
-				return fmt.Errorf("getting/inserting contract tokens for ledger %d: %w", currentLedger, txErr)
+			// 2. Ensure contract tokens exist (satisfies FK constraint)
+			if txErr := m.tokenCacheWriter.EnsureContractTokensExist(ctx, dbTx, buffer.GetContractChanges()); txErr != nil {
+				return fmt.Errorf("ensuring contract tokens exist for ledger %d: %w", currentLedger, txErr)
 			}
 
 			// 3. Filter participant data
@@ -174,7 +173,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 6. Process token changes (trustline add/remove, contract token add)
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, contractIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
+			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
