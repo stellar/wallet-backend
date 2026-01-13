@@ -148,8 +148,8 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 	br := dbTx.SendBatch(ctx, batch)
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			closeErr := br.Close()
-			return fmt.Errorf("upserting trustlines: %w (close err: %v)", err, closeErr)
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("upserting trustlines: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
@@ -189,8 +189,8 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 	br := dbTx.SendBatch(ctx, batch)
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			closeErr := br.Close()
-			return fmt.Errorf("adding contracts: %w (close err: %v)", err, closeErr)
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("adding contracts: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
