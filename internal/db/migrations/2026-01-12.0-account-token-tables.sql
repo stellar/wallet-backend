@@ -4,7 +4,7 @@
 -- Junction table mapping accounts to their trustline assets.
 CREATE TABLE account_trustlines (
     account_address TEXT NOT NULL,
-    asset_id BIGINT NOT NULL REFERENCES trustline_assets(id),
+    asset_id BIGINT NOT NULL,
     PRIMARY KEY (account_address, asset_id)
 );
 
@@ -12,7 +12,7 @@ CREATE TABLE account_trustlines (
 -- Junction table mapping accounts to their contract tokens.
 CREATE TABLE account_contracts (
     account_address TEXT NOT NULL,
-    contract_id BIGINT NOT NULL REFERENCES contract_tokens(id),
+    contract_id BIGINT NOT NULL,
     PRIMARY KEY (account_address, contract_id)
 );
 

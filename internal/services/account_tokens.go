@@ -28,7 +28,7 @@ import (
 
 const (
 	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
-	TrustlineBatchSize = 50_000
+	TrustlineBatchSize = 100_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -462,7 +462,7 @@ func (s *tokenCacheService) GetOrInsertContractTokens(ctx context.Context, dbTx 
 	if err != nil {
 		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
 	}
-	existingSet := set.NewSet[string](existingIDs...)
+	existingSet := set.NewSet(existingIDs...)
 
 	// Separate new vs existing based on DB query
 	newContractTypesByID := make(map[string]types.ContractType)
