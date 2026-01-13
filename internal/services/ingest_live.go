@@ -219,7 +219,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
 func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction) error {
-	if len(txs) == 0 {
+	if len(txs) == 0 || m.chAccStore == nil {
 		return nil
 	}
 
