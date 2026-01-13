@@ -43,13 +43,9 @@ type ContractMetadata struct {
 	Decimals   uint32
 }
 
-// ContractMetadataService handles fetching and storing metadata (name, symbol, decimals)
+// ContractMetadataService handles fetching metadata (name, symbol, decimals)
 // for Stellar Asset Contract (SAC) and SEP-41 token contracts via RPC simulation.
 type ContractMetadataService interface {
-	// FetchAndStoreMetadata fetches metadata for the given contracts and stores in the database.
-	// Uses deterministic IDs computed from contract addresses.
-	// Individual fetch failures are logged but don't cause the function to fail.
-	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error
 	// FetchMetadata fetches metadata for the given contracts via RPC without storing.
 	// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
 	FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error)
