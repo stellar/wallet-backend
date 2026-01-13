@@ -1,5 +1,5 @@
 // Package services provides business logic for the wallet-backend.
-// This file implements ContractMetadataService for fetching and storing SAC/SEP-41 token metadata.
+// This file implements ContractMetadataService for fetching SAC/SEP-41 token metadata via RPC.
 package services
 
 import (
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -322,36 +321,6 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 		time.Sleep(batchSleepDuration)
 	}
 	return metadataMap
-}
-
-// storeInDB stores contract metadata in the contract_tokens database table.
-// Uses deterministic IDs computed from contract addresses.
-func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, metadataMap map[string]ContractMetadata) error {
-	if len(metadataMap) == 0 {
-		log.Ctx(ctx).Info("No contract metadata to store in database")
-		return nil
-	}
-
-	// Build contracts slice from metadata map with pre-computed deterministic IDs
-	contracts := make([]*data.Contract, 0, len(metadataMap))
-	for _, metadata := range metadataMap {
-		contracts = append(contracts, &data.Contract{
-			ID:         data.DeterministicContractID(metadata.ContractID),
-			ContractID: metadata.ContractID,
-			Type:       string(metadata.Type),
-			Code:       &metadata.Code,
-			Issuer:     &metadata.Issuer,
-			Name:       &metadata.Name,
-			Symbol:     &metadata.Symbol,
-			Decimals:   metadata.Decimals,
-		})
-	}
-
-	// Batch insert all contracts
-	if err := s.contractModel.BatchInsert(ctx, dbTx, contracts); err != nil {
-		return fmt.Errorf("storing contract metadata in database: %w", err)
-	}
-	return nil
 }
 
 // parseSACMetadata parses the code:issuer format from SAC token names and populates the Code and Issuer fields.
