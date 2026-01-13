@@ -684,7 +684,7 @@ func (s *tokenCacheService) storeAccountTokensInPostgres(
 	if err != nil {
 		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
-	log.Ctx(ctx).Infof("Inserted %d unique trustline assets (sorted by frequency)", len(assetIDMap))
+	log.Ctx(ctx).Infof("Inserted %d unique trustline assets", len(assetIDMap))
 
 	// Convert asset strings to IDs for bulk insert
 	trustlineIDsByAccount := make(map[string][]int64, len(trustlinesByAccountAddress))

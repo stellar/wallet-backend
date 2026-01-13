@@ -198,7 +198,7 @@ func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx,
 	return nil
 }
 
-// BulkInsertTrustlines performs bulk insert for initial population.
+// BulkInsertTrustlines performs bulk insert using COPY protocol for speed.
 func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]int64) error {
 	if len(trustlinesByAccount) == 0 {
 		return nil
@@ -206,37 +206,26 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 	start := time.Now()
 
-	var addresses []string
-	var assetIDs []int64
-	for accountAddress, ids := range trustlinesByAccount {
+	// Build rows for COPY
+	var rows [][]any
+	for addr, ids := range trustlinesByAccount {
 		for _, id := range ids {
-			addresses = append(addresses, accountAddress)
-			assetIDs = append(assetIDs, id)
+			rows = append(rows, []any{addr, id})
 		}
 	}
 
-	const query = `
-          INSERT INTO account_trustlines (account_address, asset_id)
-          SELECT $1, unnest($2::bigint[])
-          ON CONFLICT DO NOTHING`
-
-	batch := &pgx.Batch{}
-	for accountAddress, ids := range trustlinesByAccount {
-		if len(ids) == 0 {
-			continue
-		}
-		batch.Queue(query, accountAddress, ids)
+	copyCount, err := dbTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"account_trustlines"},
+		[]string{"account_address", "asset_id"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return fmt.Errorf("bulk inserting trustlines via COPY: %w", err)
 	}
 
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close()
-			return fmt.Errorf("bulk inserting trustlines: %w", err)
-		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("closing trustlines batch: %w", err)
+	if int(copyCount) != len(rows) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BulkInsertTrustlines", "account_trustlines", time.Since(start).Seconds())

@@ -469,13 +469,13 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		cleanUpDB()
 	})
 
-	t.Run("ignores duplicates on conflict", func(t *testing.T) {
+	t.Run("fails on duplicate keys", func(t *testing.T) {
+		// BulkInsertTrustlines uses COPY protocol which doesn't support ON CONFLICT.
+		// This is by design - it's for initial population only (empty table, no duplicates).
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return().Maybe()
+		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -488,23 +488,18 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
-		// First insert
+		// First insert succeeds
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[:2]})
 		})
 		require.NoError(t, err)
 
-		// Second insert with some overlap - should add new ones, ignore duplicates
+		// Second insert with overlap fails (COPY doesn't support ON CONFLICT)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]int64{accountAddress: assetIDs[1:4]})
 		})
-		require.NoError(t, err)
-
-		// Verify - should have first 4 IDs (0,1,2,3)
-		result, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
-		require.NoError(t, err)
-		require.Len(t, result, 4)
-		require.ElementsMatch(t, assetIDs[:4], result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "duplicate key")
 
 		cleanUpDB()
 	})

@@ -8,9 +8,6 @@ CREATE TABLE account_trustlines (
     PRIMARY KEY (account_address, asset_id)
 );
 
--- Index for reverse lookups (find accounts holding a specific asset)
-CREATE INDEX ON account_trustlines(asset_id);
-
 -- Table: account_contracts
 -- Junction table mapping accounts to their contract tokens.
 CREATE TABLE account_contracts (
@@ -18,9 +15,6 @@ CREATE TABLE account_contracts (
     contract_id BIGINT NOT NULL REFERENCES contract_tokens(id),
     PRIMARY KEY (account_address, contract_id)
 );
-
--- Index for reverse lookups (find accounts holding a specific contract)
-CREATE INDEX ON account_contracts(contract_id);
 
 -- +migrate Down
 
