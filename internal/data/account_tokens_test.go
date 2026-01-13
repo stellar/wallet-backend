@@ -18,12 +18,13 @@ import (
 func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
 	ids := make([]int64, count)
 	for i := 0; i < count; i++ {
-		var id int64
-		err := dbPool.PgxPool().QueryRow(ctx,
-			`INSERT INTO trustline_assets (code, issuer) VALUES ($1, $2) RETURNING id`,
-			"TEST"+string(rune('A'+i)),
-			"GISSUER"+string(rune('A'+i))+"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		).Scan(&id)
+		code := "TEST" + string(rune('A'+i))
+		issuer := "GISSUER" + string(rune('A'+i)) + "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+		id := DeterministicAssetID(code, issuer)
+		_, err := dbPool.PgxPool().Exec(ctx,
+			`INSERT INTO trustline_assets (id, code, issuer) VALUES ($1, $2, $3)`,
+			id, code, issuer,
+		)
 		require.NoError(t, err)
 		ids[i] = id
 	}
@@ -34,12 +35,12 @@ func setupTrustlineAssets(t *testing.T, ctx context.Context, dbPool db.Connectio
 func setupContractTokens(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, count int) []int64 {
 	ids := make([]int64, count)
 	for i := 0; i < count; i++ {
-		var id int64
 		contractID := "CCONTRACT" + string(rune('A'+i)) + "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-		err := dbPool.PgxPool().QueryRow(ctx,
-			`INSERT INTO contract_tokens (contract_id, type, decimals) VALUES ($1, $2, $3) RETURNING id`,
-			contractID, "SAC", 7,
-		).Scan(&id)
+		id := DeterministicContractID(contractID)
+		_, err := dbPool.PgxPool().Exec(ctx,
+			`INSERT INTO contract_tokens (id, contract_id, type, decimals) VALUES ($1, $2, $3, $4)`,
+			id, contractID, "SAC", 7,
+		)
 		require.NoError(t, err)
 		ids[i] = id
 	}
