@@ -32,8 +32,6 @@ type checkpointData struct {
 	TrustlinesByAccountAddress map[string][]string
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string][]string
-	// UniqueContractTokens tracks all unique contract tokens
-	UniqueContractTokens set.Set[string]
 	// ContractTypesByContractID tracks the token type for each unique contract ID
 	ContractTypesByContractID map[string]types.ContractType
 	// ContractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
@@ -225,12 +223,12 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, trustlineAs
 	// The last operation for (account, trustline) will be applied.
 	// We only store the net change for each (account, trustline) pair.
 	type changeKey struct {
-		accountID string
+		accountID   string
 		trustlineID int64
 	}
 	type opPair struct {
 		first types.TrustlineOpType
-		last types.TrustlineOpType
+		last  types.TrustlineOpType
 	}
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
@@ -565,7 +563,6 @@ func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
 	data := checkpointData{
 		TrustlinesByAccountAddress: make(map[string][]string),
 		ContractsByHolderAddress:   make(map[string][]string),
-		UniqueContractTokens:       set.NewSet[string](),
 		ContractTypesByContractID:  make(map[string]types.ContractType),
 		ContractIDsByWasmHash:      make(map[xdr.Hash][]string),
 		ContractTypesByWasmHash:    make(map[xdr.Hash]types.ContractType),
@@ -635,7 +632,6 @@ func (s *tokenCacheService) collectAccountTokensFromCheckpoint(
 					data.ContractsByHolderAddress[holderAddress] = []string{}
 				}
 				data.ContractsByHolderAddress[holderAddress] = append(data.ContractsByHolderAddress[holderAddress], contractAddressStr)
-				data.UniqueContractTokens.Add(contractAddressStr)
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:

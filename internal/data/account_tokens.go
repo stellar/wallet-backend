@@ -25,11 +25,9 @@ type TrustlineChanges struct {
 type AccountTokensModelInterface interface {
 	// Trustline read operations (for API/balances queries)
 	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]int64, error)
-	BatchGetTrustlineAssetIDs(ctx context.Context, addresses []string) (map[string][]int64, error)
 
 	// Contract read operations (returns numeric IDs referencing contract_tokens.id)
 	GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error)
-	BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]int64, error)
 
 	// Trustline write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
@@ -84,49 +82,6 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 	return assetIDs, nil
 }
 
-// BatchGetTrustlineAssetIDs retrieves asset IDs for multiple accounts using pgx.
-func (m *AccountTokensModel) BatchGetTrustlineAssetIDs(ctx context.Context, addresses []string) (map[string][]int64, error) {
-	if len(addresses) == 0 {
-		return make(map[string][]int64), nil
-	}
-
-	const query = `
-		SELECT account_address, asset_ids
-		FROM account_trustlines
-		WHERE account_address = ANY($1)`
-
-	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, addresses)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetTrustlineAssetIDs", "account_trustlines", "query_error")
-		return nil, fmt.Errorf("querying trustline asset IDs: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[string][]int64, len(addresses))
-	for rows.Next() {
-		var accountAddress string
-		var assetIDsJSON []byte
-		if err := rows.Scan(&accountAddress, &assetIDsJSON); err != nil {
-			return nil, fmt.Errorf("scanning trustline row: %w", err)
-		}
-
-		var assetIDs []int64
-		if err := json.Unmarshal(assetIDsJSON, &assetIDs); err != nil {
-			return nil, fmt.Errorf("unmarshaling asset IDs for %s: %w", accountAddress, err)
-		}
-		result[accountAddress] = assetIDs
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating trustline rows: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchGetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchGetTrustlineAssetIDs", "account_trustlines")
-	return result, nil
-}
-
 // GetContractIDs retrieves numeric contract IDs for a single account using pgx.
 func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress string) ([]int64, error) {
 	if accountAddress == "" {
@@ -161,49 +116,6 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	return contractIDs, nil
 }
 
-// BatchGetContractIDs retrieves numeric contract IDs for multiple accounts using pgx.
-func (m *AccountTokensModel) BatchGetContractIDs(ctx context.Context, addresses []string) (map[string][]int64, error) {
-	if len(addresses) == 0 {
-		return make(map[string][]int64), nil
-	}
-
-	const query = `
-		SELECT account_address, contract_ids
-		FROM account_contracts
-		WHERE account_address = ANY($1)`
-
-	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, addresses)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetContractIDs", "account_contracts", "query_error")
-		return nil, fmt.Errorf("querying contract IDs: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[string][]int64, len(addresses))
-	for rows.Next() {
-		var accountAddress string
-		var contractIDsJSON []byte
-		if err := rows.Scan(&accountAddress, &contractIDsJSON); err != nil {
-			return nil, fmt.Errorf("scanning contract row: %w", err)
-		}
-
-		var contractIDs []int64
-		if err := json.Unmarshal(contractIDsJSON, &contractIDs); err != nil {
-			return nil, fmt.Errorf("unmarshaling contract IDs for %s: %w", accountAddress, err)
-		}
-		result[accountAddress] = contractIDs
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating contract rows: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchGetContractIDs", "account_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchGetContractIDs", "account_contracts")
-	return result, nil
-}
-
 // BatchUpsertTrustlines adds/removes asset IDs for multiple accounts atomically.
 // For each account, it merges the current asset_ids with new additions and removes specified IDs.
 // Uses pgx.Batch for single round-trip efficiency.
@@ -226,10 +138,7 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 			updated_at = NOW()`
 
 	batch := &pgx.Batch{}
-	addresses := make([]string, 0, len(changes))
 	for accountAddress, change := range changes {
-		addresses = append(addresses, accountAddress)
-
 		addIDs := change.AddIDs
 		if addIDs == nil {
 			addIDs = []int64{}
