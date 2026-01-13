@@ -109,7 +109,8 @@ type TokenCacheWriter interface {
 	// EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
 	// Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
 	// Must be called before ProcessTokenChanges to satisfy FK constraints.
-	EnsureTrustlineAssetsExist(ctx context.Context, trustlineChanges []types.TrustlineChange) error
+	// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
+	EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error
 
 	// GetOrInsertContractTokens gets IDs for all SAC/SEP-41 contracts in changes.
 	// For new contracts (not in knownContractIDs cache), fetches metadata via RPC.
@@ -414,7 +415,8 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 
 // EnsureTrustlineAssetsExist inserts trustline assets into PostgreSQL with deterministic IDs.
 // Uses INSERT ... ON CONFLICT DO NOTHING for idempotency.
-func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, trustlineChanges []types.TrustlineChange) error {
+// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
+func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error {
 	if len(trustlineChanges) == 0 {
 		return nil
 	}
@@ -439,15 +441,9 @@ func (s *tokenCacheService) EnsureTrustlineAssetsExist(ctx context.Context, trus
 		})
 	}
 
-	// Insert all unique assets (ON CONFLICT DO NOTHING)
-	err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
-			return fmt.Errorf("batch inserting trustline assets: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("running transaction for trustline assets: %w", err)
+	// Insert all unique assets (ON CONFLICT DO NOTHING) using the provided transaction
+	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
+		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
 	return nil
 }
