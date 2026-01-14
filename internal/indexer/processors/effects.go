@@ -437,21 +437,12 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 	var stateChange types.StateChange
 
+	// Note: XDR fields (balance, liabilities, flags) are NOT extracted here.
+	// TrustLinesProcessor handles balance tracking from ledger changes directly.
+	// This function only tracks trustline add/remove/update for state change history.
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
-		// Extract XDR fields from the new trustline entry
-		if postEntry := p.getPostLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); postEntry != nil {
-			tl := postEntry.Data.MustTrustLine()
-			liabilities := tl.Liabilities()
-			baseBuilder = baseBuilder.WithTrustlineXDRFields(
-				int64(tl.Balance),
-				int64(tl.Limit),
-				int64(liabilities.Buying),
-				int64(liabilities.Selling),
-				uint32(tl.Flags),
-			)
-		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
@@ -461,35 +452,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case EffectTrustlineRemoved:
-		// For removes, extract from Pre state (the state before removal)
-		if preEntry := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); preEntry != nil {
-			tl := preEntry.Data.MustTrustLine()
-			liabilities := tl.Liabilities()
-			baseBuilder = baseBuilder.WithTrustlineXDRFields(
-				int64(tl.Balance),
-				int64(tl.Limit),
-				int64(liabilities.Buying),
-				int64(liabilities.Selling),
-				uint32(tl.Flags),
-			)
-		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		// Extract XDR fields from the updated trustline entry (Post state)
-		if postEntry := p.getPostLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); postEntry != nil {
-			tl := postEntry.Data.MustTrustLine()
-			liabilities := tl.Liabilities()
-			baseBuilder = baseBuilder.WithTrustlineXDRFields(
-				int64(tl.Balance),
-				int64(tl.Limit),
-				int64(liabilities.Buying),
-				int64(liabilities.Selling),
-				uint32(tl.Flags),
-			)
-		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
