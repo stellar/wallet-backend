@@ -37,17 +37,12 @@ type TrustlineWithBalance struct {
 	Flags              uint32
 }
 
-// TrustlineBalanceInfo represents a trustline with balance info for API queries.
-type TrustlineBalanceInfo struct {
-	AssetID            uuid.UUID
-	Balance            int64
-	LastModifiedLedger uint32
-}
-
-// Trustline contains all XDR fields for a trustline upsert/delete operation.
+// Trustline contains all fields for a trustline including asset metadata from JOIN.
 type Trustline struct {
 	AccountAddress     string
 	AssetID            uuid.UUID
+	Code               string // Asset code from trustline_assets table
+	Issuer             string // Asset issuer from trustline_assets table
 	Balance            int64
 	Limit              int64
 	BuyingLiabilities  int64
@@ -59,8 +54,7 @@ type Trustline struct {
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
-	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
-	GetTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]TrustlineBalanceInfo, error)
+	GetTrustlines(ctx context.Context, accountAddress string) ([]Trustline, error)
 	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
@@ -82,71 +76,44 @@ type AccountTokensModel struct {
 
 var _ AccountTokensModelInterface = (*AccountTokensModel)(nil)
 
-// GetTrustlineAssetIDs retrieves asset IDs for a single account.
-func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error) {
+// GetTrustlines retrieves all trustlines for an account with full data via JOIN.
+func (m *AccountTokensModel) GetTrustlines(ctx context.Context, accountAddress string) ([]Trustline, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	const query = `SELECT asset_id FROM account_trustlines WHERE account_address = $1`
+	const query = `
+		SELECT ta.code, ta.issuer,
+		       at.balance, at.trust_limit, at.buying_liabilities,
+		       at.selling_liabilities, at.flags, at.last_modified_ledger
+		FROM account_trustlines at
+		INNER JOIN trustline_assets ta ON ta.id = at.asset_id
+		WHERE at.account_address = $1`
 
 	start := time.Now()
 	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetTrustlineAssetIDs", "account_trustlines", "query_error")
-		return nil, fmt.Errorf("querying trustline asset IDs for %s: %w", accountAddress, err)
+		m.MetricsService.IncDBQueryError("GetTrustlines", "account_trustlines", "query_error")
+		return nil, fmt.Errorf("querying trustlines for %s: %w", accountAddress, err)
 	}
 	defer rows.Close()
 
-	var assetIDs []uuid.UUID
+	var trustlines []Trustline
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scanning asset ID: %w", err)
+		var tl Trustline
+		if err := rows.Scan(&tl.Code, &tl.Issuer, &tl.Balance, &tl.Limit,
+			&tl.BuyingLiabilities, &tl.SellingLiabilities, &tl.Flags, &tl.LedgerNumber); err != nil {
+			return nil, fmt.Errorf("scanning trustline: %w", err)
 		}
-		assetIDs = append(assetIDs, id)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating asset IDs: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("GetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetTrustlineAssetIDs", "account_trustlines")
-	return assetIDs, nil
-}
-
-// GetTrustlinesWithBalances retrieves trustlines with balance info for an account.
-func (m *AccountTokensModel) GetTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]TrustlineBalanceInfo, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	const query = `SELECT asset_id, balance, last_modified_ledger FROM account_trustlines WHERE account_address = $1`
-
-	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetTrustlinesWithBalances", "account_trustlines", "query_error")
-		return nil, fmt.Errorf("querying trustlines with balances for %s: %w", accountAddress, err)
-	}
-	defer rows.Close()
-
-	var trustlines []TrustlineBalanceInfo
-	for rows.Next() {
-		var info TrustlineBalanceInfo
-		if err := rows.Scan(&info.AssetID, &info.Balance, &info.LastModifiedLedger); err != nil {
-			return nil, fmt.Errorf("scanning trustline info: %w", err)
-		}
-		trustlines = append(trustlines, info)
+		trustlines = append(trustlines, tl)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating trustlines: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("GetTrustlinesWithBalances", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetTrustlinesWithBalances", "account_trustlines")
+	m.MetricsService.ObserveDBQueryDuration("GetTrustlines", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetTrustlines", "account_trustlines")
 	return trustlines, nil
 }
 
