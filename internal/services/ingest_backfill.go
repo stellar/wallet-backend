@@ -449,6 +449,7 @@ func (m *ingestService) processTokenChanges(
 	ctx context.Context,
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
+	accountChanges []types.AccountChange,
 ) error {
 	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
 	sort.Slice(trustlineChanges, func(i, j int) bool {
@@ -462,6 +463,12 @@ func (m *ingestService) processTokenChanges(
 			return contractChanges[i].LedgerNumber < contractChanges[j].LedgerNumber
 		}
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
+	})
+	sort.Slice(accountChanges, func(i, j int) bool {
+		if accountChanges[i].LedgerNumber != accountChanges[j].LedgerNumber {
+			return accountChanges[i].LedgerNumber < accountChanges[j].LedgerNumber
+		}
+		return accountChanges[i].OperationID < accountChanges[j].OperationID
 	})
 
 	// Extract unique trustline assets from changes
@@ -493,7 +500,7 @@ func (m *ingestService) processTokenChanges(
 		}
 
 		// 3. Apply token changes to PostgreSQL
-		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges); txErr != nil {
+		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
 			return fmt.Errorf("processing token changes: %w", txErr)
 		}
 
