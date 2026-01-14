@@ -103,15 +103,9 @@ func parseTrustlineBalance(trustlineEntry xdr.TrustLineEntry, lastModifiedLedger
 // buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline data.
 func buildTrustlineBalanceFromDB(trustline data.Trustline, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
 	// Build xdr.Asset to compute contract ID
-	var asset xdr.Asset
-	if len(trustline.Code) <= 4 {
-		asset.Type = xdr.AssetTypeAssetTypeCreditAlphanum4
-		copy(asset.AlphaNum4.AssetCode[:], trustline.Code)
-		asset.AlphaNum4.Issuer = xdr.MustAddress(trustline.Issuer)
-	} else {
-		asset.Type = xdr.AssetTypeAssetTypeCreditAlphanum12
-		copy(asset.AlphaNum12.AssetCode[:], trustline.Code)
-		asset.AlphaNum12.Issuer = xdr.MustAddress(trustline.Issuer)
+	asset, err := xdr.NewCreditAsset(trustline.Code, trustline.Issuer)
+	if err != nil {
+		return nil, fmt.Errorf("building asset from code/issuer: %w", err)
 	}
 
 	contractID, err := asset.ContractID(networkPassphrase)

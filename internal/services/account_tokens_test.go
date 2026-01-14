@@ -336,7 +336,6 @@ func TestGetAccountContracts(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		service := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
@@ -357,7 +356,6 @@ func TestGetAccountContracts(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
