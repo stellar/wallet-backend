@@ -28,8 +28,7 @@ type accountKeyInfo struct {
 	sacBalances      []data.SACBalance   // SAC balances from DB (for contract addresses)
 	contractsByID    map[string]*data.Contract
 	sep41ContractIDs []string
-	ledgerKeys       []string // base64 XDR keys for this account (for SAC contracts only)
-	collectionErr    error    // error during data collection phase
+	collectionErr    error // error during data collection phase
 }
 
 // buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.

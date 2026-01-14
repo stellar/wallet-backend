@@ -66,6 +66,10 @@ func (p *SACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *
 
 // processSACBalanceChange converts a ledger change to a SACBalanceChange.
 // Returns (change, skip) where skip=true means the change should be ignored.
+// Uses sac.ContractBalanceFromContractData from the SDK for validation:
+// - Validates entry is a SAC balance entry (key = ["Balance", address], value = {amount, authorized, clawback})
+// - Only returns true for contract address holders (C...), automatically skips G-addresses
+// - Validates it's not the native asset contract
 func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.SACBalanceChange, bool) {
 	var sacChange types.SACBalanceChange
 
@@ -88,37 +92,34 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 		return sacChange, true // Invalid change, skip
 	}
 
-	contractData := entry.Data.MustContractData()
+	// Use SDK to validate and extract SAC balance data
+	// ContractBalanceFromContractData validates:
+	// - Entry is a SAC balance entry (key = ["Balance", address], value = {amount, authorized, clawback})
+	// - Holder is a contract address (C...) - automatically skips G-addresses
+	// - Contract is not the native asset contract
+	holderBytes, _, ok := sac.ContractBalanceFromContractData(*entry, p.networkPassphrase)
+	if !ok {
+		return sacChange, true // Not a valid SAC balance entry or G-address holder
+	}
+
+	// Convert holder bytes to strkey
+	holderAddress := strkey.MustEncode(strkey.VersionByteContract, holderBytes[:])
 
 	// Extract contract ID
+	contractData := entry.Data.MustContractData()
 	contractIDBytes, ok := contractData.Contract.GetContractId()
 	if !ok {
 		return sacChange, true // No contract ID, skip
 	}
 	contractID := strkey.MustEncode(strkey.VersionByteContract, contractIDBytes[:])
 
-	// Check if this is a SAC contract (not SEP-41)
-	if !p.isSACContract(*entry) {
-		return sacChange, true // Not a SAC contract, skip
-	}
+	sacChange.AccountID = holderAddress
+	sacChange.ContractID = contractID
+	sacChange.OperationID = opWrapper.ID()
+	sacChange.LedgerNumber = opWrapper.Transaction.Ledger.LedgerSequence()
 
-	// Check if this is a balance entry and extract holder address
-	holderAddress, ok := p.extractHolderFromBalanceKey(contractData.Key)
-	if !ok {
-		return sacChange, true // Not a balance entry, skip
-	}
-
-	// Only process contract addresses (C...) - G-addresses use trustlines
-	if !isContractAddress(holderAddress) {
-		return sacChange, true // G-address, skip (stored in trustlines)
-	}
-
-	// For REMOVE operations, we don't have balance data
+	// For REMOVE operations, set defaults
 	if sacChange.Operation == types.SACBalanceOpRemove {
-		sacChange.AccountID = holderAddress
-		sacChange.ContractID = contractID
-		sacChange.OperationID = opWrapper.ID()
-		sacChange.LedgerNumber = opWrapper.Transaction.Ledger.LedgerSequence()
 		sacChange.Balance = "0"
 		sacChange.IsAuthorized = false
 		sacChange.IsClawbackEnabled = false
@@ -126,15 +127,8 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 	}
 
 	// Extract balance value from the SAC balance map
-	balance, authorized, clawback, err := p.extractSACBalanceValue(contractData.Val)
-	if err != nil {
-		return sacChange, true // Invalid balance structure, skip
-	}
-
-	sacChange.AccountID = holderAddress
-	sacChange.ContractID = contractID
-	sacChange.OperationID = opWrapper.ID()
-	sacChange.LedgerNumber = opWrapper.Transaction.Ledger.LedgerSequence()
+	// SDK validates structure but doesn't return all fields, so we extract them here
+	balance, authorized, clawback := p.extractSACBalanceFields(contractData.Val)
 	sacChange.Balance = balance
 	sacChange.IsAuthorized = authorized
 	sacChange.IsClawbackEnabled = clawback
@@ -142,67 +136,16 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 	return sacChange, false
 }
 
-// isSACContract checks if the ledger entry is for a Stellar Asset Contract.
-func (p *SACBalancesProcessor) isSACContract(entry xdr.LedgerEntry) bool {
-	_, isSAC := sac.AssetFromContractData(entry, p.networkPassphrase)
-	return isSAC
-}
-
-// extractHolderFromBalanceKey extracts the holder address from a balance key.
-// Balance keys have format: ["Balance", holder_address]
-func (p *SACBalancesProcessor) extractHolderFromBalanceKey(key xdr.ScVal) (string, bool) {
-	if key.Type != xdr.ScValTypeScvVec {
-		return "", false
-	}
-
-	keyVec, ok := key.GetVec()
-	if !ok || keyVec == nil || len(*keyVec) != 2 {
-		return "", false
-	}
-
-	// First element must be "Balance" symbol
-	sym, ok := (*keyVec)[0].GetSym()
-	if !ok || string(sym) != "Balance" {
-		return "", false
-	}
-
-	// Second element is the holder address
-	addr, ok := (*keyVec)[1].GetAddress()
-	if !ok {
-		return "", false
-	}
-
-	addrStr, err := addr.String()
-	if err != nil {
-		return "", false
-	}
-
-	return addrStr, true
-}
-
-// extractSACBalanceValue extracts balance, authorized, and clawback from a SAC balance map.
+// extractSACBalanceFields extracts balance, authorized, and clawback from a SAC balance map.
+// Assumes ContractBalanceFromContractData already validated the structure.
 // SAC balance format: {amount: i128, authorized: bool, clawback: bool}
-func (p *SACBalancesProcessor) extractSACBalanceValue(val xdr.ScVal) (balance string, authorized bool, clawback bool, err error) {
-	if val.Type != xdr.ScValTypeScvMap {
-		return "", false, false, fmt.Errorf("expected ScMap, got %v", val.Type)
-	}
-
+func (p *SACBalancesProcessor) extractSACBalanceFields(val xdr.ScVal) (balance string, authorized bool, clawback bool) {
 	balanceMap, ok := val.GetMap()
 	if !ok || balanceMap == nil {
-		return "", false, false, fmt.Errorf("failed to get balance map")
+		return "0", false, false
 	}
-
-	if len(*balanceMap) != 3 {
-		return "", false, false, fmt.Errorf("expected 3 entries (amount, authorized, clawback), got %d", len(*balanceMap))
-	}
-
-	var amountFound, authorizedFound, clawbackFound bool
 
 	for _, entry := range *balanceMap {
-		if entry.Key.Type != xdr.ScValTypeScvSymbol {
-			continue
-		}
-
 		keySymbol, ok := entry.Key.GetSym()
 		if !ok {
 			continue
@@ -210,37 +153,19 @@ func (p *SACBalancesProcessor) extractSACBalanceValue(val xdr.ScVal) (balance st
 
 		switch string(keySymbol) {
 		case "amount":
-			if entry.Val.Type != xdr.ScValTypeScvI128 {
-				return "", false, false, fmt.Errorf("amount is not i128")
+			if i128, ok := entry.Val.GetI128(); ok {
+				balance = amount.String128(i128)
 			}
-			i128Parts := entry.Val.MustI128()
-			balance = amount.String128(i128Parts)
-			amountFound = true
-
 		case "authorized":
-			if entry.Val.Type != xdr.ScValTypeScvBool {
-				return "", false, false, fmt.Errorf("authorized is not bool")
+			if b, ok := entry.Val.GetB(); ok {
+				authorized = b
 			}
-			authorized = entry.Val.MustB()
-			authorizedFound = true
-
 		case "clawback":
-			if entry.Val.Type != xdr.ScValTypeScvBool {
-				return "", false, false, fmt.Errorf("clawback is not bool")
+			if b, ok := entry.Val.GetB(); ok {
+				clawback = b
 			}
-			clawback = entry.Val.MustB()
-			clawbackFound = true
 		}
 	}
 
-	if !amountFound || !authorizedFound || !clawbackFound {
-		return "", false, false, fmt.Errorf("missing required fields in balance map")
-	}
-
-	return balance, authorized, clawback, nil
-}
-
-// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
-func isContractAddress(address string) bool {
-	return len(address) > 0 && address[0] == 'C'
+	return balance, authorized, clawback
 }
