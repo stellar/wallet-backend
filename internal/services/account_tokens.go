@@ -27,7 +27,7 @@ import (
 
 const (
 	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
-	trustlineBatchSize = 500_000
+	trustlineBatchSize = 200_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
