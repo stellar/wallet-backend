@@ -43,10 +43,14 @@ type checkpointData struct {
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
 }
 
-// trustlineEntry represents a single trustline with its balance for batch insertion.
+// trustlineEntry represents a single trustline with all XDR fields for batch insertion.
 type trustlineEntry struct {
-	AssetID uuid.UUID
-	Balance int64
+	AssetID            uuid.UUID
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
 }
 
 // trustlineBatch holds a batch of trustlines for streaming insertion.
@@ -66,7 +70,7 @@ func newTrustlineBatch() *trustlineBatch {
 	}
 }
 
-func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset, balance int64) {
+func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32) {
 	key := asset.Code + ":" + asset.Issuer
 	assetID := wbdata.DeterministicAssetID(asset.Code, asset.Issuer)
 
@@ -79,10 +83,14 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 		}
 	}
 
-	// Add to account's trustlines with balance
+	// Add to account's trustlines with all XDR fields
 	b.accountTrustlines[accountAddress] = append(b.accountTrustlines[accountAddress], trustlineEntry{
-		AssetID: assetID,
-		Balance: balance,
+		AssetID:            assetID,
+		Balance:            balance,
+		Limit:              limit,
+		BuyingLiabilities:  buyingLiabilities,
+		SellingLiabilities: sellingLiabilities,
+		Flags:              flags,
 	})
 	b.count++
 }
@@ -276,9 +284,8 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 		return nil
 	}
 
-	// We sort the trustline changes in the order they happened and then apply them in that order.
+	// Sort trustline changes by operation ID (temporal order).
 	// The last operation for (account, trustline) will be applied.
-	// We only store the net change for each (account, trustline) pair.
 	type changeKey struct {
 		accountID   string
 		trustlineID uuid.UUID
@@ -286,37 +293,52 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	sort.Slice(trustlineChanges, func(i, j int) bool {
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
-	opsPerKey := make(map[changeKey]*types.TrustlineOpType)
-	for _, change := range trustlineChanges {
+
+	// Track the final trustline data for each (account, asset) pair.
+	// For ADD/UPDATE: keep full data for upsert. For REMOVE: move to deletes.
+	trustlineDataByKey := make(map[changeKey]*types.TrustlineChange)
+	for i := range trustlineChanges {
+		change := &trustlineChanges[i]
 		code, issuer, err := indexer.ParseAssetString(change.Asset)
 		if err != nil {
 			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
 		}
-
-		// Compute deterministic asset ID directly
 		assetID := wbdata.DeterministicAssetID(code, issuer)
-
 		key := changeKey{accountID: change.AccountID, trustlineID: assetID}
-		// If the last operation is ADD, we remove the key from the map. This ensures we only track the net changes for an (account, trustline) pair.
-		// Otherwise, we update the operation to REMOVE - this means we want to remove an existing trustline from the DB.
-		if change.Operation == types.TrustlineOpRemove && opsPerKey[key] != nil && *opsPerKey[key] == types.TrustlineOpAdd {
-			delete(opsPerKey, key)
-		} else {
-			opsPerKey[key] = &change.Operation
+
+		switch change.Operation {
+		case types.TrustlineOpAdd, types.TrustlineOpUpdate:
+			// Keep latest ADD/UPDATE data
+			trustlineDataByKey[key] = change
+		case types.TrustlineOpRemove:
+			// If previous was ADD in same ledger, net effect is no-op
+			if prev, exists := trustlineDataByKey[key]; exists && prev.Operation == types.TrustlineOpAdd {
+				delete(trustlineDataByKey, key)
+			} else {
+				// Otherwise, mark for deletion
+				trustlineDataByKey[key] = change
+			}
 		}
 	}
 
-	trustlineChangesByAccount := make(map[string]*wbdata.TrustlineChanges)
-	for trustlineKey, operation := range opsPerKey {
-		if _, ok := trustlineChangesByAccount[trustlineKey.accountID]; !ok {
-			trustlineChangesByAccount[trustlineKey.accountID] = &wbdata.TrustlineChanges{}
+	// Separate into upserts and deletes
+	var upserts []wbdata.TrustlineFullData
+	var deletes []wbdata.TrustlineFullData
+	for key, change := range trustlineDataByKey {
+		fullData := wbdata.TrustlineFullData{
+			AccountAddress:     change.AccountID,
+			AssetID:            key.trustlineID,
+			Balance:            change.Balance,
+			Limit:              change.Limit,
+			BuyingLiabilities:  change.BuyingLiabilities,
+			SellingLiabilities: change.SellingLiabilities,
+			Flags:              change.Flags,
+			LedgerNumber:       change.LedgerNumber,
 		}
-
-		switch *operation {
-		case types.TrustlineOpAdd:
-			trustlineChangesByAccount[trustlineKey.accountID].AddIDs = append(trustlineChangesByAccount[trustlineKey.accountID].AddIDs, trustlineKey.trustlineID)
-		case types.TrustlineOpRemove:
-			trustlineChangesByAccount[trustlineKey.accountID].RemoveIDs = append(trustlineChangesByAccount[trustlineKey.accountID].RemoveIDs, trustlineKey.trustlineID)
+		if change.Operation == types.TrustlineOpRemove {
+			deletes = append(deletes, fullData)
+		} else {
+			upserts = append(upserts, fullData)
 		}
 	}
 
@@ -336,10 +358,10 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	}
 
 	// Execute all changes using the provided transaction
-	// Batch upsert trustlines
-	if len(trustlineChangesByAccount) > 0 {
-		if err := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, trustlineChangesByAccount); err != nil {
-			return fmt.Errorf("upserting trustlines: %w", err)
+	// Batch upsert trustlines with full XDR data
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.accountTokensModel.BatchUpsertTrustlinesWithFullData(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting trustlines with full data: %w", err)
 		}
 	}
 
@@ -456,9 +478,18 @@ func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddr
 	return contracts, nil
 }
 
+// trustlineXDRFields holds all XDR fields extracted from a trustline entry.
+type trustlineXDRFields struct {
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
+}
+
 // processTrustlineChange extracts trustline information from a ledger change entry.
-// Returns the account address, asset, balance, and skip=true if the entry should be skipped.
-func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, int64, bool) {
+// Returns the account address, asset, XDR fields, and skip=true if the entry should be skipped.
+func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, trustlineXDRFields, bool) {
 	trustlineEntry := change.Post.Data.MustTrustLine()
 	accountAddress := trustlineEntry.AccountId.Address()
 	asset := trustlineEntry.Asset
@@ -466,18 +497,26 @@ func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string
 	// Skip liquidity pool shares as they're tracked separately via pool-specific indexing
 	// and don't represent traditional trustlines.
 	if asset.Type == xdr.AssetTypeAssetTypePoolShare {
-		return "", wbdata.TrustlineAsset{}, 0, true
+		return "", wbdata.TrustlineAsset{}, trustlineXDRFields{}, true
 	}
 
 	var assetType, assetCode, assetIssuer string
 	if err := trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		return "", wbdata.TrustlineAsset{}, 0, true
+		return "", wbdata.TrustlineAsset{}, trustlineXDRFields{}, true
 	}
 
+	liabilities := trustlineEntry.Liabilities()
+
 	return accountAddress, wbdata.TrustlineAsset{
-		Code:   assetCode,
-		Issuer: assetIssuer,
-	}, int64(trustlineEntry.Balance), false
+			Code:   assetCode,
+			Issuer: assetIssuer,
+		}, trustlineXDRFields{
+			Balance:            int64(trustlineEntry.Balance),
+			Limit:              int64(trustlineEntry.Limit),
+			BuyingLiabilities:  int64(liabilities.Buying),
+			SellingLiabilities: int64(liabilities.Selling),
+			Flags:              uint32(trustlineEntry.Flags),
+		}, false
 }
 
 // processContractBalanceChange extracts contract balance information from a contract data entry.
@@ -563,14 +602,14 @@ func (s *tokenCacheService) streamCheckpointData(
 		//exhaustive:ignore
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
-			accountAddress, asset, balance, skip := s.processTrustlineChange(change)
+			accountAddress, asset, xdrFields, skip := s.processTrustlineChange(change)
 			if skip {
 				continue
 			}
 			entries++
 			trustlineCount++
 
-			batch.add(accountAddress, asset, balance)
+			batch.add(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags)
 
 			// Flush batch when full
 			if batch.count >= trustlineBatchSize {
@@ -638,7 +677,7 @@ func (s *tokenCacheService) streamCheckpointData(
 	return data, nil
 }
 
-// flushTrustlineBatch inserts the batch's trustline assets and account relationships with balances.
+// flushTrustlineBatch inserts the batch's trustline assets and account relationships with all XDR fields.
 func (s *tokenCacheService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, ledger uint32) error {
 	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
 	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
@@ -649,14 +688,18 @@ func (s *tokenCacheService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx
 		return fmt.Errorf("batch inserting assets: %w", err)
 	}
 
-	// 2. Convert to data layer type and bulk insert account trustlines with balances
+	// 2. Convert to data layer type and bulk insert account trustlines with all XDR fields
 	trustlinesWithBalance := make(map[string][]wbdata.TrustlineWithBalance, len(batch.accountTrustlines))
 	for addr, entries := range batch.accountTrustlines {
 		converted := make([]wbdata.TrustlineWithBalance, len(entries))
 		for i, entry := range entries {
 			converted[i] = wbdata.TrustlineWithBalance{
-				AssetID: entry.AssetID,
-				Balance: entry.Balance,
+				AssetID:            entry.AssetID,
+				Balance:            entry.Balance,
+				Limit:              entry.Limit,
+				BuyingLiabilities:  entry.BuyingLiabilities,
+				SellingLiabilities: entry.SellingLiabilities,
+				Flags:              entry.Flags,
 			}
 		}
 		trustlinesWithBalance[addr] = converted
