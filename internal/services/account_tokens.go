@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/sac"
@@ -41,6 +42,17 @@ type checkpointData struct {
 	ContractIDsByWasmHash map[xdr.Hash][]string
 	// ContractTypesByWasmHash maps WASM hashes to their contract code bytes
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
+	// SACBalances stores SAC balance entries for contract addresses to be inserted after validation
+	SACBalances []sacBalanceEntry
+}
+
+// sacBalanceEntry holds SAC balance data extracted from checkpoint for later insertion.
+type sacBalanceEntry struct {
+	HolderAddress     string
+	ContractAddress   string
+	Balance           string
+	IsAuthorized      bool
+	IsClawbackEnabled bool
 }
 
 // trustlineEntry represents a single trustline with all XDR fields for batch insertion.
@@ -249,6 +261,11 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 		// Store contract relationships using deterministic IDs
 		if txErr := s.storeContractsInPostgres(ctx, dbTx, cpData.ContractsByHolderAddress, cpData.ContractTypesByContractID); txErr != nil {
 			return fmt.Errorf("storing contracts in postgres: %w", txErr)
+		}
+
+		// Store SAC balances for contract addresses (filter to only include verified SAC contracts)
+		if txErr := s.storeSACBalancesInPostgres(ctx, dbTx, cpData.SACBalances, cpData.ContractTypesByContractID, checkpointLedger); txErr != nil {
+			return fmt.Errorf("storing SAC balances in postgres: %w", txErr)
 		}
 
 		if txErr := initializeCursors(dbTx); txErr != nil {
@@ -622,6 +639,7 @@ func (s *tokenCacheService) streamCheckpointData(
 		ContractTypesByContractID: make(map[string]types.ContractType),
 		ContractIDsByWasmHash:     make(map[xdr.Hash][]string),
 		ContractTypesByWasmHash:   make(map[xdr.Hash]types.ContractType),
+		SACBalances:               make([]sacBalanceEntry, 0),
 	}
 
 	batch := newTrustlineBatch()
@@ -722,6 +740,25 @@ func (s *tokenCacheService) streamCheckpointData(
 				}
 				data.ContractsByHolderAddress[holderAddress] = append(data.ContractsByHolderAddress[holderAddress], contractAddressStr)
 				entries++
+
+				// For contract addresses (C...), extract SAC balance values for later insertion
+				// G-addresses use trustlines for SAC balances
+				if strkey.IsValidEd25519PublicKey(holderAddress) {
+					// G-address - skip, uses trustlines
+					continue
+				}
+				if strkey.IsValidContract(holderAddress) {
+					balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
+					if err == nil {
+						data.SACBalances = append(data.SACBalances, sacBalanceEntry{
+							HolderAddress:     holderAddress,
+							ContractAddress:   contractAddressStr,
+							Balance:           balanceStr,
+							IsAuthorized:      authorized,
+							IsClawbackEnabled: clawback,
+						})
+					}
+				}
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
 				wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, data.ContractTypesByContractID)
@@ -850,6 +887,52 @@ func (s *tokenCacheService) storeContractsInPostgres(
 	return nil
 }
 
+// storeSACBalancesInPostgres stores SAC balances for contract addresses into PostgreSQL.
+// Only balances for verified SAC contracts (in contractTypesByContractID) are processed.
+func (s *tokenCacheService) storeSACBalancesInPostgres(
+	ctx context.Context,
+	dbTx pgx.Tx,
+	sacBalances []sacBalanceEntry,
+	contractTypesByContractID map[string]types.ContractType,
+	checkpointLedger uint32,
+) error {
+	if len(sacBalances) == 0 {
+		return nil
+	}
+
+	startTime := time.Now()
+
+	// Filter to only include balances for verified SAC contracts
+	var balances []wbdata.SACBalance
+	for _, entry := range sacBalances {
+		contractType, ok := contractTypesByContractID[entry.ContractAddress]
+		if !ok || contractType != types.ContractTypeSAC {
+			continue // Skip non-SAC contracts
+		}
+
+		balances = append(balances, wbdata.SACBalance{
+			AccountAddress:    entry.HolderAddress,
+			ContractID:        wbdata.DeterministicContractID(entry.ContractAddress),
+			Balance:           entry.Balance,
+			IsAuthorized:      entry.IsAuthorized,
+			IsClawbackEnabled: entry.IsClawbackEnabled,
+			LedgerNumber:      checkpointLedger,
+		})
+	}
+
+	if len(balances) == 0 {
+		return nil
+	}
+
+	if err := s.accountTokensModel.BulkInsertSACBalances(ctx, dbTx, balances); err != nil {
+		return fmt.Errorf("bulk inserting SAC balances: %w", err)
+	}
+	log.Ctx(ctx).Infof("Stored %d SAC balances for contract addresses in %.2f minutes",
+		len(balances), time.Since(startTime).Minutes())
+
+	return nil
+}
+
 // extractHolderAddress extracts the account address from a contract balance entry key.
 // Balance entries have a key that is a ScVec with 2 elements:
 // - First element: ScSymbol("Balance")
@@ -888,4 +971,64 @@ func (s *tokenCacheService) extractHolderAddress(key xdr.ScVal) (string, error) 
 	}
 
 	return holderAddress, nil
+}
+
+// extractSACBalanceFromValue extracts balance, authorized, and clawback from a SAC balance map.
+// SAC balance format: {amount: i128, authorized: bool, clawback: bool}
+func (s *tokenCacheService) extractSACBalanceFromValue(val xdr.ScVal) (balance string, authorized bool, clawback bool, err error) {
+	if val.Type != xdr.ScValTypeScvMap {
+		return "", false, false, fmt.Errorf("expected ScMap, got %v", val.Type)
+	}
+
+	balanceMap, ok := val.GetMap()
+	if !ok || balanceMap == nil {
+		return "", false, false, fmt.Errorf("failed to get balance map")
+	}
+
+	if len(*balanceMap) != 3 {
+		return "", false, false, fmt.Errorf("expected 3 entries (amount, authorized, clawback), got %d", len(*balanceMap))
+	}
+
+	var amountFound, authorizedFound, clawbackFound bool
+
+	for _, entry := range *balanceMap {
+		if entry.Key.Type != xdr.ScValTypeScvSymbol {
+			continue
+		}
+
+		keySymbol, ok := entry.Key.GetSym()
+		if !ok {
+			continue
+		}
+
+		switch string(keySymbol) {
+		case "amount":
+			if entry.Val.Type != xdr.ScValTypeScvI128 {
+				return "", false, false, fmt.Errorf("amount is not i128")
+			}
+			i128Parts := entry.Val.MustI128()
+			balance = amount.String128(i128Parts)
+			amountFound = true
+
+		case "authorized":
+			if entry.Val.Type != xdr.ScValTypeScvBool {
+				return "", false, false, fmt.Errorf("authorized is not bool")
+			}
+			authorized = entry.Val.MustB()
+			authorizedFound = true
+
+		case "clawback":
+			if entry.Val.Type != xdr.ScValTypeScvBool {
+				return "", false, false, fmt.Errorf("clawback is not bool")
+			}
+			clawback = entry.Val.MustB()
+			clawbackFound = true
+		}
+	}
+
+	if !amountFound || !authorizedFound || !clawbackFound {
+		return "", false, false, fmt.Errorf("missing required fields in balance map")
+	}
+
+	return balance, authorized, clawback, nil
 }
