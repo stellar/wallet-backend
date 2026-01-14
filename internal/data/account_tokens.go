@@ -33,10 +33,18 @@ type TrustlineWithBalance struct {
 	Balance int64
 }
 
+// TrustlineBalanceInfo represents a trustline with balance info for API queries.
+type TrustlineBalanceInfo struct {
+	AssetID            uuid.UUID
+	Balance            int64
+	LastModifiedLedger uint32
+}
+
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
 	GetTrustlineAssetIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
+	GetTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]TrustlineBalanceInfo, error)
 	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
@@ -89,6 +97,40 @@ func (m *AccountTokensModel) GetTrustlineAssetIDs(ctx context.Context, accountAd
 	m.MetricsService.ObserveDBQueryDuration("GetTrustlineAssetIDs", "account_trustlines", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetTrustlineAssetIDs", "account_trustlines")
 	return assetIDs, nil
+}
+
+// GetTrustlinesWithBalances retrieves trustlines with balance info for an account.
+func (m *AccountTokensModel) GetTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]TrustlineBalanceInfo, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	const query = `SELECT asset_id, balance, last_modified_ledger FROM account_trustlines WHERE account_address = $1`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetTrustlinesWithBalances", "account_trustlines", "query_error")
+		return nil, fmt.Errorf("querying trustlines with balances for %s: %w", accountAddress, err)
+	}
+	defer rows.Close()
+
+	var trustlines []TrustlineBalanceInfo
+	for rows.Next() {
+		var info TrustlineBalanceInfo
+		if err := rows.Scan(&info.AssetID, &info.Balance, &info.LastModifiedLedger); err != nil {
+			return nil, fmt.Errorf("scanning trustline info: %w", err)
+		}
+		trustlines = append(trustlines, info)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating trustlines: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetTrustlinesWithBalances", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetTrustlinesWithBalances", "account_trustlines")
+	return trustlines, nil
 }
 
 // GetContractIDs retrieves contract IDs for a single account.
