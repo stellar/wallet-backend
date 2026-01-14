@@ -139,6 +139,14 @@ func (m *TokenCacheReaderMock) GetAccountContracts(ctx context.Context, accountA
 	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
+func (m *TokenCacheReaderMock) GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error) {
+	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*data.NativeBalance), args.Error(1)
+}
+
 // NewTokenCacheReaderMock creates a new instance of TokenCacheReaderMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewTokenCacheReaderMock(t interface {
@@ -176,8 +184,8 @@ func (m *TokenCacheWriterMock) EnsureContractTokensExist(ctx context.Context, db
 	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges)
+func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
+	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges, accountChanges)
 	return args.Error(0)
 }
 

@@ -110,6 +110,9 @@ type TokenCacheReader interface {
 
 	// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error)
+
+	// GetNativeBalance retrieves the native XLM balance for an account from PostgreSQL.
+	GetNativeBalance(ctx context.Context, accountAddress string) (*wbdata.NativeBalance, error)
 }
 
 // TokenCacheWriter provides write access to the token cache during ingestion.
@@ -133,7 +136,7 @@ type TokenCacheWriter interface {
 	//   so we track all contracts an account has ever held a balance in.
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error
 }
 
 // Verify interface compliance at compile time
@@ -266,8 +269,8 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
+	if len(trustlineChanges) == 0 && len(contractChanges) == 0 && len(accountChanges) == 0 {
 		return nil
 	}
 
@@ -359,6 +362,52 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 		}
 	}
 
+	// Process account changes (native XLM balance)
+	if len(accountChanges) > 0 {
+		sort.Slice(accountChanges, func(i, j int) bool {
+			return accountChanges[i].OperationID < accountChanges[j].OperationID
+		})
+
+		// Deduplicate: last change for each account wins
+		accountDataByID := make(map[string]*types.AccountChange)
+		for i := range accountChanges {
+			change := &accountChanges[i]
+			switch change.Operation {
+			case types.AccountOpCreate, types.AccountOpUpdate:
+				accountDataByID[change.AccountID] = change
+			case types.AccountOpRemove:
+				// If previous was CREATE/UPDATE, net effect is no-op
+				if prev, exists := accountDataByID[change.AccountID]; exists && (prev.Operation == types.AccountOpCreate || prev.Operation == types.AccountOpUpdate) {
+					delete(accountDataByID, change.AccountID)
+				} else {
+					accountDataByID[change.AccountID] = change
+				}
+			}
+		}
+
+		var nativeUpserts []wbdata.NativeBalance
+		var nativeDeletes []string
+		for _, change := range accountDataByID {
+			if change.Operation == types.AccountOpRemove {
+				nativeDeletes = append(nativeDeletes, change.AccountID)
+			} else {
+				nativeUpserts = append(nativeUpserts, wbdata.NativeBalance{
+					AccountAddress:     change.AccountID,
+					Balance:            change.Balance,
+					BuyingLiabilities:  change.BuyingLiabilities,
+					SellingLiabilities: change.SellingLiabilities,
+					LedgerNumber:       change.LedgerNumber,
+				})
+			}
+		}
+
+		if len(nativeUpserts) > 0 || len(nativeDeletes) > 0 {
+			if err := s.accountTokensModel.BatchUpsertNativeBalances(ctx, dbTx, nativeUpserts, nativeDeletes); err != nil {
+				return fmt.Errorf("upserting native balances: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -375,6 +424,15 @@ func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAdd
 	}
 
 	return trustlines, nil
+}
+
+// GetNativeBalance retrieves the native XLM balance for an account from PostgreSQL.
+func (s *tokenCacheService) GetNativeBalance(ctx context.Context, accountAddress string) (*wbdata.NativeBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	return s.accountTokensModel.GetNativeBalance(ctx, accountAddress)
 }
 
 // GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.
@@ -504,8 +562,10 @@ func (s *tokenCacheService) streamCheckpointData(
 	}
 
 	batch := newTrustlineBatch()
+	nativeBalances := make([]wbdata.NativeBalance, 0)
 	entries := 0
 	trustlineCount := 0
+	accountCount := 0
 	batchCount := 0
 	startTime := time.Now()
 
@@ -527,6 +587,28 @@ func (s *tokenCacheService) streamCheckpointData(
 
 		//exhaustive:ignore
 		switch change.Type {
+		case xdr.LedgerEntryTypeAccount:
+			accountEntry := change.Post.Data.MustAccount()
+			liabilities := accountEntry.Liabilities()
+			nativeBalances = append(nativeBalances, wbdata.NativeBalance{
+				AccountAddress:     accountEntry.AccountId.Address(),
+				Balance:            int64(accountEntry.Balance),
+				BuyingLiabilities:  int64(liabilities.Buying),
+				SellingLiabilities: int64(liabilities.Selling),
+				LedgerNumber:       checkpointLedger,
+			})
+			entries++
+			accountCount++
+
+			// Flush native balances batch when full
+			if len(nativeBalances) >= trustlineBatchSize {
+				if err := s.accountTokensModel.BulkInsertNativeBalances(ctx, dbTx, nativeBalances); err != nil {
+					return checkpointData{}, fmt.Errorf("flushing native balances batch: %w", err)
+				}
+				log.Ctx(ctx).Infof("Flushed native balance batch (%d entries so far)", accountCount)
+				nativeBalances = nativeBalances[:0]
+			}
+
 		case xdr.LedgerEntryTypeTrustline:
 			accountAddress, asset, xdrFields, skip := s.processTrustlineChange(change)
 			if skip {
@@ -598,8 +680,15 @@ func (s *tokenCacheService) streamCheckpointData(
 		batchCount++
 	}
 
-	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines in %d batches) in %.2f minutes",
-		entries, trustlineCount, batchCount, time.Since(startTime).Minutes())
+	// Flush remaining native balances
+	if len(nativeBalances) > 0 {
+		if err := s.accountTokensModel.BulkInsertNativeBalances(ctx, dbTx, nativeBalances); err != nil {
+			return checkpointData{}, fmt.Errorf("flushing final native balances batch: %w", err)
+		}
+	}
+
+	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines, %d accounts in %d batches) in %.2f minutes",
+		entries, trustlineCount, accountCount, batchCount, time.Since(startTime).Minutes())
 	return data, nil
 }
 
