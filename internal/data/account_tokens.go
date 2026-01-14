@@ -60,22 +60,35 @@ type NativeBalance struct {
 	LedgerNumber       uint32
 }
 
+// SACBalance contains SAC (Stellar Asset Contract) balance data for contract addresses.
+type SACBalance struct {
+	AccountAddress    string
+	ContractID        uuid.UUID
+	Balance           string
+	IsAuthorized      bool
+	IsClawbackEnabled bool
+	LedgerNumber      uint32
+}
+
 // AccountTokensModelInterface defines the interface for account token operations.
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
 	GetTrustlines(ctx context.Context, accountAddress string) ([]Trustline, error)
 	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 	GetNativeBalance(ctx context.Context, accountAddress string) (*NativeBalance, error)
+	GetSACBalances(ctx context.Context, accountAddress string) ([]SACBalance, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 	BatchUpsertNativeBalances(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error
+	BatchUpsertSACBalances(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error
 
 	// Bulk operations (for initial population)
 	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error
 	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 	BulkInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error
+	BulkInsertSACBalances(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error
 }
 
 // AccountTokensModel implements AccountTokensModelInterface.
@@ -500,5 +513,124 @@ func (m *AccountTokensModel) BulkInsertNativeBalances(ctx context.Context, dbTx 
 
 	m.MetricsService.ObserveDBQueryDuration("BulkInsertNativeBalances", "account_native_balances", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BulkInsertNativeBalances", "account_native_balances")
+	return nil
+}
+
+// GetSACBalances retrieves all SAC balances for an account.
+func (m *AccountTokensModel) GetSACBalances(ctx context.Context, accountAddress string) ([]SACBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	const query = `
+		SELECT account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+		FROM account_sac_balances
+		WHERE account_address = $1`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetSACBalances", "account_sac_balances", "query_error")
+		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
+	}
+	defer rows.Close()
+
+	var balances []SACBalance
+	for rows.Next() {
+		var bal SACBalance
+		if err := rows.Scan(&bal.AccountAddress, &bal.ContractID, &bal.Balance,
+			&bal.IsAuthorized, &bal.IsClawbackEnabled, &bal.LedgerNumber); err != nil {
+			return nil, fmt.Errorf("scanning SAC balance: %w", err)
+		}
+		balances = append(balances, bal)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating SAC balances: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetSACBalances", "account_sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetSACBalances", "account_sac_balances")
+	return balances, nil
+}
+
+// BatchUpsertSACBalances upserts and deletes SAC balances in batch.
+func (m *AccountTokensModel) BatchUpsertSACBalances(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
+	if len(upserts) == 0 && len(deletes) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	batch := &pgx.Batch{}
+
+	const upsertQuery = `
+		INSERT INTO account_sac_balances (account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (account_address, contract_id) DO UPDATE SET
+			balance = EXCLUDED.balance,
+			is_authorized = EXCLUDED.is_authorized,
+			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
+			last_modified_ledger = EXCLUDED.last_modified_ledger`
+
+	for _, bal := range upserts {
+		batch.Queue(upsertQuery, bal.AccountAddress, bal.ContractID, bal.Balance,
+			bal.IsAuthorized, bal.IsClawbackEnabled, bal.LedgerNumber)
+	}
+
+	const deleteQuery = `DELETE FROM account_sac_balances WHERE account_address = $1 AND contract_id = $2`
+	for _, bal := range deletes {
+		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
+	}
+
+	if batch.Len() == 0 {
+		return nil
+	}
+
+	br := dbTx.SendBatch(ctx, batch)
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("upserting SAC balances: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing SAC balance batch: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsertSACBalances", "account_sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsertSACBalances", "account_sac_balances")
+	return nil
+}
+
+// BulkInsertSACBalances performs bulk insert for initial checkpoint population.
+func (m *AccountTokensModel) BulkInsertSACBalances(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error {
+	if len(balances) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	var rows [][]any
+	for _, bal := range balances {
+		rows = append(rows, []any{bal.AccountAddress, bal.ContractID, bal.Balance,
+			bal.IsAuthorized, bal.IsClawbackEnabled, bal.LedgerNumber})
+	}
+
+	copyCount, err := dbTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"account_sac_balances"},
+		[]string{"account_address", "contract_id", "balance", "is_authorized", "is_clawback_enabled", "last_modified_ledger"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return fmt.Errorf("bulk inserting SAC balances via COPY: %w", err)
+	}
+
+	if int(copyCount) != len(rows) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BulkInsertSACBalances", "account_sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BulkInsertSACBalances", "account_sac_balances")
 	return nil
 }
