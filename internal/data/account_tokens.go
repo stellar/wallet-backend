@@ -612,8 +612,10 @@ func (m *AccountTokensModel) BulkInsertSACBalances(ctx context.Context, dbTx pgx
 
 	var rows [][]any
 	for _, bal := range balances {
-		rows = append(rows, []any{bal.AccountAddress, bal.ContractID, bal.Balance,
-			bal.IsAuthorized, bal.IsClawbackEnabled, bal.LedgerNumber})
+		rows = append(rows, []any{
+			bal.AccountAddress, bal.ContractID, bal.Balance,
+			bal.IsAuthorized, bal.IsClawbackEnabled, bal.LedgerNumber,
+		})
 	}
 
 	copyCount, err := dbTx.CopyFrom(

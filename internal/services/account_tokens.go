@@ -759,21 +759,19 @@ func (s *tokenCacheService) streamCheckpointData(
 
 				// For contract addresses (C...), extract SAC balance values for later insertion
 				// G-addresses use trustlines for SAC balances
-				if strkey.IsValidEd25519PublicKey(holderAddress) {
+				if !isContractHolderAddress(holderAddress) {
 					// G-address - skip, uses trustlines
 					continue
 				}
-				if strkey.IsValidContract(holderAddress) {
-					balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
-					if err == nil {
-						data.SACBalances = append(data.SACBalances, sacBalanceEntry{
-							HolderAddress:     holderAddress,
-							ContractAddress:   contractAddressStr,
-							Balance:           balanceStr,
-							IsAuthorized:      authorized,
-							IsClawbackEnabled: clawback,
-						})
-					}
+				balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
+				if err == nil {
+					data.SACBalances = append(data.SACBalances, sacBalanceEntry{
+						HolderAddress:     holderAddress,
+						ContractAddress:   contractAddressStr,
+						Balance:           balanceStr,
+						IsAuthorized:      authorized,
+						IsClawbackEnabled: clawback,
+					})
 				}
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
@@ -1047,4 +1045,10 @@ func (s *tokenCacheService) extractSACBalanceFromValue(val xdr.ScVal) (balance s
 	}
 
 	return balance, authorized, clawback, nil
+}
+
+// isContractHolderAddress checks if the holder address is a contract address (C...).
+func isContractHolderAddress(address string) bool {
+	_, err := strkey.Decode(strkey.VersionByteContract, address)
+	return err == nil
 }
