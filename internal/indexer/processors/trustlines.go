@@ -97,7 +97,8 @@ func (p *TrustLinesProcessor) processTrustlineChange(change ingest.Change, opWra
 	asset := trustLine.Asset.ToAsset()
 
 	var assetCode, assetIssuer string
-	if err := asset.Extract(nil, &assetCode, &assetIssuer); err != nil {
+	assetType := asset.Type
+	if err := asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
 		return tlChange, false, fmt.Errorf("extracting asset details: %w", err)
 	}
 
