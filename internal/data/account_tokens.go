@@ -27,16 +27,6 @@ type BalanceUpdate struct {
 	Delta          int64
 }
 
-// TrustlineWithBalance represents a trustline with all XDR fields for bulk insertion.
-type TrustlineWithBalance struct {
-	AssetID            uuid.UUID
-	Balance            int64
-	Limit              int64
-	BuyingLiabilities  int64
-	SellingLiabilities int64
-	Flags              uint32
-}
-
 // Trustline contains all fields for a trustline including asset metadata from JOIN.
 type Trustline struct {
 	AccountAddress     string
@@ -59,11 +49,10 @@ type AccountTokensModelInterface interface {
 
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
-	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 
-	// Bulk operations (for initial population)
-	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error
-	BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
+	// Batch operations (for initial population and live ingestion)
+	BatchInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlines []Trustline) error
+	BatchInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 }
 
 // AccountTokensModel implements AccountTokensModelInterface.
@@ -214,69 +203,26 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 	return nil
 }
 
-// BatchAddContracts adds contract IDs for multiple accounts (contracts are never removed).
-func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
-	if len(contractsByAccount) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	const query = `
-		INSERT INTO account_contracts (account_address, contract_id)
-		SELECT $1, unnest($2::uuid[])
-		ON CONFLICT DO NOTHING`
-
-	batch := &pgx.Batch{}
-	for accountAddress, contractIDs := range contractsByAccount {
-		if len(contractIDs) == 0 {
-			continue
-		}
-		batch.Queue(query, accountAddress, contractIDs)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
-			return fmt.Errorf("adding contracts: %w", err)
-		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("closing contracts batch: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchAddContracts", "account_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchAddContracts", "account_contracts")
-	return nil
-}
-
-// BulkInsertTrustlines performs bulk insert using COPY protocol for speed.
-func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error {
-	if len(trustlinesByAccount) == 0 {
+// BatchInsertTrustlines performs bulk insert using COPY protocol for speed.
+func (m *AccountTokensModel) BatchInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlines []Trustline) error {
+	if len(trustlines) == 0 {
 		return nil
 	}
 
 	start := time.Now()
 
 	// Build rows for COPY with all trustline fields
-	var rows [][]any
-	for addr, entries := range trustlinesByAccount {
-		for _, entry := range entries {
-			rows = append(rows, []any{
-				addr,
-				entry.AssetID,
-				entry.Balance,
-				ledger,
-				entry.Limit,
-				entry.BuyingLiabilities,
-				entry.SellingLiabilities,
-				entry.Flags,
-			})
+	rows := make([][]any, len(trustlines))
+	for i, tl := range trustlines {
+		rows[i] = []any{
+			tl.AccountAddress,
+			tl.AssetID,
+			tl.Balance,
+			tl.LedgerNumber,
+			tl.Limit,
+			tl.BuyingLiabilities,
+			tl.SellingLiabilities,
+			tl.Flags,
 		}
 	}
 
@@ -296,20 +242,20 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
-		return fmt.Errorf("bulk inserting trustlines via COPY: %w", err)
+		return fmt.Errorf("batch inserting trustlines via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(rows) {
 		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BulkInsertTrustlines", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BulkInsertTrustlines", "account_trustlines")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsertTrustlines", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsertTrustlines", "account_trustlines")
 	return nil
 }
 
-// BulkInsertContracts performs bulk insert for initial population.
-func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
+// BatchInsertContractTokens inserts contract IDs for multiple accounts (contracts are never removed).
+func (m *AccountTokensModel) BatchInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	if len(contractsByAccount) == 0 {
 		return nil
 	}
@@ -337,11 +283,11 @@ func (m *AccountTokensModel) BulkInsertContracts(ctx context.Context, dbTx pgx.T
 
 	_, err := dbTx.Exec(ctx, query, addresses, contractIDs)
 	if err != nil {
-		return fmt.Errorf("bulk inserting contracts: %w", err)
+		return fmt.Errorf("batch inserting contract tokens: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BulkInsertContracts", "account_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BulkInsertContracts", "account_contracts")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsertContractTokens", "account_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsertContractTokens", "account_contracts")
 	return nil
 }
 
