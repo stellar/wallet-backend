@@ -358,7 +358,7 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 		balances = append(balances, trustlineBalance)
 	}
 
-	// Add SAC balances from DB (for contract addresses)
+	// Add SAC balances from DB (for C addresses)
 	for _, sacBalance := range info.sacBalances {
 		// Find contract metadata by deterministic ID
 		var contract *data.Contract
@@ -378,46 +378,7 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 		balances = append(balances, sacBalanceGql)
 	}
 
-	// Parse RPC ledger entries (SAC contracts only)
-	for _, ledgerKey := range info.ledgerKeys {
-		entry, exists := ledgerEntriesByLedgerKeys[ledgerKey]
-		if !exists || entry == nil {
-			continue
-		}
-
-		var ledgerEntryData xdr.LedgerEntryData
-		if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData); err != nil {
-			return nil, fmt.Errorf("decoding ledger entry: %w", err)
-		}
-
-		//exhaustive:ignore
-		switch ledgerEntryData.Type {
-		case xdr.LedgerEntryTypeContractData:
-			contractDataEntry := ledgerEntryData.MustContractData()
-
-			contractIDStr, ok, err := parseContractIDFromContractData(&contractDataEntry)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-
-			contract, exists := info.contractsByID[contractIDStr]
-			if !exists {
-				continue
-			}
-
-			balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contract)
-			if err != nil {
-				return nil, err
-			}
-			if balance != nil {
-				balances = append(balances, balance)
-			}
-		}
-	}
-
+	// Add SEP-41 balances from RPC
 	if len(info.sep41ContractIDs) > 0 {
 		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
 		if err != nil {

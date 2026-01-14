@@ -458,29 +458,16 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
-	// Build ledger keys for RPC (SAC contracts for G-addresses only, C-addresses use DB)
+	// Build ledger keys to get SEP41 balances from RPC
 	ledgerKeys := make([]string, 0)
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
 		}
 
-		// Contract addresses (C...) get SAC balances from DB, skip RPC
-		if info.isContract {
-			continue
-		}
-
-		// Build ledger keys for SAC contracts (SEP-41 uses simulation)
+		// Build ledger keys for SEP-41 contract tokens
 		for _, contract := range info.contractsByID {
 			switch contract.Type {
-			case "SAC":
-				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ContractID)
-				if keyErr != nil {
-					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ContractID, keyErr)
-					break
-				}
-				ledgerKeys = append(ledgerKeys, ledgerKey)
-				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			case "SEP41":
 				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ContractID)
 			default:
