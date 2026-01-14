@@ -26,6 +26,7 @@ type accountKeyInfo struct {
 	isContract       bool
 	nativeBalance    *data.NativeBalance // Native XLM balance from DB
 	trustlines       []data.Trustline    // Full trustline data from DB
+	sacBalances      []data.SACBalance   // SAC balances from DB (for contract addresses)
 	contractsByID    map[string]*data.Contract
 	sep41ContractIDs []string
 	ledgerKeys       []string // base64 XDR keys for this account (for SAC contracts only)
@@ -49,6 +50,24 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 		TokenID:   tokenID,
 		Balance:   balanceStr,
 		TokenType: graphql1.TokenTypeNative,
+	}, nil
+}
+
+// buildSACBalanceFromDB constructs a SACBalance from database SAC balance data.
+func buildSACBalanceFromDB(sacBalance data.SACBalance, contract *data.Contract) (*graphql1.SACBalance, error) {
+	if contract == nil {
+		return nil, fmt.Errorf("contract metadata not found")
+	}
+
+	return &graphql1.SACBalance{
+		TokenID:           contract.ContractID,
+		Balance:           sacBalance.Balance,
+		TokenType:         graphql1.TokenTypeSac,
+		Code:              *contract.Code,
+		Issuer:            *contract.Issuer,
+		Decimals:          int32(contract.Decimals),
+		IsAuthorized:      sacBalance.IsAuthorized,
+		IsClawbackEnabled: sacBalance.IsClawbackEnabled,
 	}, nil
 }
 
@@ -337,6 +356,26 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 			return nil, fmt.Errorf("building trustline balance: %w", err)
 		}
 		balances = append(balances, trustlineBalance)
+	}
+
+	// Add SAC balances from DB (for contract addresses)
+	for _, sacBalance := range info.sacBalances {
+		// Find contract metadata by deterministic ID
+		var contract *data.Contract
+		for _, c := range info.contractsByID {
+			if c.ID == sacBalance.ContractID {
+				contract = c
+				break
+			}
+		}
+		if contract == nil {
+			continue // Skip if contract metadata not found
+		}
+		sacBalanceGql, err := buildSACBalanceFromDB(sacBalance, contract)
+		if err != nil {
+			return nil, fmt.Errorf("building SAC balance: %w", err)
+		}
+		balances = append(balances, sacBalanceGql)
 	}
 
 	// Parse RPC ledger entries (SAC contracts only)

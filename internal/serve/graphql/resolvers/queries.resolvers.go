@@ -403,8 +403,18 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				sep41ContractIDs: make([]string, 0),
 			}
 
-			// Get native balance and trustlines (skip for contract addresses)
-			if !info.isContract {
+			// Get native balance, trustlines, and SAC balances based on address type
+			if info.isContract {
+				// Contract addresses: get SAC balances from DB
+				sacBalances, err := r.tokenCacheReader.GetSACBalances(ctx, address)
+				if err != nil {
+					info.collectionErr = fmt.Errorf("getting SAC balances: %w", err)
+					accountInfos[index] = info
+					return
+				}
+				info.sacBalances = sacBalances
+			} else {
+				// G-addresses: get native balance and trustlines from DB
 				nativeBalance, err := r.tokenCacheReader.GetNativeBalance(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting native balance: %w", err)
@@ -448,11 +458,16 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
-	// Build ledger keys for RPC (SAC contracts only, native XLM and trustlines come from DB)
+	// Build ledger keys for RPC (SAC contracts for G-addresses only, C-addresses use DB)
 	ledgerKeys := make([]string, 0)
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
+		}
+
+		// Contract addresses (C...) get SAC balances from DB, skip RPC
+		if info.isContract {
+			continue
 		}
 
 		// Build ledger keys for SAC contracts (SEP-41 uses simulation)

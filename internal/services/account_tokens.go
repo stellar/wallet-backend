@@ -125,6 +125,9 @@ type TokenCacheReader interface {
 
 	// GetNativeBalance retrieves the native XLM balance for an account from PostgreSQL.
 	GetNativeBalance(ctx context.Context, accountAddress string) (*wbdata.NativeBalance, error)
+
+	// GetSACBalances retrieves all SAC balances for a contract address from PostgreSQL.
+	GetSACBalances(ctx context.Context, accountAddress string) ([]wbdata.SACBalance, error)
 }
 
 // TokenCacheWriter provides write access to the token cache during ingestion.
@@ -513,6 +516,19 @@ func (s *tokenCacheService) GetNativeBalance(ctx context.Context, accountAddress
 		return nil, fmt.Errorf("getting native balance for account %s: %w", accountAddress, err)
 	}
 	return balance, nil
+}
+
+// GetSACBalances retrieves all SAC balances for a contract address from PostgreSQL.
+func (s *tokenCacheService) GetSACBalances(ctx context.Context, accountAddress string) ([]wbdata.SACBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	balances, err := s.accountTokensModel.GetSACBalances(ctx, accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("getting SAC balances for account %s: %w", accountAddress, err)
+	}
+	return balances, nil
 }
 
 // GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.

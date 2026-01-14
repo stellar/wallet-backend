@@ -147,6 +147,11 @@ func (m *TokenCacheReaderMock) GetNativeBalance(ctx context.Context, accountAddr
 	return args.Get(0).(*data.NativeBalance), args.Error(1)
 }
 
+func (m *TokenCacheReaderMock) GetSACBalances(ctx context.Context, accountAddress string) ([]data.SACBalance, error) {
+	args := m.Called(ctx, accountAddress)
+	return args.Get(0).([]data.SACBalance), args.Error(1)
+}
+
 // NewTokenCacheReaderMock creates a new instance of TokenCacheReaderMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewTokenCacheReaderMock(t interface {
