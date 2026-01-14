@@ -52,10 +52,16 @@ const (
 
 type TrustlineChange struct {
 	AccountID    string
-	Asset        string
+	Asset        string // "CODE:ISSUER" format
 	OperationID  int64
 	LedgerNumber uint32
 	Operation    TrustlineOpType
+	// XDR fields extracted from TrustLineEntry:
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
 }
 
 type TrustlineOpType string
@@ -63,6 +69,7 @@ type TrustlineOpType string
 const (
 	TrustlineOpAdd    TrustlineOpType = "ADD"
 	TrustlineOpRemove TrustlineOpType = "REMOVE"
+	TrustlineOpUpdate TrustlineOpType = "UPDATE"
 )
 
 type ContractChange struct {
@@ -323,6 +330,12 @@ type StateChange struct {
 	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
+	// Trustline XDR fields (internal only, for trustline state changes):
+	TrustlineBalance            int64  `json:"-"`
+	TrustlineLimitValue         int64  `json:"-"`
+	TrustlineBuyingLiabilities  int64  `json:"-"`
+	TrustlineSellingLiabilities int64  `json:"-"`
+	TrustlineFlags              uint32 `json:"-"`
 }
 
 type StateChangeWithCursor struct {

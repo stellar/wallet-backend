@@ -198,10 +198,15 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 				continue
 			}
 			trustlineChange := types.TrustlineChange{
-				AccountID:    stateChange.AccountID,
-				OperationID:  stateChange.OperationID,
-				Asset:        stateChange.TrustlineAsset,
-				LedgerNumber: tx.Ledger.LedgerSequence(),
+				AccountID:          stateChange.AccountID,
+				OperationID:        stateChange.OperationID,
+				Asset:              stateChange.TrustlineAsset,
+				LedgerNumber:       tx.Ledger.LedgerSequence(),
+				Balance:            stateChange.TrustlineBalance,
+				Limit:              stateChange.TrustlineLimitValue,
+				BuyingLiabilities:  stateChange.TrustlineBuyingLiabilities,
+				SellingLiabilities: stateChange.TrustlineSellingLiabilities,
+				Flags:              stateChange.TrustlineFlags,
 			}
 			//exhaustive:ignore
 			switch *stateChange.StateChangeReason {
@@ -210,7 +215,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			case types.StateChangeReasonRemove:
 				trustlineChange.Operation = types.TrustlineOpRemove
 			case types.StateChangeReasonUpdate:
-				continue
+				trustlineChange.Operation = types.TrustlineOpUpdate
 			}
 			buffer.PushTrustlineChange(trustlineChange)
 		case types.StateChangeCategoryBalance:

@@ -440,7 +440,18 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
-		// Create the trustline state change
+		// Extract XDR fields from the new trustline entry
+		if postEntry := p.getPostLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); postEntry != nil {
+			tl := postEntry.Data.MustTrustLine()
+			liabilities := tl.Liabilities()
+			baseBuilder = baseBuilder.WithTrustlineXDRFields(
+				int64(tl.Balance),
+				int64(tl.Limit),
+				int64(liabilities.Buying),
+				int64(liabilities.Selling),
+				uint32(tl.Flags),
+			)
+		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
@@ -450,11 +461,35 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case EffectTrustlineRemoved:
+		// For removes, extract from Pre state (the state before removal)
+		if preEntry := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); preEntry != nil {
+			tl := preEntry.Data.MustTrustLine()
+			liabilities := tl.Liabilities()
+			baseBuilder = baseBuilder.WithTrustlineXDRFields(
+				int64(tl.Balance),
+				int64(tl.Limit),
+				int64(liabilities.Buying),
+				int64(liabilities.Selling),
+				uint32(tl.Flags),
+			)
+		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
+		// Extract XDR fields from the updated trustline entry (Post state)
+		if postEntry := p.getPostLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes); postEntry != nil {
+			tl := postEntry.Data.MustTrustLine()
+			liabilities := tl.Liabilities()
+			baseBuilder = baseBuilder.WithTrustlineXDRFields(
+				int64(tl.Balance),
+				int64(tl.Limit),
+				int64(liabilities.Buying),
+				int64(liabilities.Selling),
+				uint32(tl.Flags),
+			)
+		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
@@ -800,6 +835,28 @@ func (p *EffectsProcessor) getPrevLedgerEntryState(effect *EffectOutput, ledgerE
 					}
 				}
 				return beforeEntry
+			}
+		}
+	}
+	return nil
+}
+
+// getPostLedgerEntryState gets the post (current) ledger entry state for the specified ledger entry type.
+func (p *EffectsProcessor) getPostLedgerEntryState(effect *EffectOutput, ledgerEntryType xdr.LedgerEntryType, changes []ingest.Change) *xdr.LedgerEntry {
+	for _, change := range changes {
+		if change.Type != ledgerEntryType {
+			continue
+		}
+		if change.Post != nil {
+			afterEntry := change.Post
+			if afterEntry != nil {
+				if ledgerEntryType == xdr.LedgerEntryTypeAccount {
+					afterAccount := afterEntry.Data.MustAccount()
+					if afterAccount.AccountId.Address() == effect.Address {
+						return afterEntry
+					}
+				}
+				return afterEntry
 			}
 		}
 	}

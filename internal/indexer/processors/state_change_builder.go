@@ -116,6 +116,16 @@ func (b *StateChangeBuilder) WithTrustlineAsset(asset string) *StateChangeBuilde
 	return b
 }
 
+// WithTrustlineXDRFields sets the trustline XDR fields (balance, limit, liabilities, flags)
+func (b *StateChangeBuilder) WithTrustlineXDRFields(balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32) *StateChangeBuilder {
+	b.base.TrustlineBalance = balance
+	b.base.TrustlineLimitValue = limit
+	b.base.TrustlineBuyingLiabilities = buyingLiabilities
+	b.base.TrustlineSellingLiabilities = sellingLiabilities
+	b.base.TrustlineFlags = flags
+	return b
+}
+
 // WithTokenType sets the token type (SAC or CUSTOM)
 func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
 	b.base.ContractType = tokenType
