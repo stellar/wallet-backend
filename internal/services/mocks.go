@@ -129,14 +129,9 @@ type TokenCacheReaderMock struct {
 
 var _ TokenCacheReader = (*TokenCacheReaderMock)(nil)
 
-func (m *TokenCacheReaderMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
+func (m *TokenCacheReaderMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]data.Trustline, error) {
 	args := m.Called(ctx, accountAddress)
-	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
-}
-
-func (m *TokenCacheReaderMock) GetAccountTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]*TrustlineWithBalanceInfo, error) {
-	args := m.Called(ctx, accountAddress)
-	return args.Get(0).([]*TrustlineWithBalanceInfo), args.Error(1)
+	return args.Get(0).([]data.Trustline), args.Error(1)
 }
 
 func (m *TokenCacheReaderMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]*data.Contract, error) {

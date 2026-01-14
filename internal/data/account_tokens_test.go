@@ -48,7 +48,7 @@ func setupContractTokens(t *testing.T, ctx context.Context, dbPool db.Connection
 	return ids
 }
 
-func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
+func TestAccountTokensModel_GetTrustlines(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -73,17 +73,17 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		ids, err := m.GetTrustlineAssetIDs(ctx, "")
+		trustlines, err := m.GetTrustlines(ctx, "")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "empty account address")
-		require.Nil(t, ids)
+		require.Nil(t, trustlines)
 	})
 
 	t.Run("returns empty for non-existent account", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -91,18 +91,18 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		ids, err := m.GetTrustlineAssetIDs(ctx, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+		trustlines, err := m.GetTrustlines(ctx, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
 		require.NoError(t, err)
-		require.Empty(t, ids)
+		require.Empty(t, trustlines)
 	})
 
-	t.Run("returns asset IDs for existing account", func(t *testing.T) {
+	t.Run("returns trustlines with full data for existing account", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -115,19 +115,25 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		trustlines := make([]TrustlineWithBalance, len(assetIDs))
+		trustlineData := make([]TrustlineWithBalance, len(assetIDs))
 		for i, id := range assetIDs {
-			trustlines[i] = TrustlineWithBalance{AssetID: id}
+			trustlineData[i] = TrustlineWithBalance{AssetID: id, Balance: int64(i * 100), Limit: 1000000}
 		}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: trustlines}, 100)
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: trustlineData}, 100)
 		})
 		require.NoError(t, err)
 
 		// Retrieve and verify
-		ids, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
+		trustlines, err := m.GetTrustlines(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, assetIDs, ids)
+		require.Len(t, trustlines, 3)
+
+		// Verify each trustline has code and issuer from JOIN
+		for _, tl := range trustlines {
+			require.NotEmpty(t, tl.Code)
+			require.NotEmpty(t, tl.Issuer)
+		}
 
 		cleanUpDB()
 	})
@@ -354,8 +360,8 @@ func TestAccountTokensModel_BatchUpsertTrustlines(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsertTrustlines", "account_trustlines", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchUpsertTrustlines", "account_trustlines").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -376,9 +382,13 @@ func TestAccountTokensModel_BatchUpsertTrustlines(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify first add
-		result, err := m.GetTrustlineAssetIDs(ctx, accountAddress)
+		trustlines, err := m.GetTrustlines(ctx, accountAddress)
 		require.NoError(t, err)
-		require.ElementsMatch(t, assetIDs[:3], result)
+		resultIDs := make([]uuid.UUID, len(trustlines))
+		for i, tl := range trustlines {
+			resultIDs[i] = tl.AssetID
+		}
+		require.ElementsMatch(t, assetIDs[:3], resultIDs)
 
 		// Now add 2 more and remove 1
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -392,10 +402,14 @@ func TestAccountTokensModel_BatchUpsertTrustlines(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify - should have IDs[1], IDs[2], IDs[3], IDs[4]
-		result, err = m.GetTrustlineAssetIDs(ctx, accountAddress)
+		trustlines, err = m.GetTrustlines(ctx, accountAddress)
 		require.NoError(t, err)
-		require.Len(t, result, 4)
-		require.ElementsMatch(t, assetIDs[1:5], result)
+		require.Len(t, trustlines, 4)
+		resultIDs = make([]uuid.UUID, len(trustlines))
+		for i, tl := range trustlines {
+			resultIDs[i] = tl.AssetID
+		}
+		require.ElementsMatch(t, assetIDs[1:5], resultIDs)
 
 		cleanUpDB()
 	})
@@ -437,8 +451,8 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlineAssetIDs", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetTrustlineAssetIDs", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -473,14 +487,22 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify account1
-		result1, err := m.GetTrustlineAssetIDs(ctx, account1)
+		trustlines1, err := m.GetTrustlines(ctx, account1)
 		require.NoError(t, err)
-		require.ElementsMatch(t, ids1, result1)
+		resultIDs1 := make([]uuid.UUID, len(trustlines1))
+		for i, tl := range trustlines1 {
+			resultIDs1[i] = tl.AssetID
+		}
+		require.ElementsMatch(t, ids1, resultIDs1)
 
 		// Verify account2
-		result2, err := m.GetTrustlineAssetIDs(ctx, account2)
+		trustlines2, err := m.GetTrustlines(ctx, account2)
 		require.NoError(t, err)
-		require.ElementsMatch(t, ids2, result2)
+		resultIDs2 := make([]uuid.UUID, len(trustlines2))
+		for i, tl := range trustlines2 {
+			resultIDs2[i] = tl.AssetID
+		}
+		require.ElementsMatch(t, ids2, resultIDs2)
 
 		cleanUpDB()
 	})

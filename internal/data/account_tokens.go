@@ -83,7 +83,7 @@ func (m *AccountTokensModel) GetTrustlines(ctx context.Context, accountAddress s
 	}
 
 	const query = `
-		SELECT ta.code, ta.issuer,
+		SELECT at.asset_id, ta.code, ta.issuer,
 		       at.balance, at.trust_limit, at.buying_liabilities,
 		       at.selling_liabilities, at.flags, at.last_modified_ledger
 		FROM account_trustlines at
@@ -101,7 +101,7 @@ func (m *AccountTokensModel) GetTrustlines(ctx context.Context, accountAddress s
 	var trustlines []Trustline
 	for rows.Next() {
 		var tl Trustline
-		if err := rows.Scan(&tl.Code, &tl.Issuer, &tl.Balance, &tl.Limit,
+		if err := rows.Scan(&tl.AssetID, &tl.Code, &tl.Issuer, &tl.Balance, &tl.Limit,
 			&tl.BuyingLiabilities, &tl.SellingLiabilities, &tl.Flags, &tl.LedgerNumber); err != nil {
 			return nil, fmt.Errorf("scanning trustline: %w", err)
 		}
