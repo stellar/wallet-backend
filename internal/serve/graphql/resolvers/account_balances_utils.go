@@ -15,7 +15,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -337,7 +336,7 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 // parseAccountBalances parses ledger entries and DB data for a single account and returns balances.
 // Native XLM and trustlines come from DB, while SAC contracts use RPC.
 // This is used by the multi-account balance resolver.
-func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
+func parseAccountBalances(ctx context.Context, info *accountKeyInfo, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
 	var balances []graphql1.Balance
 
 	// Add native balance from DB

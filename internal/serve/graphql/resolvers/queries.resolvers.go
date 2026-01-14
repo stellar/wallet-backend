@@ -533,7 +533,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(ctx, info, ledgerEntriesByLedgerKeys, r.contractMetadataService, networkPassphrase, r.pool)
+			balances, parseErr := parseAccountBalances(ctx, info, r.contractMetadataService, networkPassphrase, r.pool)
 			if parseErr != nil {
 				errStr := fmt.Sprintf("parsing account balances: %v", parseErr)
 				result.Error = &errStr
