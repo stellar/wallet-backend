@@ -322,10 +322,10 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	}
 
 	// Separate into upserts and deletes
-	var upserts []wbdata.TrustlineFullData
-	var deletes []wbdata.TrustlineFullData
+	var upserts []wbdata.Trustline
+	var deletes []wbdata.Trustline
 	for key, change := range trustlineDataByKey {
-		fullData := wbdata.TrustlineFullData{
+		fullData := wbdata.Trustline{
 			AccountAddress:     change.AccountID,
 			AssetID:            key.trustlineID,
 			Balance:            change.Balance,

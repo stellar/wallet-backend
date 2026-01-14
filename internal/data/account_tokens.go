@@ -44,8 +44,8 @@ type TrustlineBalanceInfo struct {
 	LastModifiedLedger uint32
 }
 
-// TrustlineFullData contains all XDR fields for a trustline upsert/delete operation.
-type TrustlineFullData struct {
+// Trustline contains all XDR fields for a trustline upsert/delete operation.
+type Trustline struct {
 	AccountAddress     string
 	AssetID            uuid.UUID
 	Balance            int64
@@ -65,7 +65,7 @@ type AccountTokensModelInterface interface {
 
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
-	BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineFullData, deletes []TrustlineFullData) error
+	BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 	BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error
 
@@ -234,7 +234,7 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 // BatchUpsertTrustlinesWithFullData performs upserts and deletes with full XDR fields.
 // For upserts (ADD/UPDATE): inserts or updates all trustline fields.
 // For deletes (REMOVE): removes the trustline row.
-func (m *AccountTokensModel) BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineFullData, deletes []TrustlineFullData) error {
+func (m *AccountTokensModel) BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
