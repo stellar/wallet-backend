@@ -115,8 +115,12 @@ func TestAccountTokensModel_GetTrustlineAssetIDs(t *testing.T) {
 
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+		trustlines := make([]TrustlineWithBalance, len(assetIDs))
+		for i, id := range assetIDs {
+			trustlines[i] = TrustlineWithBalance{AssetID: id}
+		}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: trustlines}, 100)
 		})
 		require.NoError(t, err)
 
@@ -423,7 +427,7 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{}, 100)
 		})
 		require.NoError(t, err)
 	})
@@ -450,11 +454,21 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		ids1 := assetIDs[:3]
 		ids2 := assetIDs[3:]
 
+		// Convert to TrustlineWithBalance slices
+		tl1 := make([]TrustlineWithBalance, len(ids1))
+		for i, id := range ids1 {
+			tl1[i] = TrustlineWithBalance{AssetID: id}
+		}
+		tl2 := make([]TrustlineWithBalance, len(ids2))
+		for i, id := range ids2 {
+			tl2[i] = TrustlineWithBalance{AssetID: id}
+		}
+
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{
-				account1: ids1,
-				account2: ids2,
-			})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{
+				account1: tl1,
+				account2: tl2,
+			}, 100)
 		})
 		require.NoError(t, err)
 
@@ -490,15 +504,25 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
+		// Convert to TrustlineWithBalance slices
+		tl1 := make([]TrustlineWithBalance, 2)
+		for i, id := range assetIDs[:2] {
+			tl1[i] = TrustlineWithBalance{AssetID: id}
+		}
+		tl2 := make([]TrustlineWithBalance, 3)
+		for i, id := range assetIDs[1:4] {
+			tl2[i] = TrustlineWithBalance{AssetID: id}
+		}
+
 		// First insert succeeds
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs[:2]})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: tl1}, 100)
 		})
 		require.NoError(t, err)
 
 		// Second insert with overlap fails (COPY doesn't support ON CONFLICT)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]uuid.UUID{accountAddress: assetIDs[1:4]})
+			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: tl2}, 100)
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "duplicate key")

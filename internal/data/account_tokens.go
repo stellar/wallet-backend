@@ -27,10 +27,14 @@ type BalanceUpdate struct {
 	Delta          int64
 }
 
-// TrustlineWithBalance represents a trustline with its balance for bulk insertion.
+// TrustlineWithBalance represents a trustline with all XDR fields for bulk insertion.
 type TrustlineWithBalance struct {
-	AssetID uuid.UUID
-	Balance int64
+	AssetID            uuid.UUID
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
 }
 
 // TrustlineBalanceInfo represents a trustline with balance info for API queries.
@@ -38,6 +42,18 @@ type TrustlineBalanceInfo struct {
 	AssetID            uuid.UUID
 	Balance            int64
 	LastModifiedLedger uint32
+}
+
+// TrustlineFullData contains all XDR fields for a trustline upsert/delete operation.
+type TrustlineFullData struct {
+	AccountAddress     string
+	AssetID            uuid.UUID
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
+	LedgerNumber       uint32
 }
 
 // AccountTokensModelInterface defines the interface for account token operations.
@@ -49,6 +65,7 @@ type AccountTokensModelInterface interface {
 
 	// Trustline and contract tokens write operations (for live ingestion)
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
+	BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineFullData, deletes []TrustlineFullData) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 	BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error
 
@@ -214,6 +231,71 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 	return nil
 }
 
+// BatchUpsertTrustlinesWithFullData performs upserts and deletes with full XDR fields.
+// For upserts (ADD/UPDATE): inserts or updates all trustline fields.
+// For deletes (REMOVE): removes the trustline row.
+func (m *AccountTokensModel) BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineFullData, deletes []TrustlineFullData) error {
+	if len(upserts) == 0 && len(deletes) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	batch := &pgx.Batch{}
+
+	// Upsert query: insert or update all fields
+	const upsertQuery = `
+		INSERT INTO account_trustlines (
+			account_address, asset_id, balance, trust_limit,
+			buying_liabilities, selling_liabilities, flags, last_modified_ledger
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (account_address, asset_id) DO UPDATE SET
+			balance = EXCLUDED.balance,
+			trust_limit = EXCLUDED.trust_limit,
+			buying_liabilities = EXCLUDED.buying_liabilities,
+			selling_liabilities = EXCLUDED.selling_liabilities,
+			flags = EXCLUDED.flags,
+			last_modified_ledger = EXCLUDED.last_modified_ledger`
+
+	for _, tl := range upserts {
+		batch.Queue(upsertQuery,
+			tl.AccountAddress,
+			tl.AssetID,
+			tl.Balance,
+			tl.Limit,
+			tl.BuyingLiabilities,
+			tl.SellingLiabilities,
+			tl.Flags,
+			tl.LedgerNumber,
+		)
+	}
+
+	// Delete query
+	const deleteQuery = `DELETE FROM account_trustlines WHERE account_address = $1 AND asset_id = $2`
+
+	for _, tl := range deletes {
+		batch.Queue(deleteQuery, tl.AccountAddress, tl.AssetID)
+	}
+
+	if batch.Len() == 0 {
+		return nil
+	}
+
+	br := dbTx.SendBatch(ctx, batch)
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("upserting trustlines with full data: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing trustline full data batch: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsertTrustlinesWithFullData", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsertTrustlinesWithFullData", "account_trustlines")
+	return nil
+}
+
 // BatchAddContracts adds contract IDs for multiple accounts (contracts are never removed).
 func (m *AccountTokensModel) BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	if len(contractsByAccount) == 0 {
@@ -263,18 +345,36 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 
 	start := time.Now()
 
-	// Build rows for COPY (account_address, asset_id, balance, last_modified_ledger)
+	// Build rows for COPY with all trustline fields
 	var rows [][]any
 	for addr, entries := range trustlinesByAccount {
 		for _, entry := range entries {
-			rows = append(rows, []any{addr, entry.AssetID, entry.Balance, ledger})
+			rows = append(rows, []any{
+				addr,
+				entry.AssetID,
+				entry.Balance,
+				ledger,
+				entry.Limit,
+				entry.BuyingLiabilities,
+				entry.SellingLiabilities,
+				entry.Flags,
+			})
 		}
 	}
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"account_trustlines"},
-		[]string{"account_address", "asset_id", "balance", "last_modified_ledger"},
+		[]string{
+			"account_address",
+			"asset_id",
+			"balance",
+			"last_modified_ledger",
+			"trust_limit",
+			"buying_liabilities",
+			"selling_liabilities",
+			"flags",
+		},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
