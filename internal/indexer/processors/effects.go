@@ -807,25 +807,3 @@ func (p *EffectsProcessor) getPrevLedgerEntryState(effect *EffectOutput, ledgerE
 	}
 	return nil
 }
-
-// getPostLedgerEntryState gets the post (current) ledger entry state for the specified ledger entry type.
-func (p *EffectsProcessor) getPostLedgerEntryState(effect *EffectOutput, ledgerEntryType xdr.LedgerEntryType, changes []ingest.Change) *xdr.LedgerEntry {
-	for _, change := range changes {
-		if change.Type != ledgerEntryType {
-			continue
-		}
-		if change.Post != nil {
-			afterEntry := change.Post
-			if afterEntry != nil {
-				if ledgerEntryType == xdr.LedgerEntryTypeAccount {
-					afterAccount := afterEntry.Data.MustAccount()
-					if afterAccount.AccountId.Address() == effect.Address {
-						return afterEntry
-					}
-				}
-				return afterEntry
-			}
-		}
-	}
-	return nil
-}

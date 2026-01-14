@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -63,7 +64,7 @@ func (p *TrustLinesProcessor) ProcessOperation(ctx context.Context, opWrapper *T
 
 // processTrustlineChange converts a ledger change to a TrustlineChange.
 // Returns (change, skip, error) where skip=true means the change should be ignored.
-func (p *TrustLinesProcessor) processTrustlineChange(change Change, opWrapper *TransactionOperationWrapper) (types.TrustlineChange, bool, error) {
+func (p *TrustLinesProcessor) processTrustlineChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.TrustlineChange, bool, error) {
 	var tlChange types.TrustlineChange
 
 	// Determine operation type and get the relevant entry
@@ -93,10 +94,7 @@ func (p *TrustLinesProcessor) processTrustlineChange(change Change, opWrapper *T
 	}
 
 	// Extract asset code and issuer
-	asset, err := trustLine.Asset.ToAsset()
-	if err != nil {
-		return tlChange, false, fmt.Errorf("converting trustline asset: %w", err)
-	}
+	asset := trustLine.Asset.ToAsset()
 
 	var assetCode, assetIssuer string
 	if err := asset.Extract(nil, &assetCode, &assetIssuer); err != nil {
