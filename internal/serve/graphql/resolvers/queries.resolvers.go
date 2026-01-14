@@ -173,12 +173,12 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	networkPassphrase := r.rpcService.NetworkPassphrase()
 	var balances []graphql1.Balance
 
-	// Build ledger keys for RPC (native XLM and SAC contracts only, trustlines come from DB)
+	// Build ledger keys for RPC (SAC contracts only, native XLM and trustlines come from DB)
 	ledgerKeys := make([]string, 0)
 
 	if !utils.IsContractAddress(address) {
-		// Add account ledger key for native XLM balance
-		accountKey, err := utils.GetAccountLedgerKey(address)
+		// Fetch native XLM balance from DB
+		nativeBalance, err := r.tokenCacheReader.GetNativeBalance(ctx, address)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -187,7 +187,18 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				},
 			}
 		}
-		ledgerKeys = append(ledgerKeys, accountKey)
+		if nativeBalance != nil {
+			nativeBalanceResult, err := buildNativeBalanceFromDB(nativeBalance, networkPassphrase)
+			if err != nil {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgBalancesFetchFailed,
+					Extensions: map[string]interface{}{
+						"code": "INTERNAL_ERROR",
+					},
+				}
+			}
+			balances = append(balances, nativeBalanceResult)
+		}
 
 		// Fetch trustlines from DB (no RPC needed)
 		trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
@@ -250,7 +261,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		contractsByContractID[contract.ContractID] = contract
 	}
 
-	// Call RPC to get ledger entries (native XLM and SAC contracts only)
+	// Call RPC to get ledger entries (SAC contracts only, native XLM comes from DB)
 	if len(ledgerKeys) > 0 {
 		ledgerEntriesResult, err := r.rpcService.GetLedgerEntries(ledgerKeys)
 		if err != nil {
@@ -276,19 +287,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 			//exhaustive:ignore
 			switch ledgerEntryData.Type {
-			case xdr.LedgerEntryTypeAccount:
-				accountEntry := ledgerEntryData.MustAccount()
-				nativeBalance, err := parseNativeBalance(accountEntry, networkPassphrase)
-				if err != nil {
-					return nil, &gqlerror.Error{
-						Message: ErrMsgBalancesFetchFailed,
-						Extensions: map[string]interface{}{
-							"code": "INTERNAL_ERROR",
-						},
-					}
-				}
-				balances = append(balances, nativeBalance)
-
 			case xdr.LedgerEntryTypeContractData:
 				contractDataEntry := ledgerEntryData.MustContractData()
 
@@ -405,8 +403,16 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				sep41ContractIDs: make([]string, 0),
 			}
 
-			// Get trustlines (skip for contract addresses)
+			// Get native balance and trustlines (skip for contract addresses)
 			if !info.isContract {
+				nativeBalance, err := r.tokenCacheReader.GetNativeBalance(ctx, address)
+				if err != nil {
+					info.collectionErr = fmt.Errorf("getting native balance: %w", err)
+					accountInfos[index] = info
+					return
+				}
+				info.nativeBalance = nativeBalance
+
 				trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
@@ -442,22 +448,11 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
-	// Build ledger keys for RPC (native XLM and SAC contracts only, trustlines come from DB)
+	// Build ledger keys for RPC (SAC contracts only, native XLM and trustlines come from DB)
 	ledgerKeys := make([]string, 0)
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
-		}
-
-		// Build ledger keys for native XLM (trustlines are already fetched from DB)
-		if !info.isContract {
-			accountKey, err := utils.GetAccountLedgerKey(info.address)
-			if err != nil {
-				info.collectionErr = fmt.Errorf("creating account ledger key: %w", err)
-				continue
-			}
-			ledgerKeys = append(ledgerKeys, accountKey)
-			info.ledgerKeys = append(info.ledgerKeys, accountKey)
 		}
 
 		// Build ledger keys for SAC contracts (SEP-41 uses simulation)
