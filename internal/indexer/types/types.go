@@ -326,16 +326,10 @@ type StateChange struct {
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string
+	// code:issuer formatted asset string (used for state change history)
 	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
-	// Trustline XDR fields (internal only, for trustline state changes):
-	TrustlineBalance            int64  `json:"-"`
-	TrustlineLimitValue         int64  `json:"-"`
-	TrustlineBuyingLiabilities  int64  `json:"-"`
-	TrustlineSellingLiabilities int64  `json:"-"`
-	TrustlineFlags              uint32 `json:"-"`
 }
 
 type StateChangeWithCursor struct {
