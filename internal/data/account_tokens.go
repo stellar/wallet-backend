@@ -14,19 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// TrustlineChanges represents add/remove operations for an account's trustlines.
-type TrustlineChanges struct {
-	AddIDs    []uuid.UUID
-	RemoveIDs []uuid.UUID
-}
-
-// BalanceUpdate represents a balance delta for a single trustline.
-type BalanceUpdate struct {
-	AccountAddress string
-	AssetID        uuid.UUID
-	Delta          int64
-}
-
 // Trustline contains all fields for a trustline including asset metadata from JOIN.
 type Trustline struct {
 	AccountAddress     string
@@ -288,43 +275,5 @@ func (m *AccountTokensModel) BatchInsertContractTokens(ctx context.Context, dbTx
 
 	m.MetricsService.ObserveDBQueryDuration("BatchInsertContractTokens", "account_contracts", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BatchInsertContractTokens", "account_contracts")
-	return nil
-}
-
-// BatchUpdateBalances applies balance deltas to trustlines using a single batched query.
-func (m *AccountTokensModel) BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	// Flatten to parallel arrays for UNNEST
-	addresses := make([]string, len(updates))
-	assetIDs := make([]uuid.UUID, len(updates))
-	deltas := make([]int64, len(updates))
-	for i, u := range updates {
-		addresses[i] = u.AccountAddress
-		assetIDs[i] = u.AssetID
-		deltas[i] = u.Delta
-	}
-
-	// Use UNNEST to batch all updates in a single query
-	const query = `
-		UPDATE account_trustlines AS t
-		SET balance = t.balance + u.delta,
-		    last_modified_ledger = $4
-		FROM (SELECT unnest($1::text[]) AS account_address,
-		             unnest($2::uuid[]) AS asset_id,
-		             unnest($3::bigint[]) AS delta) AS u
-		WHERE t.account_address = u.account_address AND t.asset_id = u.asset_id`
-
-	_, err := dbTx.Exec(ctx, query, addresses, assetIDs, deltas, ledger)
-	if err != nil {
-		return fmt.Errorf("batch updating trustline balances: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchUpdateBalances", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpdateBalances", "account_trustlines")
 	return nil
 }

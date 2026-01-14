@@ -500,4 +500,3 @@ func TestAccountTokensModel_BatchInsertTrustlines(t *testing.T) {
 		cleanUpDB()
 	})
 }
-
