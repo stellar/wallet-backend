@@ -125,18 +125,20 @@ type TokenCacheWriter interface {
 	// the metadata storage to ensure atomic initialization.
 	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
 
-	// ProcessTokenChanges applies trustline and contract balance changes to PostgreSQL.
+	// ProcessTokenChanges applies trustline, contract, and SAC balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
 	//
-	// Storage semantics differ between trustlines and contracts:
+	// Storage semantics differ between token types:
 	// - Trustlines: Can be added or removed. When all trustlines for an account are removed,
 	//   the account's entry is deleted from PostgreSQL.
 	// - Contracts: Only SAC/SEP-41 contracts are tracked (contracts accumulate). Unknown contracts
 	//   are skipped. Contract balance entries persist in the ledger even when balance is zero,
 	//   so we track all contracts an account has ever held a balance in.
+	// - SAC Balances: For contract addresses (C...) only. Stores absolute balance values with
+	//   authorized and clawback flags. G-addresses use trustlines for SAC balances.
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange, sacBalanceChanges []types.SACBalanceChange) error
 }
 
 // Verify interface compliance at compile time
@@ -266,11 +268,13 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
 // (not SAC/SEP-41) are silently skipped.
+// For SAC balances (contract addresses only): handles ADD, UPDATE, and REMOVE operations
+// with absolute balance values and authorization flags.
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
-	if len(trustlineChanges) == 0 && len(contractChanges) == 0 && len(accountChanges) == 0 {
+func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange, sacBalanceChanges []types.SACBalanceChange) error {
+	if len(trustlineChanges) == 0 && len(contractChanges) == 0 && len(accountChanges) == 0 && len(sacBalanceChanges) == 0 {
 		return nil
 	}
 
@@ -404,6 +408,61 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 		if len(nativeUpserts) > 0 || len(nativeDeletes) > 0 {
 			if err := s.accountTokensModel.BatchUpsertNativeBalances(ctx, dbTx, nativeUpserts, nativeDeletes); err != nil {
 				return fmt.Errorf("upserting native balances: %w", err)
+			}
+		}
+	}
+
+	// Process SAC balance changes (for contract addresses holding SAC tokens)
+	if len(sacBalanceChanges) > 0 {
+		sort.Slice(sacBalanceChanges, func(i, j int) bool {
+			return sacBalanceChanges[i].OperationID < sacBalanceChanges[j].OperationID
+		})
+
+		// Deduplicate: last change for each (account, contract) wins
+		type sacKey struct {
+			accountID  string
+			contractID string
+		}
+		sacDataByKey := make(map[sacKey]*types.SACBalanceChange)
+		for i := range sacBalanceChanges {
+			change := &sacBalanceChanges[i]
+			key := sacKey{accountID: change.AccountID, contractID: change.ContractID}
+
+			switch change.Operation {
+			case types.SACBalanceOpAdd, types.SACBalanceOpUpdate:
+				sacDataByKey[key] = change
+			case types.SACBalanceOpRemove:
+				// If previous was ADD/UPDATE, net effect is no-op
+				if prev, exists := sacDataByKey[key]; exists && (prev.Operation == types.SACBalanceOpAdd || prev.Operation == types.SACBalanceOpUpdate) {
+					delete(sacDataByKey, key)
+				} else {
+					sacDataByKey[key] = change
+				}
+			}
+		}
+
+		var sacUpserts []wbdata.SACBalance
+		var sacDeletes []wbdata.SACBalance
+		for _, change := range sacDataByKey {
+			contractID := wbdata.DeterministicContractID(change.ContractID)
+			sacBal := wbdata.SACBalance{
+				AccountAddress:    change.AccountID,
+				ContractID:        contractID,
+				Balance:           change.Balance,
+				IsAuthorized:      change.IsAuthorized,
+				IsClawbackEnabled: change.IsClawbackEnabled,
+				LedgerNumber:      change.LedgerNumber,
+			}
+			if change.Operation == types.SACBalanceOpRemove {
+				sacDeletes = append(sacDeletes, sacBal)
+			} else {
+				sacUpserts = append(sacUpserts, sacBal)
+			}
+		}
+
+		if len(sacUpserts) > 0 || len(sacDeletes) > 0 {
+			if err := s.accountTokensModel.BatchUpsertSACBalances(ctx, dbTx, sacUpserts, sacDeletes); err != nil {
+				return fmt.Errorf("upserting SAC balances: %w", err)
 			}
 		}
 	}

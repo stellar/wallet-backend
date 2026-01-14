@@ -2230,10 +2230,11 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
 		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // trustlineAssetIDMap
-			mock.Anything, // contractIDMap
+			mock.Anything, // dbTx
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
+			mock.Anything, // accountChanges
+			mock.Anything, // sacBalanceChanges
 		).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2320,10 +2321,11 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
 		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // trustlineAssetIDMap
-			mock.Anything, // contractIDMap
+			mock.Anything, // dbTx
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
+			mock.Anything, // accountChanges
+			mock.Anything, // sacBalanceChanges
 		).Return(fmt.Errorf("redis connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2414,8 +2416,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
+			mock.Anything,
 		).Return(fmt.Errorf("transient error")).Once()
 		mockTokenCacheWriter.On("ProcessTokenChanges",
+			mock.Anything,
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
@@ -2499,8 +2503,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges:  []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges is called with (ctx, dbTx, trustlineChanges, contractChanges)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
+				// ProcessTokenChanges is called with (ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, []types.ContractChange{}, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2531,7 +2535,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 						return false
 					}
 					return true
-				}), mock.Anything).Return(nil)
+				}), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2562,7 +2566,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 						return false
 					}
 					return true
-				})).Return(nil)
+				}), mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2576,7 +2580,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				// ProcessTokenChanges is called after trustline assets are inserted to DB
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					return len(changes) == 1 && changes[0].Asset == "USDC:GISSUER"
-				}), mock.Anything).Return(nil)
+				}), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2590,7 +2594,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// Unknown contracts don't trigger FetchMetadata - only ProcessTokenChanges is called
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2604,7 +2608,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges receives sorted trustline and contract changes
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2615,7 +2619,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -2982,7 +2986,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			name: "successful_catchup_processes_token_changes",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges is the only mock needed on tokenCacheWriter
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3000,7 +3004,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges fails
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3019,7 +3023,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 			name: "cursor_not_updated_if_token_processing_fails",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges fails - cursor should not be updated
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {

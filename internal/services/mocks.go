@@ -184,8 +184,8 @@ func (m *TokenCacheWriterMock) EnsureContractTokensExist(ctx context.Context, db
 	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
-	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges, accountChanges)
+func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange, sacBalanceChanges []types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges)
 	return args.Error(0)
 }
 

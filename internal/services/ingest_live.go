@@ -180,12 +180,13 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance)
+			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance, SAC balance)
 			accountChanges := buffer.GetAccountChanges()
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges, accountChanges); txErr != nil {
+			sacBalanceChanges := buffer.GetSACBalanceChanges()
+			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges, accountChanges, sacBalanceChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges), len(accountChanges))
+			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account, %d SAC balance changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges), len(accountChanges), len(sacBalanceChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

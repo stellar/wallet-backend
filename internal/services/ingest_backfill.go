@@ -53,9 +53,10 @@ type BackfillResult struct {
 // BatchTokenChanges holds token data collected from a backfill batch for catchup mode.
 // This data is processed after all parallel batches complete to ensure proper ordering.
 type BatchTokenChanges struct {
-	TrustlineChanges []types.TrustlineChange
-	ContractChanges  []types.ContractChange
-	AccountChanges   []types.AccountChange
+	TrustlineChanges  []types.TrustlineChange
+	ContractChanges   []types.ContractChange
+	AccountChanges    []types.AccountChange
+	SACBalanceChanges []types.SACBalanceChange
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -131,16 +132,18 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		var allTrustlineChanges []types.TrustlineChange
 		var allContractChanges []types.ContractChange
 		var allAccountChanges []types.AccountChange
+		var allSACBalanceChanges []types.SACBalanceChange
 		for _, result := range results {
 			if result.TokenChanges != nil {
 				allTrustlineChanges = append(allTrustlineChanges, result.TokenChanges.TrustlineChanges...)
 				allContractChanges = append(allContractChanges, result.TokenChanges.ContractChanges...)
 				allAccountChanges = append(allAccountChanges, result.TokenChanges.AccountChanges...)
+				allSACBalanceChanges = append(allSACBalanceChanges, result.TokenChanges.SACBalanceChanges...)
 			}
 		}
 
 		// Process aggregated token changes (token cache updates)
-		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges, allAccountChanges); err != nil {
+		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges, allAccountChanges, allSACBalanceChanges); err != nil {
 			return fmt.Errorf("processing token changes: %w", err)
 		}
 
@@ -337,6 +340,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
 				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
 				tokenChanges.AccountChanges = append(tokenChanges.AccountChanges, buffer.GetAccountChanges()...)
+				tokenChanges.SACBalanceChanges = append(tokenChanges.SACBalanceChanges, buffer.GetSACBalanceChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
@@ -454,6 +458,7 @@ func (m *ingestService) processTokenChanges(
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
 	accountChanges []types.AccountChange,
+	sacBalanceChanges []types.SACBalanceChange,
 ) error {
 	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
 	sort.Slice(trustlineChanges, func(i, j int) bool {
@@ -473,6 +478,12 @@ func (m *ingestService) processTokenChanges(
 			return accountChanges[i].LedgerNumber < accountChanges[j].LedgerNumber
 		}
 		return accountChanges[i].OperationID < accountChanges[j].OperationID
+	})
+	sort.Slice(sacBalanceChanges, func(i, j int) bool {
+		if sacBalanceChanges[i].LedgerNumber != sacBalanceChanges[j].LedgerNumber {
+			return sacBalanceChanges[i].LedgerNumber < sacBalanceChanges[j].LedgerNumber
+		}
+		return sacBalanceChanges[i].OperationID < sacBalanceChanges[j].OperationID
 	})
 
 	// Extract unique trustline assets from changes
@@ -504,7 +515,7 @@ func (m *ingestService) processTokenChanges(
 		}
 
 		// 3. Apply token changes to PostgreSQL
-		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
+		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
 			return fmt.Errorf("processing token changes: %w", txErr)
 		}
 
@@ -514,8 +525,8 @@ func (m *ingestService) processTokenChanges(
 		return fmt.Errorf("processing token changes in transaction: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Processed token changes: %d trustline changes, %d contract changes",
-		len(trustlineChanges), len(contractChanges))
+	log.Ctx(ctx).Infof("Processed token changes: %d trustline, %d contract, %d SAC balance changes",
+		len(trustlineChanges), len(contractChanges), len(sacBalanceChanges))
 
 	return nil
 }
