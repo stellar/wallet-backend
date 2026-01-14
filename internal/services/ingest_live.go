@@ -159,7 +159,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
 			}
 			if len(contracts) > 0 {
-				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
 				}
 			}
