@@ -55,6 +55,7 @@ type BackfillResult struct {
 type BatchTokenChanges struct {
 	TrustlineChanges []types.TrustlineChange
 	ContractChanges  []types.ContractChange
+	AccountChanges   []types.AccountChange
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -129,15 +130,17 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		// Aggregate token changes from all batch results
 		var allTrustlineChanges []types.TrustlineChange
 		var allContractChanges []types.ContractChange
+		var allAccountChanges []types.AccountChange
 		for _, result := range results {
 			if result.TokenChanges != nil {
 				allTrustlineChanges = append(allTrustlineChanges, result.TokenChanges.TrustlineChanges...)
 				allContractChanges = append(allContractChanges, result.TokenChanges.ContractChanges...)
+				allAccountChanges = append(allAccountChanges, result.TokenChanges.AccountChanges...)
 			}
 		}
 
 		// Process aggregated token changes (token cache updates)
-		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges); err != nil {
+		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges, allAccountChanges); err != nil {
 			return fmt.Errorf("processing token changes: %w", err)
 		}
 
@@ -333,6 +336,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if tokenChanges != nil {
 				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
 				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
+				tokenChanges.AccountChanges = append(tokenChanges.AccountChanges, buffer.GetAccountChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
