@@ -53,10 +53,7 @@ func (p *SACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *
 			continue
 		}
 
-		sacChange, skip, err := p.processSACBalanceChange(change, opWrapper)
-		if err != nil {
-			return nil, err
-		}
+		sacChange, skip := p.processSACBalanceChange(change, opWrapper)
 		if skip {
 			continue
 		}
@@ -68,8 +65,8 @@ func (p *SACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *
 }
 
 // processSACBalanceChange converts a ledger change to a SACBalanceChange.
-// Returns (change, skip, error) where skip=true means the change should be ignored.
-func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.SACBalanceChange, bool, error) {
+// Returns (change, skip) where skip=true means the change should be ignored.
+func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.SACBalanceChange, bool) {
 	var sacChange types.SACBalanceChange
 
 	// Determine operation type and get the relevant entry
@@ -88,7 +85,7 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 		sacChange.Operation = types.SACBalanceOpRemove
 		entry = change.Pre
 	default:
-		return sacChange, true, nil // Invalid change, skip
+		return sacChange, true // Invalid change, skip
 	}
 
 	contractData := entry.Data.MustContractData()
@@ -96,24 +93,24 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 	// Extract contract ID
 	contractIDBytes, ok := contractData.Contract.GetContractId()
 	if !ok {
-		return sacChange, true, nil // No contract ID, skip
+		return sacChange, true // No contract ID, skip
 	}
 	contractID := strkey.MustEncode(strkey.VersionByteContract, contractIDBytes[:])
 
 	// Check if this is a SAC contract (not SEP-41)
 	if !p.isSACContract(*entry) {
-		return sacChange, true, nil // Not a SAC contract, skip
+		return sacChange, true // Not a SAC contract, skip
 	}
 
 	// Check if this is a balance entry and extract holder address
 	holderAddress, ok := p.extractHolderFromBalanceKey(contractData.Key)
 	if !ok {
-		return sacChange, true, nil // Not a balance entry, skip
+		return sacChange, true // Not a balance entry, skip
 	}
 
 	// Only process contract addresses (C...) - G-addresses use trustlines
 	if !isContractAddress(holderAddress) {
-		return sacChange, true, nil // G-address, skip (stored in trustlines)
+		return sacChange, true // G-address, skip (stored in trustlines)
 	}
 
 	// For REMOVE operations, we don't have balance data
@@ -125,13 +122,13 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 		sacChange.Balance = "0"
 		sacChange.IsAuthorized = false
 		sacChange.IsClawbackEnabled = false
-		return sacChange, false, nil
+		return sacChange, false
 	}
 
 	// Extract balance value from the SAC balance map
 	balance, authorized, clawback, err := p.extractSACBalanceValue(contractData.Val)
 	if err != nil {
-		return sacChange, true, nil // Invalid balance structure, skip
+		return sacChange, true // Invalid balance structure, skip
 	}
 
 	sacChange.AccountID = holderAddress
@@ -142,7 +139,7 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 	sacChange.IsAuthorized = authorized
 	sacChange.IsClawbackEnabled = clawback
 
-	return sacChange, false, nil
+	return sacChange, false
 }
 
 // isSACContract checks if the ledger entry is for a Stellar Asset Contract.
