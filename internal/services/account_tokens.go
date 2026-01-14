@@ -101,23 +101,12 @@ func (b *trustlineBatch) reset() {
 	b.count = 0
 }
 
-// TrustlineWithBalanceInfo combines asset metadata with balance info.
-type TrustlineWithBalanceInfo struct {
-	Asset              *wbdata.TrustlineAsset
-	Balance            int64
-	LastModifiedLedger uint32
-}
-
 // TokenCacheReader provides read-only access to cached account tokens.
 // Used by the API server to query token holdings.
 type TokenCacheReader interface {
-	// GetAccountTrustlines retrieves all classic trustline assets for an account.
-	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
-	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error)
-
-	// GetAccountTrustlinesWithBalances retrieves trustlines with balance info for an account.
-	// Returns asset metadata along with balance and last modified ledger.
-	GetAccountTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]*TrustlineWithBalanceInfo, error)
+	// GetAccountTrustlines retrieves all trustlines for an account with full data.
+	// Returns trustlines with code, issuer, balance, limit, liabilities, flags, and ledger number.
+	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]wbdata.Trustline, error)
 
 	// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error)
@@ -191,15 +180,13 @@ func NewTokenCacheWriter(
 // NewTokenCacheReader creates a TokenCacheReader for API queries.
 func NewTokenCacheReader(
 	dbPool db.ConnectionPool,
-	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	accountTokensModel wbdata.AccountTokensModelInterface,
 	contractModel wbdata.ContractModelInterface,
 ) TokenCacheReader {
 	return &tokenCacheService{
-		db:                  dbPool,
-		trustlineAssetModel: trustlineAssetModel,
-		accountTokensModel:  accountTokensModel,
-		contractModel:       contractModel,
+		db:                 dbPool,
+		accountTokensModel: accountTokensModel,
+		contractModel:      contractModel,
 	}
 }
 
@@ -311,8 +298,8 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 			// Keep latest ADD/UPDATE data
 			trustlineDataByKey[key] = change
 		case types.TrustlineOpRemove:
-			// If previous was ADD in same ledger, net effect is no-op
-			if prev, exists := trustlineDataByKey[key]; exists && prev.Operation == types.TrustlineOpAdd {
+			// If previous was ADD/UPDATE in same ledger, net effect is no-op
+			if prev, exists := trustlineDataByKey[key]; exists && (prev.Operation == types.TrustlineOpAdd || prev.Operation == types.TrustlineOpUpdate) {
 				delete(trustlineDataByKey, key)
 			} else {
 				// Otherwise, mark for deletion
@@ -376,79 +363,18 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 }
 
 // GetAccountTrustlines retrieves all trustlines for an account from PostgreSQL.
-// Returns asset objects after resolving from internal IDs.
-func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*wbdata.TrustlineAsset, error) {
+// Returns trustlines with full data including code, issuer, balance, limit, liabilities, and flags.
+func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]wbdata.Trustline, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	// Get asset IDs from PostgreSQL
-	ids, err := s.accountTokensModel.GetTrustlineAssetIDs(ctx, accountAddress)
+	trustlines, err := s.accountTokensModel.GetTrustlines(ctx, accountAddress)
 	if err != nil {
-		return nil, fmt.Errorf("getting trustline asset IDs for account %s: %w", accountAddress, err)
-	}
-	if len(ids) == 0 {
-		return []*wbdata.TrustlineAsset{}, nil
+		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
 	}
 
-	// Resolve IDs to asset objects from PostgreSQL
-	assets, err := s.trustlineAssetModel.BatchGetByIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("resolving asset IDs: %w", err)
-	}
-
-	return assets, nil
-}
-
-// GetAccountTrustlinesWithBalances retrieves trustlines with balance info for an account.
-// Returns asset metadata along with balance and last modified ledger.
-func (s *tokenCacheService) GetAccountTrustlinesWithBalances(ctx context.Context, accountAddress string) ([]*TrustlineWithBalanceInfo, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	// Get trustlines with balance info from PostgreSQL
-	balanceInfos, err := s.accountTokensModel.GetTrustlinesWithBalances(ctx, accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("getting trustlines with balances for account %s: %w", accountAddress, err)
-	}
-	if len(balanceInfos) == 0 {
-		return []*TrustlineWithBalanceInfo{}, nil
-	}
-
-	// Extract asset IDs for batch lookup
-	ids := make([]uuid.UUID, len(balanceInfos))
-	for i, info := range balanceInfos {
-		ids[i] = info.AssetID
-	}
-
-	// Resolve IDs to asset objects from PostgreSQL
-	assets, err := s.trustlineAssetModel.BatchGetByIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("resolving asset IDs: %w", err)
-	}
-
-	// Create a map for quick asset lookup by ID
-	assetByID := make(map[uuid.UUID]*wbdata.TrustlineAsset, len(assets))
-	for _, asset := range assets {
-		assetByID[asset.ID] = asset
-	}
-
-	// Combine asset metadata with balance info
-	result := make([]*TrustlineWithBalanceInfo, 0, len(balanceInfos))
-	for _, info := range balanceInfos {
-		asset, ok := assetByID[info.AssetID]
-		if !ok {
-			continue // Skip if asset not found (shouldn't happen)
-		}
-		result = append(result, &TrustlineWithBalanceInfo{
-			Asset:              asset,
-			Balance:            info.Balance,
-			LastModifiedLedger: info.LastModifiedLedger,
-		})
-	}
-
-	return result, nil
+	return trustlines, nil
 }
 
 // GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.
