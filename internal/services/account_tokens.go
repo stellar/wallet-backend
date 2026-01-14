@@ -347,7 +347,7 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	// Execute all changes using the provided transaction
 	// Batch upsert trustlines with full XDR data
 	if len(upserts) > 0 || len(deletes) > 0 {
-		if err := s.accountTokensModel.BatchUpsertTrustlinesWithFullData(ctx, dbTx, upserts, deletes); err != nil {
+		if err := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting trustlines with full data: %w", err)
 		}
 	}

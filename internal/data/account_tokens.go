@@ -58,8 +58,7 @@ type AccountTokensModelInterface interface {
 	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
-	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
-	BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
+	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
 
 	// Bulk operations (for initial population)
@@ -150,57 +149,10 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	return contractIDs, nil
 }
 
-// BatchUpsertTrustlines adds/removes trustlines for multiple accounts.
-func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error {
-	if len(changes) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-	batch := &pgx.Batch{}
-
-	const insertQuery = `
-		INSERT INTO account_trustlines (account_address, asset_id)
-		SELECT $1, unnest($2::uuid[])
-		ON CONFLICT DO NOTHING`
-
-	const deleteQuery = `
-		DELETE FROM account_trustlines
-		WHERE account_address = $1 AND asset_id = ANY($2::uuid[])`
-
-	for accountAddress, change := range changes {
-		if len(change.AddIDs) > 0 {
-			batch.Queue(insertQuery, accountAddress, change.AddIDs)
-		}
-		if len(change.RemoveIDs) > 0 {
-			batch.Queue(deleteQuery, accountAddress, change.RemoveIDs)
-		}
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
-			return fmt.Errorf("upserting trustlines: %w", err)
-		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("closing trustline batch: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsertTrustlines", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsertTrustlines", "account_trustlines")
-	return nil
-}
-
-// BatchUpsertTrustlinesWithFullData performs upserts and deletes with full XDR fields.
+// BatchUpsertTrustlines performs upserts and deletes with full XDR fields.
 // For upserts (ADD/UPDATE): inserts or updates all trustline fields.
 // For deletes (REMOVE): removes the trustline row.
-func (m *AccountTokensModel) BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error {
+func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
