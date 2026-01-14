@@ -195,36 +195,21 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Process state changes to extract trustline and contract changes
+	// Process trustline changes from ledger changes (captures ALL trustline modifications including payments)
+	for _, opParticipants := range opsParticipants {
+		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if tlErr != nil {
+			return 0, fmt.Errorf("processing trustline changes: %w", tlErr)
+		}
+		for _, tlChange := range trustlineChanges {
+			buffer.PushTrustlineChange(tlChange)
+		}
+	}
+
+	// Process state changes to extract contract changes
 	for _, stateChange := range stateChanges {
 		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryTrustline:
-			// We dont track liquidity pool trustlines for balances
-			if stateChange.TrustlineAsset == "" {
-				continue
-			}
-			trustlineChange := types.TrustlineChange{
-				AccountID:          stateChange.AccountID,
-				OperationID:        stateChange.OperationID,
-				Asset:              stateChange.TrustlineAsset,
-				LedgerNumber:       tx.Ledger.LedgerSequence(),
-				Balance:            stateChange.TrustlineBalance,
-				Limit:              stateChange.TrustlineLimitValue,
-				BuyingLiabilities:  stateChange.TrustlineBuyingLiabilities,
-				SellingLiabilities: stateChange.TrustlineSellingLiabilities,
-				Flags:              stateChange.TrustlineFlags,
-			}
-			//exhaustive:ignore
-			switch *stateChange.StateChangeReason {
-			case types.StateChangeReasonAdd:
-				trustlineChange.Operation = types.TrustlineOpAdd
-			case types.StateChangeReasonRemove:
-				trustlineChange.Operation = types.TrustlineOpRemove
-			case types.StateChangeReasonUpdate:
-				trustlineChange.Operation = types.TrustlineOpUpdate
-			}
-			buffer.PushTrustlineChange(trustlineChange)
 		case types.StateChangeCategoryBalance:
 			// Only store contract changes when:
 			// - Account is C-address, OR
