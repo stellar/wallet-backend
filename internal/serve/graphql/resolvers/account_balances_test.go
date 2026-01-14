@@ -92,50 +92,6 @@ func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntr
 	}
 }
 
-// createTrustlineLedgerEntry creates a base64 encoded trustline ledger entry
-func createTrustlineLedgerEntry(accountAddress, assetCode, assetIssuer string, balance, limit int64, flags uint32, buyingLiabilities, sellingLiabilities int64) entities.LedgerEntryResult { //nolint:unparam
-	accountID := xdr.MustAddress(accountAddress)
-	asset := xdr.MustNewCreditAsset(assetCode, assetIssuer)
-	trustlineAsset := asset.ToTrustLineAsset()
-
-	trustlineEntry := xdr.TrustLineEntry{
-		AccountId: accountID,
-		Asset:     trustlineAsset,
-		Balance:   xdr.Int64(balance),
-		Limit:     xdr.Int64(limit),
-		Flags:     xdr.Uint32(flags),
-	}
-
-	// Add V1 extension with liabilities if provided
-	if buyingLiabilities > 0 || sellingLiabilities > 0 {
-		trustlineEntry.Ext = xdr.TrustLineEntryExt{
-			V: 1,
-			V1: &xdr.TrustLineEntryV1{
-				Liabilities: xdr.Liabilities{
-					Buying:  xdr.Int64(buyingLiabilities),
-					Selling: xdr.Int64(sellingLiabilities),
-				},
-			},
-		}
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:      xdr.LedgerEntryTypeTrustline,
-		TrustLine: &trustlineEntry,
-	}
-
-	ledgerKey, err := utils.GetTrustlineLedgerKey(accountAddress, assetCode, assetIssuer)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get trustline ledger key: %v", err))
-	}
-
-	return entities.LedgerEntryResult{
-		KeyXDR:             ledgerKey,
-		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
-		LastModifiedLedger: 1000,
-	}
-}
-
 // createSACContractDataEntry creates a SAC balance entry with authorization fields
 func createSACContractDataEntry(contractID, holderAddress string, amount int64, authorized, clawback bool) entities.LedgerEntryResult {
 	// Decode contract ID from strkey

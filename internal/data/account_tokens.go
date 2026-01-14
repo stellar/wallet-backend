@@ -61,7 +61,6 @@ type AccountTokensModelInterface interface {
 	BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, changes map[string]*TrustlineChanges) error
 	BatchUpsertTrustlinesWithFullData(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error
 	BatchAddContracts(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
-	BatchUpdateBalances(ctx context.Context, dbTx pgx.Tx, updates []BalanceUpdate, ledger uint32) error
 
 	// Bulk operations (for initial population)
 	BulkInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlinesByAccount map[string][]TrustlineWithBalance, ledger uint32) error

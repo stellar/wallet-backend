@@ -50,56 +50,6 @@ func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string)
 	}, nil
 }
 
-// parseTrustlineBalance extracts trustline balance from a trustline entry.
-func parseTrustlineBalance(trustlineEntry xdr.TrustLineEntry, lastModifiedLedger uint32, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
-	balanceStr := amount.String(trustlineEntry.Balance)
-
-	var assetType, assetCode, assetIssuer string
-	asset := trustlineEntry.Asset.ToAsset()
-	if err := asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		return nil, fmt.Errorf("extracting asset info: %w", err)
-	}
-
-	contractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("getting contract ID for asset: %w", err)
-	}
-	tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-
-	// Extract limit
-	limitStr := amount.String(trustlineEntry.Limit)
-
-	// Extract liabilities (V1 extension)
-	var buyingLiabilities, sellingLiabilities string
-	if trustlineEntry.Ext.V == 1 && trustlineEntry.Ext.V1 != nil {
-		buyingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Buying)
-		sellingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Selling)
-	} else {
-		buyingLiabilities = "0.0000000"
-		sellingLiabilities = "0.0000000"
-	}
-
-	// Extract authorization flags
-	flags := uint32(trustlineEntry.Flags)
-	isAuthorized := (flags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
-	isAuthorizedToMaintainLiabilities := (flags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
-
-	return &graphql1.TrustlineBalance{
-		TokenID:                           tokenID,
-		Balance:                           balanceStr,
-		TokenType:                         graphql1.TokenTypeClassic,
-		Code:                              assetCode,
-		Issuer:                            assetIssuer,
-		Type:                              assetType,
-		Limit:                             limitStr,
-		BuyingLiabilities:                 buyingLiabilities,
-		SellingLiabilities:                sellingLiabilities,
-		LastModifiedLedger:                int32(lastModifiedLedger),
-		IsAuthorized:                      isAuthorized,
-		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
-	}, nil
-}
-
 // buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline data.
 func buildTrustlineBalanceFromDB(trustline data.Trustline, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
 	// Build xdr.Asset to compute contract ID
