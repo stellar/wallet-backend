@@ -39,9 +39,11 @@ type IndexerBufferInterface interface {
 	GetTrustlineChanges() []types.TrustlineChange
 	GetContractChanges() []types.ContractChange
 	GetAccountChanges() []types.AccountChange
+	GetSACBalanceChanges() []types.SACBalanceChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
+	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueContractsByID() map[string]types.ContractType
 	Merge(other IndexerBufferInterface)
@@ -73,6 +75,7 @@ type Indexer struct {
 	tokenTransferProcessor TokenTransferProcessorInterface
 	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
 	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
@@ -87,6 +90,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
 		trustlinesProcessor:    processors.NewTrustLinesProcessor(networkPassphrase, metricsService),
 		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
+		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -200,7 +204,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Process trustline and account changes from ledger changes
+	// Process trustline, account, and SAC balance changes from ledger changes
 	for _, opParticipants := range opsParticipants {
 		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if tlErr != nil {
@@ -216,6 +220,14 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, accChange := range accountChanges {
 			buffer.PushAccountChange(accChange)
+		}
+
+		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if sacErr != nil {
+			return 0, fmt.Errorf("processing SAC balance changes: %w", sacErr)
+		}
+		for _, sacChange := range sacBalanceChanges {
+			buffer.PushSACBalanceChange(sacChange)
 		}
 	}
 

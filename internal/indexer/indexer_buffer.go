@@ -54,6 +54,7 @@ type IndexerBuffer struct {
 	trustlineChanges      []types.TrustlineChange
 	contractChanges       []types.ContractChange
 	accountChanges        []types.AccountChange
+	sacBalanceChanges     []types.SACBalanceChange
 	allParticipants       set.Set[string]
 	uniqueTrustlineAssets map[string]data.TrustlineAsset // "CODE:ISSUER" → asset with pre-computed ID
 	uniqueContractsByID   map[string]types.ContractType  // contractID → type (SAC/SEP-41 only)
@@ -71,6 +72,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChanges:      make([]types.TrustlineChange, 0),
 		contractChanges:       make([]types.ContractChange, 0),
 		accountChanges:        make([]types.AccountChange, 0),
+		sacBalanceChanges:     make([]types.SACBalanceChange, 0),
 		allParticipants:       set.NewSet[string](),
 		uniqueTrustlineAssets: make(map[string]data.TrustlineAsset),
 		uniqueContractsByID:   make(map[string]types.ContractType),
@@ -237,6 +239,24 @@ func (b *IndexerBuffer) GetAccountChanges() []types.AccountChange {
 	return b.accountChanges
 }
 
+// PushSACBalanceChange adds a SAC balance change to the buffer.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.sacBalanceChanges = append(b.sacBalanceChanges, sacBalanceChange)
+}
+
+// GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetSACBalanceChanges() []types.SACBalanceChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.sacBalanceChanges
+}
+
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
 // Thread-safe: acquires write lock.
@@ -396,6 +416,9 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge account changes
 	b.accountChanges = append(b.accountChanges, otherBuffer.accountChanges...)
 
+	// Merge SAC balance changes
+	b.sacBalanceChanges = append(b.sacBalanceChanges, otherBuffer.sacBalanceChanges...)
+
 	// Merge all participants
 	for participant := range otherBuffer.allParticipants.Iter() {
 		b.allParticipants.Add(participant)
@@ -428,6 +451,7 @@ func (b *IndexerBuffer) Clear() {
 	b.trustlineChanges = b.trustlineChanges[:0]
 	b.contractChanges = b.contractChanges[:0]
 	b.accountChanges = b.accountChanges[:0]
+	b.sacBalanceChanges = b.sacBalanceChanges[:0]
 
 	// Clear all participants set
 	b.allParticipants.Clear()
