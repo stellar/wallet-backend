@@ -163,7 +163,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	// Serve command only reads from PostgreSQL cache, doesn't need history archive or contract metadata service
-	tokenCacheReader := services.NewTokenCacheReader(models.DB, models.TrustlineAsset, models.AccountTokens, models.Contract)
+	tokenCacheReader := services.NewTokenCacheReader(models.DB, models.AccountTokens, models.Contract)
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
