@@ -32,25 +32,6 @@ type accountKeyInfo struct {
 	collectionErr    error    // error during data collection phase
 }
 
-// parseNativeBalance extracts native XLM balance from an account entry.
-func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string) (*graphql1.NativeBalance, error) {
-	balanceStr := amount.String(accountEntry.Balance)
-
-	// Get native asset contract ID
-	nativeAsset := xdr.MustNewNativeAsset()
-	contractID, err := nativeAsset.ContractID(networkPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("getting contract ID for native asset: %w", err)
-	}
-	tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-
-	return &graphql1.NativeBalance{
-		TokenID:   tokenID,
-		Balance:   balanceStr,
-		TokenType: graphql1.TokenTypeNative,
-	}, nil
-}
-
 // buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
 func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphrase string) (*graphql1.NativeBalance, error) {
 	// Get native asset contract ID

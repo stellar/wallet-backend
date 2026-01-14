@@ -432,7 +432,11 @@ func (s *tokenCacheService) GetNativeBalance(ctx context.Context, accountAddress
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	return s.accountTokensModel.GetNativeBalance(ctx, accountAddress)
+	balance, err := s.accountTokensModel.GetNativeBalance(ctx, accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("getting native balance for account %s: %w", accountAddress, err)
+	}
+	return balance, nil
 }
 
 // GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.

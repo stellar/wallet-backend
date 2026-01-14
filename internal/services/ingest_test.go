@@ -2662,7 +2662,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.processTokenChanges(ctx, tc.trustlineChanges, tc.contractChanges)
+			err = svc.processTokenChanges(ctx, tc.trustlineChanges, tc.contractChanges, []types.AccountChange{})
 
 			if tc.wantErr {
 				require.Error(t, err)

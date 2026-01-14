@@ -506,7 +506,7 @@ func (m *AccountTokensModel) BatchUpsertNativeBalances(ctx context.Context, dbTx
 	br := dbTx.SendBatch(ctx, batch)
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			_ = br.Close()
+			_ = br.Close() //nolint:errcheck // cleanup on error path
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
 	}
