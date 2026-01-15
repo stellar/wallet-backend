@@ -43,17 +43,17 @@ type checkpointData struct {
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
 }
 
-// trustlineBatch holds a batch of trustlines for streaming insertion.
+// trustlineBatch holds a batch of trustline balances for streaming insertion.
 type trustlineBatch struct {
-	// trustlines holds the trustline entries for batch insert
-	trustlines []wbdata.Trustline
+	// balances holds the trustline balance entries for batch insert
+	balances []wbdata.TrustlineBalance
 	// uniqueAssets tracks unique assets with their computed IDs for batch insert
 	uniqueAssets map[string]wbdata.TrustlineAsset
 }
 
 func newTrustlineBatch() *trustlineBatch {
 	return &trustlineBatch{
-		trustlines:   nil,
+		balances:     nil,
 		uniqueAssets: make(map[string]wbdata.TrustlineAsset),
 	}
 }
@@ -71,8 +71,8 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 		}
 	}
 
-	// Add trustline with all XDR fields
-	b.trustlines = append(b.trustlines, wbdata.Trustline{
+	// Add trustline balance with all XDR fields
+	b.balances = append(b.balances, wbdata.TrustlineBalance{
 		AccountAddress:     accountAddress,
 		AssetID:            assetID,
 		Balance:            balance,
@@ -85,11 +85,11 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 }
 
 func (b *trustlineBatch) count() int {
-	return len(b.trustlines)
+	return len(b.balances)
 }
 
 func (b *trustlineBatch) reset() {
-	b.trustlines = nil
+	b.balances = nil
 	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
 }
 
