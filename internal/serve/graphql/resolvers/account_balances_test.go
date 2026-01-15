@@ -1072,12 +1072,13 @@ const testAccountAddress2 = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K
 func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 	t.Run("success - single account", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		// BatchGetByIDs is not called when contractIDs is empty
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -1093,10 +1094,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1116,12 +1118,13 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - multiple accounts with mixed balances", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		// Setup for account 1 (native + trustline from DB)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{{
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{{
 				AssetID:      data.DeterministicAssetID("USDC", testUSDCIssuer),
 				Code:         "USDC",
 				Issuer:       testUSDCIssuer,
@@ -1130,11 +1133,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				Flags:        uint32(xdr.TrustLineFlagsAuthorizedFlag),
 				LedgerNumber: 12345,
 			}}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 
 		// Setup for account 2 (native only)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress2).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress2).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress2).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress2).Return([]*data.Contract{}, nil)
 
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -1150,10 +1153,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1174,17 +1178,18 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - partial failure with per-account error", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
 
 		// Account 1 succeeds
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 
 		// Account 2 fails on trustlines
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress2).
-			Return([]data.Trustline{}, errors.New("redis connection failed"))
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress2).
+			Return([]data.TrustlineBalance{}, errors.New("redis connection failed"))
 
 		// Note: BatchGetByIDs is not called when contractIDs is empty (len == 0)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
@@ -1199,10 +1204,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1224,13 +1230,14 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - deduplication of addresses", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContract := data.NewContractModelMock(t)
 
 		// Only called once due to deduplication
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil).Once()
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil).Once()
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil).Once()
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil).Once()
 		// Note: BatchGetByIDs is not called when contractIDs is empty (len == 0)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -1244,10 +1251,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1262,12 +1270,12 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - contract address (skips native and trustlines)", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
-		// GetAccountTrustlines should NOT be called for contract address
-		mockAccountTokensReader.On("GetContracts", ctx, testSEP41ContractAddress).
+		// GetTrustlineBalances should NOT be called for contract address
+		mockAccountContractTokens.On("GetByAccount", ctx, testSEP41ContractAddress).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -1279,11 +1287,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader:     mockAccountTokensReader,
-				rpcService:              mockRPCService,
-				contractMetadataService: mockContractMetadataService,
-				pool:                    pond.NewPool(0),
-				config:                  ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				contractMetadataService:   mockContractMetadataService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1338,13 +1346,14 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("error - RPC failure affects all accounts", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress2).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress2).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress2).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress2).Return([]*data.Contract{}, nil)
 
 		// RPC fails
 		mockRPCService.On("GetLedgerEntries", mock.Anything).
@@ -1352,10 +1361,11 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
-				pool:                pond.NewPool(0),
-				config:              ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
@@ -1367,16 +1377,17 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - mixed account and contract addresses", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// Account address (no contracts)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 
-		// Contract address (has contracts - GetAccountContracts returns full Contract objects)
-		mockAccountTokensReader.On("GetContracts", ctx, testSEP41ContractAddress).
+		// Contract address (has contracts - GetByAccount returns full Contract objects)
+		mockAccountContractTokens.On("GetByAccount", ctx, testSEP41ContractAddress).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -1395,11 +1406,12 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader:     mockAccountTokensReader,
-				rpcService:              mockRPCService,
-				contractMetadataService: mockContractMetadataService,
-				pool:                    pond.NewPool(0),
-				config:                  ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				contractMetadataService:   mockContractMetadataService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
 		}
 
