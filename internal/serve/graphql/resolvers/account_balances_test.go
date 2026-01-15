@@ -663,19 +663,19 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Nil(t, balances)
 	})
 
-	t.Run("error - GetAccountTrustlines fails", func(t *testing.T) {
+	t.Run("error - GetTrustlineBalances fails", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{}, errors.New("redis connection failed"))
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{}, errors.New("redis connection failed"))
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader: NewBalanceReader(mockTrustlineBalanceModel),
+				rpcService:    mockRPCService,
 			},
 		}
 
@@ -687,19 +687,21 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - GetAccountContracts fails", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{}, errors.New("redis connection failed"))
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -711,19 +713,21 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - GetLedgerEntries RPC fails", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("GetLedgerEntries", mock.Anything).
 			Return(entities.RPCGetLedgerEntriesResult{}, errors.New("RPC node unavailable"))
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -735,12 +739,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - invalid trustline issuer causes error", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		// Return trustline with invalid issuer that will fail ContractID computation
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{
 				{
 					AssetID: uuid.New(),
 					Code:    ":",
@@ -751,8 +755,8 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader: NewBalanceReader(mockTrustlineBalanceModel),
+				rpcService:    mockRPCService,
 			},
 		}
 
@@ -768,11 +772,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - XDR decoding fails", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Return invalid XDR
@@ -787,8 +792,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -800,11 +806,12 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - SAC missing amount field", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{createSACContract(testContractAddress, "TEST", testUSDCIssuer)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -867,8 +874,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -880,12 +888,13 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("error - SEP-41 wrong type (map instead of i128)", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{createSEP41Contract(testContractAddress, "Test", "TST", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -920,10 +929,11 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader:     mockAccountTokensReader,
-				rpcService:              mockRPCService,
-				contractMetadataService: mockContractMetadataService,
-				pool:                    pond.NewPool(0),
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
+				contractMetadataService:   mockContractMetadataService,
+				pool:                       pond.NewPool(0),
 			},
 		}
 
@@ -937,16 +947,17 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("edge - unknown contract type skipped", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		// GetAccountContracts now returns full Contract objects directly
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		// GetByAccount now returns full Contract objects directly
 		unknownContract := &data.Contract{
 			ContractID: testContractAddress,
 			Type:       string(types.ContractTypeUnknown),
 		}
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{unknownContract}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -961,8 +972,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -982,12 +994,13 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("edge - trustline authorization flags combinations", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		// Trustlines from DB with authorization flags
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{
 				{
 					AssetID:      data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:         "USDC",
@@ -1007,7 +1020,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 					LedgerNumber: 12345,
 				},
 			}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
@@ -1018,8 +1031,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
