@@ -58,14 +58,14 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 		SELECT atb.asset_id, ta.code, ta.issuer,
 		       atb.balance, atb.trust_limit, atb.buying_liabilities,
 		       atb.selling_liabilities, atb.flags, atb.last_modified_ledger
-		FROM account_trustline_balances atb
+		FROM trustline_balances atb
 		INNER JOIN trustline_assets ta ON ta.id = atb.asset_id
 		WHERE atb.account_address = $1`
 
 	start := time.Now()
 	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "account_trustline_balances", "query_error")
+		m.MetricsService.IncDBQueryError("GetByAccount", "trustline_balances", "query_error")
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)
 	}
 	defer rows.Close()
@@ -85,8 +85,8 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 		return nil, fmt.Errorf("iterating trustline balances: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetByAccount", "account_trustline_balances")
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "trustline_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetByAccount", "trustline_balances")
 	return balances, nil
 }
 
@@ -103,7 +103,7 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 
 	// Upsert query: insert or update all fields
 	const upsertQuery = `
-		INSERT INTO account_trustline_balances (
+		INSERT INTO trustline_balances (
 			account_address, asset_id, balance, trust_limit,
 			buying_liabilities, selling_liabilities, flags, last_modified_ledger
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -129,7 +129,7 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	}
 
 	// Delete query
-	const deleteQuery = `DELETE FROM account_trustline_balances WHERE account_address = $1 AND asset_id = $2`
+	const deleteQuery = `DELETE FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`
 
 	for _, tl := range deletes {
 		batch.Queue(deleteQuery, tl.AccountAddress, tl.AssetID)
@@ -150,8 +150,8 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 		return fmt.Errorf("closing trustline balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "account_trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "account_trustline_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "trustline_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsert", "trustline_balances")
 	return nil
 }
 
@@ -180,7 +180,7 @@ func (m *TrustlineBalanceModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, ba
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
-		pgx.Identifier{"account_trustline_balances"},
+		pgx.Identifier{"trustline_balances"},
 		[]string{
 			"account_address",
 			"asset_id",
@@ -201,7 +201,7 @@ func (m *TrustlineBalanceModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, ba
 		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "account_trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "account_trustline_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsert", "trustline_balances")
 	return nil
 }
