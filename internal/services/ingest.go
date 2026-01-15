@@ -354,8 +354,6 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	ops := indexerBuffer.GetOperations()
 	opParticipants := indexerBuffer.GetOperationsParticipants()
 	stateChanges := indexerBuffer.GetStateChanges()
-	trustlineChanges := indexerBuffer.GetTrustlineChanges()
-	contractChanges := indexerBuffer.GetContractChanges()
 
 	// When filtering is enabled, only store data for registered accounts
 	if m.enableParticipantFiltering {
@@ -366,8 +364,6 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 		if err != nil {
 			return nil, fmt.Errorf("filtering by registered accounts: %w", err)
 		}
-		filtered.trustlineChanges = trustlineChanges
-		filtered.contractTokenChanges = contractChanges
 		return filtered, nil
 	}
 
@@ -377,8 +373,6 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 		ops:                  ops,
 		opParticipants:       opParticipants,
 		stateChanges:         stateChanges,
-		trustlineChanges:     trustlineChanges,
-		contractTokenChanges: contractChanges,
 	}, nil
 }
 
