@@ -79,6 +79,7 @@ func (m *AccountTokensModel) GetTrustlines(ctx context.Context, accountAddress s
 			&tl.BuyingLiabilities, &tl.SellingLiabilities, &tl.Flags, &tl.LedgerNumber); err != nil {
 			return nil, fmt.Errorf("scanning trustline: %w", err)
 		}
+		tl.AccountAddress = accountAddress
 		trustlines = append(trustlines, tl)
 	}
 
