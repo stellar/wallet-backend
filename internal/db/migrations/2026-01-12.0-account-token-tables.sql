@@ -1,10 +1,16 @@
 -- +migrate Up
 
--- Table: account_trustlines
--- Junction table mapping accounts to their trustline assets.
-CREATE TABLE account_trustlines (
+-- Table: account_trustline_balances
+-- Stores account trustline balances with full XDR state data.
+CREATE TABLE account_trustline_balances (
     account_address TEXT NOT NULL,
     asset_id UUID NOT NULL,
+    balance BIGINT NOT NULL DEFAULT 0,
+    trust_limit BIGINT NOT NULL DEFAULT 0,
+    buying_liabilities BIGINT NOT NULL DEFAULT 0,
+    selling_liabilities BIGINT NOT NULL DEFAULT 0,
+    flags INTEGER NOT NULL DEFAULT 0,
+    last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account_address, asset_id)
 );
 
@@ -19,4 +25,4 @@ CREATE TABLE account_contracts (
 -- +migrate Down
 
 DROP TABLE IF EXISTS account_contracts;
-DROP TABLE IF EXISTS account_trustlines;
+DROP TABLE IF EXISTS account_trustline_balances;
