@@ -298,9 +298,9 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		// Insert account trustlines
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountTokensModel.BulkInsertTrustlines(ctx, dbTx, map[string][]wbdata.TrustlineWithBalance{
-				accountAddress: {{AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0}},
-			}, 100)
+			return accountTokensModel.BatchInsertTrustlines(ctx, dbTx, []wbdata.Trustline{
+				{AccountAddress: accountAddress, AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
+			})
 		})
 		require.NoError(t, err)
 
@@ -372,7 +372,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 		// Insert account contracts using deterministic UUID
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountTokensModel.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{
+			return accountTokensModel.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{
 				accountAddress: {numericID},
 			})
 		})

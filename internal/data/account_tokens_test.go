@@ -99,8 +99,8 @@ func TestAccountTokensModel_GetTrustlines(t *testing.T) {
 	t.Run("returns trustlines with full data for existing account", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertTrustlines", "account_trustlines").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -115,12 +115,12 @@ func TestAccountTokensModel_GetTrustlines(t *testing.T) {
 
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		trustlineData := make([]TrustlineWithBalance, len(assetIDs))
+		trustlineData := make([]Trustline, len(assetIDs))
 		for i, id := range assetIDs {
-			trustlineData[i] = TrustlineWithBalance{AssetID: id, Balance: int64(i * 100), Limit: 1000000}
+			trustlineData[i] = Trustline{AccountAddress: accountAddress, AssetID: id, Balance: int64(i * 100), Limit: 1000000, LedgerNumber: 100}
 		}
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: trustlineData}, 100)
+			return m.BatchInsertTrustlines(ctx, dbTx, trustlineData)
 		})
 		require.NoError(t, err)
 
@@ -190,8 +190,8 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 	t.Run("returns contract IDs for existing account", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertContracts", "account_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BulkInsertContracts", "account_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertContractTokens", "account_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertContractTokens", "account_contracts").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetContractIDs", "account_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "GetContractIDs", "account_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -207,7 +207,7 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 		// Insert test data
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
@@ -220,7 +220,7 @@ func TestAccountTokensModel_GetContractIDs(t *testing.T) {
 	})
 }
 
-func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
+func TestAccountTokensModel_BatchInsertContractTokens(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -246,16 +246,16 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{})
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{})
 		})
 		require.NoError(t, err)
 	})
 
-	t.Run("adds contracts to new account", func(t *testing.T) {
+	t.Run("inserts contracts to new account", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchAddContracts", "account_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchAddContracts", "account_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertContractTokens", "account_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertContractTokens", "account_contracts").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetContractIDs", "account_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "GetContractIDs", "account_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -271,7 +271,7 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs})
 		})
 		require.NoError(t, err)
 
@@ -286,8 +286,8 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 	t.Run("appends contracts to existing account without duplicates", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchAddContracts", "account_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchAddContracts", "account_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertContractTokens", "account_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertContractTokens", "account_contracts").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetContractIDs", "account_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "GetContractIDs", "account_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -302,15 +302,15 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
-		// First add
+		// First insert
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[:2]})
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[:2]})
 		})
 		require.NoError(t, err)
 
-		// Second add with overlap (contractIDs[1] is duplicated)
+		// Second insert with overlap (contractIDs[1] is duplicated)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BatchAddContracts(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[1:]})
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{accountAddress: contractIDs[1:]})
 		})
 		require.NoError(t, err)
 
@@ -322,9 +322,52 @@ func TestAccountTokensModel_BatchAddContracts(t *testing.T) {
 
 		cleanUpDB()
 	})
+
+	t.Run("inserts contracts for multiple accounts", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertContractTokens", "account_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertContractTokens", "account_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetContractIDs", "account_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetContractIDs", "account_contracts").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountTokensModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		// Setup test contract tokens
+		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 3)
+
+		account1 := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+		account2 := "GCQYG3MNNPFNFUBWXF5IDNNC7V3ZDLWLKSQVHFZEBWNPPQ4XVRCVHWQJ"
+		contracts1 := contractIDs[:2]
+		contracts2 := contractIDs[2:]
+
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchInsertContractTokens(ctx, dbTx, map[string][]uuid.UUID{
+				account1: contracts1,
+				account2: contracts2,
+			})
+		})
+		require.NoError(t, err)
+
+		// Verify account1
+		result1, err := m.GetContractIDs(ctx, account1)
+		require.NoError(t, err)
+		require.ElementsMatch(t, contracts1, result1)
+
+		// Verify account2
+		result2, err := m.GetContractIDs(ctx, account2)
+		require.NoError(t, err)
+		require.ElementsMatch(t, contracts2, result2)
+
+		cleanUpDB()
+	})
 }
 
-func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
+func TestAccountTokensModel_BatchInsertTrustlines(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -350,7 +393,7 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{}, 100)
+			return m.BatchInsertTrustlines(ctx, dbTx, []Trustline{})
 		})
 		require.NoError(t, err)
 	})
@@ -358,8 +401,8 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 	t.Run("inserts trustlines for multiple accounts", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertTrustlines", "account_trustlines", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsertTrustlines", "account_trustlines").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetTrustlines", "account_trustlines", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "GetTrustlines", "account_trustlines").Return()
 		defer mockMetricsService.AssertExpectations(t)
@@ -377,21 +420,17 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 		ids1 := assetIDs[:3]
 		ids2 := assetIDs[3:]
 
-		// Convert to TrustlineWithBalance slices
-		tl1 := make([]TrustlineWithBalance, len(ids1))
-		for i, id := range ids1 {
-			tl1[i] = TrustlineWithBalance{AssetID: id}
+		// Build trustlines slice
+		var trustlines []Trustline
+		for _, id := range ids1 {
+			trustlines = append(trustlines, Trustline{AccountAddress: account1, AssetID: id, LedgerNumber: 100})
 		}
-		tl2 := make([]TrustlineWithBalance, len(ids2))
-		for i, id := range ids2 {
-			tl2[i] = TrustlineWithBalance{AssetID: id}
+		for _, id := range ids2 {
+			trustlines = append(trustlines, Trustline{AccountAddress: account2, AssetID: id, LedgerNumber: 100})
 		}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{
-				account1: tl1,
-				account2: tl2,
-			}, 100)
+			return m.BatchInsertTrustlines(ctx, dbTx, trustlines)
 		})
 		require.NoError(t, err)
 
@@ -417,12 +456,12 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 	})
 
 	t.Run("fails on duplicate keys", func(t *testing.T) {
-		// BulkInsertTrustlines uses COPY protocol which doesn't support ON CONFLICT.
+		// BatchInsertTrustlines uses COPY protocol which doesn't support ON CONFLICT.
 		// This is by design - it's for initial population only (empty table, no duplicates).
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertTrustlines", "account_trustlines", mock.Anything).Return().Maybe()
-		mockMetricsService.On("IncDBQuery", "BulkInsertTrustlines", "account_trustlines").Return().Maybe()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsertTrustlines", "account_trustlines", mock.Anything).Return().Maybe()
+		mockMetricsService.On("IncDBQuery", "BatchInsertTrustlines", "account_trustlines").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &AccountTokensModel{
@@ -435,103 +474,28 @@ func TestAccountTokensModel_BulkInsertTrustlines(t *testing.T) {
 
 		accountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
 
-		// Convert to TrustlineWithBalance slices
-		tl1 := make([]TrustlineWithBalance, 2)
-		for i, id := range assetIDs[:2] {
-			tl1[i] = TrustlineWithBalance{AssetID: id}
+		// Build trustlines slices
+		var tl1 []Trustline
+		for _, id := range assetIDs[:2] {
+			tl1 = append(tl1, Trustline{AccountAddress: accountAddress, AssetID: id, LedgerNumber: 100})
 		}
-		tl2 := make([]TrustlineWithBalance, 3)
-		for i, id := range assetIDs[1:4] {
-			tl2[i] = TrustlineWithBalance{AssetID: id}
+		var tl2 []Trustline
+		for _, id := range assetIDs[1:4] {
+			tl2 = append(tl2, Trustline{AccountAddress: accountAddress, AssetID: id, LedgerNumber: 100})
 		}
 
 		// First insert succeeds
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: tl1}, 100)
+			return m.BatchInsertTrustlines(ctx, dbTx, tl1)
 		})
 		require.NoError(t, err)
 
 		// Second insert with overlap fails (COPY doesn't support ON CONFLICT)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertTrustlines(ctx, dbTx, map[string][]TrustlineWithBalance{accountAddress: tl2}, 100)
+			return m.BatchInsertTrustlines(ctx, dbTx, tl2)
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "duplicate key")
-
-		cleanUpDB()
-	})
-}
-
-func TestAccountTokensModel_BulkInsertContracts(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
-		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-	}
-
-	t.Run("returns nil for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountTokensModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{})
-		})
-		require.NoError(t, err)
-	})
-
-	t.Run("inserts contracts for multiple accounts", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BulkInsertContracts", "account_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BulkInsertContracts", "account_contracts").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetContractIDs", "account_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetContractIDs", "account_contracts").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountTokensModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		// Setup test contract tokens
-		contractIDs := setupContractTokens(t, ctx, dbConnectionPool, 3)
-
-		account1 := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-		account2 := "GCQYG3MNNPFNFUBWXF5IDNNC7V3ZDLWLKSQVHFZEBWNPPQ4XVRCVHWQJ"
-		contracts1 := contractIDs[:2]
-		contracts2 := contractIDs[2:]
-
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return m.BulkInsertContracts(ctx, dbTx, map[string][]uuid.UUID{
-				account1: contracts1,
-				account2: contracts2,
-			})
-		})
-		require.NoError(t, err)
-
-		// Verify account1
-		result1, err := m.GetContractIDs(ctx, account1)
-		require.NoError(t, err)
-		require.ElementsMatch(t, contracts1, result1)
-
-		// Verify account2
-		result2, err := m.GetContractIDs(ctx, account2)
-		require.NoError(t, err)
-		require.ElementsMatch(t, contracts2, result2)
 
 		cleanUpDB()
 	})
