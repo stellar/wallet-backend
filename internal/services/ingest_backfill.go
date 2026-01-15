@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -448,6 +449,14 @@ func (m *ingestService) processTokenChanges(
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
 ) error {
+	// Sort changes by operation ID to ensure proper ordering
+	sort.Slice(trustlineChanges, func(i, j int) bool {
+		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+	})
+	sort.Slice(contractChanges, func(i, j int) bool {
+		return contractChanges[i].OperationID < contractChanges[j].OperationID
+	})
+
 	// Get or insert trustline assets into PostgreSQL
 	trustlineAssetIDMap, err := m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
 	if err != nil {
