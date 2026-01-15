@@ -1,7 +1,7 @@
 -- +migrate Up
 
 -- Table: trustline_assets
--- Stores classic Stellar trustline assets with deterministic UUID IDs (UUID v5 from CODE:ISSUER).
+-- Stores classic Stellar trustline assets with deterministic UUID IDs (namespace-based UUID v5 derived from a fixed namespace UUID and the 'CODE:ISSUER' string).
 CREATE TABLE trustline_assets (
     id UUID PRIMARY KEY,
     code TEXT NOT NULL,
