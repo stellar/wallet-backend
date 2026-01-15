@@ -186,8 +186,8 @@ func (m *AccountTokensModel) BatchUpsertTrustlines(ctx context.Context, dbTx pgx
 		return fmt.Errorf("closing trustline full data batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsertTrustlinesWithFullData", "account_trustlines", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsertTrustlinesWithFullData", "account_trustlines")
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsertTrustlines", "account_trustlines", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsertTrustlines", "account_trustlines")
 	return nil
 }
 
