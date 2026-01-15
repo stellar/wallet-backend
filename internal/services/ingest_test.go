@@ -2472,7 +2472,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 // Test_ingestService_processTokenChanges tests the processTokenChanges method which processes
 // aggregated token changes after all parallel batches complete.
 // NOTE: The implementation now:
-// 1. Calls models.TrustlineAsset.BatchCopy for trustline assets (real DB operation)
+// 1. Calls models.TrustlineAsset.BatchInsert for trustline assets (real DB operation)
 // 2. Calls contractMetadataService.FetchMetadata for new contracts (mocked)
 // 3. Calls models.Contract.BatchInsert for contracts (real DB operation)
 // 4. Calls tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges) (mocked)
@@ -2967,7 +2967,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// NOTE: processTokenChanges now only calls:
-	// 1. models.TrustlineAsset.BatchCopy (real DB operation)
+	// 1. models.TrustlineAsset.BatchInsert (real DB operation)
 	// 2. contractMetadataService.FetchMetadata (mocked, but not triggered with empty data)
 	// 3. models.Contract.BatchInsert (real DB operation)
 	// 4. tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges)

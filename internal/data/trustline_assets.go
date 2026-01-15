@@ -29,9 +29,9 @@ func DeterministicAssetID(code, issuer string) uuid.UUID {
 
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
-	// BatchCopy performs bulk insert using COPY protocol for speed.
-	// Callers must ensure no duplicates exist before calling.
-	BatchCopy(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error
+	// BatchInsert inserts multiple trustline assets with pre-computed IDs.
+	// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -55,36 +55,36 @@ func (a *TrustlineAsset) AssetKey() string {
 	return fmt.Sprintf("%s:%s", a.Code, a.Issuer)
 }
 
-// BatchCopy performs bulk insert using COPY protocol for speed.
-// Callers must ensure no duplicates exist before calling.
+// BatchInsert inserts multiple trustline assets with pre-computed deterministic IDs.
+// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
 // Assets must have their ID field set via DeterministicAssetID before calling.
-func (m *TrustlineAssetModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
+func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
 	if len(assets) == 0 {
 		return nil
 	}
 
-	start := time.Now()
-
-	rows := make([][]any, len(assets))
+	ids := make([]uuid.UUID, len(assets))
+	codes := make([]string, len(assets))
+	issuers := make([]string, len(assets))
 	for i, a := range assets {
-		rows[i] = []any{a.ID, a.Code, a.Issuer}
+		ids[i] = a.ID
+		codes[i] = a.Code
+		issuers[i] = a.Issuer
 	}
 
-	copyCount, err := dbTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"trustline_assets"},
-		[]string{"id", "code", "issuer"},
-		pgx.CopyFromRows(rows),
-	)
+	const query = `
+		INSERT INTO trustline_assets (id, code, issuer)
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[])
+		ON CONFLICT (code, issuer) DO NOTHING
+	`
+
+	start := time.Now()
+	_, err := dbTx.Exec(ctx, query, ids, codes, issuers)
 	if err != nil {
-		return fmt.Errorf("batch inserting trustline assets via COPY: %w", err)
+		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
 
-	if int(copyCount) != len(rows) {
-		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "trustline_assets", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "trustline_assets")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
 	return nil
 }

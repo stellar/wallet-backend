@@ -474,7 +474,7 @@ func (m *ingestService) processTokenChanges(
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert unique trustline assets
 		if len(uniqueAssets) > 0 {
-			if txErr := m.models.TrustlineAsset.BatchCopy(ctx, dbTx, uniqueAssets); txErr != nil {
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
 				return fmt.Errorf("inserting trustline assets: %w", txErr)
 			}
 		}

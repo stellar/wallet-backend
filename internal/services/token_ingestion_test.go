@@ -286,7 +286,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 		// Insert trustline assets first using deterministic IDs
 		assetID := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return trustlineAssetModel.BatchCopy(ctx, dbTx, []wbdata.TrustlineAsset{
+			return trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
 				{ID: assetID, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 			})
 		})

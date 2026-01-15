@@ -531,12 +531,12 @@ func (s *tokenIngestionService) streamCheckpointData(
 
 // flushTrustlineBatch inserts the batch's trustline assets and trustline balances.
 func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
-	// 1. Insert unique assets via COPY
+	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
 	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
 	for _, asset := range batch.uniqueAssets {
 		assets = append(assets, asset)
 	}
-	if err := s.trustlineAssetModel.BatchCopy(ctx, dbTx, assets); err != nil {
+	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
 		return fmt.Errorf("batch inserting assets: %w", err)
 	}
 
