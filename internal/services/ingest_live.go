@@ -55,9 +55,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
 		}
-		if err := m.initializeKnownContractIDs(ctx); err != nil {
-			return fmt.Errorf("initializing known contract IDs: %w", err)
-		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
 		if err := m.initializeKnownContractIDs(ctx); err != nil {
@@ -78,6 +75,14 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			startLedger = networkLatestLedger + 1
 		}
 	}
+
+	// Load known contract IDs into cache to avoid per-ledger DB lookups
+	ids, err := m.models.Contract.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("loading contract IDs into cache: %w", err)
+	}
+	m.knownContractIDs.Append(ids...)
+	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
 
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
