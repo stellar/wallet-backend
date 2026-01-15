@@ -40,14 +40,14 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 	const query = `
 		SELECT ct.id, ct.contract_id, ct.type, ct.code, ct.issuer,
 		       ct.name, ct.symbol, ct.decimals, ct.created_at, ct.updated_at
-		FROM account_contracts ac
+		FROM account_countract_tokens ac
 		INNER JOIN contract_tokens ct ON ct.id = ac.contract_id
 		WHERE ac.account_address = $1`
 
 	start := time.Now()
 	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "account_contracts", "query_error")
+		m.MetricsService.IncDBQueryError("GetByAccount", "account_countract_tokens", "query_error")
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
 	defer rows.Close()
@@ -66,8 +66,8 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		return nil, fmt.Errorf("iterating contracts: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetByAccount", "account_contracts")
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_countract_tokens", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetByAccount", "account_countract_tokens")
 	return contracts, nil
 }
 
@@ -94,7 +94,7 @@ func (m *AccountContractTokensModel) BatchInsert(ctx context.Context, dbTx pgx.T
 	}
 
 	const query = `
-		INSERT INTO account_contracts (account_address, contract_id)
+		INSERT INTO account_countract_tokens (account_address, contract_id)
 		SELECT unnest($1::text[]), unnest($2::uuid[])
 		ON CONFLICT DO NOTHING`
 
@@ -103,7 +103,7 @@ func (m *AccountContractTokensModel) BatchInsert(ctx context.Context, dbTx pgx.T
 		return fmt.Errorf("batch inserting contract tokens: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "account_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "account_contracts")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "account_countract_tokens", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsert", "account_countract_tokens")
 	return nil
 }
