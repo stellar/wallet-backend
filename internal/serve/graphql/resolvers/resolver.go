@@ -55,7 +55,7 @@ type Resolver struct {
 	// feeBumpService provides fee-bump transaction wrapping operations
 	feeBumpService          services.FeeBumpService
 	rpcService              services.RPCService
-	accountTokenService     services.AccountTokenService
+	tokenCacheReader        services.TokenCacheReader
 	contractMetadataService services.ContractMetadataService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
@@ -68,7 +68,7 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, tokenCacheReader services.TokenCacheReader, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
@@ -79,7 +79,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		transactionService:      transactionService,
 		feeBumpService:          feeBumpService,
 		rpcService:              rpcService,
-		accountTokenService:     accountTokenService,
+		tokenCacheReader:        tokenCacheReader,
 		contractMetadataService: contractMetadataService,
 		metricsService:          metricsService,
 		pool:                    pond.NewPool(poolSize),

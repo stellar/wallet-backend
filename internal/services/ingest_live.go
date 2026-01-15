@@ -6,12 +6,19 @@ import (
 	"fmt"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+)
+
+const (
+	maxIngestProcessedDataRetries      = 5
+	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 )
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
@@ -43,14 +50,11 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+			return m.initializeCursors(ctx, dbTx, startLedger)
+		})
 		if err != nil {
-			return fmt.Errorf("populating account tokens cache: %w", err)
-		}
-
-		err := m.initializeCursors(ctx, startLedger)
-		if err != nil {
-			return fmt.Errorf("initializing cursors: %w", err)
+			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
@@ -71,6 +75,14 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	}
 
+	// Load known contract IDs into cache to avoid per-ledger DB lookups
+	ids, err := m.models.Contract.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("loading contract IDs into cache: %w", err)
+	}
+	m.knownContractIDs.Append(ids...)
+	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
+
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
@@ -80,18 +92,12 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 }
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
-func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) error {
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing latest cursor: %w", err)
-		}
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
-			return fmt.Errorf("initializing oldest cursor: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("initializing cursors: %w", err)
+func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledger uint32) error {
+	if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing latest cursor: %w", err)
+	}
+	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing oldest cursor: %w", err)
 	}
 	return nil
 }
@@ -102,35 +108,134 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		start := time.Now()
+		totalStart := time.Now()
+		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
-		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(start).Seconds())
+		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
 
+		// Pre-commit asset IDs in a separate transaction before the main transaction
+		// to prevent orphan IDs if the main transaction rolls back
 		dbStart := time.Now()
-		numTransactionProcessed := 0
-		numOperationProcessed := 0
-		err = db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		trustlineAssetIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
+		if err != nil {
+			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
+		}
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap)
+		if err != nil {
+			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
+		}
+		m.metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
+		totalIngestionDuration := time.Since(totalStart).Seconds()
+		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
+		m.metricsService.IncIngestionTransactionsProcessed(numTransactionProcessed)
+		m.metricsService.IncIngestionOperationsProcessed(numOperationProcessed)
+		m.metricsService.IncIngestionLedgersProcessed(1)
+		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+
+		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
+		currentLedger++
+	}
+}
+
+// insertTrustlinesAndContractTokensWithRetry inserts trustlines and contract tokens into the database.
+func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, error) {
+	var trustlineAssetIDMap map[string]int64
+	var innerErr error
+	var lastErr error
+
+	// Filter new contracts using in-memory cache (outside transaction - no DB call)
+	newContractTypesByID := m.filterNewContractTokens(contractChanges)
+
+	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context done: %w", ctx.Err())
+		default:
+		}
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			trustlineAssetIDMap, innerErr = m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
+			if innerErr != nil {
+				return fmt.Errorf("inserting trustline assets: %w", innerErr)
+			}
+			// Fetch and store metadata for new SAC/SEP-41 contracts
+			if len(newContractTypesByID) > 0 {
+				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
+				if innerErr != nil {
+					return fmt.Errorf("fetching and storing new contract tokens metadata: %w", innerErr)
+				}
+			}
+			return nil
+		})
+		if err == nil {
+			// Update cache AFTER transaction commits to avoid stale cache on rollback
+			for contractID := range newContractTypesByID {
+				m.knownContractIDs.Add(contractID)
+			}
+			return trustlineAssetIDMap, nil
+		}
+		lastErr = err
+
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxIngestProcessedDataRetryBackoff {
+			backoff = maxIngestProcessedDataRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error ingesting trustline and contract tokens for ledger %d (attempt %d/%d): %v, retrying in %v...",
+			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
+	}
+	return trustlineAssetIDMap, nil
+}
+
+// ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
+// unlocks channel accounts, and processes token changes.
+// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
+func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
+	numTransactionProcessed := 0
+	numOperationProcessed := 0
+
+	var lastErr error
+	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return 0, 0, fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
+		}
+
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
 			if innerErr != nil {
 				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
 			}
-
-			innerErr = m.ingestProcessedData(ctx, dbTx, filteredData, true)
+			innerErr = m.insertIntoDB(ctx, dbTx, filteredData)
 			if innerErr != nil {
-				return fmt.Errorf("ingesting processed data for ledger %d: %w", currentLedger, innerErr)
+				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
 			}
-
+			innerErr = m.unlockChannelAccounts(ctx, dbTx, filteredData.txs)
+			if innerErr != nil {
+				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+			}
+			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
+			if innerErr != nil {
+				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
 			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
@@ -139,20 +244,75 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 			numOperationProcessed = len(filteredData.ops)
 			return nil
 		})
-		if err != nil {
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
+
+		if err == nil {
+			return numTransactionProcessed, numOperationProcessed, nil
 		}
+		lastErr = err
 
-		// Record processing metrics
-		m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
-		totalIngestionDuration := time.Since(totalStart).Seconds()
-		m.metricsService.ObserveIngestionDuration(totalIngestionDuration)
-		m.metricsService.IncIngestionTransactionsProcessed(numTransactionProcessed)
-		m.metricsService.IncIngestionOperationsProcessed(numOperationProcessed)
-		m.metricsService.IncIngestionLedgersProcessed(1)
-		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxIngestProcessedDataRetryBackoff {
+			backoff = maxIngestProcessedDataRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error ingesting data for ledger %d (attempt %d/%d): %v, retrying in %v...",
+			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
 
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, totalIngestionDuration)
-		currentLedger++
+		select {
+		case <-ctx.Done():
+			return 0, 0, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
 	}
+	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
+}
+
+// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction) error {
+	if len(txs) == 0 {
+		return nil
+	}
+
+	innerTxHashes := make([]string, 0, len(txs))
+	for _, tx := range txs {
+		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
+	}
+
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, dbTx, innerTxHashes...); err != nil {
+		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
+	} else if affectedRows > 0 {
+		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
+	}
+
+	return nil
+}
+
+// filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
+// checks which contracts already exist in the in-memory cache, and returns a map of only new contracts.
+// This function uses the knownContractIDs cache to avoid per-ledger database queries.
+func (m *ingestService) filterNewContractTokens(contractChanges []types.ContractChange) map[string]types.ContractType {
+	if len(contractChanges) == 0 {
+		return nil
+	}
+
+	// Extract unique SAC and SEP-41 contract IDs not already in cache
+	seen := set.NewSet[string]()
+	newContracts := make(map[string]types.ContractType)
+
+	for _, change := range contractChanges {
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
+		}
+		if change.ContractID == "" || seen.Contains(change.ContractID) {
+			continue
+		}
+		seen.Add(change.ContractID)
+
+		// Check cache - if not known, it's a new contract
+		if !m.knownContractIDs.Contains(change.ContractID) {
+			newContracts[change.ContractID] = change.ContractType
+		}
+	}
+
+	return newContracts
 }

@@ -102,6 +102,7 @@ func (r *RedisStore) HGet(ctx context.Context, key string, field string) (string
 	return val, nil
 }
 
+// HMGet retrieves the values of multiple fields and their values in a hash stored at key.
 func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (map[string]string, error) {
 	vals, err := r.client.HMGet(ctx, key, fields...).Result()
 	if err != nil {
@@ -110,11 +111,25 @@ func (r *RedisStore) HMGet(ctx context.Context, key string, fields ...string) (m
 
 	result := make(map[string]string)
 	for i, field := range fields {
-		if vals[i] != nil {
-			result[field] = vals[i].(string)
+		if vals[i] == nil {
+			// Field doesn't exist in Redis - this is normal for new accounts
+			continue
 		}
+		str, ok := vals[i].(string)
+		if !ok {
+			return nil, fmt.Errorf("field %s from key %s is not a string", field, key)
+		}
+		result[field] = str
 	}
 	return result, nil
+}
+
+// Close closes the Redis connection pool.
+func (r *RedisStore) Close() error {
+	if err := r.client.Close(); err != nil {
+		return fmt.Errorf("closing redis connection: %w", err)
+	}
+	return nil
 }
 
 // ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
@@ -125,7 +140,7 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 		return nil
 	}
 
-	pipe := r.client.Pipeline()
+	pipe := r.client.TxPipeline()
 	for _, op := range operations {
 		switch op.Op {
 		case SetOpAdd:
@@ -143,9 +158,24 @@ func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipe
 		}
 	}
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("executing set pipeline: %w", err)
+	cmds, err := pipe.Exec(ctx)
+	if err != nil && !errors.Is(err, redis.Nil) {
+		// Collect individual failures for diagnostics
+		if cmds != nil && len(cmds) == len(operations) {
+			var failures []string
+			for i, cmd := range cmds {
+				if cmdErr := cmd.Err(); cmdErr != nil && !errors.Is(cmdErr, redis.Nil) {
+					failures = append(failures, fmt.Sprintf(
+						"op[%d] %s key=%s: %v",
+						i, operations[i].Op, operations[i].Key, cmdErr,
+					))
+				}
+			}
+			if len(failures) > 0 {
+				return fmt.Errorf("pipeline execution failed with %d errors: %v", len(failures), failures)
+			}
+		}
+		return fmt.Errorf("executing pipeline: %w", err)
 	}
 
 	return nil

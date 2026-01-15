@@ -284,29 +284,52 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 	return backend, nil
 }
 
-// flushBatchBuffer persists buffered data to the database within a transaction.
+// flushBatchBufferWithRetry persists buffered data to the database within a transaction.
 // If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushBatchBuffer(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32) error {
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
-		if err != nil {
-			return fmt.Errorf("filtering participant data: %w", err)
+func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32) error {
+	var lastErr error
+	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
 		}
-		if err := m.ingestProcessedData(ctx, dbTx, filteredData, false); err != nil {
-			return fmt.Errorf("ingesting processed data: %w", err)
-		}
-		// Update cursor atomically with data insertion if requested
-		if updateCursorTo != nil {
-			if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
-				return fmt.Errorf("updating oldest cursor: %w", err)
+
+		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
+			if err != nil {
+				return fmt.Errorf("filtering participant data: %w", err)
 			}
+			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
+				return fmt.Errorf("inserting processed data into db: %w", err)
+			}
+			// Update cursor atomically with data insertion if requested
+			if updateCursorTo != nil {
+				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
+					return fmt.Errorf("updating oldest cursor: %w", err)
+				}
+			}
+			return nil
+		})
+		if err == nil {
+			return nil
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("flushing batch buffer: %w", err)
+		lastErr = err
+
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxIngestProcessedDataRetryBackoff {
+			backoff = maxIngestProcessedDataRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error flushing batch buffer (attempt %d/%d): %v, retrying in %v...",
+			attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
 	}
-	return nil
+	return lastErr
 }
 
 // processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
@@ -336,7 +359,7 @@ func (m *ingestService) processLedgersInBatch(
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBuffer(ctx, batchBuffer, nil); err != nil {
+			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil); err != nil {
 				return ledgersProcessed, err
 			}
 			batchBuffer.Clear()
@@ -350,7 +373,7 @@ func (m *ingestService) processLedgersInBatch(
 		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
-		if err := m.flushBatchBuffer(ctx, batchBuffer, cursorUpdate); err != nil {
+		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate); err != nil {
 			return ledgersProcessed, err
 		}
 	} else if mode.isHistorical() {

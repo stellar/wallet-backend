@@ -82,6 +82,10 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	if t.Failed() {
+		t.Fatal("BuildAndSubmitTransactionsTestSuite failed, skipping remaining tests")
+	}
+
 	// Phase 3: Validate balances after live ingestion processes fixture transactions
 	t.Run("AccountBalancesAfterLiveIngestionTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterLiveIngestionTestSuite{
