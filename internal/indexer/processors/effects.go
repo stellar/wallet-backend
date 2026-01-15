@@ -438,7 +438,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	var stateChange types.StateChange
 
 	// Note: XDR fields (balance, liabilities, flags) are NOT extracted here.
-	// TrustLinesProcessor handles balance tracking from ledger changes directly.
+	// TrustlinesProcessor handles balance tracking from ledger changes directly.
 	// This function only tracks trustline add/remove/update for state change history.
 	//exhaustive:ignore
 	switch effectType {

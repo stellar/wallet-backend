@@ -49,16 +49,16 @@ func (m *MockOperationProcessor) Name() string {
 	return args.String(0)
 }
 
-type MockTrustLinesProcessor struct {
+type MockTrustlinesProcessor struct {
 	mock.Mock
 }
 
-func (m *MockTrustLinesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.TrustlineChange, error) {
+func (m *MockTrustlinesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.TrustlineChange, error) {
 	args := m.Called(ctx, opWrapper)
 	return args.Get(0).([]types.TrustlineChange), args.Error(1)
 }
 
-func (m *MockTrustLinesProcessor) Name() string {
+func (m *MockTrustlinesProcessor) Name() string {
 	args := m.Called()
 	return args.String(0)
 }
@@ -67,5 +67,5 @@ var (
 	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
 	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
 	_ OperationProcessorInterface     = &MockOperationProcessor{}
-	_ TrustLinesProcessorInterface    = &MockTrustLinesProcessor{}
+	_ TrustlinesProcessorInterface    = &MockTrustlinesProcessor{}
 )

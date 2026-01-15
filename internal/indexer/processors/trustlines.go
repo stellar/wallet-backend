@@ -1,4 +1,4 @@
-// TrustLinesProcessor extracts trustline changes from ledger entries for balance tracking.
+// TrustlinesProcessor extracts trustline changes from ledger entries for balance tracking.
 // It processes ledger changes directly (like Horizon) to capture ALL trustline modifications including payments.
 package processors
 
@@ -12,30 +12,30 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// TrustLinesProcessor processes ledger changes to extract trustline modifications.
+// TrustlinesProcessor processes ledger changes to extract trustline modifications.
 // Unlike effects-based processing, this captures ALL trustline changes including balance
 // updates from payments, path payments, and other operations that modify trustline balances.
-type TrustLinesProcessor struct {
+type TrustlinesProcessor struct {
 	networkPassphrase string
 	metricsService    MetricsServiceInterface
 }
 
-// NewTrustLinesProcessor creates a new trustlines processor.
-func NewTrustLinesProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *TrustLinesProcessor {
-	return &TrustLinesProcessor{
+// NewTrustlinesProcessor creates a new trustlines processor.
+func NewTrustlinesProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *TrustlinesProcessor {
+	return &TrustlinesProcessor{
 		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,
 	}
 }
 
 // Name returns the processor name for logging and metrics.
-func (p *TrustLinesProcessor) Name() string {
+func (p *TrustlinesProcessor) Name() string {
 	return "trustlines"
 }
 
 // ProcessOperation extracts trustline changes from an operation's ledger changes.
 // Returns TrustlineChange structs with full XDR data for database upsert.
-func (p *TrustLinesProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.TrustlineChange, error) {
+func (p *TrustlinesProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.TrustlineChange, error) {
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
@@ -64,7 +64,7 @@ func (p *TrustLinesProcessor) ProcessOperation(ctx context.Context, opWrapper *T
 
 // processTrustlineChange converts a ledger change to a TrustlineChange.
 // Returns (change, skip, error) where skip=true means the change should be ignored.
-func (p *TrustLinesProcessor) processTrustlineChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.TrustlineChange, bool, error) {
+func (p *TrustlinesProcessor) processTrustlineChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.TrustlineChange, bool, error) {
 	var tlChange types.TrustlineChange
 
 	// Determine operation type and get the relevant entry

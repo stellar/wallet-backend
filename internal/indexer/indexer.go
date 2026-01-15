@@ -60,7 +60,7 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
-type TrustLinesProcessorInterface interface {
+type TrustlinesProcessorInterface interface {
 	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.TrustlineChange, error)
 	Name() string
 }
@@ -68,7 +68,7 @@ type TrustLinesProcessorInterface interface {
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
-	trustlinesProcessor    TrustLinesProcessorInterface
+	trustlinesProcessor    TrustlinesProcessorInterface
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
@@ -81,7 +81,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:    processors.NewTrustLinesProcessor(networkPassphrase, metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),

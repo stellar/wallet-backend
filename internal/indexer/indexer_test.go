@@ -153,7 +153,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
-		mockTrustlines := &MockTrustLinesProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice", "bob")
@@ -238,7 +238,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
-		mockTrustlines := &MockTrustLinesProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mocks for first transaction
 		txParticipants1 := set.NewSet("alice", "bob")
@@ -557,7 +557,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
-		mockTrustlines := &MockTrustLinesProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice")
