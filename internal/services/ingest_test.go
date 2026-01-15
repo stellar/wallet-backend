@@ -2477,13 +2477,12 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                string
-		trustlineChanges    []types.TrustlineChange
-		contractChanges     []types.ContractChange
-		setupMocks          func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock)
-		wantErr             bool
-		wantErrContains     string
-		verifySortedChanges func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock)
+		name             string
+		trustlineChanges []types.TrustlineChange
+		contractChanges  []types.ContractChange
+		setupMocks       func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock)
+		wantErr          bool
+		wantErrContains  string
 	}{
 		{
 			name:             "empty_data_no_calls",
@@ -2498,7 +2497,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "sorts_trustline_changes_by_ledger_then_operation",
+			name: "sorts_trustline_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{
 				{AccountID: "GA1", Asset: "USD:GA1", OperationID: 10, LedgerNumber: 100},
 				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: 1, LedgerNumber: 101},
@@ -2506,31 +2505,19 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Verify sorted order: (100, 5), (100, 10), (101, 1)
+				// Verify sorted order by OperationID: 1, 5, 10
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					// First: L100, Op5
-					if changes[0].LedgerNumber != 100 || changes[0].OperationID != 5 {
-						return false
-					}
-					// Second: L100, Op10
-					if changes[1].LedgerNumber != 100 || changes[1].OperationID != 10 {
-						return false
-					}
-					// Third: L101, Op1
-					if changes[2].LedgerNumber != 101 || changes[2].OperationID != 1 {
-						return false
-					}
-					return true
+					return changes[0].OperationID == 1 && changes[1].OperationID == 5 && changes[2].OperationID == 10
 				})).Return(map[string]int64{"USD:GA1": 1, "EUR:GA2": 2, "GBP:GA3": 3}, nil)
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name:             "sorts_contract_changes_by_ledger_then_operation",
+			name:             "sorts_contract_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA1", ContractID: "C1", OperationID: 20, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
@@ -2539,24 +2526,12 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				// Verify sorted order: (200, 5), (200, 20), (201, 1)
+				// Verify sorted order by OperationID: 1, 5, 20
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					// First: L200, Op5
-					if changes[0].LedgerNumber != 200 || changes[0].OperationID != 5 {
-						return false
-					}
-					// Second: L200, Op20
-					if changes[1].LedgerNumber != 200 || changes[1].OperationID != 20 {
-						return false
-					}
-					// Third: L201, Op1
-					if changes[2].LedgerNumber != 201 || changes[2].OperationID != 1 {
-						return false
-					}
-					return true
+					return changes[0].OperationID == 1 && changes[1].OperationID == 5 && changes[2].OperationID == 20
 				})).Return(nil)
 			},
 			wantErr: false,
@@ -2683,10 +2658,6 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-
-			if tc.verifySortedChanges != nil {
-				tc.verifySortedChanges(t, mockTokenCacheWriter)
-			}
 		})
 	}
 }
@@ -2703,11 +2674,11 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                      string
-		setupBuffer               func() *indexer.IndexerBuffer
-		tokenChanges              *BatchTokenChanges
-		wantTrustlineChangesCount int
-		wantContractChangesCount  int
+		name                 string
+		setupBuffer          func() *indexer.IndexerBuffer
+		tokenChanges         *BatchTokenChanges
+		wantTrustlineChanges []types.TrustlineChange
+		wantContractChanges  []types.ContractChange
 	}{
 		{
 			name: "collects_trustline_changes_when_tokenChanges_provided",
@@ -2724,9 +2695,17 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{},
-			wantTrustlineChangesCount: 1,
-			wantContractChangesCount:  0,
+			tokenChanges: &BatchTokenChanges{},
+			wantTrustlineChanges: []types.TrustlineChange{
+				{
+					AccountID:    "GTEST111111111111111111111111111111111111111111111111",
+					Asset:        "USDC:GISSUER",
+					OperationID:  100,
+					LedgerNumber: 1000,
+					Operation:    types.TrustlineOpAdd,
+				},
+			},
+			wantContractChanges: nil,
 		},
 		{
 			name: "collects_contract_changes_when_tokenChanges_provided",
@@ -2743,9 +2722,17 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{},
-			wantTrustlineChangesCount: 0,
-			wantContractChangesCount:  1,
+			tokenChanges:         &BatchTokenChanges{},
+			wantTrustlineChanges: nil,
+			wantContractChanges: []types.ContractChange{
+				{
+					AccountID:    "GTEST222222222222222222222222222222222222222222222222",
+					ContractID:   "CCONTRACTID",
+					OperationID:  101,
+					LedgerNumber: 1001,
+					ContractType: types.ContractTypeSAC,
+				},
+			},
 		},
 		{
 			name: "nil_tokenChanges_does_not_collect",
@@ -2762,9 +2749,9 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              nil, // nil means historical mode
-			wantTrustlineChangesCount: 0,   // no collection happens
-			wantContractChangesCount:  0,
+			tokenChanges:         nil, // nil means historical mode - no collection happens
+			wantTrustlineChanges: nil,
+			wantContractChanges:  nil,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2781,14 +2768,19 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			// Pre-populate tokenChanges to simulate accumulation
+			// Pre-populate tokenChanges to simulate accumulation from previous flush
 			tokenChanges: &BatchTokenChanges{
 				TrustlineChanges: []types.TrustlineChange{
-					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999},
+					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
 				},
 			},
-			wantTrustlineChangesCount: 2, // 1 existing + 1 new
-			wantContractChangesCount:  0,
+			wantTrustlineChanges: []types.TrustlineChange{
+				// Pre-existing change from previous flush
+				{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
+				// New change from this flush
+				{AccountID: "GTEST666666666666666666666666666666666666666666666666", Asset: "GBP:GISSUER", OperationID: 103, LedgerNumber: 1003, Operation: types.TrustlineOpAdd},
+			},
+			wantContractChanges: nil,
 		},
 	}
 
@@ -2853,10 +2845,29 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.tokenChanges)
 			require.NoError(t, err)
 
-			// Verify collected data counts
+			// Verify collected token changes match expected values
 			if tc.tokenChanges != nil {
-				assert.Equal(t, tc.wantTrustlineChangesCount, len(tc.tokenChanges.TrustlineChanges), "trustline changes count mismatch")
-				assert.Equal(t, tc.wantContractChangesCount, len(tc.tokenChanges.ContractChanges), "contract changes count mismatch")
+				// Verify trustline changes
+				require.Len(t, tc.tokenChanges.TrustlineChanges, len(tc.wantTrustlineChanges), "trustline changes count mismatch")
+				for i, want := range tc.wantTrustlineChanges {
+					got := tc.tokenChanges.TrustlineChanges[i]
+					assert.Equal(t, want.AccountID, got.AccountID, "TrustlineChange[%d].AccountID mismatch", i)
+					assert.Equal(t, want.Asset, got.Asset, "TrustlineChange[%d].Asset mismatch", i)
+					assert.Equal(t, want.OperationID, got.OperationID, "TrustlineChange[%d].OperationID mismatch", i)
+					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "TrustlineChange[%d].LedgerNumber mismatch", i)
+					assert.Equal(t, want.Operation, got.Operation, "TrustlineChange[%d].Operation mismatch", i)
+				}
+
+				// Verify contract changes
+				require.Len(t, tc.tokenChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
+				for i, want := range tc.wantContractChanges {
+					got := tc.tokenChanges.ContractChanges[i]
+					assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
+					assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
+					assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
+					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "ContractChange[%d].LedgerNumber mismatch", i)
+					assert.Equal(t, want.ContractType, got.ContractType, "ContractChange[%d].ContractType mismatch", i)
+				}
 			}
 		})
 	}
@@ -3020,7 +3031,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 				}
 			},
 			wantErr:          true,
-			wantErrContains:  "processing catchup data",
+			wantErrContains:  "processing token changes",
 			wantLatestCursor: ledgerSeq - 1, // Cursor should NOT be updated
 		},
 		{
@@ -3039,7 +3050,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 				}
 			},
 			wantErr:          true,
-			wantErrContains:  "processing catchup data",
+			wantErrContains:  "processing token changes",
 			wantLatestCursor: ledgerSeq - 1, // Cursor should NOT be updated
 		},
 	}
