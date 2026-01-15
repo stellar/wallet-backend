@@ -64,8 +64,8 @@ func (m *MockTrustlinesProcessor) Name() string {
 }
 
 var (
-	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface     = &MockOperationProcessor{}
-	_ TrustlinesProcessorInterface    = &MockTrustlinesProcessor{}
+	_ ParticipantsProcessorInterface               = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface              = &MockTokenTransferProcessor{}
+	_ OperationProcessorInterface                  = &MockOperationProcessor{}
+	_ LedgerChangeProcessor[types.TrustlineChange] = &MockTrustlinesProcessor{}
 )
