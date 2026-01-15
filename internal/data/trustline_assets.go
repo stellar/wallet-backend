@@ -16,7 +16,9 @@ import (
 
 // Note: pq is still used by BatchGetByIDs for sqlx compatibility
 
-// assetNamespace is derived from table name for reproducibility.
+// assetNamespace is a custom namespace UUID derived deterministically from the
+// DNS namespace UUID and the "trustline_assets" table name. This ensures a
+// stable, reproducible namespace for generating asset IDs.
 var assetNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("trustline_assets"))
 
 // DeterministicAssetID computes a deterministic UUID for a trustline asset
