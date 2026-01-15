@@ -25,7 +25,6 @@ import (
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
 const (
@@ -53,8 +52,6 @@ type Configs struct {
 	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 	DatabaseURL            string
-	RedisHost              string
-	RedisPort              int
 	ServerPort             int
 	StartLedger            int
 	EndLedger              int
@@ -156,7 +153,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 
 	// Create pond pool for contract metadata fetching
@@ -181,7 +177,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset)
+	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.AccountTokens, models.Contract)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -234,9 +230,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			if err := server.Shutdown(ctx); err != nil {
 				log.Errorf("Server forced to shutdown: %v", err)
 			}
-		}
-		if err := redisStore.Close(); err != nil {
-			log.Errorf("Error closing Redis connection: %v", err)
 		}
 		log.Info("Servers gracefully stopped")
 	}()

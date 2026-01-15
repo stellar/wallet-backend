@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,8 +33,8 @@ func TestContractModel_GetByID(t *testing.T) {
 
 	t.Run("returns error when contract not found", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", "GetByID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQueryError", "GetByContractID", "contract_tokens", mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -41,16 +42,16 @@ func TestContractModel_GetByID(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		contract, err := m.GetByID(context.Background(), "nonexistent")
+		contract, err := m.GetByContractID(context.Background(), "nonexistent")
 		require.Error(t, err)
 		require.Nil(t, contract)
-		require.Contains(t, err.Error(), "getting contract by ID nonexistent")
+		require.Contains(t, err.Error(), "getting contract by contract_id nonexistent")
 
 		cleanUpDB()
 	})
 }
 
-func TestContractModel_GetAllIDs(t *testing.T) {
+func TestContractModel_GetAllContractIDs(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -67,8 +68,8 @@ func TestContractModel_GetAllIDs(t *testing.T) {
 	t.Run("returns empty slice when table is empty", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetAllIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetAllIDs", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAllContractIDs", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAllContractIDs", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -76,7 +77,7 @@ func TestContractModel_GetAllIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		ids, err := m.GetAllIDs(ctx)
+		ids, err := m.GetAllContractIDs(ctx)
 		require.NoError(t, err)
 		require.Empty(t, ids)
 	})
@@ -88,8 +89,8 @@ func TestContractModel_GetAllIDs(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetAllIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetAllIDs", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAllContractIDs", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAllContractIDs", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -100,20 +101,19 @@ func TestContractModel_GetAllIDs(t *testing.T) {
 		name := "Test"
 		symbol := "TST"
 		contracts := []*Contract{
-			{ID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
-			{ID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
-			{ID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
+			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
+			{ID: DeterministicContractID("contract3"), ContractID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 3)
 			return nil
 		})
 		require.NoError(t, err)
 
-		ids, err := m.GetAllIDs(ctx)
+		ids, err := m.GetAllContractIDs(ctx)
 		require.NoError(t, err)
 		require.Len(t, ids, 3)
 		require.ElementsMatch(t, []string{"contract1", "contract2", "contract3"}, ids)
@@ -138,8 +138,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 
 	t.Run("returns empty slice for empty IDs slice", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "contract_tokens").Return()
+		// No metrics expected - early return for empty input
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -147,7 +146,7 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		contracts, err := m.BatchGetByIDs(ctx, []string{})
+		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{})
 		require.NoError(t, err)
 		require.Empty(t, contracts)
 	})
@@ -164,7 +163,8 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		contracts, err := m.BatchGetByIDs(ctx, []string{"nonexistent1", "nonexistent2"})
+		// Use random UUIDs that don't exist in the database
+		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{uuid.New(), uuid.New()})
 		require.NoError(t, err)
 		require.Empty(t, contracts)
 	})
@@ -195,43 +195,45 @@ func TestContractModel_BatchGetByIDs(t *testing.T) {
 		symbol2 := "TST2"
 		contracts := []*Contract{
 			{
-				ID:       "contract1",
-				Type:     "sac",
-				Code:     &code1,
-				Issuer:   &issuer1,
-				Name:     &name1,
-				Symbol:   &symbol1,
-				Decimals: 7,
+				ID:         DeterministicContractID("contract1"),
+				ContractID: "contract1",
+				Type:       "sac",
+				Code:       &code1,
+				Issuer:     &issuer1,
+				Name:       &name1,
+				Symbol:     &symbol1,
+				Decimals:   7,
 			},
 			{
-				ID:       "contract2",
-				Type:     "sep41",
-				Code:     &code2,
-				Issuer:   &issuer2,
-				Name:     &name2,
-				Symbol:   &symbol2,
-				Decimals: 18,
+				ID:         DeterministicContractID("contract2"),
+				ContractID: "contract2",
+				Type:       "sep41",
+				Code:       &code2,
+				Issuer:     &issuer2,
+				Name:       &name2,
+				Symbol:     &symbol2,
+				Decimals:   18,
 			},
 		}
 
 		// Insert contracts first
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 2)
 			return nil
 		})
 		require.NoError(t, err)
 
-		// Fetch contracts by IDs
-		fetchedContracts, err := m.BatchGetByIDs(ctx, []string{"contract1", "contract2", "nonexistent"})
+		// Fetch contracts by deterministic UUIDs (including a non-existent one)
+		uuids := []uuid.UUID{DeterministicContractID("contract1"), DeterministicContractID("contract2"), uuid.New()}
+		fetchedContracts, err := m.BatchGetByIDs(ctx, uuids)
 		require.NoError(t, err)
 		require.Len(t, fetchedContracts, 2)
 
 		// Verify fetched contracts
 		contractMap := make(map[string]*Contract)
 		for _, c := range fetchedContracts {
-			contractMap[c.ID] = c
+			contractMap[c.ContractID] = c
 		}
 
 		require.Equal(t, "sac", contractMap["contract1"].Type)
@@ -271,9 +273,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
+			txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
 			require.NoError(t, txErr)
-			require.Nil(t, insertedIDs)
 			return nil
 		})
 		require.NoError(t, err)
@@ -286,8 +287,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -307,42 +308,44 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		symbol3 := "TST3"
 		contracts := []*Contract{
 			{
-				ID:       "contract1",
-				Type:     "sac",
-				Code:     &code1,
-				Issuer:   &issuer1,
-				Name:     &name1,
-				Symbol:   &symbol1,
-				Decimals: 7,
+				ID:         DeterministicContractID("contract1"),
+				ContractID: "contract1",
+				Type:       "sac",
+				Code:       &code1,
+				Issuer:     &issuer1,
+				Name:       &name1,
+				Symbol:     &symbol1,
+				Decimals:   7,
 			},
 			{
-				ID:       "contract2",
-				Type:     "sep41",
-				Code:     &code2,
-				Issuer:   &issuer2,
-				Name:     &name2,
-				Symbol:   &symbol2,
-				Decimals: 18,
+				ID:         DeterministicContractID("contract2"),
+				ContractID: "contract2",
+				Type:       "sep41",
+				Code:       &code2,
+				Issuer:     &issuer2,
+				Name:       &name2,
+				Symbol:     &symbol2,
+				Decimals:   18,
 			},
 			{
-				ID:       "contract3",
-				Type:     "unknown",
-				Name:     &name3,
-				Symbol:   &symbol3,
-				Decimals: 6,
+				ID:         DeterministicContractID("contract3"),
+				ContractID: "contract3",
+				Type:       "unknown",
+				Name:       &name3,
+				Symbol:     &symbol3,
+				Decimals:   6,
 			},
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 3)
 			return nil
 		})
 		require.NoError(t, err)
 
 		// Verify contracts were inserted
-		contract1, err := m.GetByID(ctx, "contract1")
+		contract1, err := m.GetByContractID(ctx, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
@@ -351,11 +354,11 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "TST1", *contract1.Symbol)
 		require.Equal(t, uint32(7), contract1.Decimals)
 
-		contract2, err := m.GetByID(ctx, "contract2")
+		contract2, err := m.GetByContractID(ctx, "contract2")
 		require.NoError(t, err)
 		require.Equal(t, "sep41", contract2.Type)
 
-		contract3, err := m.GetByID(ctx, "contract3")
+		contract3, err := m.GetByContractID(ctx, "contract3")
 		require.NoError(t, err)
 		require.Nil(t, contract3.Code)
 		require.Nil(t, contract3.Issuer)
@@ -370,8 +373,8 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -384,55 +387,55 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		origSymbol := "ORIG"
 		contracts := []*Contract{
 			{
-				ID:       "contract1",
-				Type:     "sac",
-				Name:     &origName,
-				Symbol:   &origSymbol,
-				Decimals: 7,
+				ID:         DeterministicContractID("contract1"),
+				ContractID: "contract1",
+				Type:       "sac",
+				Name:       &origName,
+				Symbol:     &origSymbol,
+				Decimals:   7,
 			},
 		}
 
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 1)
 			return nil
 		})
 		require.NoError(t, err)
 
-		// Second insert with same ID and different data - should be skipped
+		// Second insert with same ContractID and different data - should be skipped (ON CONFLICT DO NOTHING)
 		newName := "New Name"
 		newSymbol := "NEW"
 		contract2Name := "Contract 2"
 		contract2Symbol := "C2"
 		contracts = []*Contract{
 			{
-				ID:       "contract1",
-				Type:     "sep41",
-				Name:     &newName,
-				Symbol:   &newSymbol,
-				Decimals: 18,
+				ID:         DeterministicContractID("contract1"),
+				ContractID: "contract1",
+				Type:       "sep41",
+				Name:       &newName,
+				Symbol:     &newSymbol,
+				Decimals:   18,
 			},
 			{
-				ID:       "contract2",
-				Type:     "unknown",
-				Name:     &contract2Name,
-				Symbol:   &contract2Symbol,
-				Decimals: 6,
+				ID:         DeterministicContractID("contract2"),
+				ContractID: "contract2",
+				Type:       "unknown",
+				Name:       &contract2Name,
+				Symbol:     &contract2Symbol,
+				Decimals:   6,
 			},
 		}
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			insertedIDs, txErr := m.BatchInsert(ctx, dbTx, contracts)
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
-			require.Len(t, insertedIDs, 1) // Only contract2 should be inserted
-			require.Equal(t, "contract2", insertedIDs[0])
 			return nil
 		})
 		require.NoError(t, err)
 
 		// Verify original contract was not updated
-		contract1, err := m.GetByID(ctx, "contract1")
+		contract1, err := m.GetByContractID(ctx, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "Original Name", *contract1.Name)

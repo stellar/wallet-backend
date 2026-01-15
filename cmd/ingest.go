@@ -35,8 +35,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.AdminPortOption(&cfg.AdminPort),
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
-		utils.RedisHostOption(&cfg.RedisHost),
-		utils.RedisPortOption(&cfg.RedisPort),
 		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "ingestion-mode",

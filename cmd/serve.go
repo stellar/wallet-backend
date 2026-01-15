@@ -37,8 +37,6 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.MaxAccountsPerBalancesQueryOption(&cfg.MaxAccountsPerBalancesQuery),
 		utils.MaxGraphQLWorkerPoolSizeOption(&cfg.MaxGraphQLWorkerPoolSize),
-		utils.RedisHostOption(&cfg.RedisHost),
-		utils.RedisPortOption(&cfg.RedisPort),
 		utils.EnableParticipantFilteringOption(&cfg.EnableParticipantFiltering),
 		{
 			Name:        "port",

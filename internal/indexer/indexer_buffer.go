@@ -4,11 +4,15 @@
 package indexer
 
 import (
+	"fmt"
 	"maps"
+	"strings"
 	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -41,29 +45,33 @@ import (
 // Callers can safely use multiple buffers in parallel goroutines.
 
 type IndexerBuffer struct {
-	mu                   sync.RWMutex
-	txByHash             map[string]*types.Transaction
-	participantsByTxHash map[string]set.Set[string]
-	opByID               map[int64]*types.Operation
-	participantsByOpID   map[int64]set.Set[string]
-	stateChanges         []types.StateChange
-	trustlineChanges     []types.TrustlineChange
-	contractChanges      []types.ContractChange
-	allParticipants      set.Set[string]
+	mu                    sync.RWMutex
+	txByHash              map[string]*types.Transaction
+	participantsByTxHash  map[string]set.Set[string]
+	opByID                map[int64]*types.Operation
+	participantsByOpID    map[int64]set.Set[string]
+	stateChanges          []types.StateChange
+	trustlineChanges      []types.TrustlineChange
+	contractChanges       []types.ContractChange
+	allParticipants       set.Set[string]
+	uniqueTrustlineAssets map[string]data.TrustlineAsset // "CODE:ISSUER" → asset with pre-computed ID
+	uniqueContractsByID   map[string]types.ContractType  // contractID → type (SAC/SEP-41 only)
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		txByHash:             make(map[string]*types.Transaction),
-		participantsByTxHash: make(map[string]set.Set[string]),
-		opByID:               make(map[int64]*types.Operation),
-		participantsByOpID:   make(map[int64]set.Set[string]),
-		stateChanges:         make([]types.StateChange, 0),
-		trustlineChanges:     make([]types.TrustlineChange, 0),
-		contractChanges:      make([]types.ContractChange, 0),
-		allParticipants:      set.NewSet[string](),
+		txByHash:              make(map[string]*types.Transaction),
+		participantsByTxHash:  make(map[string]set.Set[string]),
+		opByID:                make(map[int64]*types.Operation),
+		participantsByOpID:    make(map[int64]set.Set[string]),
+		stateChanges:          make([]types.StateChange, 0),
+		trustlineChanges:      make([]types.TrustlineChange, 0),
+		contractChanges:       make([]types.ContractChange, 0),
+		allParticipants:       set.NewSet[string](),
+		uniqueTrustlineAssets: make(map[string]data.TrustlineAsset),
+		uniqueContractsByID:   make(map[string]types.ContractType),
 	}
 }
 
@@ -147,13 +155,27 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[string]set.Set[string]
 	return b.participantsByTxHash
 }
 
-// PushTrustlineChange adds a trustline change to the buffer.
+// PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.trustlineChanges = append(b.trustlineChanges, trustlineChange)
+
+	// Track unique asset with pre-computed deterministic ID
+	code, issuer, err := ParseAssetString(trustlineChange.Asset)
+	if err != nil {
+		return // Skip invalid assets
+	}
+	key := code + ":" + issuer
+	if _, exists := b.uniqueTrustlineAssets[key]; !exists {
+		b.uniqueTrustlineAssets[key] = data.TrustlineAsset{
+			ID:     data.DeterministicAssetID(code, issuer),
+			Code:   code,
+			Issuer: issuer,
+		}
+	}
 }
 
 // GetTrustlineChanges returns all trustline changes stored in the buffer.
@@ -165,13 +187,25 @@ func (b *IndexerBuffer) GetTrustlineChanges() []types.TrustlineChange {
 	return b.trustlineChanges
 }
 
-// PushContractChange adds a contract change to the buffer.
+// PushContractChange adds a contract change to the buffer and tracks unique SAC/SEP-41 contracts.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.contractChanges = append(b.contractChanges, contractChange)
+
+	// Only track SAC and SEP-41 contracts for DB insertion
+	if contractChange.ContractType != types.ContractTypeSAC &&
+		contractChange.ContractType != types.ContractTypeSEP41 {
+		return
+	}
+	if contractChange.ContractID == "" {
+		return
+	}
+	if _, exists := b.uniqueContractsByID[contractChange.ContractID]; !exists {
+		b.uniqueContractsByID[contractChange.ContractID] = contractChange.ContractType
+	}
 }
 
 // GetContractChanges returns all contract changes stored in the buffer.
@@ -343,6 +377,12 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	for participant := range otherBuffer.allParticipants.Iter() {
 		b.allParticipants.Add(participant)
 	}
+
+	// Merge unique trustline assets
+	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
+
+	// Merge unique contracts
+	maps.Copy(b.uniqueContractsByID, otherBuffer.uniqueContractsByID)
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
@@ -357,6 +397,8 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.participantsByTxHash)
 	clear(b.opByID)
 	clear(b.participantsByOpID)
+	clear(b.uniqueTrustlineAssets)
+	clear(b.uniqueContractsByID)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
@@ -365,4 +407,42 @@ func (b *IndexerBuffer) Clear() {
 
 	// Clear all participants set
 	b.allParticipants.Clear()
+}
+
+// GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	assets := make([]data.TrustlineAsset, 0, len(b.uniqueTrustlineAssets))
+	for _, asset := range b.uniqueTrustlineAssets {
+		assets = append(assets, asset)
+	}
+	return assets
+}
+
+// GetUniqueContractsByID returns a map of unique SAC/SEP-41 contract IDs to their types.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetUniqueContractsByID() map[string]types.ContractType {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.uniqueContractsByID)
+}
+
+// ParseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
+func ParseAssetString(asset string) (code, issuer string, err error) {
+	parts := strings.SplitN(asset, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid asset format: expected CODE:ISSUER, got %s", asset)
+	}
+	code, issuer = parts[0], parts[1]
+
+	// Validate using txnbuild
+	creditAsset := txnbuild.CreditAsset{Code: code, Issuer: issuer}
+	if _, err := creditAsset.ToXDR(); err != nil {
+		return "", "", fmt.Errorf("invalid asset %s: %w", asset, err)
+	}
+	return code, issuer, nil
 }
