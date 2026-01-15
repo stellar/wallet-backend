@@ -120,6 +120,7 @@ type ingestService struct {
 	backfillBatchSize          uint32
 	backfillDBInsertBatchSize  uint32
 	catchupThreshold           uint32
+	knownContractIDs           set.Set[string]
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -159,6 +160,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:           uint32(cfg.CatchupThreshold),
+		knownContractIDs:           set.NewSet[string](),
 	}, nil
 }
 
