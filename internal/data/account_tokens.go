@@ -32,7 +32,6 @@ type Trustline struct {
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
 	GetTrustlines(ctx context.Context, accountAddress string) ([]Trustline, error)
-	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
 	GetContracts(ctx context.Context, accountAddress string) ([]*Contract, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
