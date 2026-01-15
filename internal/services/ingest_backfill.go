@@ -331,8 +331,8 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			}
 			// Collect token changes for post-catchup processing if requested
 			if tokenChanges != nil {
-				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
-				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
+				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, buffer.GetTrustlineChanges()...)
+				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, buffer.GetContractChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
