@@ -463,9 +463,6 @@ func (m *ingestService) processTokenChanges(
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 	sort.Slice(accountChanges, func(i, j int) bool {
-		if accountChanges[i].LedgerNumber != accountChanges[j].LedgerNumber {
-			return accountChanges[i].LedgerNumber < accountChanges[j].LedgerNumber
-		}
 		return accountChanges[i].OperationID < accountChanges[j].OperationID
 	})
 
