@@ -122,14 +122,15 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	db                      db.ConnectionPool
-	archive                 historyarchive.ArchiveInterface
-	contractValidator       ContractValidator
-	contractMetadataService ContractMetadataService
-	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
-	accountTokensModel      wbdata.AccountTokensModelInterface
-	contractModel           wbdata.ContractModelInterface
-	networkPassphrase       string
+	db                        db.ConnectionPool
+	archive                   historyarchive.ArchiveInterface
+	contractValidator         ContractValidator
+	contractMetadataService   ContractMetadataService
+	trustlineAssetModel       wbdata.TrustlineAssetModelInterface
+	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	accountContractTokensModel wbdata.AccountContractTokensModelInterface
+	contractModel             wbdata.ContractModelInterface
+	networkPassphrase         string
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
@@ -140,18 +141,20 @@ func NewTokenIngestionService(
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
-	accountTokensModel wbdata.AccountTokensModelInterface,
+	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
+	accountContractTokensModel wbdata.AccountContractTokensModelInterface,
 	contractModel wbdata.ContractModelInterface,
 ) TokenIngestionService {
 	return &tokenIngestionService{
-		db:                      dbPool,
-		archive:                 archive,
-		contractValidator:       contractValidator,
-		contractMetadataService: contractMetadataService,
-		trustlineAssetModel:     trustlineAssetModel,
-		accountTokensModel:      accountTokensModel,
-		contractModel:           contractModel,
-		networkPassphrase:       networkPassphrase,
+		db:                        dbPool,
+		archive:                   archive,
+		contractValidator:         contractValidator,
+		contractMetadataService:   contractMetadataService,
+		trustlineAssetModel:       trustlineAssetModel,
+		trustlineBalanceModel:     trustlineBalanceModel,
+		accountContractTokensModel: accountContractTokensModel,
+		contractModel:             contractModel,
+		networkPassphrase:         networkPassphrase,
 	}
 }
 
@@ -274,10 +277,10 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 	}
 
 	// Separate into upserts and deletes
-	var upserts []wbdata.Trustline
-	var deletes []wbdata.Trustline
+	var upserts []wbdata.TrustlineBalance
+	var deletes []wbdata.TrustlineBalance
 	for key, change := range trustlineDataByKey {
-		fullData := wbdata.Trustline{
+		fullData := wbdata.TrustlineBalance{
 			AccountAddress:     change.AccountID,
 			AssetID:            key.trustlineID,
 			Balance:            change.Balance,
@@ -310,17 +313,17 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 	}
 
 	// Execute all changes using the provided transaction
-	// Batch upsert trustlines with full XDR data
+	// Batch upsert trustline balances with full XDR data
 	if len(upserts) > 0 || len(deletes) > 0 {
-		if err := s.accountTokensModel.BatchUpsertTrustlines(ctx, dbTx, upserts, deletes); err != nil {
-			return fmt.Errorf("upserting trustlines with full data: %w", err)
+		if err := s.trustlineBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
 
-	// Batch insert contracts
+	// Batch insert contract tokens
 	if len(contractsByAccount) > 0 {
-		if err := s.accountTokensModel.BatchInsertContractTokens(ctx, dbTx, contractsByAccount); err != nil {
-			return fmt.Errorf("batch inserting contracts: %w", err)
+		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractsByAccount); err != nil {
+			return fmt.Errorf("batch inserting contract tokens: %w", err)
 		}
 	}
 
@@ -526,7 +529,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 	return data, nil
 }
 
-// flushTrustlineBatch inserts the batch's trustline assets and account trustlines.
+// flushTrustlineBatch inserts the batch's trustline assets and trustline balances.
 func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
 	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
 	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
@@ -537,9 +540,9 @@ func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pg
 		return fmt.Errorf("batch inserting assets: %w", err)
 	}
 
-	// 2. Batch insert account trustlines (ledger is already set on each trustline in batch.add)
-	if err := s.accountTokensModel.BatchInsertTrustlines(ctx, dbTx, batch.trustlines); err != nil {
-		return fmt.Errorf("batch inserting account trustlines: %w", err)
+	// 2. Batch insert trustline balances (ledger is already set on each balance in batch.add)
+	if err := s.trustlineBalanceModel.BatchInsert(ctx, dbTx, batch.balances); err != nil {
+		return fmt.Errorf("batch inserting trustline balances: %w", err)
 	}
 
 	return nil
@@ -597,7 +600,7 @@ func (s *tokenIngestionService) storeContractsInPostgres(
 	}
 
 	// Batch insert account-contract relationships
-	if err := s.accountTokensModel.BatchInsertContractTokens(ctx, dbTx, contractIDsByAccount); err != nil {
+	if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractIDsByAccount); err != nil {
 		return fmt.Errorf("batch inserting account contracts: %w", err)
 	}
 	log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts in %.2f minutes",
