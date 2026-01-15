@@ -1971,6 +1971,9 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		return mockBackend, nil
 	}
 
+	mockChAccStore := &store.ChannelAccountStoreMock{}
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
@@ -1987,6 +1990,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		Archive:                   &HistoryArchiveMock{},
 		BackfillBatchSize:         10,
 		BackfillDBInsertBatchSize: 50,
+		ChannelAccountStore:       mockChAccStore,
 	})
 	require.NoError(t, svcErr)
 
