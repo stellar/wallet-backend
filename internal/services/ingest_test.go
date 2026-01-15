@@ -2692,11 +2692,11 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                      string
-		setupBuffer               func() *indexer.IndexerBuffer
-		tokenChanges              *BatchTokenChanges
-		wantTrustlineChangesCount int
-		wantContractChangesCount  int
+		name                 string
+		setupBuffer          func() *indexer.IndexerBuffer
+		tokenChanges         *BatchTokenChanges
+		wantTrustlineChanges []types.TrustlineChange
+		wantContractChanges  []types.ContractChange
 	}{
 		{
 			name: "collects_trustline_changes_when_tokenChanges_provided",
@@ -2713,9 +2713,17 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{},
-			wantTrustlineChangesCount: 1,
-			wantContractChangesCount:  0,
+			tokenChanges: &BatchTokenChanges{},
+			wantTrustlineChanges: []types.TrustlineChange{
+				{
+					AccountID:    "GTEST111111111111111111111111111111111111111111111111",
+					Asset:        "USDC:GISSUER",
+					OperationID:  100,
+					LedgerNumber: 1000,
+					Operation:    types.TrustlineOpAdd,
+				},
+			},
+			wantContractChanges: nil,
 		},
 		{
 			name: "collects_contract_changes_when_tokenChanges_provided",
@@ -2732,9 +2740,17 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{},
-			wantTrustlineChangesCount: 0,
-			wantContractChangesCount:  1,
+			tokenChanges:         &BatchTokenChanges{},
+			wantTrustlineChanges: nil,
+			wantContractChanges: []types.ContractChange{
+				{
+					AccountID:    "GTEST222222222222222222222222222222222222222222222222",
+					ContractID:   "CCONTRACTID",
+					OperationID:  101,
+					LedgerNumber: 1001,
+					ContractType: types.ContractTypeSAC,
+				},
+			},
 		},
 		{
 			name: "nil_tokenChanges_does_not_collect",
@@ -2751,9 +2767,9 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              nil, // nil means historical mode
-			wantTrustlineChangesCount: 0,   // no collection happens
-			wantContractChangesCount:  0,
+			tokenChanges:         nil, // nil means historical mode - no collection happens
+			wantTrustlineChanges: nil,
+			wantContractChanges:  nil,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2770,14 +2786,19 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			// Pre-populate tokenChanges to simulate accumulation
+			// Pre-populate tokenChanges to simulate accumulation from previous flush
 			tokenChanges: &BatchTokenChanges{
 				TrustlineChanges: []types.TrustlineChange{
-					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999},
+					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
 				},
 			},
-			wantTrustlineChangesCount: 2, // 1 existing + 1 new
-			wantContractChangesCount:  0,
+			wantTrustlineChanges: []types.TrustlineChange{
+				// Pre-existing change from previous flush
+				{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
+				// New change from this flush
+				{AccountID: "GTEST666666666666666666666666666666666666666666666666", Asset: "GBP:GISSUER", OperationID: 103, LedgerNumber: 1003, Operation: types.TrustlineOpAdd},
+			},
+			wantContractChanges: nil,
 		},
 	}
 
@@ -2813,12 +2834,6 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:              IngestionModeBackfill,
 				Models:                     models,
@@ -2827,7 +2842,6 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				AppTracker:                 &apptracker.MockAppTracker{},
 				RPCService:                 mockRPCService,
 				LedgerBackend:              &LedgerBackendMock{},
-				ChannelAccountStore:        mockChAccStore,
 				MetricsService:             mockMetricsService,
 				GetLedgersLimit:            defaultGetLedgersLimit,
 				Network:                    network.TestNetworkPassphrase,
@@ -2842,10 +2856,29 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.tokenChanges)
 			require.NoError(t, err)
 
-			// Verify collected data counts
+			// Verify collected token changes match expected values
 			if tc.tokenChanges != nil {
-				assert.Equal(t, tc.wantTrustlineChangesCount, len(tc.tokenChanges.TrustlineChanges), "trustline changes count mismatch")
-				assert.Equal(t, tc.wantContractChangesCount, len(tc.tokenChanges.ContractChanges), "contract changes count mismatch")
+				// Verify trustline changes
+				require.Len(t, tc.tokenChanges.TrustlineChanges, len(tc.wantTrustlineChanges), "trustline changes count mismatch")
+				for i, want := range tc.wantTrustlineChanges {
+					got := tc.tokenChanges.TrustlineChanges[i]
+					assert.Equal(t, want.AccountID, got.AccountID, "TrustlineChange[%d].AccountID mismatch", i)
+					assert.Equal(t, want.Asset, got.Asset, "TrustlineChange[%d].Asset mismatch", i)
+					assert.Equal(t, want.OperationID, got.OperationID, "TrustlineChange[%d].OperationID mismatch", i)
+					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "TrustlineChange[%d].LedgerNumber mismatch", i)
+					assert.Equal(t, want.Operation, got.Operation, "TrustlineChange[%d].Operation mismatch", i)
+				}
+
+				// Verify contract changes
+				require.Len(t, tc.tokenChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
+				for i, want := range tc.wantContractChanges {
+					got := tc.tokenChanges.ContractChanges[i]
+					assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
+					assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
+					assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
+					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "ContractChange[%d].LedgerNumber mismatch", i)
+					assert.Equal(t, want.ContractType, got.ContractType, "ContractChange[%d].ContractType mismatch", i)
+				}
 			}
 		})
 	}
