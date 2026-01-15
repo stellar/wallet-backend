@@ -33,6 +33,7 @@ import (
 type AccountTokensReader interface {
 	GetTrustlines(ctx context.Context, accountAddress string) ([]data.Trustline, error)
 	GetContracts(ctx context.Context, accountAddress string) ([]*data.Contract, error)
+	GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error)
 }
 
 const (

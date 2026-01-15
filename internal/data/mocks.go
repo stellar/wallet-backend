@@ -86,11 +86,6 @@ func (m *AccountTokensModelMock) GetTrustlines(ctx context.Context, accountAddre
 	return args.Get(0).([]Trustline), args.Error(1)
 }
 
-func (m *AccountTokensModelMock) GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error) {
-	args := m.Called(ctx, accountAddress)
-	return args.Get(0).([]uuid.UUID), args.Error(1)
-}
-
 func (m *AccountTokensModelMock) GetContracts(ctx context.Context, accountAddress string) ([]*Contract, error) {
 	args := m.Called(ctx, accountAddress)
 	return args.Get(0).([]*Contract), args.Error(1)
