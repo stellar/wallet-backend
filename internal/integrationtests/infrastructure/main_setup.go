@@ -35,7 +35,6 @@ type SharedContainers struct {
 	StellarCoreContainer   *TestContainer
 	RPCContainer           *TestContainer
 	WalletDBContainer      *TestContainer
-	RedisContainer         *TestContainer
 	WalletBackendContainer *WalletBackendContainer
 	BackfillContainer      *TestContainer // Separate container for backfill testing
 
@@ -82,12 +81,6 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 	s.TestNetwork, err = network.New(ctx)
 	if err != nil {
 		return fmt.Errorf("creating test network: %w", err)
-	}
-
-	// Start Redis container
-	s.RedisContainer, err = createRedisContainer(ctx, s.TestNetwork)
-	if err != nil {
-		return fmt.Errorf("creating Redis container: %w", err)
 	}
 
 	// Start PostgreSQL for Stellar Core
@@ -494,9 +487,6 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 	}
 	if s.WalletDBContainer != nil {
 		_ = (*s.WalletDBContainer).Terminate(ctx) //nolint:errcheck
-	}
-	if s.RedisContainer != nil {
-		_ = (*s.RedisContainer).Terminate(ctx) //nolint:errcheck
 	}
 	if s.TestNetwork != nil {
 		_ = s.TestNetwork.Remove(ctx) //nolint:errcheck

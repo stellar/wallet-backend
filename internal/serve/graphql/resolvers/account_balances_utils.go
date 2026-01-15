@@ -24,8 +24,8 @@ import (
 type accountKeyInfo struct {
 	address          string
 	isContract       bool
-	nativeBalance    *data.NativeBalance // Native XLM balance from DB
-	trustlines       []data.Trustline    // Full trustline data from DB
+	nativeBalance    *data.NativeBalance     // Native XLM balance from DB
+	trustlines       []data.TrustlineBalance // Full trustline balance data from DB
 	contractsByID    map[string]*data.Contract
 	sep41ContractIDs []string
 	ledgerKeys       []string // base64 XDR keys for this account (for SAC contracts only)
@@ -52,8 +52,8 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 	}, nil
 }
 
-// buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline data.
-func buildTrustlineBalanceFromDB(trustline data.Trustline, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
+// buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline balance data.
+func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
 	// Build xdr.Asset to compute contract ID
 	asset, err := xdr.NewCreditAsset(trustline.Code, trustline.Issuer)
 	if err != nil {

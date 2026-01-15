@@ -334,8 +334,8 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			}
 			// Collect token changes for post-catchup processing if requested
 			if tokenChanges != nil {
-				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
-				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
+				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, buffer.GetTrustlineChanges()...)
+				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, buffer.GetContractChanges()...)
 				tokenChanges.AccountChanges = append(tokenChanges.AccountChanges, buffer.GetAccountChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
@@ -457,15 +457,9 @@ func (m *ingestService) processTokenChanges(
 ) error {
 	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
 	sort.Slice(trustlineChanges, func(i, j int) bool {
-		if trustlineChanges[i].LedgerNumber != trustlineChanges[j].LedgerNumber {
-			return trustlineChanges[i].LedgerNumber < trustlineChanges[j].LedgerNumber
-		}
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
 	sort.Slice(contractChanges, func(i, j int) bool {
-		if contractChanges[i].LedgerNumber != contractChanges[j].LedgerNumber {
-			return contractChanges[i].LedgerNumber < contractChanges[j].LedgerNumber
-		}
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 	sort.Slice(accountChanges, func(i, j int) bool {

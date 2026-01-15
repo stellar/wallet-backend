@@ -1,8 +1,8 @@
 -- +migrate Up
 
--- Table: account_native_balances
+-- Table: native_balances
 -- Stores native XLM balance data for accounts during ingestion.
-CREATE TABLE account_native_balances (
+CREATE TABLE native_balances (
     account_address TEXT PRIMARY KEY,
     balance BIGINT NOT NULL DEFAULT 0,
     buying_liabilities BIGINT NOT NULL DEFAULT 0,
@@ -12,4 +12,4 @@ CREATE TABLE account_native_balances (
 
 -- +migrate Down
 
-DROP TABLE IF EXISTS account_native_balances;
+DROP TABLE IF EXISTS native_balances;

@@ -80,13 +80,15 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService          services.AccountService
-	FeeBumpService          services.FeeBumpService
-	MetricsService          metrics.MetricsService
-	TransactionService      services.TransactionService
-	RPCService              services.RPCService
-	AccountTokensModel      data.AccountTokensModelInterface
-	ContractMetadataService services.ContractMetadataService
+	AccountService             services.AccountService
+	FeeBumpService             services.FeeBumpService
+	MetricsService             metrics.MetricsService
+	TransactionService         services.TransactionService
+	RPCService                 services.RPCService
+	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
+	NativeBalanceModel         data.NativeBalanceModelInterface
+	AccountContractTokensModel data.AccountContractTokensModelInterface
+	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -205,7 +207,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
-		AccountTokensModel:          models.AccountTokens,
+		TrustlineBalanceModel:       models.TrustlineBalance,
+		NativeBalanceModel:          models.NativeBalance,
+		AccountContractTokensModel:  models.AccountContractTokens,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
@@ -258,7 +262,8 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				deps.AccountTokensModel,
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel),
+				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{

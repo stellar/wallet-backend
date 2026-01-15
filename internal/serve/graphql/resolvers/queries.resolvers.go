@@ -178,8 +178,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	if !utils.IsContractAddress(address) {
 		// Fetch native XLM balance from DB
-		nativeBalance, err := r.accountTokensReader.GetNativeBalance(ctx, address)
-		if err != nil {
+		nativeBalance, nativeErr := r.balanceReader.GetNativeBalance(ctx, address)
+		if nativeErr != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -188,8 +188,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 		}
 		if nativeBalance != nil {
-			nativeBalanceResult, err := buildNativeBalanceFromDB(nativeBalance, networkPassphrase)
-			if err != nil {
+			nativeBalanceResult, buildErr := buildNativeBalanceFromDB(nativeBalance, networkPassphrase)
+			if buildErr != nil {
 				return nil, &gqlerror.Error{
 					Message: ErrMsgBalancesFetchFailed,
 					Extensions: map[string]interface{}{
@@ -200,9 +200,9 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, nativeBalanceResult)
 		}
 
-		// Fetch trustlines from DB (no RPC needed)
-		trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
-		if err != nil {
+		// Fetch trustline balances from DB (no RPC needed)
+		trustlines, trustlineErr := r.balanceReader.GetTrustlineBalances(ctx, address)
+		if trustlineErr != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -213,8 +213,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 		// Build TrustlineBalance directly from DB data
 		for _, trustline := range trustlines {
-			trustlineBalance, err := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
-			if err != nil {
+			trustlineBalance, buildErr := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
+			if buildErr != nil {
 				return nil, &gqlerror.Error{
 					Message: ErrMsgBalancesFetchFailed,
 					Extensions: map[string]interface{}{
@@ -227,7 +227,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	}
 
 	// Fetch contracts for the account
-	contractTokens, err := r.accountTokensReader.GetContracts(ctx, address)
+	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -403,9 +403,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				sep41ContractIDs: make([]string, 0),
 			}
 
-			// Get native balance and trustlines (skip for contract addresses)
+			// Get native balance and trustline balances (skip for contract addresses)
 			if !info.isContract {
-				nativeBalance, err := r.accountTokensReader.GetNativeBalance(ctx, address)
+				nativeBalance, err := r.balanceReader.GetNativeBalance(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting native balance: %w", err)
 					accountInfos[index] = info
@@ -413,9 +413,9 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				}
 				info.nativeBalance = nativeBalance
 
-				trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
+				trustlines, err := r.balanceReader.GetTrustlineBalances(ctx, address)
 				if err != nil {
-					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
+					info.collectionErr = fmt.Errorf("getting trustline balances: %w", err)
 					accountInfos[index] = info
 					return
 				}
@@ -423,7 +423,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Get contracts for the account (already resolved to full Contract objects)
-			contracts, err := r.accountTokensReader.GetContracts(ctx, address)
+			contracts, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info
