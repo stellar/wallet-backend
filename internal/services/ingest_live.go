@@ -149,7 +149,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// 1. Insert unique trustline assets (pre-tracked in buffer)
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
+			if txErr := m.models.TrustlineAsset.BatchCopy(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
 				return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
 			}
 

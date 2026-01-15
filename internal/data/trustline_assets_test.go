@@ -46,7 +46,7 @@ func countAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, id
 	return count
 }
 
-func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
+func TestTrustlineAssetModel_BatchCopy(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -73,15 +73,15 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
-		err = m.BatchInsert(ctx, pgxTx, []TrustlineAsset{})
+		err = m.BatchCopy(ctx, pgxTx, []TrustlineAsset{})
 		require.NoError(t, err)
 	})
 
 	t.Run("inserts single asset with deterministic ID", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchCopy", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -97,7 +97,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			{ID: expectedID, Code: "USDC", Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"},
 		}
 
-		err = m.BatchInsert(ctx, pgxTx, assets)
+		err = m.BatchCopy(ctx, pgxTx, assets)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -110,8 +110,8 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 	t.Run("inserts multiple assets with deterministic IDs", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchCopy", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -131,7 +131,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			{ID: id3, Code: "BTC", Issuer: "ISSUER3"},
 		}
 
-		err = m.BatchInsert(ctx, pgxTx, assets)
+		err = m.BatchCopy(ctx, pgxTx, assets)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
@@ -146,47 +146,11 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		cleanUpDB()
 	})
 
-	t.Run("idempotent - duplicate insert does not error", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		id1 := DeterministicAssetID("USDC", "ISSUER1")
-		id2 := DeterministicAssetID("EURC", "ISSUER2")
-		assets := []TrustlineAsset{
-			{ID: id1, Code: "USDC", Issuer: "ISSUER1"},
-			{ID: id2, Code: "EURC", Issuer: "ISSUER2"},
-		}
-
-		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
-		require.NoError(t, err)
-		err = m.BatchInsert(ctx, pgxTx1, assets)
-		require.NoError(t, err)
-		require.NoError(t, pgxTx1.Commit(ctx))
-
-		// Second insert - should succeed with ON CONFLICT DO NOTHING
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
-		require.NoError(t, err)
-		err = m.BatchInsert(ctx, pgxTx2, assets)
-		require.NoError(t, err)
-		require.NoError(t, pgxTx2.Commit(ctx))
-
-		cleanUpDB()
-	})
-
 	t.Run("same asset code different issuers get different IDs", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "trustline_assets", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchCopy", "trustline_assets").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
@@ -206,7 +170,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
 		require.NoError(t, err)
-		err = m.BatchInsert(ctx, pgxTx, assets)
+		err = m.BatchCopy(ctx, pgxTx, assets)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx.Commit(ctx))
 
