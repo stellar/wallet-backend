@@ -11,6 +11,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -2505,60 +2506,62 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "sorts_trustline_changes_by_ledger_then_operation",
+			// TOID encodes (ledger, tx, op) into a single int64 - sorting by OperationID naturally sorts by ledger order
+			name: "sorts_trustline_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USD:GA1", OperationID: 10, LedgerNumber: 100},
-				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: 1, LedgerNumber: 101},
-				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: 5, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USD:GA1", OperationID: toid.New(100, 0, 10).ToInt64(), LedgerNumber: 100},
+				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
+				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Verify sorted order: (100, 5), (100, 10), (101, 1) via ProcessTokenChanges
+				// Verify sorted order by OperationID (TOID): GA3 (L100,Op5), GA1 (L100,Op10), GA2 (L101,Op1)
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					// First: L100, Op5
-					if changes[0].LedgerNumber != 100 || changes[0].OperationID != 5 {
+					// First: L100, Op5 (GA3)
+					if changes[0].LedgerNumber != 100 || changes[0].OperationID != toid.New(100, 0, 5).ToInt64() {
 						return false
 					}
-					// Second: L100, Op10
-					if changes[1].LedgerNumber != 100 || changes[1].OperationID != 10 {
+					// Second: L100, Op10 (GA1)
+					if changes[1].LedgerNumber != 100 || changes[1].OperationID != toid.New(100, 0, 10).ToInt64() {
 						return false
 					}
-					// Third: L101, Op1
-					if changes[2].LedgerNumber != 101 || changes[2].OperationID != 1 {
+					// Third: L101, Op1 (GA2)
+					if changes[2].LedgerNumber != 101 || changes[2].OperationID != toid.New(101, 0, 1).ToInt64() {
 						return false
 					}
 					return true
-				}), mock.Anything).Return(nil)
+				}), []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name:             "sorts_contract_changes_by_ledger_then_operation",
+			// TOID encodes (ledger, tx, op) into a single int64 - sorting by OperationID naturally sorts by ledger order
+			name:             "sorts_contract_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "C1", OperationID: 20, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA2", ContractID: "C2", OperationID: 5, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA3", ContractID: "C3", OperationID: 1, LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA1", ContractID: "C1", OperationID: toid.New(200, 0, 20).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA2", ContractID: "C2", OperationID: toid.New(200, 0, 5).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA3", ContractID: "C3", OperationID: toid.New(201, 0, 1).ToInt64(), LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Verify sorted order: (200, 5), (200, 20), (201, 1) via ProcessTokenChanges
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
+				// Verify sorted order by OperationID (TOID): GA2 (L200,Op5), GA1 (L200,Op20), GA3 (L201,Op1)
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, mock.MatchedBy(func(changes []types.ContractChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					// First: L200, Op5
-					if changes[0].LedgerNumber != 200 || changes[0].OperationID != 5 {
+					// First: L200, Op5 (GA2)
+					if changes[0].LedgerNumber != 200 || changes[0].OperationID != toid.New(200, 0, 5).ToInt64() {
 						return false
 					}
-					// Second: L200, Op20
-					if changes[1].LedgerNumber != 200 || changes[1].OperationID != 20 {
+					// Second: L200, Op20 (GA1)
+					if changes[1].LedgerNumber != 200 || changes[1].OperationID != toid.New(200, 0, 20).ToInt64() {
 						return false
 					}
-					// Third: L201, Op1
-					if changes[2].LedgerNumber != 201 || changes[2].OperationID != 1 {
+					// Third: L201, Op1 (GA3)
+					if changes[2].LedgerNumber != 201 || changes[2].OperationID != toid.New(201, 0, 1).ToInt64() {
 						return false
 					}
 					return true
@@ -2576,46 +2579,54 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				// ProcessTokenChanges is called after trustline assets are inserted to DB
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					return len(changes) == 1 && changes[0].Asset == "USDC:GISSUER"
-				}), mock.Anything).Return(nil)
+				}), []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			// Note: SAC/SEP-41 contracts trigger FetchMetadata but require additional mock setup
-			// for ObserveDBBatchSize. Testing with Unknown type to verify basic contract flow.
+			// Note: Unknown contracts don't get inserted into contracts table but are still passed to ProcessTokenChanges
 			name:             "processes_unknown_contract_changes",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: 1, LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Unknown contracts don't trigger FetchMetadata - only ProcessTokenChanges is called
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				// Unknown contracts don't trigger FetchMetadata but are passed to ProcessTokenChanges
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, mock.MatchedBy(func(changes []types.ContractChange) bool {
+					return len(changes) == 1 && changes[0].ContractType == types.ContractTypeUnknown
+				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "calls_ProcessTokenChanges_with_sorted_data",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA2", ContractID: "C1", OperationID: 2, LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA2", ContractID: "C1", OperationID: toid.New(100, 0, 2).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges receives sorted trustline and contract changes
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				// ProcessTokenChanges receives both trustline and contract changes
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+					return len(changes) == 1 && changes[0].Asset == "USDC:GA"
+				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
+					return len(changes) == 1 && changes[0].ContractID == "C1"
+				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "propagates_ProcessTokenChanges_error",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
+				// ProcessTokenChanges receives the actual trustline changes
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+					return len(changes) == 1
+				}), []types.ContractChange{}).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
