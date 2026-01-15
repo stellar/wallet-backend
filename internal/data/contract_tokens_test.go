@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -126,8 +125,6 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -183,8 +180,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify contracts were inserted
-		contract1, err := m.GetByContractID(ctx, "contract1")
+		// Verify contracts were inserted using direct SQL
+		var contract1 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
@@ -193,11 +191,13 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "TST1", *contract1.Symbol)
 		require.Equal(t, uint32(7), contract1.Decimals)
 
-		contract2, err := m.GetByContractID(ctx, "contract2")
+		var contract2 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract2, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
 		require.NoError(t, err)
 		require.Equal(t, "sep41", contract2.Type)
 
-		contract3, err := m.GetByContractID(ctx, "contract3")
+		var contract3 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract3, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
 		require.NoError(t, err)
 		require.Nil(t, contract3.Code)
 		require.Nil(t, contract3.Issuer)
@@ -212,8 +212,6 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -273,8 +271,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify original contract was not updated
-		contract1, err := m.GetByContractID(ctx, "contract1")
+		// Verify original contract was not updated using direct SQL
+		var contract1 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "Original Name", *contract1.Name)

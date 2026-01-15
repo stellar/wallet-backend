@@ -251,7 +251,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustline_balances`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
@@ -318,7 +318,7 @@ func TestGetAccountContracts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -390,9 +390,9 @@ func TestProcessTokenChanges(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_trustline_balances`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contracts`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
