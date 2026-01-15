@@ -3,7 +3,7 @@
 
 -- +migrate Up
 
-CREATE TABLE account_trustline_balances (
+CREATE TABLE trustline_balances (
     account_address TEXT NOT NULL,
     asset_id UUID NOT NULL,
     balance BIGINT NOT NULL DEFAULT 0,
@@ -17,4 +17,4 @@ CREATE TABLE account_trustline_balances (
 
 -- +migrate Down
 
-DROP TABLE IF EXISTS account_trustline_balances;
+DROP TABLE IF EXISTS trustline_balances;
