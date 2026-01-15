@@ -28,11 +28,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-// AccountTokensReader provides read-only access to account token data.
-// This interface is a subset of data.AccountTokensModelInterface for GraphQL resolvers.
-type AccountTokensReader interface {
-	GetTrustlines(ctx context.Context, accountAddress string) ([]data.Trustline, error)
-	GetContracts(ctx context.Context, accountAddress string) ([]*data.Contract, error)
+// BalanceReader provides read-only access to account balance data.
+// This interface abstracts balance retrieval and will grow to include native and SAC balances.
+type BalanceReader interface {
+	GetTrustlineBalances(ctx context.Context, accountAddress string) ([]data.TrustlineBalance, error)
 }
 
 const (
@@ -60,10 +59,11 @@ type Resolver struct {
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService          services.FeeBumpService
-	rpcService              services.RPCService
-	accountTokensReader     AccountTokensReader
-	contractMetadataService services.ContractMetadataService
+	feeBumpService            services.FeeBumpService
+	rpcService                services.RPCService
+	balanceReader             BalanceReader
+	accountContractTokensModel data.AccountContractTokensModelInterface
+	contractMetadataService   services.ContractMetadataService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
 	// pool provides parallel processing capabilities for batch operations
@@ -75,22 +75,23 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokensReader AccountTokensReader, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
 	}
 	return &Resolver{
-		models:                  models,
-		accountService:          accountService,
-		transactionService:      transactionService,
-		feeBumpService:          feeBumpService,
-		rpcService:              rpcService,
-		accountTokensReader:     accountTokensReader,
-		contractMetadataService: contractMetadataService,
-		metricsService:          metricsService,
-		pool:                    pond.NewPool(poolSize),
-		config:                  config,
+		models:                    models,
+		accountService:            accountService,
+		transactionService:        transactionService,
+		feeBumpService:            feeBumpService,
+		rpcService:                rpcService,
+		balanceReader:             balanceReader,
+		accountContractTokensModel: accountContractTokensModel,
+		contractMetadataService:   contractMetadataService,
+		metricsService:            metricsService,
+		pool:                      pond.NewPool(poolSize),
+		config:                    config,
 	}
 }
 

@@ -189,8 +189,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 		ledgerKeys = append(ledgerKeys, accountKey)
 
-		// Fetch trustlines from DB (no RPC needed)
-		trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
+		// Fetch trustline balances from DB (no RPC needed)
+		trustlines, err := r.balanceReader.GetTrustlineBalances(ctx, address)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -216,7 +216,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	}
 
 	// Fetch contracts for the account
-	contractTokens, err := r.accountTokensReader.GetContracts(ctx, address)
+	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -405,11 +405,11 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				sep41ContractIDs: make([]string, 0),
 			}
 
-			// Get trustlines (skip for contract addresses)
+			// Get trustline balances (skip for contract addresses)
 			if !info.isContract {
-				trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
+				trustlines, err := r.balanceReader.GetTrustlineBalances(ctx, address)
 				if err != nil {
-					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
+					info.collectionErr = fmt.Errorf("getting trustline balances: %w", err)
 					accountInfos[index] = info
 					return
 				}
@@ -417,7 +417,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Get contracts for the account (already resolved to full Contract objects)
-			contracts, err := r.accountTokensReader.GetContracts(ctx, address)
+			contracts, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info
