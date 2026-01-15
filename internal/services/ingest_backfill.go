@@ -504,7 +504,7 @@ func (m *ingestService) processTokenChanges(
 		}
 
 		// 3. Apply token changes to PostgreSQL
-		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
+		if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
 			return fmt.Errorf("processing token changes: %w", txErr)
 		}
 

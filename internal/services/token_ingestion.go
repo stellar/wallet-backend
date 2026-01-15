@@ -93,22 +93,8 @@ func (b *trustlineBatch) reset() {
 	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
 }
 
-// TokenCacheReader provides read-only access to cached account tokens.
-// Used by the API server to query token holdings.
-type TokenCacheReader interface {
-	// GetAccountTrustlines retrieves all trustlines for an account with full data.
-	// Returns trustlines with code, issuer, balance, limit, liabilities, flags, and ledger number.
-	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]wbdata.Trustline, error)
-
-	// GetAccountContracts retrieves all contract token IDs for an account from PostgreSQL.
-	GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error)
-
-	// GetNativeBalance retrieves the native XLM balance for an account from PostgreSQL.
-	GetNativeBalance(ctx context.Context, accountAddress string) (*wbdata.NativeBalance, error)
-}
-
-// TokenCacheWriter provides write access to the token cache during ingestion.
-type TokenCacheWriter interface {
+// TokenIngestionService provides write access to account token storage during ingestion.
+type TokenIngestionService interface {
 	// PopulateAccountTokens performs initial PostgreSQL cache population from Stellar
 	// history archive for a specific checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in PostgreSQL.
@@ -132,13 +118,10 @@ type TokenCacheWriter interface {
 }
 
 // Verify interface compliance at compile time
-var (
-	_ TokenCacheReader = (*tokenCacheService)(nil)
-	_ TokenCacheWriter = (*tokenCacheService)(nil)
-)
+var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
-// tokenCacheService implements both TokenCacheReader and TokenCacheWriter.
-type tokenCacheService struct {
+// tokenIngestionService implements TokenIngestionService.
+type tokenIngestionService struct {
 	db                      db.ConnectionPool
 	archive                 historyarchive.ArchiveInterface
 	contractValidator       ContractValidator
@@ -149,8 +132,8 @@ type tokenCacheService struct {
 	networkPassphrase       string
 }
 
-// NewTokenCacheWriter creates a TokenCacheWriter for ingestion.
-func NewTokenCacheWriter(
+// NewTokenIngestionService creates a TokenIngestionService for ingestion.
+func NewTokenIngestionService(
 	dbPool db.ConnectionPool,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
@@ -159,8 +142,8 @@ func NewTokenCacheWriter(
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	accountTokensModel wbdata.AccountTokensModelInterface,
 	contractModel wbdata.ContractModelInterface,
-) TokenCacheWriter {
-	return &tokenCacheService{
+) TokenIngestionService {
+	return &tokenIngestionService{
 		db:                      dbPool,
 		archive:                 archive,
 		contractValidator:       contractValidator,
@@ -172,25 +155,12 @@ func NewTokenCacheWriter(
 	}
 }
 
-// NewTokenCacheReader creates a TokenCacheReader for API queries.
-func NewTokenCacheReader(
-	dbPool db.ConnectionPool,
-	accountTokensModel wbdata.AccountTokensModelInterface,
-	contractModel wbdata.ContractModelInterface,
-) TokenCacheReader {
-	return &tokenCacheService{
-		db:                 dbPool,
-		accountTokensModel: accountTokensModel,
-		contractModel:      contractModel,
-	}
-}
-
 // PopulateAccountTokens performs initial PostgreSQL cache population from Stellar history archive.
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // Trustlines are streamed in batches of 50K to avoid memory pressure with 30M+ entries.
 // The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
-func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
 	}
@@ -261,7 +231,7 @@ func (s *tokenCacheService) PopulateAccountTokens(ctx context.Context, checkpoin
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 && len(accountChanges) == 0 {
 		return nil
 	}
@@ -403,61 +373,6 @@ func (s *tokenCacheService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx
 	return nil
 }
 
-// GetAccountTrustlines retrieves all trustlines for an account from PostgreSQL.
-// Returns trustlines with full data including code, issuer, balance, limit, liabilities, and flags.
-func (s *tokenCacheService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]wbdata.Trustline, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	trustlines, err := s.accountTokensModel.GetTrustlines(ctx, accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
-	}
-
-	return trustlines, nil
-}
-
-// GetNativeBalance retrieves the native XLM balance for an account from PostgreSQL.
-func (s *tokenCacheService) GetNativeBalance(ctx context.Context, accountAddress string) (*wbdata.NativeBalance, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	balance, err := s.accountTokensModel.GetNativeBalance(ctx, accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("getting native balance for account %s: %w", accountAddress, err)
-	}
-	return balance, nil
-}
-
-// GetAccountContracts retrieves all contract tokens for an account from PostgreSQL.
-// For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
-// For C-address: all contract tokens (SAC, custom)
-// Returns full Contract objects with metadata.
-func (s *tokenCacheService) GetAccountContracts(ctx context.Context, accountAddress string) ([]*wbdata.Contract, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	// Get numeric contract IDs from PostgreSQL
-	numericIDs, err := s.accountTokensModel.GetContractIDs(ctx, accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("getting contract IDs for account %s: %w", accountAddress, err)
-	}
-	if len(numericIDs) == 0 {
-		return []*wbdata.Contract{}, nil
-	}
-
-	// Resolve numeric IDs to contract objects
-	contracts, err := s.contractModel.BatchGetByIDs(ctx, numericIDs)
-	if err != nil {
-		return nil, fmt.Errorf("resolving contract IDs: %w", err)
-	}
-
-	return contracts, nil
-}
-
 // trustlineXDRFields holds all XDR fields extracted from a trustline entry.
 type trustlineXDRFields struct {
 	Balance            int64
@@ -469,7 +384,7 @@ type trustlineXDRFields struct {
 
 // processTrustlineChange extracts trustline information from a ledger change entry.
 // Returns the account address, asset, XDR fields, and skip=true if the entry should be skipped.
-func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, trustlineXDRFields, bool) {
+func (s *tokenIngestionService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, trustlineXDRFields, bool) {
 	trustlineEntry := change.Post.Data.MustTrustLine()
 	accountAddress := trustlineEntry.AccountId.Address()
 	asset := trustlineEntry.Asset
@@ -501,7 +416,7 @@ func (s *tokenCacheService) processTrustlineChange(change ingest.Change) (string
 
 // processContractBalanceChange extracts contract balance information from a contract data entry.
 // Returns the holder address and contract ID, with skip=true if extraction fails.
-func (s *tokenCacheService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
+func (s *tokenIngestionService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
 	// Extract the account/contract address from the contract data entry key.
 	// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
 	// However, this could also be valid for any non-SEP41 contract that mimics the same format.
@@ -516,7 +431,7 @@ func (s *tokenCacheService) processContractBalanceChange(contractDataEntry xdr.C
 
 // processContractInstanceChange extracts contract type information from a contract instance entry.
 // Updates the contractTypesByContractID map with SAC types, and returns WASM hash for non-SAC contracts.
-func (s *tokenCacheService) processContractInstanceChange(
+func (s *tokenIngestionService) processContractInstanceChange(
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
@@ -544,7 +459,7 @@ func (s *tokenCacheService) processContractInstanceChange(
 // streamCheckpointData reads from a ChangeReader and streams trustlines to DB in batches.
 // Contract tokens are collected in memory (much fewer entries than trustlines).
 // Returns checkpointData containing contract data for later processing.
-func (s *tokenCacheService) streamCheckpointData(
+func (s *tokenIngestionService) streamCheckpointData(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	reader ingest.ChangeReader,
@@ -689,7 +604,7 @@ func (s *tokenCacheService) streamCheckpointData(
 }
 
 // flushTrustlineBatch inserts the batch's trustline assets and account trustlines.
-func (s *tokenCacheService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
+func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
 	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
 	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
 	for _, asset := range batch.uniqueAssets {
@@ -708,7 +623,7 @@ func (s *tokenCacheService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx
 }
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
-func (s *tokenCacheService) enrichContractTypes(
+func (s *tokenIngestionService) enrichContractTypes(
 	_ context.Context,
 	contractTypesByContractID map[string]types.ContractType,
 	contractIDsByWasmHash map[xdr.Hash][]string,
@@ -729,7 +644,7 @@ func (s *tokenCacheService) enrichContractTypes(
 // storeContractsInPostgres stores collected contract relationships into PostgreSQL.
 // The contractTypesByContractID maps contract addresses to their types (SAC/SEP-41);
 // unknown contracts (not in the map) are skipped.
-func (s *tokenCacheService) storeContractsInPostgres(
+func (s *tokenIngestionService) storeContractsInPostgres(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	contractsByAccountAddress map[string][]string,
@@ -773,7 +688,7 @@ func (s *tokenCacheService) storeContractsInPostgres(
 // - First element: ScSymbol("Balance")
 // - Second element: ScAddress (the account/contract holder address)
 // Returns the holder address as a Stellar-encoded string, or empty string if invalid.
-func (s *tokenCacheService) extractHolderAddress(key xdr.ScVal) (string, error) {
+func (s *tokenIngestionService) extractHolderAddress(key xdr.ScVal) (string, error) {
 	// Verify the key is a vector
 	keyVecPtr, ok := key.GetVec()
 	if !ok || keyVecPtr == nil {

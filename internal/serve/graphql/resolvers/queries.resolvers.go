@@ -178,7 +178,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 	if !utils.IsContractAddress(address) {
 		// Fetch native XLM balance from DB
-		nativeBalance, err := r.tokenCacheReader.GetNativeBalance(ctx, address)
+		nativeBalance, err := r.accountTokensReader.GetNativeBalance(ctx, address)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -201,7 +201,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 
 		// Fetch trustlines from DB (no RPC needed)
-		trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
+		trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
 		if err != nil {
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
@@ -227,7 +227,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	}
 
 	// Fetch contracts for the account
-	contractTokens, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
+	contractTokens, err := r.accountTokensReader.GetContracts(ctx, address)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -405,7 +405,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 
 			// Get native balance and trustlines (skip for contract addresses)
 			if !info.isContract {
-				nativeBalance, err := r.tokenCacheReader.GetNativeBalance(ctx, address)
+				nativeBalance, err := r.accountTokensReader.GetNativeBalance(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting native balance: %w", err)
 					accountInfos[index] = info
@@ -413,7 +413,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				}
 				info.nativeBalance = nativeBalance
 
-				trustlines, err := r.tokenCacheReader.GetAccountTrustlines(ctx, address)
+				trustlines, err := r.accountTokensReader.GetTrustlines(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting trustlines: %w", err)
 					accountInfos[index] = info
@@ -423,7 +423,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Get contracts for the account (already resolved to full Contract objects)
-			contracts, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
+			contracts, err := r.accountTokensReader.GetContracts(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info

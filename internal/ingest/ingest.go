@@ -165,7 +165,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	// Initialize history archive once for use by both TokenCacheWriter and IngestService
+	// Initialize history archive once for use by both TokenIngestionService and IngestService
 	archive, err := historyarchive.Connect(
 		cfg.ArchiveURL,
 		historyarchive.ArchiveOptions{
@@ -177,7 +177,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenCacheWriter := services.NewTokenCacheWriter(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.AccountTokens, models.Contract)
+	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.AccountTokens, models.Contract)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -194,7 +194,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackend:              ledgerBackend,
 		LedgerBackendFactory:       ledgerBackendFactory,
 		ChannelAccountStore:        chAccStore,
-		TokenCacheWriter:           tokenCacheWriter,
+		TokenIngestionService:      tokenIngestionService,
 		ContractMetadataService:    contractMetadataService,
 		MetricsService:             metricsService,
 		GetLedgersLimit:            cfg.GetLedgersLimit,

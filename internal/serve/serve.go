@@ -85,7 +85,7 @@ type handlerDeps struct {
 	MetricsService          metrics.MetricsService
 	TransactionService      services.TransactionService
 	RPCService              services.RPCService
-	TokenCacheReader        services.TokenCacheReader
+	AccountTokensModel      data.AccountTokensModelInterface
 	ContractMetadataService services.ContractMetadataService
 
 	// GraphQL
@@ -162,8 +162,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	// Serve command only reads from PostgreSQL cache, doesn't need history archive or contract metadata service
-	tokenCacheReader := services.NewTokenCacheReader(models.DB, models.AccountTokens, models.Contract)
+	// AccountTokens model used directly for reading trustlines and contracts
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
@@ -206,7 +205,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
-		TokenCacheReader:            tokenCacheReader,
+		AccountTokensModel:          models.AccountTokens,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
@@ -259,7 +258,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				deps.TokenCacheReader,
+				deps.AccountTokensModel,
 				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{

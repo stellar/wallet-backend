@@ -50,7 +50,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
@@ -180,12 +180,14 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance)
+			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
+			trustlineChanges := buffer.GetTrustlineChanges()
+			contractChanges := buffer.GetContractChanges()
 			accountChanges := buffer.GetAccountChanges()
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges, accountChanges); txErr != nil {
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges), len(accountChanges))
+			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(trustlineChanges), len(contractChanges), len(accountChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

@@ -41,7 +41,7 @@ type NativeBalance struct {
 type AccountTokensModelInterface interface {
 	// Trustline and contract tokens read operations (for API/balances queries)
 	GetTrustlines(ctx context.Context, accountAddress string) ([]Trustline, error)
-	GetContractIDs(ctx context.Context, accountAddress string) ([]uuid.UUID, error)
+	GetContracts(ctx context.Context, accountAddress string) ([]*Contract, error)
 	GetNativeBalance(ctx context.Context, accountAddress string) (*NativeBalance, error)
 
 	// Trustline and contract tokens write operations (for live ingestion)
@@ -136,6 +136,46 @@ func (m *AccountTokensModel) GetContractIDs(ctx context.Context, accountAddress 
 	m.MetricsService.ObserveDBQueryDuration("GetContractIDs", "account_contracts", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetContractIDs", "account_contracts")
 	return contractIDs, nil
+}
+
+// GetContracts retrieves all contract tokens for an account with full metadata via JOIN.
+func (m *AccountTokensModel) GetContracts(ctx context.Context, accountAddress string) ([]*Contract, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	const query = `
+		SELECT ct.id, ct.contract_id, ct.type, ct.code, ct.issuer,
+		       ct.name, ct.symbol, ct.decimals, ct.created_at, ct.updated_at
+		FROM account_contracts ac
+		INNER JOIN contract_tokens ct ON ct.id = ac.contract_id
+		WHERE ac.account_address = $1`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetContracts", "account_contracts", "query_error")
+		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
+	}
+	defer rows.Close()
+
+	var contracts []*Contract
+	for rows.Next() {
+		var c Contract
+		if err := rows.Scan(&c.ID, &c.ContractID, &c.Type, &c.Code, &c.Issuer,
+			&c.Name, &c.Symbol, &c.Decimals, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning contract: %w", err)
+		}
+		contracts = append(contracts, &c)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating contracts: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetContracts", "account_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetContracts", "account_contracts")
+	return contracts, nil
 }
 
 // BatchUpsertTrustlines performs upserts and deletes with full XDR fields.

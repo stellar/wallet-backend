@@ -28,6 +28,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
+// AccountTokensReader provides read-only access to account token data.
+// This interface is a subset of data.AccountTokensModelInterface for GraphQL resolvers.
+type AccountTokensReader interface {
+	GetTrustlines(ctx context.Context, accountAddress string) ([]data.Trustline, error)
+	GetContracts(ctx context.Context, accountAddress string) ([]*data.Contract, error)
+}
+
 const (
 	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 )
@@ -55,7 +62,7 @@ type Resolver struct {
 	// feeBumpService provides fee-bump transaction wrapping operations
 	feeBumpService          services.FeeBumpService
 	rpcService              services.RPCService
-	tokenCacheReader        services.TokenCacheReader
+	accountTokensReader     AccountTokensReader
 	contractMetadataService services.ContractMetadataService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
@@ -68,7 +75,7 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, tokenCacheReader services.TokenCacheReader, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokensReader AccountTokensReader, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
@@ -79,7 +86,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		transactionService:      transactionService,
 		feeBumpService:          feeBumpService,
 		rpcService:              rpcService,
-		tokenCacheReader:        tokenCacheReader,
+		accountTokensReader:     accountTokensReader,
 		contractMetadataService: contractMetadataService,
 		metricsService:          metricsService,
 		pool:                    pond.NewPool(poolSize),
