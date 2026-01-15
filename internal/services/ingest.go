@@ -253,13 +253,11 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 // filteredIngestionData holds the filtered transaction, operation, and state change
 // data ready for database insertion after participant filtering.
 type filteredIngestionData struct {
-	txs                  []*types.Transaction
-	txParticipants       map[string]set.Set[string]
-	ops                  []*types.Operation
-	opParticipants       map[int64]set.Set[string]
-	stateChanges         []types.StateChange
-	trustlineChanges     []types.TrustlineChange
-	contractTokenChanges []types.ContractChange
+	txs            []*types.Transaction
+	txParticipants map[string]set.Set[string]
+	ops            []*types.Operation
+	opParticipants map[int64]set.Set[string]
+	stateChanges   []types.StateChange
 }
 
 // hasRegisteredParticipant checks if any participant in the set is registered.
