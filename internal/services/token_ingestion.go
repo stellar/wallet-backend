@@ -541,7 +541,7 @@ func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pg
 	}
 
 	// 2. Batch insert trustline balances (ledger is already set on each balance in batch.add)
-	if err := s.trustlineBalanceModel.BatchInsert(ctx, dbTx, batch.balances); err != nil {
+	if err := s.trustlineBalanceModel.BatchCopy(ctx, dbTx, batch.balances); err != nil {
 		return fmt.Errorf("batch inserting trustline balances: %w", err)
 	}
 

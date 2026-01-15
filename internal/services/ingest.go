@@ -368,11 +368,11 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	}
 
 	return &filteredIngestionData{
-		txs:                  txs,
-		txParticipants:       txParticipants,
-		ops:                  ops,
-		opParticipants:       opParticipants,
-		stateChanges:         stateChanges,
+		txs:            txs,
+		txParticipants: txParticipants,
+		ops:            ops,
+		opParticipants: opParticipants,
+		stateChanges:   stateChanges,
 	}, nil
 }
 

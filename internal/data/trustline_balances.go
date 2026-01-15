@@ -37,7 +37,7 @@ type TrustlineBalanceModelInterface interface {
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error
 
 	// Batch operations (for initial population)
-	BatchInsert(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error
+	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error
 }
 
 // TrustlineBalanceModel implements TrustlineBalanceModelInterface.
@@ -155,8 +155,8 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	return nil
 }
 
-// BatchInsert performs bulk insert using COPY protocol for speed.
-func (m *TrustlineBalanceModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error {
+// BatchCopy performs bulk insert using COPY protocol for speed.
+func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error {
 	if len(balances) == 0 {
 		return nil
 	}
@@ -201,7 +201,7 @@ func (m *TrustlineBalanceModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, ba
 		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "trustline_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "trustline_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchCopy", "trustline_balances")
 	return nil
 }

@@ -94,7 +94,7 @@ func (m *TrustlineBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx
 	return args.Error(0)
 }
 
-func (m *TrustlineBalanceModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error {
+func (m *TrustlineBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error {
 	args := m.Called(ctx, dbTx, balances)
 	return args.Error(0)
 }
