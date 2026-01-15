@@ -449,17 +449,11 @@ func (m *ingestService) processTokenChanges(
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
 ) error {
-	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
+	// Sort changes by operation ID to ensure proper ordering
 	sort.Slice(trustlineChanges, func(i, j int) bool {
-		if trustlineChanges[i].LedgerNumber != trustlineChanges[j].LedgerNumber {
-			return trustlineChanges[i].LedgerNumber < trustlineChanges[j].LedgerNumber
-		}
 		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 	})
 	sort.Slice(contractChanges, func(i, j int) bool {
-		if contractChanges[i].LedgerNumber != contractChanges[j].LedgerNumber {
-			return contractChanges[i].LedgerNumber < contractChanges[j].LedgerNumber
-		}
 		return contractChanges[i].OperationID < contractChanges[j].OperationID
 	})
 
