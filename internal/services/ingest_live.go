@@ -49,7 +49,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-
 		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
@@ -58,11 +57,13 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
+		if err := m.initializeKnownContractIDs(ctx); err != nil {
+			return fmt.Errorf("initializing known contract IDs: %w", err)
+		}
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
 			return fmt.Errorf("getting health check result from RPC: %w", err)
 		}
-
 		networkLatestLedger := health.LatestLedger
 		if networkLatestLedger > startLedger && (networkLatestLedger-startLedger) >= m.catchupThreshold {
 			log.Ctx(ctx).Infof("Wallet backend has fallen behind network tip by %d ledgers. Doing optimized catchup to the tip: %d", networkLatestLedger-startLedger, networkLatestLedger)
@@ -99,6 +100,17 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing oldest cursor: %w", err)
 	}
+	return nil
+}
+
+// initializeKnownContractIDs populates the in-memory cache of known contract IDs.
+func (m *ingestService) initializeKnownContractIDs(ctx context.Context) error {
+	ids, err := m.models.Contract.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("loading contract IDs into cache: %w", err)
+	}
+	m.knownContractIDs.Append(ids...)
+	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
 	return nil
 }
 
@@ -227,7 +239,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if innerErr != nil {
 				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
 			}
-			innerErr = m.unlockChannelAccounts(ctx, dbTx, filteredData.txs)
+			innerErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions())
 			if innerErr != nil {
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
 			}
