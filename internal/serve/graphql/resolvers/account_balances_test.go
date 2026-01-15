@@ -236,12 +236,13 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 	// Success Cases
 	t.Run("success - native balance only", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		// Setup mocks
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).Return([]data.Trustline{}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Create native balance ledger entry
@@ -254,8 +255,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
@@ -279,12 +281,13 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	t.Run("success - account with classic trustlines", func(t *testing.T) {
 		ctx := context.Background()
-		mockAccountTokensReader := data.NewAccountTokensModelMock(t)
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		// Setup mocks - trustlines now come from DB with full data
-		mockAccountTokensReader.On("GetTrustlines", ctx, testAccountAddress).
-			Return([]data.Trustline{
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
+			Return([]data.TrustlineBalance{
 				{
 					AssetID:            data.DeterministicAssetID("USDC", testUSDCIssuer),
 					Code:               "USDC",
@@ -308,7 +311,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 					LedgerNumber:       12345,
 				},
 			}, nil)
-		mockAccountTokensReader.On("GetContracts", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Create ledger entries - only account entry now, trustlines come from DB
@@ -322,8 +325,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				accountTokensReader: mockAccountTokensReader,
-				rpcService:          mockRPCService,
+				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                mockRPCService,
 			},
 		}
 
