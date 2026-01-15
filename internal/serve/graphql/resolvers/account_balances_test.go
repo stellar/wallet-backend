@@ -1224,7 +1224,7 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		// Account 2 has error
 		assert.Equal(t, testAccountAddress2, results[1].Address)
 		assert.NotNil(t, results[1].Error)
-		assert.Contains(t, *results[1].Error, "getting trustlines")
+		assert.Contains(t, *results[1].Error, "getting trustline balances")
 		assert.Empty(t, results[1].Balances)
 	})
 
