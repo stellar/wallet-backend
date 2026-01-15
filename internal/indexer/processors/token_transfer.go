@@ -204,13 +204,6 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 		contractType := p.getContractType(asset, contractAddress)
 		b = b.WithToken(contractAddress).
 			WithTokenType(contractType)
-
-		// Add TrustlineAsset for SAC balance changes (non-native assets)
-		if contractType == types.ContractTypeSAC && asset != nil && !asset.GetNative() {
-			if issuedAsset := asset.GetIssuedAsset(); issuedAsset != nil {
-				b = b.WithTrustlineAsset(fmt.Sprintf("%s:%s", issuedAsset.GetAssetCode(), issuedAsset.GetIssuer()))
-			}
-		}
 	}
 
 	return b.Build()
@@ -224,13 +217,6 @@ func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, 
 		WithToken(contractAddress).
 		WithAmount(amount).
 		WithTokenType(contractType)
-
-	// Add TrustlineAsset for SAC balance changes (non-native assets)
-	if contractType == types.ContractTypeSAC && asset != nil && !asset.GetNative() {
-		if issuedAsset := asset.GetIssuedAsset(); issuedAsset != nil {
-			change = change.WithTrustlineAsset(fmt.Sprintf("%s:%s", issuedAsset.GetAssetCode(), issuedAsset.GetIssuer()))
-		}
-	}
 
 	debitChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonDebit).WithAccount(from).Build()
 	creditChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonCredit).WithAccount(to).Build()
