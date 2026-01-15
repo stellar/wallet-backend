@@ -255,9 +255,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -325,9 +325,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -390,9 +390,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -447,10 +447,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 			},
 		}
@@ -520,10 +520,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 			},
 		}
@@ -573,8 +573,8 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		resolver := &queryResolver{
 			&Resolver{
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 			},
 		}
@@ -629,9 +629,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -699,9 +699,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -725,9 +725,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -792,9 +792,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -874,9 +874,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -929,10 +929,10 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 			},
 		}
@@ -972,9 +972,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -1031,9 +1031,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 			},
 		}
 
@@ -1094,9 +1094,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1153,9 +1153,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1204,9 +1204,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1251,9 +1251,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 				models: &data.Models{
 					Contract: mockContract,
 				},
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1288,8 +1288,8 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		resolver := &queryResolver{
 			&Resolver{
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1361,9 +1361,9 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
+				rpcService:                 mockRPCService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},
@@ -1406,10 +1406,10 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:             NewBalanceReader(mockTrustlineBalanceModel),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                mockRPCService,
-				contractMetadataService:   mockContractMetadataService,
+				rpcService:                 mockRPCService,
+				contractMetadataService:    mockContractMetadataService,
 				pool:                       pond.NewPool(0),
 				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
 			},

@@ -80,14 +80,14 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService            services.AccountService
-	FeeBumpService            services.FeeBumpService
-	MetricsService            metrics.MetricsService
-	TransactionService        services.TransactionService
-	RPCService                services.RPCService
-	TrustlineBalanceModel     data.TrustlineBalanceModelInterface
+	AccountService             services.AccountService
+	FeeBumpService             services.FeeBumpService
+	MetricsService             metrics.MetricsService
+	TransactionService         services.TransactionService
+	RPCService                 services.RPCService
+	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
 	AccountContractTokensModel data.AccountContractTokensModelInterface
-	ContractMetadataService   services.ContractMetadataService
+	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -199,22 +199,22 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:                     models,
-		RequestAuthVerifier:        requestAuthVerifier,
-		SupportedAssets:            cfg.SupportedAssets,
-		AccountService:             accountService,
-		FeeBumpService:             feeBumpService,
-		MetricsService:             metricsService,
-		RPCService:                 rpcService,
-		TrustlineBalanceModel:      models.TrustlineBalance,
-		AccountContractTokensModel: models.AccountContractTokens,
-		ContractMetadataService:    contractMetadataService,
-		AppTracker:                 cfg.AppTracker,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
-		TransactionService:         txService,
-		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
+		Models:                      models,
+		RequestAuthVerifier:         requestAuthVerifier,
+		SupportedAssets:             cfg.SupportedAssets,
+		AccountService:              accountService,
+		FeeBumpService:              feeBumpService,
+		MetricsService:              metricsService,
+		RPCService:                  rpcService,
+		TrustlineBalanceModel:       models.TrustlineBalance,
+		AccountContractTokensModel:  models.AccountContractTokens,
+		ContractMetadataService:     contractMetadataService,
+		AppTracker:                  cfg.AppTracker,
+		NetworkPassphrase:           cfg.NetworkPassphrase,
+		TransactionService:          txService,
+		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
-		MaxGraphQLWorkerPoolSize:   cfg.MaxGraphQLWorkerPoolSize,
+		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 

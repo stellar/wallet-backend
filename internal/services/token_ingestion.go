@@ -122,15 +122,15 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	db                        db.ConnectionPool
-	archive                   historyarchive.ArchiveInterface
-	contractValidator         ContractValidator
-	contractMetadataService   ContractMetadataService
-	trustlineAssetModel       wbdata.TrustlineAssetModelInterface
-	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	db                         db.ConnectionPool
+	archive                    historyarchive.ArchiveInterface
+	contractValidator          ContractValidator
+	contractMetadataService    ContractMetadataService
+	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
+	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
 	accountContractTokensModel wbdata.AccountContractTokensModelInterface
-	contractModel             wbdata.ContractModelInterface
-	networkPassphrase         string
+	contractModel              wbdata.ContractModelInterface
+	networkPassphrase          string
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
@@ -146,15 +146,15 @@ func NewTokenIngestionService(
 	contractModel wbdata.ContractModelInterface,
 ) TokenIngestionService {
 	return &tokenIngestionService{
-		db:                        dbPool,
-		archive:                   archive,
-		contractValidator:         contractValidator,
-		contractMetadataService:   contractMetadataService,
-		trustlineAssetModel:       trustlineAssetModel,
-		trustlineBalanceModel:     trustlineBalanceModel,
+		db:                         dbPool,
+		archive:                    archive,
+		contractValidator:          contractValidator,
+		contractMetadataService:    contractMetadataService,
+		trustlineAssetModel:        trustlineAssetModel,
+		trustlineBalanceModel:      trustlineBalanceModel,
 		accountContractTokensModel: accountContractTokensModel,
-		contractModel:             contractModel,
-		networkPassphrase:         networkPassphrase,
+		contractModel:              contractModel,
+		networkPassphrase:          networkPassphrase,
 	}
 }
 

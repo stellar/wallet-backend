@@ -59,11 +59,11 @@ type Resolver struct {
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService            services.FeeBumpService
-	rpcService                services.RPCService
-	balanceReader             BalanceReader
+	feeBumpService             services.FeeBumpService
+	rpcService                 services.RPCService
+	balanceReader              BalanceReader
 	accountContractTokensModel data.AccountContractTokensModelInterface
-	contractMetadataService   services.ContractMetadataService
+	contractMetadataService    services.ContractMetadataService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
 	// pool provides parallel processing capabilities for batch operations
@@ -81,17 +81,17 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		poolSize = 100 // default fallback
 	}
 	return &Resolver{
-		models:                    models,
-		accountService:            accountService,
-		transactionService:        transactionService,
-		feeBumpService:            feeBumpService,
-		rpcService:                rpcService,
-		balanceReader:             balanceReader,
+		models:                     models,
+		accountService:             accountService,
+		transactionService:         transactionService,
+		feeBumpService:             feeBumpService,
+		rpcService:                 rpcService,
+		balanceReader:              balanceReader,
 		accountContractTokensModel: accountContractTokensModel,
-		contractMetadataService:   contractMetadataService,
-		metricsService:            metricsService,
-		pool:                      pond.NewPool(poolSize),
-		config:                    config,
+		contractMetadataService:    contractMetadataService,
+		metricsService:             metricsService,
+		pool:                       pond.NewPool(poolSize),
+		config:                     config,
 	}
 }
 
