@@ -4,6 +4,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/data"
 )
@@ -23,5 +24,9 @@ func NewBalanceReader(trustlineBalanceModel data.TrustlineBalanceModelInterface)
 
 // GetTrustlineBalances retrieves all trustline balances for an account.
 func (r *balanceReaderAdapter) GetTrustlineBalances(ctx context.Context, accountAddress string) ([]data.TrustlineBalance, error) {
-	return r.trustlineBalanceModel.GetByAccount(ctx, accountAddress)
+	balances, err := r.trustlineBalanceModel.GetByAccount(ctx, accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("getting trustline balances: %w", err)
+	}
+	return balances, nil
 }
