@@ -50,7 +50,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
@@ -181,7 +181,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
 			log.Ctx(ctx).Infof("✅ processed %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))

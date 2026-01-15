@@ -48,7 +48,7 @@ func ptrToScVec(vals []xdr.ScVal) **xdr.ScVec {
 }
 
 func TestExtractHolderAddress(t *testing.T) {
-	service := &tokenCacheService{}
+	service := &tokenIngestionService{}
 
 	tests := []struct {
 		name    string
@@ -265,11 +265,8 @@ func TestGetAccountTrustlines(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
-
-		got, err := service.GetAccountTrustlines(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		got, err := accountTokensModel.GetTrustlines(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -283,7 +280,6 @@ func TestGetAccountTrustlines(t *testing.T) {
 
 		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
@@ -304,9 +300,7 @@ func TestGetAccountTrustlines(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		service := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
-
-		got, err := service.GetAccountTrustlines(ctx, accountAddress)
+		got, err := accountTokensModel.GetTrustlines(ctx, accountAddress)
 		assert.NoError(t, err)
 		assert.Len(t, got, 1)
 		assert.Equal(t, "USDC", got[0].Code)
@@ -336,11 +330,8 @@ func TestGetAccountContracts(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		accountTokensModel := &wbdata.AccountTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
-
-		got, err := service.GetAccountContracts(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		got, err := accountTokensModel.GetContracts(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -378,9 +369,7 @@ func TestGetAccountContracts(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		service := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
-
-		got, err := service.GetAccountContracts(ctx, accountAddress)
+		got, err := accountTokensModel.GetContracts(ctx, accountAddress)
 		assert.NoError(t, err)
 		assert.Len(t, got, 1)
 		assert.Equal(t, contractID, got[0].ContractID)
@@ -418,7 +407,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
+		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, []types.TrustlineChange{}, []types.ContractChange{})
@@ -440,7 +429,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenCacheWriter(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
+		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, accountTokensModel, contractModel)
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
@@ -467,8 +456,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify contract relationship is stored
-		reader := NewTokenCacheReader(dbConnectionPool, accountTokensModel, contractModel)
-		contracts, err := reader.GetAccountContracts(ctx, accountAddress)
+		contracts, err := accountTokensModel.GetContracts(ctx, accountAddress)
 		assert.NoError(t, err)
 		require.Len(t, contracts, 1)
 		assert.Equal(t, contractID, contracts[0].ContractID)
