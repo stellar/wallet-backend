@@ -51,7 +51,7 @@ type AccountTokensModelInterface interface {
 	// Batch operations (for initial population and live ingestion)
 	BatchInsertTrustlines(ctx context.Context, dbTx pgx.Tx, trustlines []Trustline) error
 	BatchInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
-	BulkInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error
+	BatchInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error
 }
 
 // AccountTokensModel implements AccountTokensModelInterface.
@@ -407,8 +407,8 @@ func (m *AccountTokensModel) BatchUpsertNativeBalances(ctx context.Context, dbTx
 	return nil
 }
 
-// BulkInsertNativeBalances performs bulk insert for initial checkpoint population.
-func (m *AccountTokensModel) BulkInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error {
+// BatchInsertNativeBalances performs bulk insert for initial checkpoint population.
+func (m *AccountTokensModel) BatchInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error {
 	if len(balances) == 0 {
 		return nil
 	}
@@ -434,7 +434,7 @@ func (m *AccountTokensModel) BulkInsertNativeBalances(ctx context.Context, dbTx 
 		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BulkInsertNativeBalances", "account_native_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BulkInsertNativeBalances", "account_native_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchInsertNativeBalances", "account_native_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsertNativeBalances", "account_native_balances")
 	return nil
 }

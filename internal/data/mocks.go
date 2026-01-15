@@ -91,6 +91,11 @@ func (m *AccountTokensModelMock) GetContracts(ctx context.Context, accountAddres
 	return args.Get(0).([]*Contract), args.Error(1)
 }
 
+func (m *AccountTokensModelMock) GetNativeBalance(ctx context.Context, accountAddress string) (*NativeBalance, error) {
+	args := m.Called(ctx, accountAddress)
+	return args.Get(0).(*NativeBalance), args.Error(1)
+}
+
 func (m *AccountTokensModelMock) BatchUpsertTrustlines(ctx context.Context, dbTx pgx.Tx, upserts []Trustline, deletes []Trustline) error {
 	args := m.Called(ctx, dbTx, upserts, deletes)
 	return args.Error(0)
@@ -103,5 +108,15 @@ func (m *AccountTokensModelMock) BatchInsertTrustlines(ctx context.Context, dbTx
 
 func (m *AccountTokensModelMock) BatchInsertContractTokens(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	args := m.Called(ctx, dbTx, contractsByAccount)
+	return args.Error(0)
+}
+
+func (m *AccountTokensModelMock) BatchUpsertNativeBalances(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error {
+	args := m.Called(ctx, dbTx, upserts, deletes)
+	return args.Error(0)
+}
+
+func (m *AccountTokensModelMock) BatchInsertNativeBalances(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error {
+	args := m.Called(ctx, dbTx, balances)
 	return args.Error(0)
 }

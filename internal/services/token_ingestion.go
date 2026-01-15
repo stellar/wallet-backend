@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
-	trustlineBatchSize = 200_000
+	// FlushBatchSize is the number of entries to buffer before flushing to DB.
+	flushBatchSize = 200_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -43,22 +43,31 @@ type checkpointData struct {
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
 }
 
-// trustlineBatch holds a batch of trustlines for streaming insertion.
-type trustlineBatch struct {
+// batch holds a batch of trustlines and native balances for streaming insertion.
+type batch struct {
 	// trustlines holds the trustline entries for batch insert
 	trustlines []wbdata.Trustline
+	// nativeBalances holds the native balance entries for batch insert
+	nativeBalances []wbdata.NativeBalance
 	// uniqueAssets tracks unique assets with their computed IDs for batch insert
 	uniqueAssets map[string]wbdata.TrustlineAsset
+	// trustlineAssetModel is the model for inserting trustline assets
+	trustlineAssetModel wbdata.TrustlineAssetModelInterface
+	// accountTokensModel is the model for inserting account tokens
+	accountTokensModel wbdata.AccountTokensModelInterface
 }
 
-func newTrustlineBatch() *trustlineBatch {
-	return &trustlineBatch{
-		trustlines:   nil,
-		uniqueAssets: make(map[string]wbdata.TrustlineAsset),
+func newBatch(trustlineAssetModel wbdata.TrustlineAssetModelInterface, accountTokensModel wbdata.AccountTokensModelInterface) *batch {
+	return &batch{
+		trustlines:          make([]wbdata.Trustline, 0, flushBatchSize),
+		uniqueAssets:        make(map[string]wbdata.TrustlineAsset),
+		nativeBalances:      make([]wbdata.NativeBalance, 0, flushBatchSize),
+		trustlineAssetModel: trustlineAssetModel,
+		accountTokensModel:  accountTokensModel,
 	}
 }
 
-func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
+func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
 	key := asset.Code + ":" + asset.Issuer
 	assetID := wbdata.DeterministicAssetID(asset.Code, asset.Issuer)
 
@@ -71,7 +80,6 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 		}
 	}
 
-	// Add trustline with all XDR fields
 	b.trustlines = append(b.trustlines, wbdata.Trustline{
 		AccountAddress:     accountAddress,
 		AssetID:            assetID,
@@ -84,12 +92,47 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 	})
 }
 
-func (b *trustlineBatch) count() int {
-	return len(b.trustlines)
+func (b *batch) addNativeBalance(accountAddress string, balance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
+	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
+		AccountAddress:     accountAddress,
+		Balance:            balance,
+		BuyingLiabilities:  buyingLiabilities,
+		SellingLiabilities: sellingLiabilities,
+		LedgerNumber:       ledger,
+	})
 }
 
-func (b *trustlineBatch) reset() {
-	b.trustlines = nil
+// flush inserts the batch's data into DB.
+func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
+	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
+	assets := make([]wbdata.TrustlineAsset, 0, len(b.uniqueAssets))
+	for _, asset := range b.uniqueAssets {
+		assets = append(assets, asset)
+	}
+	if err := b.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
+		return fmt.Errorf("batch inserting assets: %w", err)
+	}
+
+	// 2. Batch insert account trustlines (ledger is already set on each trustline in batch.add)
+	if err := b.accountTokensModel.BatchInsertTrustlines(ctx, dbTx, b.trustlines); err != nil {
+		return fmt.Errorf("batch inserting account trustlines: %w", err)
+	}
+
+	// 3. Batch insert native balances (ledger is already set on each native balance in batch.add)
+	if err := b.accountTokensModel.BatchInsertNativeBalances(ctx, dbTx, b.nativeBalances); err != nil {
+		return fmt.Errorf("batch inserting native balances: %w", err)
+	}
+
+	return nil
+}
+
+func (b *batch) count() int {
+	return len(b.trustlines) + len(b.nativeBalances)
+}
+
+func (b *batch) reset() {
+	b.trustlines = b.trustlines[:0]
+	b.nativeBalances = b.nativeBalances[:0]
 	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
 }
 
@@ -472,8 +515,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 		ContractTypesByWasmHash:   make(map[xdr.Hash]types.ContractType),
 	}
 
-	batch := newTrustlineBatch()
-	nativeBalances := make([]wbdata.NativeBalance, 0)
+	batch := newBatch(s.trustlineAssetModel, s.accountTokensModel)
 	entries := 0
 	trustlineCount := 0
 	accountCount := 0
@@ -501,24 +543,9 @@ func (s *tokenIngestionService) streamCheckpointData(
 		case xdr.LedgerEntryTypeAccount:
 			accountEntry := change.Post.Data.MustAccount()
 			liabilities := accountEntry.Liabilities()
-			nativeBalances = append(nativeBalances, wbdata.NativeBalance{
-				AccountAddress:     accountEntry.AccountId.Address(),
-				Balance:            int64(accountEntry.Balance),
-				BuyingLiabilities:  int64(liabilities.Buying),
-				SellingLiabilities: int64(liabilities.Selling),
-				LedgerNumber:       checkpointLedger,
-			})
+			batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), int64(liabilities.Buying), int64(liabilities.Selling), checkpointLedger)
 			entries++
 			accountCount++
-
-			// Flush native balances batch when full
-			if len(nativeBalances) >= trustlineBatchSize {
-				if err := s.accountTokensModel.BulkInsertNativeBalances(ctx, dbTx, nativeBalances); err != nil {
-					return checkpointData{}, fmt.Errorf("flushing native balances batch: %w", err)
-				}
-				log.Ctx(ctx).Infof("Flushed native balance batch (%d entries so far)", accountCount)
-				nativeBalances = nativeBalances[:0]
-			}
 
 		case xdr.LedgerEntryTypeTrustline:
 			accountAddress, asset, xdrFields, skip := s.processTrustlineChange(change)
@@ -527,18 +554,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 			}
 			entries++
 			trustlineCount++
-
-			batch.add(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags, checkpointLedger)
-
-			// Flush batch when full
-			if batch.count() >= trustlineBatchSize {
-				if err := s.flushTrustlineBatch(ctx, dbTx, batch, checkpointLedger); err != nil {
-					return checkpointData{}, fmt.Errorf("flushing trustline batch: %w", err)
-				}
-				batchCount++
-				log.Ctx(ctx).Infof("Flushed trustline batch %d (%d entries so far)", batchCount, trustlineCount)
-				batch.reset()
-			}
+			batch.addTrustline(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags, checkpointLedger)
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -581,45 +597,29 @@ func (s *tokenIngestionService) streamCheckpointData(
 				entries++
 			}
 		}
+
+		// Flush batch when full
+		if batch.count() >= flushBatchSize {
+			if err := batch.flush(ctx, dbTx); err != nil {
+				return checkpointData{}, fmt.Errorf("flushing batch: %w", err)
+			}
+			batchCount++
+			log.Ctx(ctx).Infof("Flushed batch %d (%d entries so far)", batchCount, entries)
+			batch.reset()
+		}
 	}
 
-	// Flush remaining trustlines
+	// Flush remaining data
 	if batch.count() > 0 {
-		if err := s.flushTrustlineBatch(ctx, dbTx, batch, checkpointLedger); err != nil {
+		if err := batch.flush(ctx, dbTx); err != nil {
 			return checkpointData{}, fmt.Errorf("flushing final trustline batch: %w", err)
 		}
 		batchCount++
 	}
 
-	// Flush remaining native balances
-	if len(nativeBalances) > 0 {
-		if err := s.accountTokensModel.BulkInsertNativeBalances(ctx, dbTx, nativeBalances); err != nil {
-			return checkpointData{}, fmt.Errorf("flushing final native balances batch: %w", err)
-		}
-	}
-
 	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines, %d accounts in %d batches) in %.2f minutes",
 		entries, trustlineCount, accountCount, batchCount, time.Since(startTime).Minutes())
 	return data, nil
-}
-
-// flushTrustlineBatch inserts the batch's trustline assets and account trustlines.
-func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
-	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
-	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
-	for _, asset := range batch.uniqueAssets {
-		assets = append(assets, asset)
-	}
-	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
-		return fmt.Errorf("batch inserting assets: %w", err)
-	}
-
-	// 2. Batch insert account trustlines (ledger is already set on each trustline in batch.add)
-	if err := s.accountTokensModel.BatchInsertTrustlines(ctx, dbTx, batch.trustlines); err != nil {
-		return fmt.Errorf("batch inserting account trustlines: %w", err)
-	}
-
-	return nil
 }
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
