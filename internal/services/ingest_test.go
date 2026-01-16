@@ -2680,7 +2680,9 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.processBatchChanges(ctx, tc.trustlineChanges, tc.contractChanges, tc.uniqueAssets, tc.uniqueContractTokens)
+			err = db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
+				return svc.processBatchChanges(ctx, dbTx, tc.trustlineChanges, tc.contractChanges, tc.uniqueAssets, tc.uniqueContractTokens)
+			})
 
 			if tc.wantErr {
 				require.Error(t, err)
