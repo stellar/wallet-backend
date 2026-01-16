@@ -294,7 +294,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.NativeBalance:
-			// Verify balance decreased from initial 10000 (fees were paid for Soroban operations)
+			// Verify balance remains at initial 10000
 			balance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
 			suite.Require().Equal(balance, 10000.0, "Balance should be the same as initial balance")
@@ -356,7 +356,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.NativeBalance:
-			// Verify balance decreased from initial 10000 (fees were paid for trustline operations)
+			// Verify balance remains at initial 10000
 			balance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
 			suite.Require().Equal(balance, 10000.0, "Balance should be the same as initial balance")

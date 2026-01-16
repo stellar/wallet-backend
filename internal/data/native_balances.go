@@ -4,6 +4,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,7 +61,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 	var nb NativeBalance
 	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil // Account not found (not funded)
 		}
 		m.MetricsService.IncDBQueryError("GetByAccount", "native_balances", "query_error")
