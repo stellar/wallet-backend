@@ -58,8 +58,8 @@ type IndexerBuffer struct {
 	participantsByOpID             map[int64]set.Set[string]
 	stateChanges                   []types.StateChange
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
-	contractChanges                []types.ContractChange
-	accountChanges                 []types.AccountChange
+	contractChanges               []types.ContractChange
+	accountChangesByAccountID     map[string]types.AccountChange
 	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
@@ -75,8 +75,8 @@ func NewIndexerBuffer() *IndexerBuffer {
 		participantsByOpID:             make(map[int64]set.Set[string]),
 		stateChanges:                   make([]types.StateChange, 0),
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
-		contractChanges:                make([]types.ContractChange, 0),
-		accountChanges:                 make([]types.AccountChange, 0),
+		contractChanges:           make([]types.ContractChange, 0),
+		accountChangesByAccountID: make(map[string]types.AccountChange),
 		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueContractsByID:            make(map[string]types.ContractType),
@@ -242,22 +242,38 @@ func (b *IndexerBuffer) GetContractChanges() []types.ContractChange {
 	return b.contractChanges
 }
 
-// PushAccountChange adds an account change to the buffer.
+// PushAccountChange adds an account change to the buffer with deduplication.
+// Keeps the change with highest OperationID per account. Handles CREATE→REMOVE no-op case.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.accountChanges = append(b.accountChanges, accountChange)
+	accountID := accountChange.AccountID
+	existing, exists := b.accountChangesByAccountID[accountID]
+
+	// Keep the change with highest OperationID
+	if exists && existing.OperationID > accountChange.OperationID {
+		return
+	}
+
+	// Handle CREATE→REMOVE no-op case: account created and removed in same batch
+	// Note: UPDATE→REMOVE is NOT a no-op (account existed before, needs deletion)
+	if exists && accountChange.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
+		delete(b.accountChangesByAccountID, accountID)
+		return
+	}
+
+	b.accountChangesByAccountID[accountID] = accountChange
 }
 
 // GetAccountChanges returns all account changes stored in the buffer.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAccountChanges() []types.AccountChange {
+func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.accountChanges
+	return b.accountChangesByAccountID
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
@@ -430,8 +446,22 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge contract changes
 	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
 
-	// Merge account changes
-	b.accountChanges = append(b.accountChanges, otherBuffer.accountChanges...)
+	// Merge account changes with deduplication (same logic as PushAccountChange)
+	for accountID, change := range otherBuffer.accountChangesByAccountID {
+		existing, exists := b.accountChangesByAccountID[accountID]
+
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+
+		// Handle CREATE→REMOVE no-op case
+		if exists && change.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
+			delete(b.accountChangesByAccountID, accountID)
+			continue
+		}
+
+		b.accountChangesByAccountID[accountID] = change
+	}
 
 	// Merge all participants
 	for participant := range otherBuffer.allParticipants.Iter() {
@@ -464,7 +494,9 @@ func (b *IndexerBuffer) Clear() {
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
 	b.contractChanges = b.contractChanges[:0]
-	b.accountChanges = b.accountChanges[:0]
+
+	// Clear account changes map
+	clear(b.accountChangesByAccountID)
 
 	// Clear all participants set
 	b.allParticipants.Clear()
