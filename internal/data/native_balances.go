@@ -60,7 +60,10 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 
 	var nb NativeBalance
 	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		m.MetricsService.IncDBQueryError("GetByAccount", "native_balances", "query_error")
 		return nil, fmt.Errorf("querying native balance for %s: %w", accountAddress, err)
 	}

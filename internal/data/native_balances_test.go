@@ -45,7 +45,6 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 	t.Run("returns nil for account not found", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
-		// Note: No metrics calls expected when account not found (returns nil, nil early)
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
