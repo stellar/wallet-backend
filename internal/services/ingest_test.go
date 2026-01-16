@@ -2488,7 +2488,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 
 	testCases := []struct {
 		name                string
-		trustlineChanges    []types.TrustlineChange
+		trustlineChanges    map[indexer.TrustlineChangeKey]types.TrustlineChange
 		contractChanges     []types.ContractChange
 		setupMocks          func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock)
 		wantErr             bool
@@ -2497,7 +2497,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 	}{
 		{
 			name:             "empty_data_calls_ProcessTokenChanges",
-			trustlineChanges: []types.TrustlineChange{},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
 			contractChanges:  []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges is called with empty map and slice
@@ -2508,12 +2508,12 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			// Deduplication keeps highest OperationID per (account, asset) key
-			name: "deduplicates_trustline_changes_by_key",
-			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USD:GA1", OperationID: toid.New(100, 0, 10).ToInt64(), LedgerNumber: 100},
-				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
-				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
+			// Data is now pre-deduplicated by caller
+			name: "passes_through_deduplicated_trustline_changes",
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
+				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USD", "GA1")}: {AccountID: "GA1", Asset: "USD:GA1", OperationID: toid.New(100, 0, 10).ToInt64(), LedgerNumber: 100},
+				{AccountID: "GA2", TrustlineID: data.DeterministicAssetID("EUR", "GA2")}: {AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
+				{AccountID: "GA3", TrustlineID: data.DeterministicAssetID("GBP", "GA3")}: {AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
@@ -2527,7 +2527,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		{
 			// Contract changes are passed through (not deduplicated here)
 			name:             "passes_contract_changes_through",
-			trustlineChanges: []types.TrustlineChange{},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA1", ContractID: "C1", OperationID: toid.New(200, 0, 20).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
 				{AccountID: "GA2", ContractID: "C2", OperationID: toid.New(200, 0, 5).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
@@ -2545,8 +2545,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		},
 		{
 			name: "inserts_trustline_assets_and_calls_ProcessTokenChanges",
-			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GISSUER", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
+				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GA1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
@@ -2556,7 +2556,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 						return false
 					}
 					for _, change := range changes {
-						return change.Asset == "USDC:GISSUER"
+						return change.Asset == "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 					}
 					return false
 				}), []types.ContractChange{}).Return(nil)
@@ -2566,7 +2566,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		{
 			// Note: Unknown contracts don't get inserted into contracts table but are still passed to ProcessTokenChanges
 			name:             "processes_unknown_contract_changes",
-			trustlineChanges: []types.TrustlineChange{},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
@@ -2582,8 +2582,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		},
 		{
 			name: "calls_ProcessTokenChanges_with_trustline_and_contract_changes",
-			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
+				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA")}: {AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA2", ContractID: "C1", OperationID: toid.New(100, 0, 2).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
@@ -2606,8 +2606,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		},
 		{
 			name: "propagates_ProcessTokenChanges_error",
-			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
+				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA")}: {AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
@@ -2691,11 +2691,11 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                 string
-		setupBuffer          func() *indexer.IndexerBuffer
-		tokenChanges         *BatchTokenChanges
-		wantTrustlineChanges []types.TrustlineChange
-		wantContractChanges  []types.ContractChange
+		name                      string
+		setupBuffer               func() *indexer.IndexerBuffer
+		tokenChanges              *BatchTokenChanges
+		wantTrustlineChangesCount int
+		wantContractChanges       []types.ContractChange
 	}{
 		{
 			name: "collects_trustline_changes_when_tokenChanges_provided",
@@ -2705,24 +2705,16 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				buf.PushTransaction("GTEST111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    "GTEST111111111111111111111111111111111111111111111111",
-					Asset:        "USDC:GISSUER",
+					Asset:        "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  100,
 					LedgerNumber: 1000,
 					Operation:    types.TrustlineOpAdd,
 				})
 				return buf
 			},
-			tokenChanges: &BatchTokenChanges{},
-			wantTrustlineChanges: []types.TrustlineChange{
-				{
-					AccountID:    "GTEST111111111111111111111111111111111111111111111111",
-					Asset:        "USDC:GISSUER",
-					OperationID:  100,
-					LedgerNumber: 1000,
-					Operation:    types.TrustlineOpAdd,
-				},
-			},
-			wantContractChanges: nil,
+			tokenChanges:              &BatchTokenChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange)},
+			wantTrustlineChangesCount: 1,
+			wantContractChanges:       nil,
 		},
 		{
 			name: "collects_contract_changes_when_tokenChanges_provided",
@@ -2739,8 +2731,8 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:         &BatchTokenChanges{},
-			wantTrustlineChanges: nil,
+			tokenChanges:              &BatchTokenChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange)},
+			wantTrustlineChangesCount: 0,
 			wantContractChanges: []types.ContractChange{
 				{
 					AccountID:    "GTEST222222222222222222222222222222222222222222222222",
@@ -2759,16 +2751,16 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				buf.PushTransaction("GTEST555555555555555555555555555555555555555555555555", tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    "GTEST555555555555555555555555555555555555555555555555",
-					Asset:        "EUR:GISSUER",
+					Asset:        "EUR:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  102,
 					LedgerNumber: 1002,
 					Operation:    types.TrustlineOpAdd,
 				})
 				return buf
 			},
-			tokenChanges:         nil, // nil means historical mode - no collection happens
-			wantTrustlineChanges: nil,
-			wantContractChanges:  nil,
+			tokenChanges:              nil, // nil means historical mode - no collection happens
+			wantTrustlineChangesCount: 0,
+			wantContractChanges:       nil,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2778,7 +2770,7 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				buf.PushTransaction("GTEST666666666666666666666666666666666666666666666666", tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    "GTEST666666666666666666666666666666666666666666666666",
-					Asset:        "GBP:GISSUER",
+					Asset:        "GBP:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  103,
 					LedgerNumber: 1003,
 					Operation:    types.TrustlineOpAdd,
@@ -2787,17 +2779,12 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			},
 			// Pre-populate tokenChanges to simulate accumulation from previous flush
 			tokenChanges: &BatchTokenChanges{
-				TrustlineChanges: []types.TrustlineChange{
-					{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
+				TrustlineChangesByKey: map[indexer.TrustlineChangeKey]types.TrustlineChange{
+					{AccountID: "GPREV", TrustlineID: data.DeterministicAssetID("PREV", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GPREV", Asset: "PREV:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
 				},
 			},
-			wantTrustlineChanges: []types.TrustlineChange{
-				// Pre-existing change from previous flush
-				{AccountID: "GPREV", Asset: "PREV:GISSUER", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
-				// New change from this flush
-				{AccountID: "GTEST666666666666666666666666666666666666666666666666", Asset: "GBP:GISSUER", OperationID: 103, LedgerNumber: 1003, Operation: types.TrustlineOpAdd},
-			},
-			wantContractChanges: nil,
+			wantTrustlineChangesCount: 2, // Pre-existing + new change
+			wantContractChanges:       nil,
 		},
 	}
 
@@ -2857,16 +2844,8 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 
 			// Verify collected token changes match expected values
 			if tc.tokenChanges != nil {
-				// Verify trustline changes
-				require.Len(t, tc.tokenChanges.TrustlineChanges, len(tc.wantTrustlineChanges), "trustline changes count mismatch")
-				for i, want := range tc.wantTrustlineChanges {
-					got := tc.tokenChanges.TrustlineChanges[i]
-					assert.Equal(t, want.AccountID, got.AccountID, "TrustlineChange[%d].AccountID mismatch", i)
-					assert.Equal(t, want.Asset, got.Asset, "TrustlineChange[%d].Asset mismatch", i)
-					assert.Equal(t, want.OperationID, got.OperationID, "TrustlineChange[%d].OperationID mismatch", i)
-					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "TrustlineChange[%d].LedgerNumber mismatch", i)
-					assert.Equal(t, want.Operation, got.Operation, "TrustlineChange[%d].Operation mismatch", i)
-				}
+				// Verify trustline changes count
+				require.Len(t, tc.tokenChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
 
 				// Verify contract changes
 				require.Len(t, tc.tokenChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")

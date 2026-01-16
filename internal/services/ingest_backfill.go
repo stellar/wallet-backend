@@ -52,8 +52,25 @@ type BackfillResult struct {
 // BatchTokenChanges holds token data collected from a backfill batch for catchup mode.
 // This data is processed after all parallel batches complete to ensure proper ordering.
 type BatchTokenChanges struct {
-	TrustlineChanges []types.TrustlineChange
-	ContractChanges  []types.ContractChange
+	TrustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange
+	ContractChanges       []types.ContractChange
+}
+
+// mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
+// Handles ADD→REMOVE no-op case where a trustline is created and removed in the same batch.
+func mergeTrustlineChanges(dest, source map[indexer.TrustlineChangeKey]types.TrustlineChange) {
+	for key, change := range source {
+		existing, exists := dest[key]
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.TrustlineOpRemove && existing.Operation == types.TrustlineOpAdd {
+			delete(dest, key)
+			continue
+		}
+		dest[key] = change
+	}
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -125,18 +142,18 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
 		}
 
-		// Aggregate token changes from all batch results
-		var allTrustlineChanges []types.TrustlineChange
+		// Merge all batch token changes into a single map using helper function
+		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
 		var allContractChanges []types.ContractChange
 		for _, result := range results {
 			if result.TokenChanges != nil {
-				allTrustlineChanges = append(allTrustlineChanges, result.TokenChanges.TrustlineChanges...)
+				mergeTrustlineChanges(mergedTrustlineChanges, result.TokenChanges.TrustlineChangesByKey)
 				allContractChanges = append(allContractChanges, result.TokenChanges.ContractChanges...)
 			}
 		}
 
 		// Process aggregated token changes (token cache updates)
-		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges); err != nil {
+		if err := m.processTokenChanges(ctx, mergedTrustlineChanges, allContractChanges); err != nil {
 			return fmt.Errorf("processing token changes: %w", err)
 		}
 
@@ -330,9 +347,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			}
 			// Collect token changes for post-catchup processing if requested
 			if tokenChanges != nil {
-				for _, change := range buffer.GetTrustlineChanges() {
-					tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, change)
-				}
+				mergeTrustlineChanges(tokenChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
 				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, buffer.GetContractChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
@@ -388,7 +403,9 @@ func (m *ingestService) processLedgersInBatch(
 	// Initialize token changes collector for catchup mode
 	var tokenChanges *BatchTokenChanges
 	if mode.isCatchup() {
-		tokenChanges = &BatchTokenChanges{}
+		tokenChanges = &BatchTokenChanges{
+			TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+		}
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
@@ -445,31 +462,12 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 }
 
 // processTokenChanges processes aggregated token changes after all parallel batches complete.
-// This ensures proper ordering of token changes for cache updates.
+// Data is pre-deduplicated by mergeTrustlineChanges() during collection.
 func (m *ingestService) processTokenChanges(
 	ctx context.Context,
-	trustlineChanges []types.TrustlineChange,
+	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
 	contractChanges []types.ContractChange,
 ) error {
-	// Build map with cross-batch deduplication - keep highest OperationID for each (account, asset)
-	trustlineChangesByKey := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
-	for i := range trustlineChanges {
-		change := &trustlineChanges[i]
-		code, issuer, err := indexer.ParseAssetString(change.Asset)
-		if err != nil {
-			continue
-		}
-		key := indexer.TrustlineChangeKey{
-			AccountID:   change.AccountID,
-			TrustlineID: data.DeterministicAssetID(code, issuer),
-		}
-
-		existing, exists := trustlineChangesByKey[key]
-		if !exists || change.OperationID > existing.OperationID {
-			trustlineChangesByKey[key] = *change
-		}
-	}
-
 	// Extract unique trustline assets from deduplicated changes
 	uniqueAssets := extractUniqueTrustlineAssetsFromMap(trustlineChangesByKey)
 
