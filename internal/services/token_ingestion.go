@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -114,7 +113,7 @@ type TokenIngestionService interface {
 	//   so we track all contracts an account has ever held a balance in.
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 // Verify interface compliance at compile time
@@ -234,55 +233,18 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange) error {
+	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 {
 		return nil
-	}
-
-	// Sort trustline changes by operation ID (temporal order).
-	// The last operation for (account, trustline) will be applied.
-	type changeKey struct {
-		accountID   string
-		trustlineID uuid.UUID
-	}
-	sort.Slice(trustlineChanges, func(i, j int) bool {
-		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-	})
-
-	// Track the final trustline data for each (account, asset) pair.
-	// For ADD/UPDATE: keep full data for upsert. For REMOVE: move to deletes.
-	trustlineDataByKey := make(map[changeKey]*types.TrustlineChange)
-	for i := range trustlineChanges {
-		change := &trustlineChanges[i]
-		code, issuer, err := indexer.ParseAssetString(change.Asset)
-		if err != nil {
-			return fmt.Errorf("parsing asset string from trustline change for address %s: asset %s: %w", change.AccountID, change.Asset, err)
-		}
-		assetID := wbdata.DeterministicAssetID(code, issuer)
-		key := changeKey{accountID: change.AccountID, trustlineID: assetID}
-
-		switch change.Operation {
-		case types.TrustlineOpAdd, types.TrustlineOpUpdate:
-			// Keep latest ADD/UPDATE data
-			trustlineDataByKey[key] = change
-		case types.TrustlineOpRemove:
-			// If previous was ADD/UPDATE in same ledger, net effect is no-op
-			if prev, exists := trustlineDataByKey[key]; exists && (prev.Operation == types.TrustlineOpAdd || prev.Operation == types.TrustlineOpUpdate) {
-				delete(trustlineDataByKey, key)
-			} else {
-				// Otherwise, mark for deletion
-				trustlineDataByKey[key] = change
-			}
-		}
 	}
 
 	// Separate into upserts and deletes
 	var upserts []wbdata.TrustlineBalance
 	var deletes []wbdata.TrustlineBalance
-	for key, change := range trustlineDataByKey {
+	for key, change := range trustlineChangesByTrustlineKey {
 		fullData := wbdata.TrustlineBalance{
 			AccountAddress:     change.AccountID,
-			AssetID:            key.trustlineID,
+			AssetID:            key.TrustlineID,
 			Balance:            change.Balance,
 			Limit:              change.Limit,
 			BuyingLiabilities:  change.BuyingLiabilities,
@@ -294,6 +256,14 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 			deletes = append(deletes, fullData)
 		} else {
 			upserts = append(upserts, fullData)
+		}
+	}
+
+	// Execute all changes using the provided transaction
+	// Batch upsert trustline balances with full XDR data
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.trustlineBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
 
@@ -310,14 +280,6 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		}
 		contractID := wbdata.DeterministicContractID(change.ContractID)
 		contractsByAccount[change.AccountID] = append(contractsByAccount[change.AccountID], contractID)
-	}
-
-	// Execute all changes using the provided transaction
-	// Batch upsert trustline balances with full XDR data
-	if len(upserts) > 0 || len(deletes) > 0 {
-		if err := s.trustlineBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
-			return fmt.Errorf("upserting trustline balances: %w", err)
-		}
 	}
 
 	// Batch insert contract tokens
