@@ -153,6 +153,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice", "bob")
@@ -183,10 +184,13 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			{ToID: 3, AccountID: "dave", OperationID: 0, SortKey: "0-1"},
 		}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -224,6 +228,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
 	})
 
 	t.Run("🟢 multiple transactions with overlapping participants", func(t *testing.T) {
@@ -233,6 +238,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mocks for first transaction
 		txParticipants1 := set.NewSet("alice", "bob")
@@ -273,10 +279,13 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx2).Return([]types.StateChange{}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -301,6 +310,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
 	})
 
 	t.Run("🟢 empty transaction list", func(t *testing.T) {
@@ -547,6 +557,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice")
@@ -575,10 +586,13 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -620,6 +634,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
 	})
 }
 

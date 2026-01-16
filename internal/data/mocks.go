@@ -59,3 +59,76 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
 }
+
+// TrustlineBalanceModelMock is a mock implementation of TrustlineBalanceModelInterface.
+type TrustlineBalanceModelMock struct {
+	mock.Mock
+}
+
+var _ TrustlineBalanceModelInterface = (*TrustlineBalanceModelMock)(nil)
+
+// NewTrustlineBalanceModelMock creates a new instance of TrustlineBalanceModelMock.
+func NewTrustlineBalanceModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TrustlineBalanceModelMock {
+	mockModel := &TrustlineBalanceModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]TrustlineBalance, error) {
+	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]TrustlineBalance), args.Error(1)
+}
+
+func (m *TrustlineBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error {
+	args := m.Called(ctx, dbTx, upserts, deletes)
+	return args.Error(0)
+}
+
+func (m *TrustlineBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []TrustlineBalance) error {
+	args := m.Called(ctx, dbTx, balances)
+	return args.Error(0)
+}
+
+// AccountContractTokensModelMock is a mock implementation of AccountContractTokensModelInterface.
+type AccountContractTokensModelMock struct {
+	mock.Mock
+}
+
+var _ AccountContractTokensModelInterface = (*AccountContractTokensModelMock)(nil)
+
+// NewAccountContractTokensModelMock creates a new instance of AccountContractTokensModelMock.
+func NewAccountContractTokensModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *AccountContractTokensModelMock {
+	mockModel := &AccountContractTokensModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error) {
+	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*Contract), args.Error(1)
+}
+
+func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
+	args := m.Called(ctx, dbTx, contractsByAccount)
+	return args.Error(0)
+}
