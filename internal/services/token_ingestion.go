@@ -32,7 +32,7 @@ const (
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
-// Note: Trustlines are streamed directly to DB in batches, not stored here.
+// Note: Trustlines, native balances, and SAC balances are streamed directly to DB in batches.
 type checkpointData struct {
 	// Contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	ContractsByHolderAddress map[string][]string
@@ -42,18 +42,10 @@ type checkpointData struct {
 	ContractIDsByWasmHash map[xdr.Hash][]string
 	// ContractTypesByWasmHash maps WASM hashes to their contract code bytes
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
-	// SACBalances stores SAC balance entries for contract addresses to be inserted after validation
-	SACBalances []sacBalanceEntry
+	// SACContracts stores SAC contract metadata extracted from ledger (no RPC needed)
+	SACContracts []*wbdata.Contract
 }
 
-// sacBalanceEntry holds SAC balance data extracted from checkpoint for later insertion.
-type sacBalanceEntry struct {
-	HolderAddress     string
-	ContractAddress   string
-	Balance           string
-	IsAuthorized      bool
-	IsClawbackEnabled bool
-}
 
 // batch holds a batch of trustline balances, native balances, and SAC balances for streaming insertion.
 type batch struct {
@@ -287,45 +279,38 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 		// Extract contract spec from WASM hash and validate SEP-41 contracts
 		s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractTypesByWasmHash)
 
-		// Fetch metadata for SAC/SEP-41 contracts and store in database
-		contracts, txErr := s.contractMetadataService.FetchMetadata(ctx, cpData.ContractTypesByContractID)
-		if txErr != nil {
-			return fmt.Errorf("fetching contract metadata: %w", txErr)
+		// Insert SAC contracts (metadata already extracted from ledger, no RPC needed)
+		if len(cpData.SACContracts) > 0 {
+			if txErr := s.contractModel.BatchInsert(ctx, dbTx, cpData.SACContracts); txErr != nil {
+				return fmt.Errorf("storing SAC contract metadata: %w", txErr)
+			}
+			log.Ctx(ctx).Infof("Stored %d SAC contracts with metadata from ledger", len(cpData.SACContracts))
 		}
-		if len(contracts) > 0 {
-			if txErr = s.contractModel.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-				return fmt.Errorf("storing contract metadata: %w", txErr)
+
+		// Filter to SEP-41 contracts only for RPC metadata fetch
+		sep41ContractIDs := make([]string, 0)
+		for contractID, contractType := range cpData.ContractTypesByContractID {
+			if contractType == types.ContractTypeSEP41 {
+				sep41ContractIDs = append(sep41ContractIDs, contractID)
 			}
 		}
 
-		// Store contract relationships using deterministic IDs
-		if txErr := s.storeContractsInPostgres(ctx, dbTx, cpData.ContractsByHolderAddress, cpData.ContractTypesByContractID); txErr != nil {
-			return fmt.Errorf("storing contracts in postgres: %w", txErr)
+		// Fetch metadata for SEP-41 contracts via RPC and store in database
+		if len(sep41ContractIDs) > 0 {
+			contracts, txErr := s.contractMetadataService.FetchSep41Metadata(ctx, sep41ContractIDs)
+			if txErr != nil {
+				return fmt.Errorf("fetching SEP-41 contract metadata: %w", txErr)
+			}
+			if len(contracts) > 0 {
+				if txErr = s.contractModel.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+					return fmt.Errorf("storing SEP-41 contract metadata: %w", txErr)
+				}
+			}
 		}
 
-		// Store SAC balances for contract addresses (filter to only include verified SAC contracts)
-		if len(cpData.SACBalances) > 0 {
-			sacBatch := newBatch(s.trustlineAssetModel, s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel)
-			for _, entry := range cpData.SACBalances {
-				contractType, ok := cpData.ContractTypesByContractID[entry.ContractAddress]
-				if !ok || contractType != types.ContractTypeSAC {
-					continue // Skip non-SAC contracts
-				}
-				sacBatch.addSACBalance(wbdata.SACBalance{
-					AccountAddress:    entry.HolderAddress,
-					ContractID:        wbdata.DeterministicContractID(entry.ContractAddress),
-					Balance:           entry.Balance,
-					IsAuthorized:      entry.IsAuthorized,
-					IsClawbackEnabled: entry.IsClawbackEnabled,
-					LedgerNumber:      checkpointLedger,
-				})
-			}
-			if sacBatch.count() > 0 {
-				if txErr := sacBatch.flush(ctx, dbTx); txErr != nil {
-					return fmt.Errorf("storing SAC balances in postgres: %w", txErr)
-				}
-				log.Ctx(ctx).Infof("Stored %d SAC balances for contract addresses", len(sacBatch.sacBalances))
-			}
+		// Store SEP-41 contract relationships using deterministic IDs
+		if txErr := s.storeSep41TokensInDB(ctx, dbTx, cpData.ContractsByHolderAddress, cpData.ContractTypesByContractID); txErr != nil {
+			return fmt.Errorf("storing SEP-41 tokens in postgres: %w", txErr)
 		}
 
 		if txErr := initializeCursors(dbTx); txErr != nil {
@@ -522,18 +507,33 @@ func (s *tokenIngestionService) processContractBalanceChange(contractDataEntry x
 }
 
 // processContractInstanceChange extracts contract type information from a contract instance entry.
-// Updates the contractTypesByContractID map with SAC types, and returns WASM hash for non-SAC contracts.
+// For SAC contracts: returns contract metadata extracted from ledger data (no RPC needed).
+// For non-SAC contracts: returns WASM hash for later validation and marks as skip.
 func (s *tokenIngestionService) processContractInstanceChange(
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
 	contractTypesByContractID map[string]types.ContractType,
-) (wasmHash *xdr.Hash, skip bool) {
+) (sacContract *wbdata.Contract, wasmHash *xdr.Hash, skip bool) {
 	ledgerEntry := change.Post
-	_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
+	asset, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
 	if isSAC {
 		contractTypesByContractID[contractAddress] = types.ContractTypeSAC // Verified SAC
-		return nil, true
+		// Extract metadata from ledger (code:issuer format for name, code for symbol)
+		var assetType, code, issuer string
+		asset.Extract(&assetType, &code, &issuer)
+		name := code + ":" + issuer
+		decimals := uint32(7) // Stellar assets always have 7 decimals
+		return &wbdata.Contract{
+			ID:         wbdata.DeterministicContractID(contractAddress),
+			ContractID: contractAddress,
+			Type:       string(types.ContractTypeSAC),
+			Code:       &code,
+			Issuer:     &issuer,
+			Name:       &name,
+			Symbol:     &code,
+			Decimals:   decimals,
+		}, nil, true
 	}
 
 	// For non-SAC contracts, extract WASM hash for later validation
@@ -541,11 +541,11 @@ func (s *tokenIngestionService) processContractInstanceChange(
 	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
 		if contractInstance.Executable.WasmHash != nil {
 			hash := *contractInstance.Executable.WasmHash
-			return &hash, false
+			return nil, &hash, false
 		}
 	}
 
-	return nil, true
+	return nil, nil, true
 }
 
 // streamCheckpointData reads from a ChangeReader and streams trustlines to DB in batches.
@@ -562,7 +562,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 		ContractTypesByContractID: make(map[string]types.ContractType),
 		ContractIDsByWasmHash:     make(map[xdr.Hash][]string),
 		ContractTypesByWasmHash:   make(map[xdr.Hash]types.ContractType),
-		SACBalances:               make([]sacBalanceEntry, 0),
+		SACContracts:              make([]*wbdata.Contract, 0),
 	}
 
 	batch := newBatch(s.trustlineAssetModel, s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel)
@@ -636,31 +636,41 @@ func (s *tokenIngestionService) streamCheckpointData(
 				if skip {
 					continue
 				}
+
+				// For contract addresses (C...), try to extract SAC balance and stream directly to batch
+				// C-addresses with SAC balances go to account_sac_balances table, not ContractsByHolderAddress
+				if isContractHolderAddress(holderAddress) {
+					balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
+					if err == nil {
+						// Stream SAC balance directly to batch (like trustlines)
+						batch.addSACBalance(wbdata.SACBalance{
+							AccountAddress:    holderAddress,
+							ContractID:        wbdata.DeterministicContractID(contractAddressStr),
+							Balance:           balanceStr,
+							IsAuthorized:      authorized,
+							IsClawbackEnabled: clawback,
+							LedgerNumber:      checkpointLedger,
+						})
+						entries++
+						continue // Don't add to ContractsByHolderAddress
+					}
+				}
+
+				// SEP-41 token balance - add to ContractsByHolderAddress for relationship tracking
 				if _, ok := data.ContractsByHolderAddress[holderAddress]; !ok {
 					data.ContractsByHolderAddress[holderAddress] = []string{}
 				}
 				data.ContractsByHolderAddress[holderAddress] = append(data.ContractsByHolderAddress[holderAddress], contractAddressStr)
 				entries++
 
-				// For contract addresses (C...), extract SAC balance values for later insertion
-				// G-addresses use trustlines for SAC balances
-				if !isContractHolderAddress(holderAddress) {
-					// G-address - skip, uses trustlines
+			case xdr.ScValTypeScvLedgerKeyContractInstance:
+				sacContract, wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, data.ContractTypesByContractID)
+				if sacContract != nil {
+					// Collect SAC contract metadata for batch insert
+					data.SACContracts = append(data.SACContracts, sacContract)
+					entries++
 					continue
 				}
-				balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
-				if err == nil {
-					data.SACBalances = append(data.SACBalances, sacBalanceEntry{
-						HolderAddress:     holderAddress,
-						ContractAddress:   contractAddressStr,
-						Balance:           balanceStr,
-						IsAuthorized:      authorized,
-						IsClawbackEnabled: clawback,
-					})
-				}
-
-			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, data.ContractTypesByContractID)
 				if skip {
 					continue
 				}
@@ -713,10 +723,10 @@ func (s *tokenIngestionService) enrichContractTypes(
 	}
 }
 
-// storeContractsInPostgres stores collected contract relationships into PostgreSQL.
-// The contractTypesByContractID maps contract addresses to their types (SAC/SEP-41);
-// unknown contracts (not in the map) are skipped.
-func (s *tokenIngestionService) storeContractsInPostgres(
+// storeSep41TokensInDB stores collected SEP-41 contract relationships into PostgreSQL.
+// The contractTypesByContractID maps contract addresses to their types;
+// only SEP-41 contracts are stored, others are skipped.
+func (s *tokenIngestionService) storeSep41TokensInDB(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	contractsByAccountAddress map[string][]string,
@@ -729,16 +739,17 @@ func (s *tokenIngestionService) storeContractsInPostgres(
 	startTime := time.Now()
 
 	// Convert contract addresses to UUIDs for bulk insert using deterministic IDs.
-	// Only SAC/SEP-41 contracts (in contractTypesByContractID) are processed.
+	// Only SEP-41 contracts are processed (SAC balances go to account_sac_balances table).
 	contractIDsByAccount := make(map[string][]uuid.UUID, len(contractsByAccountAddress))
+	sep41Count := 0
 	for accountAddress, contractAddrs := range contractsByAccountAddress {
 		ids := make([]uuid.UUID, 0, len(contractAddrs))
 		for _, contractAddr := range contractAddrs {
-			// Only include contracts that are known SAC/SEP-41 types
-			if _, ok := contractTypesByContractID[contractAddr]; ok {
+			// Only include SEP-41 contracts
+			if contractType, ok := contractTypesByContractID[contractAddr]; ok && contractType == types.ContractTypeSEP41 {
 				ids = append(ids, wbdata.DeterministicContractID(contractAddr))
+				sep41Count++
 			}
-			// Unknown contracts not in contractTypesByContractID are silently skipped
 		}
 		if len(ids) > 0 {
 			contractIDsByAccount[accountAddress] = ids
@@ -749,8 +760,8 @@ func (s *tokenIngestionService) storeContractsInPostgres(
 	if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractIDsByAccount); err != nil {
 		return fmt.Errorf("batch inserting account contracts: %w", err)
 	}
-	log.Ctx(ctx).Infof("Stored account-contract relationships for %d SAC/SEP-41 contracts in %.2f minutes",
-		len(contractTypesByContractID), time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Stored account-contract relationships for %d SEP-41 contracts in %.2f minutes",
+		sep41Count, time.Since(startTime).Minutes())
 
 	return nil
 }

@@ -268,22 +268,17 @@ type ContractMetadataServiceMock struct {
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
 
-func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
-	args := c.Called(ctx, dbTx, contractTypesByID)
-	return args.Error(0)
+func (c *ContractMetadataServiceMock) FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	args := c.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
 	args := c.Called(ctx, contractAddress, functionName, funcArgs)
 	return args.Get(0).(xdr.ScVal), args.Error(1)
-}
-
-func (c *ContractMetadataServiceMock) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
-	args := c.Called(ctx, contractTypesByID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 // NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.

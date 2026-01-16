@@ -17,7 +17,6 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // Helper functions for creating test XDR values
@@ -75,78 +74,7 @@ func TestNewContractMetadataService(t *testing.T) {
 	})
 }
 
-func TestParseSACMetadata(t *testing.T) {
-	mockRPCService := NewRPCServiceMock(t)
-	mockContractModel := data.NewContractModelMock(t)
-	pool := pond.NewPool(0)
-	defer pool.Stop()
-
-	service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-	assert.NoError(t, err)
-
-	cms := service.(*contractMetadataService)
-
-	tests := []struct {
-		name     string
-		input    map[string]ContractMetadata
-		expected map[string]ContractMetadata
-	}{
-		{
-			name: "parses SAC code:issuer format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS", Code: "USDC", Issuer: "GAISSUERTESTADDRESS"},
-			},
-		},
-		{
-			name: "skips non-SAC contracts",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-		},
-		{
-			name: "skips SAC with empty name",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-		},
-		{
-			name: "skips SAC with invalid format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-		},
-		{
-			name: "handles multiple colons",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cms.parseSACMetadata(tt.input)
-			assert.Equal(t, tt.expected, tt.input)
-		})
-	}
-}
-
-func TestFetchMetadata(t *testing.T) {
+func TestFetchSep41Metadata(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("fetches all three fields successfully", func(t *testing.T) {
@@ -188,11 +116,10 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		metadata, err := cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		metadata, err := cms.fetchMetadata(ctx, contractID)
 
 		require.NoError(t, err)
 		assert.Equal(t, contractID, metadata.ContractID)
-		assert.Equal(t, types.ContractTypeSEP41, metadata.Type)
 		assert.Equal(t, "TestName", metadata.Name)
 		assert.Equal(t, "TST", metadata.Symbol)
 		assert.Equal(t, uint32(8), metadata.Decimals)
@@ -228,7 +155,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fetching contract metadata")
@@ -267,7 +194,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a string")
@@ -306,7 +233,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a uint32")
@@ -467,8 +394,8 @@ func TestFetchBatch(t *testing.T) {
 		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
-			contractID2: {ContractID: contractID2, Type: types.ContractTypeSEP41},
+			contractID1: {ContractID: contractID1},
+			contractID2: {ContractID: contractID2},
 		}
 		contractIDs := []string{contractID1, contractID2}
 
@@ -521,7 +448,7 @@ func TestFetchBatch(t *testing.T) {
 		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
+			contractID1: {ContractID: contractID1},
 		}
 		contractIDs := []string{contractID1}
 
