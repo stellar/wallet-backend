@@ -36,7 +36,7 @@ type IndexerBufferInterface interface {
 	GetTransactions() []*types.Transaction
 	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
-	GetTrustlineChanges() []types.TrustlineChange
+	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetContractChanges() []types.ContractChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
