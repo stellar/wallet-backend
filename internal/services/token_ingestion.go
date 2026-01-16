@@ -21,6 +21,7 @@ import (
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -99,10 +100,11 @@ func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset,
 	})
 }
 
-func (b *batch) addNativeBalance(accountAddress string, balance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
+func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
 	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
 		AccountAddress:     accountAddress,
 		Balance:            balance,
+		MinimumBalance:     minimumBalance,
 		BuyingLiabilities:  buyingLiabilities,
 		SellingLiabilities: sellingLiabilities,
 		LedgerNumber:       ledger,
@@ -500,7 +502,12 @@ func (s *tokenIngestionService) streamCheckpointData(
 		case xdr.LedgerEntryTypeAccount:
 			accountEntry := change.Post.Data.MustAccount()
 			liabilities := accountEntry.Liabilities()
-			batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), int64(liabilities.Buying), int64(liabilities.Selling), checkpointLedger)
+			// Calculate minimum balance using same formula as live ingestion (accounts.go)
+			numSubEntries := accountEntry.NumSubEntries
+			numSponsoring := accountEntry.NumSponsoring()
+			numSponsored := accountEntry.NumSponsored()
+			minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
+			batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), checkpointLedger)
 			entries++
 			accountCount++
 
