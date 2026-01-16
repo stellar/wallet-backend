@@ -287,10 +287,30 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		return nil
 	}
 
-	// Separate into upserts and deletes
+	if err := s.processTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey); err != nil {
+		return err
+	}
+	if err := s.processContractTokenChanges(ctx, dbTx, contractChanges); err != nil {
+		return err
+	}
+	if err := s.processNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
+		return err
+	}
+	if err := s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+// processTrustlineChanges handles trustline balance upserts and deletes.
+func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+	if len(changesByKey) == 0 {
+		return nil
+	}
+
 	var upserts []wbdata.TrustlineBalance
 	var deletes []wbdata.TrustlineBalance
-	for key, change := range trustlineChangesByTrustlineKey {
+	for key, change := range changesByKey {
 		fullData := wbdata.TrustlineBalance{
 			AccountAddress:     change.AccountID,
 			AssetID:            key.TrustlineID,
@@ -308,18 +328,22 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		}
 	}
 
-	// Execute all changes using the provided transaction
-	// Batch upsert trustline balances with full XDR data
 	if len(upserts) > 0 || len(deletes) > 0 {
 		if err := s.trustlineBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Group contract changes by account using deterministic IDs.
-	// Only SAC/SEP-41 contracts are processed; others are silently skipped.
+// processContractTokenChanges handles SEP-41 contract token inserts.
+func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
 	contractTokensByAccount := make(map[string][]uuid.UUID)
-	for _, change := range contractChanges {
+	for _, change := range changes {
 		if change.ContractID == "" {
 			continue
 		}
@@ -331,69 +355,75 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		contractTokensByAccount[change.AccountID] = append(contractTokensByAccount[change.AccountID], contractID)
 	}
 
-	// Batch insert contract tokens
 	if len(contractTokensByAccount) > 0 {
 		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccount); err != nil {
 			return fmt.Errorf("batch inserting contract tokens: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Process account changes (native XLM balance)
-	// Deduplication and no-op handling already done in IndexerBuffer
-	if len(accountChangesByAccountID) > 0 {
-		var nativeUpserts []wbdata.NativeBalance
-		var nativeDeletes []string
-		for _, change := range accountChangesByAccountID {
-			if change.Operation == types.AccountOpRemove {
-				nativeDeletes = append(nativeDeletes, change.AccountID)
-			} else {
-				nativeUpserts = append(nativeUpserts, wbdata.NativeBalance{
-					AccountAddress:     change.AccountID,
-					Balance:            change.Balance,
-					MinimumBalance:     change.MinimumBalance,
-					BuyingLiabilities:  change.BuyingLiabilities,
-					SellingLiabilities: change.SellingLiabilities,
-					LedgerNumber:       change.LedgerNumber,
-				})
-			}
-		}
+// processNativeBalanceChanges handles native XLM balance upserts and deletes.
+func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByAccountID map[string]types.AccountChange) error {
+	if len(changesByAccountID) == 0 {
+		return nil
+	}
 
-		if len(nativeUpserts) > 0 || len(nativeDeletes) > 0 {
-			if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, nativeUpserts, nativeDeletes); err != nil {
-				return fmt.Errorf("upserting native balances: %w", err)
-			}
+	var upserts []wbdata.NativeBalance
+	var deletes []string
+	for _, change := range changesByAccountID {
+		if change.Operation == types.AccountOpRemove {
+			deletes = append(deletes, change.AccountID)
+		} else {
+			upserts = append(upserts, wbdata.NativeBalance{
+				AccountAddress:     change.AccountID,
+				Balance:            change.Balance,
+				MinimumBalance:     change.MinimumBalance,
+				BuyingLiabilities:  change.BuyingLiabilities,
+				SellingLiabilities: change.SellingLiabilities,
+				LedgerNumber:       change.LedgerNumber,
+			})
 		}
 	}
 
-	// Process SAC balance changes (for contract addresses holding SAC tokens)
-	// Deduplication is already done in IndexerBuffer, so we iterate directly over the map
-	if len(sacBalanceChangesByKey) > 0 {
-		var sacUpserts []wbdata.SACBalance
-		var sacDeletes []wbdata.SACBalance
-		for _, change := range sacBalanceChangesByKey {
-			contractID := wbdata.DeterministicContractID(change.ContractID)
-			sacBal := wbdata.SACBalance{
-				AccountAddress:    change.AccountID,
-				ContractID:        contractID,
-				Balance:           change.Balance,
-				IsAuthorized:      change.IsAuthorized,
-				IsClawbackEnabled: change.IsClawbackEnabled,
-				LedgerNumber:      change.LedgerNumber,
-			}
-			if change.Operation == types.SACBalanceOpRemove {
-				sacDeletes = append(sacDeletes, sacBal)
-			} else {
-				sacUpserts = append(sacUpserts, sacBal)
-			}
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting native balances: %w", err)
 		}
+	}
+	return nil
+}
 
-		if len(sacUpserts) > 0 || len(sacDeletes) > 0 {
-			if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, sacUpserts, sacDeletes); err != nil {
-				return fmt.Errorf("upserting SAC balances: %w", err)
-			}
+// processSACBalanceChanges handles SAC balance upserts and deletes for contract addresses.
+func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	if len(changesByKey) == 0 {
+		return nil
+	}
+
+	var upserts []wbdata.SACBalance
+	var deletes []wbdata.SACBalance
+	for _, change := range changesByKey {
+		contractID := wbdata.DeterministicContractID(change.ContractID)
+		sacBal := wbdata.SACBalance{
+			AccountAddress:    change.AccountID,
+			ContractID:        contractID,
+			Balance:           change.Balance,
+			IsAuthorized:      change.IsAuthorized,
+			IsClawbackEnabled: change.IsClawbackEnabled,
+			LedgerNumber:      change.LedgerNumber,
+		}
+		if change.Operation == types.SACBalanceOpRemove {
+			deletes = append(deletes, sacBal)
+		} else {
+			upserts = append(upserts, sacBal)
 		}
 	}
 
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting SAC balances: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -604,11 +634,11 @@ func (s *tokenIngestionService) streamCheckpointData(
 							LedgerNumber:      checkpointLedger,
 						})
 						entries++
-						continue // Don't add to ContractsByHolderAddress
+						continue
 					}
 				}
 
-				// SEP-41 token balance - add to ContractsByHolderAddress for relationship tracking
+				// Non-SAC contract token balance - add to ContractsByHolderAddress for relationship tracking
 				if _, ok := data.contractTokensByHolderAddress[holderAddress]; !ok {
 					data.contractTokensByHolderAddress[holderAddress] = []uuid.UUID{}
 				}

@@ -418,7 +418,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("add contract stores contract ID", func(t *testing.T) {
+	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
 		cleanUpDB()
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
@@ -444,18 +444,19 @@ func TestProcessTokenChanges(t *testing.T) {
 		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SAC"},
+				{ID: numericID, ContractID: contractID, Type: "SEP41"},
 			})
 		})
 		require.NoError(t, err)
 
-		// ProcessTokenChanges now computes IDs internally using DeterministicContractID
+		// ProcessTokenChanges processes SEP-41 contracts via contractChanges parameter
+		// SAC contracts are processed via sacBalanceChangesByKey parameter instead
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
 				{
 					AccountID:    accountAddress,
 					ContractID:   contractID,
-					ContractType: types.ContractTypeSAC,
+					ContractType: types.ContractTypeSEP41,
 				},
 			}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})

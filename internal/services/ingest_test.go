@@ -2232,10 +2232,11 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // trustlineAssetIDMap
-			mock.Anything, // contractIDMap
-			mock.Anything, // trustlineChanges
+			mock.Anything, // dbTx
+			mock.Anything, // trustlineChangesByTrustlineKey
 			mock.Anything, // contractChanges
+			mock.Anything, // accountChangesByAccountID
+			mock.Anything, // sacBalanceChangesByKey
 		).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2322,10 +2323,11 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // trustlineAssetIDMap
-			mock.Anything, // contractIDMap
-			mock.Anything, // trustlineChanges
+			mock.Anything, // dbTx
+			mock.Anything, // trustlineChangesByTrustlineKey
 			mock.Anything, // contractChanges
+			mock.Anything, // accountChangesByAccountID
+			mock.Anything, // sacBalanceChangesByKey
 		).Return(fmt.Errorf("redis connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2416,8 +2418,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
+			mock.Anything,
 		).Return(fmt.Errorf("transient error")).Once()
 		mockTokenIngestionService.On("ProcessTokenChanges",
+			mock.Anything,
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
@@ -2508,7 +2512,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// ProcessTokenChanges is called with empty map and slice
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 0
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2527,7 +2531,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// Verify all 3 changes are in the map (different keys)
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 3
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2548,7 +2552,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return len(changes) == 0
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 3
-				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2572,7 +2576,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 						return change.Asset == "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 					}
 					return false
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2591,7 +2595,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return len(changes) == 0
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 1 && changes[0].ContractType == types.ContractTypeUnknown
-				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2617,7 +2621,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return false
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 1 && changes[0].ContractID == "C1"
-				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2633,7 +2637,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// ProcessTokenChanges receives the actual trustline changes
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 1
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(fmt.Errorf("redis error"))
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -3016,7 +3020,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			name: "successful_catchup_processes_token_changes",
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges is the only mock needed on tokenIngestionService
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3034,7 +3038,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges fails
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3053,7 +3057,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			name: "cursor_not_updated_if_token_processing_fails",
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges fails - cursor should not be updated
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
