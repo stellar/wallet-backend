@@ -7,6 +7,7 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -2470,14 +2471,14 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 	})
 }
 
-// Test_ingestService_processTokenChanges tests the processTokenChanges method which processes
-// aggregated token changes after all parallel batches complete.
+// Test_ingestService_processBatchChanges tests the processBatchChanges method which processes
+// aggregated batch changes after all parallel batches complete.
 // NOTE: The implementation now:
 // 1. Calls models.TrustlineAsset.BatchInsert for trustline assets (real DB operation)
 // 2. Calls contractMetadataService.FetchMetadata for new contracts (mocked)
 // 3. Calls models.Contract.BatchInsert for contracts (real DB operation)
 // 4. Calls tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges) (mocked)
-func Test_ingestService_processTokenChanges(t *testing.T) {
+func Test_ingestService_processBatchChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2487,18 +2488,22 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                string
-		trustlineChanges    map[indexer.TrustlineChangeKey]types.TrustlineChange
-		contractChanges     []types.ContractChange
-		setupMocks          func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock)
-		wantErr             bool
-		wantErrContains     string
-		verifySortedChanges func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock)
+		name                 string
+		trustlineChanges     map[indexer.TrustlineChangeKey]types.TrustlineChange
+		contractChanges      []types.ContractChange
+		uniqueAssets         map[uuid.UUID]data.TrustlineAsset
+		uniqueContractTokens map[string]types.ContractType
+		setupMocks           func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock)
+		wantErr              bool
+		wantErrContains      string
+		verifySortedChanges  func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock)
 	}{
 		{
-			name:             "empty_data_calls_ProcessTokenChanges",
-			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
-			contractChanges:  []types.ContractChange{},
+			name:                 "empty_data_calls_ProcessTokenChanges",
+			trustlineChanges:     map[indexer.TrustlineChangeKey]types.TrustlineChange{},
+			contractChanges:      []types.ContractChange{},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges is called with empty map and slice
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2515,7 +2520,9 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA2", TrustlineID: data.DeterministicAssetID("EUR", "GA2")}: {AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
 				{AccountID: "GA3", TrustlineID: data.DeterministicAssetID("GBP", "GA3")}: {AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
 			},
-			contractChanges: []types.ContractChange{},
+			contractChanges:      []types.ContractChange{},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// Verify all 3 changes are in the map (different keys)
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2533,6 +2540,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA2", ContractID: "C2", OperationID: toid.New(200, 0, 5).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
 				{AccountID: "GA3", ContractID: "C3", OperationID: toid.New(201, 0, 1).ToInt64(), LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
 			},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// All 3 contract changes are passed through
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2549,6 +2558,10 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GA1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
 			contractChanges: []types.ContractChange{},
+			uniqueAssets: map[uuid.UUID]data.TrustlineAsset{
+				data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"): {ID: data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"), Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+			},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges is called after trustline assets are inserted to DB
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2565,8 +2578,10 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 		},
 		{
 			// Note: Unknown contracts don't get inserted into contracts table but are still passed to ProcessTokenChanges
-			name:             "processes_unknown_contract_changes",
-			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
+			name:                 "processes_unknown_contract_changes",
+			trustlineChanges:     map[indexer.TrustlineChangeKey]types.TrustlineChange{},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
@@ -2588,6 +2603,8 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			contractChanges: []types.ContractChange{
 				{AccountID: "GA2", ContractID: "C1", OperationID: toid.New(100, 0, 2).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges receives both trustline and contract changes
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2609,7 +2626,9 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA")}: {AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
-			contractChanges: []types.ContractChange{},
+			contractChanges:      []types.ContractChange{},
+			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
+			uniqueContractTokens: map[string]types.ContractType{},
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
 				// ProcessTokenChanges receives the actual trustline changes
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
@@ -2661,7 +2680,7 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.processTokenChanges(ctx, tc.trustlineChanges, tc.contractChanges)
+			err = svc.processBatchChanges(ctx, tc.trustlineChanges, tc.contractChanges, tc.uniqueAssets, tc.uniqueContractTokens)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -2679,9 +2698,9 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 	}
 }
 
-// Test_ingestService_flushBatchBuffer_tokenChanges tests that token changes are collected
-// when flushBatchBuffer is called with a non-nil tokenChanges parameter.
-func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
+// Test_ingestService_flushBatchBuffer_batchChanges tests that batch changes are collected
+// when flushBatchBuffer is called with a non-nil batchChanges parameter.
+func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2693,12 +2712,12 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 	testCases := []struct {
 		name                      string
 		setupBuffer               func() *indexer.IndexerBuffer
-		tokenChanges              *BatchTokenChanges
+		batchChanges              *BatchChanges
 		wantTrustlineChangesCount int
 		wantContractChanges       []types.ContractChange
 	}{
 		{
-			name: "collects_trustline_changes_when_tokenChanges_provided",
+			name: "collects_trustline_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_1", 1)
@@ -2712,12 +2731,12 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange)},
+			batchChanges:              &BatchChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange), UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset), UniqueContractTokensByID: make(map[string]types.ContractType)},
 			wantTrustlineChangesCount: 1,
 			wantContractChanges:       nil,
 		},
 		{
-			name: "collects_contract_changes_when_tokenChanges_provided",
+			name: "collects_contract_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_2", 2)
@@ -2731,7 +2750,7 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              &BatchTokenChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange)},
+			batchChanges:              &BatchChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange), UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset), UniqueContractTokensByID: make(map[string]types.ContractType)},
 			wantTrustlineChangesCount: 0,
 			wantContractChanges: []types.ContractChange{
 				{
@@ -2744,7 +2763,7 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			},
 		},
 		{
-			name: "nil_tokenChanges_does_not_collect",
+			name: "nil_batchChanges_does_not_collect",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("catchup_tx_5", 5)
@@ -2758,7 +2777,7 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			tokenChanges:              nil, // nil means historical mode - no collection happens
+			batchChanges:              nil, // nil means historical mode - no collection happens
 			wantTrustlineChangesCount: 0,
 			wantContractChanges:       nil,
 		},
@@ -2777,11 +2796,13 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				})
 				return buf
 			},
-			// Pre-populate tokenChanges to simulate accumulation from previous flush
-			tokenChanges: &BatchTokenChanges{
+			// Pre-populate batchChanges to simulate accumulation from previous flush
+			batchChanges: &BatchChanges{
 				TrustlineChangesByKey: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 					{AccountID: "GPREV", TrustlineID: data.DeterministicAssetID("PREV", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GPREV", Asset: "PREV:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
 				},
+				UniqueTrustlineAssets:    make(map[uuid.UUID]data.TrustlineAsset),
+				UniqueContractTokensByID: make(map[string]types.ContractType),
 			},
 			wantTrustlineChangesCount: 2, // Pre-existing + new change
 			wantContractChanges:       nil,
@@ -2839,18 +2860,18 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.tokenChanges)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.batchChanges)
 			require.NoError(t, err)
 
 			// Verify collected token changes match expected values
-			if tc.tokenChanges != nil {
+			if tc.batchChanges != nil {
 				// Verify trustline changes count
-				require.Len(t, tc.tokenChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
+				require.Len(t, tc.batchChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
 
 				// Verify contract changes
-				require.Len(t, tc.tokenChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
+				require.Len(t, tc.batchChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
 				for i, want := range tc.wantContractChanges {
-					got := tc.tokenChanges.ContractChanges[i]
+					got := tc.batchChanges.ContractChanges[i]
 					assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
 					assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
 					assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
@@ -2881,17 +2902,17 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 	testCases := []struct {
 		name                string
 		mode                BackfillMode
-		wantTokenChangesNil bool
+		wantBatchChangesNil bool
 	}{
 		{
 			name:                "catchup_mode_returns_token_changes",
 			mode:                BackfillModeCatchup,
-			wantTokenChangesNil: false,
+			wantBatchChangesNil: false,
 		},
 		{
 			name:                "historical_mode_returns_nil_token_changes",
 			mode:                BackfillModeHistorical,
-			wantTokenChangesNil: true,
+			wantBatchChangesNil: true,
 		},
 	}
 
@@ -2944,25 +2965,25 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, tokenChanges, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, batchChanges, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
 
-			if tc.wantTokenChangesNil {
-				assert.Nil(t, tokenChanges, "expected nil token changes for historical mode")
+			if tc.wantBatchChangesNil {
+				assert.Nil(t, batchChanges, "expected nil batch changes for historical mode")
 			} else {
-				assert.NotNil(t, tokenChanges, "expected non-nil token changes for catchup mode")
+				assert.NotNil(t, batchChanges, "expected non-nil batch changes for catchup mode")
 			}
 		})
 	}
 }
 
-// Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges tests the full catchup
-// flow including token change processing and cursor updates.
+// Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges tests the full catchup
+// flow including batch change processing and cursor updates.
 //
 //nolint:unparam // Test backend factory always returns nil error - this is intentional for testing
-func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *testing.T) {
+func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
