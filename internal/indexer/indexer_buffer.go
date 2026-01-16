@@ -46,38 +46,38 @@ import (
 // Callers can safely use multiple buffers in parallel goroutines.
 
 type TrustlineChangeKey struct {
-	AccountID string
+	AccountID   string
 	TrustlineID uuid.UUID
 }
 
 type IndexerBuffer struct {
-	mu                    sync.RWMutex
-	txByHash              map[string]*types.Transaction
-	participantsByTxHash  map[string]set.Set[string]
-	opByID                map[int64]*types.Operation
-	participantsByOpID    map[int64]set.Set[string]
-	stateChanges          []types.StateChange
-	trustlineChangesByTrustlineKey      map[TrustlineChangeKey]types.TrustlineChange
-	contractChanges       []types.ContractChange
-	allParticipants       set.Set[string]
-	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
-	uniqueContractsByID   map[string]types.ContractType  // contractID → type (SAC/SEP-41 only)
+	mu                             sync.RWMutex
+	txByHash                       map[string]*types.Transaction
+	participantsByTxHash           map[string]set.Set[string]
+	opByID                         map[int64]*types.Operation
+	participantsByOpID             map[int64]set.Set[string]
+	stateChanges                   []types.StateChange
+	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
+	contractChanges                []types.ContractChange
+	allParticipants                set.Set[string]
+	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
+	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		txByHash:              make(map[string]*types.Transaction),
-		participantsByTxHash:  make(map[string]set.Set[string]),
-		opByID:                make(map[int64]*types.Operation),
-		participantsByOpID:    make(map[int64]set.Set[string]),
-		stateChanges:          make([]types.StateChange, 0),
-		trustlineChangesByTrustlineKey:      make(map[TrustlineChangeKey]types.TrustlineChange),
-		contractChanges:       make([]types.ContractChange, 0),
-		allParticipants:       set.NewSet[string](),
-		uniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset),
-		uniqueContractsByID:   make(map[string]types.ContractType),
+		txByHash:                       make(map[string]*types.Transaction),
+		participantsByTxHash:           make(map[string]set.Set[string]),
+		opByID:                         make(map[int64]*types.Operation),
+		participantsByOpID:             make(map[int64]set.Set[string]),
+		stateChanges:                   make([]types.StateChange, 0),
+		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
+		contractChanges:                make([]types.ContractChange, 0),
+		allParticipants:                set.NewSet[string](),
+		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
+		uniqueContractsByID:            make(map[string]types.ContractType),
 	}
 }
 
@@ -183,7 +183,7 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	}
 
 	changeKey := TrustlineChangeKey{
-		AccountID: trustlineChange.AccountID,
+		AccountID:   trustlineChange.AccountID,
 		TrustlineID: trustlineID,
 	}
 	prevChange, exists := b.trustlineChangesByTrustlineKey[changeKey]
@@ -191,7 +191,7 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 		return
 	}
 
-	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation for the same trustline from previous operation, 
+	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation for the same trustline from previous operation,
 	// it is a no-op for current ledger.
 	if exists && trustlineChange.Operation == types.TrustlineOpRemove && prevChange.Operation == types.TrustlineOpAdd {
 		delete(b.trustlineChangesByTrustlineKey, changeKey)
