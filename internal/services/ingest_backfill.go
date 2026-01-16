@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -331,7 +330,9 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			}
 			// Collect token changes for post-catchup processing if requested
 			if tokenChanges != nil {
-				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, buffer.GetTrustlineChanges()...)
+				for _, change := range buffer.GetTrustlineChanges() {
+					tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, change)
+				}
 				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, buffer.GetContractChanges()...)
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
@@ -450,16 +451,27 @@ func (m *ingestService) processTokenChanges(
 	trustlineChanges []types.TrustlineChange,
 	contractChanges []types.ContractChange,
 ) error {
-	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
-	sort.Slice(trustlineChanges, func(i, j int) bool {
-		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-	})
-	sort.Slice(contractChanges, func(i, j int) bool {
-		return contractChanges[i].OperationID < contractChanges[j].OperationID
-	})
+	// Build map with cross-batch deduplication - keep highest OperationID for each (account, asset)
+	trustlineChangesByKey := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
+	for i := range trustlineChanges {
+		change := &trustlineChanges[i]
+		code, issuer, err := indexer.ParseAssetString(change.Asset)
+		if err != nil {
+			continue
+		}
+		key := indexer.TrustlineChangeKey{
+			AccountID:   change.AccountID,
+			TrustlineID: data.DeterministicAssetID(code, issuer),
+		}
 
-	// Extract unique trustline assets from changes
-	uniqueAssets := extractUniqueTrustlineAssets(trustlineChanges)
+		existing, exists := trustlineChangesByKey[key]
+		if !exists || change.OperationID > existing.OperationID {
+			trustlineChangesByKey[key] = *change
+		}
+	}
+
+	// Extract unique trustline assets from deduplicated changes
+	uniqueAssets := extractUniqueTrustlineAssetsFromMap(trustlineChangesByKey)
 
 	// Extract unique SAC/SEP-41 contracts from changes
 	uniqueContracts := extractUniqueSACAndSEP41Contracts(contractChanges)
@@ -487,7 +499,7 @@ func (m *ingestService) processTokenChanges(
 		}
 
 		// 3. Apply token changes to PostgreSQL
-		if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges); txErr != nil {
+		if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges); txErr != nil {
 			return fmt.Errorf("processing token changes: %w", txErr)
 		}
 
@@ -498,13 +510,13 @@ func (m *ingestService) processTokenChanges(
 	}
 
 	log.Ctx(ctx).Infof("Processed token changes: %d trustline changes, %d contract changes",
-		len(trustlineChanges), len(contractChanges))
+		len(trustlineChangesByKey), len(contractChanges))
 
 	return nil
 }
 
-// extractUniqueTrustlineAssets extracts unique trustline assets from changes with pre-computed IDs.
-func extractUniqueTrustlineAssets(trustlineChanges []types.TrustlineChange) []data.TrustlineAsset {
+// extractUniqueTrustlineAssetsFromMap extracts unique trustline assets from deduplicated changes map.
+func extractUniqueTrustlineAssetsFromMap(trustlineChanges map[indexer.TrustlineChangeKey]types.TrustlineChange) []data.TrustlineAsset {
 	if len(trustlineChanges) == 0 {
 		return nil
 	}
