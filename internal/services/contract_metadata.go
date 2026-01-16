@@ -309,4 +309,3 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 	}
 	return metadataMap
 }
-
