@@ -106,7 +106,7 @@ type NativeBalance struct {
 	MinimumBalance     string    `json:"minimumBalance"`
 	BuyingLiabilities  string    `json:"buyingLiabilities"`
 	SellingLiabilities string    `json:"sellingLiabilities"`
-	LastModifiedLedger int32     `json:"lastModifiedLedger"`
+	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
 }
 
 func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }
