@@ -2508,7 +2508,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// ProcessTokenChanges is called with empty map and slice
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 0
-				}), []types.ContractChange{}, []types.AccountChange{}).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2527,7 +2527,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// Verify all 3 changes are in the map (different keys)
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 3
-				}), []types.ContractChange{}, []types.AccountChange{}).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2548,7 +2548,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return len(changes) == 0
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 3
-				}), []types.AccountChange{}).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2572,7 +2572,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 						return change.Asset == "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 					}
 					return false
-				}), []types.ContractChange{}, []types.AccountChange{}).Return(nil)
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2591,7 +2591,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return len(changes) == 0
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 1 && changes[0].ContractType == types.ContractTypeUnknown
-				}), []types.AccountChange{}).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2617,7 +2617,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 					return false
 				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 1 && changes[0].ContractID == "C1"
-				}), []types.AccountChange{}).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -2633,7 +2633,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// ProcessTokenChanges receives the actual trustline changes
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 1
-				}), []types.ContractChange{}, []types.AccountChange{}).Return(fmt.Errorf("redis error"))
+				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true })).Return(fmt.Errorf("redis error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -2681,7 +2681,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			require.NoError(t, err)
 
 			err = db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
-				return svc.processBatchChanges(ctx, dbTx, tc.trustlineChanges, tc.contractChanges, []types.AccountChange{}, tc.uniqueAssets, tc.uniqueContractTokens)
+				return svc.processBatchChanges(ctx, dbTx, tc.trustlineChanges, tc.contractChanges, make(map[string]types.AccountChange), tc.uniqueAssets, tc.uniqueContractTokens)
 			})
 
 			if tc.wantErr {

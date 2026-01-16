@@ -58,8 +58,8 @@ type IndexerBuffer struct {
 	participantsByOpID             map[int64]set.Set[string]
 	stateChanges                   []types.StateChange
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
-	contractChanges               []types.ContractChange
-	accountChangesByAccountID     map[string]types.AccountChange
+	contractChanges                []types.ContractChange
+	accountChangesByAccountID      map[string]types.AccountChange
 	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
@@ -75,8 +75,8 @@ func NewIndexerBuffer() *IndexerBuffer {
 		participantsByOpID:             make(map[int64]set.Set[string]),
 		stateChanges:                   make([]types.StateChange, 0),
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
-		contractChanges:           make([]types.ContractChange, 0),
-		accountChangesByAccountID: make(map[string]types.AccountChange),
+		contractChanges:                make([]types.ContractChange, 0),
+		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueContractsByID:            make(map[string]types.ContractType),
