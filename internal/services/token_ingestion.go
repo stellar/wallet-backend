@@ -355,6 +355,7 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 				nativeUpserts = append(nativeUpserts, wbdata.NativeBalance{
 					AccountAddress:     change.AccountID,
 					Balance:            change.Balance,
+					MinimumBalance:     change.MinimumBalance,
 					BuyingLiabilities:  change.BuyingLiabilities,
 					SellingLiabilities: change.SellingLiabilities,
 					LedgerNumber:       change.LedgerNumber,

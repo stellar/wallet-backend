@@ -85,6 +85,7 @@ type AccountChange struct {
 	LedgerNumber       uint32
 	Operation          AccountOpType
 	Balance            int64
+	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
 }

@@ -17,6 +17,7 @@ import (
 type NativeBalance struct {
 	AccountAddress     string
 	Balance            int64
+	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
 	LedgerNumber       uint32
@@ -49,7 +50,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 	}
 
 	const query = `
-		SELECT account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger
+		SELECT account_address, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger
 		FROM native_balances
 		WHERE account_address = $1`
 
@@ -57,7 +58,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 	row := m.DB.PgxPool().QueryRow(ctx, query, accountAddress)
 
 	var nb NativeBalance
-	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)
+	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return nil, nil // Account not found (not funded)
@@ -81,16 +82,17 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	batch := &pgx.Batch{}
 
 	const upsertQuery = `
-		INSERT INTO native_balances (account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO native_balances (account_address, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (account_address) DO UPDATE SET
 			balance = EXCLUDED.balance,
+			minimum_balance = EXCLUDED.minimum_balance,
 			buying_liabilities = EXCLUDED.buying_liabilities,
 			selling_liabilities = EXCLUDED.selling_liabilities,
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
 
 	for _, nb := range upserts {
-		batch.Queue(upsertQuery, nb.AccountAddress, nb.Balance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber)
+		batch.Queue(upsertQuery, nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber)
 	}
 
 	const deleteQuery = `DELETE FROM native_balances WHERE account_address = $1`
@@ -128,13 +130,13 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 
 	rows := make([][]any, len(balances))
 	for i, nb := range balances {
-		rows[i] = []any{nb.AccountAddress, nb.Balance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}
+		rows[i] = []any{nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}
 	}
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"native_balances"},
-		[]string{"account_address", "balance", "buying_liabilities", "selling_liabilities", "last_modified_ledger"},
+		[]string{"account_address", "balance", "minimum_balance", "buying_liabilities", "selling_liabilities", "last_modified_ledger"},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
