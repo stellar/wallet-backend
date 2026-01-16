@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -134,8 +135,8 @@ func (m *TokenIngestionServiceMock) PopulateAccountTokens(ctx context.Context, c
 	return args.Error(0)
 }
 
-func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
-	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges)
+func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChanges)
 	return args.Error(0)
 }
 

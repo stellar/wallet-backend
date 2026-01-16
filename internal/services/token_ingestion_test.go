@@ -412,7 +412,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, accountContractTokensModel, contractModel)
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, []types.TrustlineChange{}, []types.ContractChange{}, []types.AccountChange{})
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, []types.AccountChange{})
 		})
 		assert.NoError(t, err)
 	})
@@ -449,7 +449,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// ProcessTokenChanges now computes IDs internally using DeterministicContractID
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, []types.TrustlineChange{}, []types.ContractChange{
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
 				{
 					AccountID:    accountAddress,
 					ContractID:   contractID,
