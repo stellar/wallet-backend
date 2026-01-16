@@ -87,6 +87,7 @@ type handlerDeps struct {
 	RPCService                 services.RPCService
 	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
 	NativeBalanceModel         data.NativeBalanceModelInterface
+	SACBalanceModel            data.SACBalanceModelInterface
 	AccountContractTokensModel data.AccountContractTokensModelInterface
 	ContractMetadataService    services.ContractMetadataService
 
@@ -209,6 +210,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
 		NativeBalanceModel:          models.NativeBalance,
+		SACBalanceModel:             models.SACBalance,
 		AccountContractTokensModel:  models.AccountContractTokens,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
@@ -262,7 +264,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel),
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
 				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.MetricsService,

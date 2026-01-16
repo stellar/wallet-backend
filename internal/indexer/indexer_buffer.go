@@ -50,6 +50,12 @@ type TrustlineChangeKey struct {
 	TrustlineID uuid.UUID
 }
 
+// SACBalanceChangeKey is a composite key for deduplicating SAC balance changes.
+type SACBalanceChangeKey struct {
+	AccountID  string
+	ContractID string
+}
+
 type IndexerBuffer struct {
 	mu                             sync.RWMutex
 	txByHash                       map[string]*types.Transaction
@@ -60,6 +66,7 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	contractChanges                []types.ContractChange
 	accountChangesByAccountID      map[string]types.AccountChange
+	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
@@ -77,6 +84,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		contractChanges:                make([]types.ContractChange, 0),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
+		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
 		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueContractsByID:            make(map[string]types.ContractType),
@@ -276,6 +284,42 @@ func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	return b.accountChangesByAccountID
 }
 
+// PushSACBalanceChange adds a SAC balance change to the buffer with deduplication.
+// Keeps the change with highest OperationID per (AccountID, ContractID). Handles ADD→REMOVE no-op case.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := SACBalanceChangeKey{
+		AccountID:  sacBalanceChange.AccountID,
+		ContractID: sacBalanceChange.ContractID,
+	}
+	existing, exists := b.sacBalanceChangesByKey[key]
+
+	// Keep the change with highest OperationID
+	if exists && existing.OperationID > sacBalanceChange.OperationID {
+		return
+	}
+
+	// Handle ADD→REMOVE no-op case: balance created and removed in same batch
+	if exists && sacBalanceChange.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
+		delete(b.sacBalanceChangesByKey, key)
+		return
+	}
+
+	b.sacBalanceChangesByKey[key] = sacBalanceChange
+}
+
+// GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.sacBalanceChangesByKey
+}
+
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
 // Thread-safe: acquires write lock.
@@ -463,6 +507,23 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		b.accountChangesByAccountID[accountID] = change
 	}
 
+	// Merge SAC balance changes with deduplication (same logic as PushSACBalanceChange)
+	for key, change := range otherBuffer.sacBalanceChangesByKey {
+		existing, exists := b.sacBalanceChangesByKey[key]
+
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
+			delete(b.sacBalanceChangesByKey, key)
+			continue
+		}
+
+		b.sacBalanceChangesByKey[key] = change
+	}
+
 	// Merge all participants
 	for participant := range otherBuffer.allParticipants.Iter() {
 		b.allParticipants.Add(participant)
@@ -495,8 +556,9 @@ func (b *IndexerBuffer) Clear() {
 	b.stateChanges = b.stateChanges[:0]
 	b.contractChanges = b.contractChanges[:0]
 
-	// Clear account changes map
+	// Clear account and SAC balance changes maps
 	clear(b.accountChangesByAccountID)
+	clear(b.sacBalanceChangesByKey)
 
 	// Clear all participants set
 	b.allParticipants.Clear()

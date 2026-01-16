@@ -98,6 +98,25 @@ const (
 	AccountOpRemove AccountOpType = "REMOVE"
 )
 
+type SACBalanceChange struct {
+	AccountID         string
+	ContractID        string
+	OperationID       int64
+	LedgerNumber      uint32
+	Operation         SACBalanceOp
+	Balance           string
+	IsAuthorized      bool
+	IsClawbackEnabled bool
+}
+
+type SACBalanceOp string
+
+const (
+	SACBalanceOpAdd    SACBalanceOp = "ADD"
+	SACBalanceOpUpdate SACBalanceOp = "UPDATE"
+	SACBalanceOpRemove SACBalanceOp = "REMOVE"
+)
+
 type Account struct {
 	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`

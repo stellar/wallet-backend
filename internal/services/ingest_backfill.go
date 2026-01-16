@@ -56,6 +56,7 @@ type BatchChanges struct {
 	TrustlineChangesByKey     map[indexer.TrustlineChangeKey]types.TrustlineChange
 	ContractChanges           []types.ContractChange
 	AccountChangesByAccountID map[string]types.AccountChange
+	SACBalanceChangesByKey    map[indexer.SACBalanceChangeKey]types.SACBalanceChange
 	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
 	UniqueContractTokensByID  map[string]types.ContractType
 }
@@ -91,6 +92,23 @@ func mergeAccountChanges(dest, source map[string]types.AccountChange) {
 			continue
 		}
 		dest[accountID] = change
+	}
+}
+
+// mergeSACBalanceChanges merges source SAC balance changes into dest, keeping highest OperationID per key.
+// Handles ADD→REMOVE no-op case where a SAC balance is created and removed in the same batch.
+func mergeSACBalanceChanges(dest, source map[indexer.SACBalanceChangeKey]types.SACBalanceChange) {
+	for key, change := range source {
+		existing, exists := dest[key]
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
+			delete(dest, key)
+			continue
+		}
+		dest[key] = change
 	}
 }
 
@@ -168,12 +186,14 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
 		mergedUniqueContractTokens := make(map[string]types.ContractType)
 		mergedAccountChanges := make(map[string]types.AccountChange)
+		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
 		var allContractChanges []types.ContractChange
 		for _, result := range results {
 			if result.BatchChanges != nil {
 				mergeTrustlineChanges(mergedTrustlineChanges, result.BatchChanges.TrustlineChangesByKey)
 				allContractChanges = append(allContractChanges, result.BatchChanges.ContractChanges...)
 				mergeAccountChanges(mergedAccountChanges, result.BatchChanges.AccountChangesByAccountID)
+				mergeSACBalanceChanges(mergedSACBalanceChanges, result.BatchChanges.SACBalanceChangesByKey)
 				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
 				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
 			}
@@ -182,7 +202,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
@@ -377,6 +397,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
 				batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
 				mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
+				mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
 				// Collect unique assets (iterate slice into map)
 				for _, asset := range buffer.GetUniqueTrustlineAssets() {
 					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
@@ -440,6 +461,7 @@ func (m *ingestService) processLedgersInBatch(
 		batchChanges = &BatchChanges{
 			TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
 			AccountChangesByAccountID: make(map[string]types.AccountChange),
+			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
 			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 		}
@@ -506,6 +528,7 @@ func (m *ingestService) processBatchChanges(
 	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
 	contractChanges []types.ContractChange,
 	accountChangesByAccountID map[string]types.AccountChange,
+	sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange,
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
 	uniqueContractTokens map[string]types.ContractType,
 ) error {
@@ -536,12 +559,12 @@ func (m *ingestService) processBatchChanges(
 	}
 
 	// 4. Apply token changes to PostgreSQL
-	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID); txErr != nil {
+	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey); txErr != nil {
 		return fmt.Errorf("processing token changes: %w", txErr)
 	}
 
-	log.Ctx(ctx).Infof("Processed batch changes: %d trustline changes, %d contract changes, %d account changes",
-		len(trustlineChangesByKey), len(contractChanges), len(accountChangesByAccountID))
+	log.Ctx(ctx).Infof("Processed batch changes: %d trustline, %d contract, %d account, %d SAC balance changes",
+		len(trustlineChangesByKey), len(contractChanges), len(accountChangesByAccountID), len(sacBalanceChangesByKey))
 
 	return nil
 }

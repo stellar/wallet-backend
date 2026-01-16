@@ -407,17 +407,18 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, accountContractTokensModel, contractModel)
+		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange))
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})
 		assert.NoError(t, err)
 	})
 
-	t.Run("add contract stores contract ID", func(t *testing.T) {
+	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
 		cleanUpDB()
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
@@ -431,9 +432,10 @@ func TestProcessTokenChanges(t *testing.T) {
 		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, accountContractTokensModel, contractModel)
+		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
@@ -442,20 +444,21 @@ func TestProcessTokenChanges(t *testing.T) {
 		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SAC"},
+				{ID: numericID, ContractID: contractID, Type: "SEP41"},
 			})
 		})
 		require.NoError(t, err)
 
-		// ProcessTokenChanges now computes IDs internally using DeterministicContractID
+		// ProcessTokenChanges processes SEP-41 contracts via contractChanges parameter
+		// SAC contracts are processed via sacBalanceChangesByKey parameter instead
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
 				{
 					AccountID:    accountAddress,
 					ContractID:   contractID,
-					ContractType: types.ContractTypeSAC,
+					ContractType: types.ContractTypeSEP41,
 				},
-			}, make(map[string]types.AccountChange))
+			}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})
 		assert.NoError(t, err)
 

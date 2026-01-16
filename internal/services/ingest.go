@@ -387,6 +387,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, data *fil
 	if err := m.insertStateChanges(ctx, dbTx, data.stateChanges); err != nil {
 		return err
 	}
+	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(data.txs), len(data.ops), len(data.stateChanges))
 	return nil
 }
 
@@ -395,11 +396,10 @@ func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, tx
 	if len(txs) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByTxHash)
+	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByTxHash)
 	if err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
 	}
-	log.Ctx(ctx).Infof("inserted %d transactions", insertedCount)
 	return nil
 }
 
@@ -408,11 +408,10 @@ func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops 
 	if len(ops) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
+	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
 	if err != nil {
 		return fmt.Errorf("batch inserting operations: %w", err)
 	}
-	log.Ctx(ctx).Infof("inserted %d operations", insertedCount)
 	return nil
 }
 
@@ -421,12 +420,11 @@ func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, st
 	if len(stateChanges) == 0 {
 		return nil
 	}
-	insertedCount, err := m.models.StateChanges.BatchCopy(ctx, pgxTx, stateChanges)
+	_, err := m.models.StateChanges.BatchCopy(ctx, pgxTx, stateChanges)
 	if err != nil {
 		return fmt.Errorf("batch inserting state changes: %w", err)
 	}
 	m.recordStateChangeMetrics(stateChanges)
-	log.Ctx(ctx).Infof("inserted %d state changes", insertedCount)
 	return nil
 }
 

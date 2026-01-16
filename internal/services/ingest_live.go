@@ -180,14 +180,14 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
+			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance, SAC balance)
 			trustlineChanges := buffer.GetTrustlineChanges()
 			contractChanges := buffer.GetContractChanges()
 			accountChanges := buffer.GetAccountChanges()
-			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
+			sacBalanceChanges := buffer.GetSACBalanceChanges()
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(trustlineChanges), len(contractChanges), len(accountChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {
@@ -240,7 +240,8 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	return nil
 }
 
-// prepareNewContracts filters out existing contracts and fetches metadata for new ones.
+// prepareNewContracts filters out existing contracts and fetches metadata for new SEP-41 contracts.
+// SAC contracts get their metadata from ledger data, so only SEP-41 contracts need RPC metadata fetch.
 func (m *ingestService) prepareNewContracts(ctx context.Context, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
 	if len(contractsByID) == 0 {
 		return nil, nil
@@ -253,22 +254,22 @@ func (m *ingestService) prepareNewContracts(ctx context.Context, contractsByID m
 	}
 	existingSet := set.NewSet(existingIDs...)
 
-	// Filter to only new contracts
-	newContractsByID := make(map[string]types.ContractType)
+	// Filter to only new SEP-41 contracts (SAC metadata comes from ledger)
+	var newSep41ContractIDs []string
 	for id, ctype := range contractsByID {
-		if !existingSet.Contains(id) {
-			newContractsByID[id] = ctype
+		if !existingSet.Contains(id) && ctype == types.ContractTypeSEP41 {
+			newSep41ContractIDs = append(newSep41ContractIDs, id)
 		}
 	}
 
-	if len(newContractsByID) == 0 {
+	if len(newSep41ContractIDs) == 0 {
 		return nil, nil
 	}
 
-	// Fetch metadata for new contracts via RPC
-	contracts, err := m.contractMetadataService.FetchMetadata(ctx, newContractsByID)
+	// Fetch metadata for new SEP-41 contracts via RPC
+	contracts, err := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractIDs)
 	if err != nil {
-		return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
+		return nil, fmt.Errorf("fetching metadata for new SEP-41 contracts: %w", err)
 	}
 	return contracts, nil
 }
