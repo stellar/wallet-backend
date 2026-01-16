@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -165,7 +164,7 @@ type TokenIngestionService interface {
 	//   so we track all contracts an account has ever held a balance in.
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange) error
 }
 
 // Verify interface compliance at compile time
@@ -288,8 +287,8 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChanges []types.AccountChange) error {
-	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 && len(accountChanges) == 0 {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange) error {
+	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 && len(accountChangesByAccountID) == 0 {
 		return nil
 	}
 
@@ -345,31 +344,11 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 	}
 
 	// Process account changes (native XLM balance)
-	if len(accountChanges) > 0 {
-		sort.Slice(accountChanges, func(i, j int) bool {
-			return accountChanges[i].OperationID < accountChanges[j].OperationID
-		})
-
-		// Deduplicate: last change for each account wins
-		accountDataByID := make(map[string]*types.AccountChange)
-		for i := range accountChanges {
-			change := &accountChanges[i]
-			switch change.Operation {
-			case types.AccountOpCreate, types.AccountOpUpdate:
-				accountDataByID[change.AccountID] = change
-			case types.AccountOpRemove:
-				// If previous was CREATE/UPDATE, net effect is no-op
-				if prev, exists := accountDataByID[change.AccountID]; exists && (prev.Operation == types.AccountOpCreate || prev.Operation == types.AccountOpUpdate) {
-					delete(accountDataByID, change.AccountID)
-				} else {
-					accountDataByID[change.AccountID] = change
-				}
-			}
-		}
-
+	// Deduplication and no-op handling already done in IndexerBuffer
+	if len(accountChangesByAccountID) > 0 {
 		var nativeUpserts []wbdata.NativeBalance
 		var nativeDeletes []string
-		for _, change := range accountDataByID {
+		for _, change := range accountChangesByAccountID {
 			if change.Operation == types.AccountOpRemove {
 				nativeDeletes = append(nativeDeletes, change.AccountID)
 			} else {
