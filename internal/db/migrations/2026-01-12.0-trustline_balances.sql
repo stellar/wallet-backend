@@ -11,7 +11,7 @@ CREATE TABLE trustline_balances (
     buying_liabilities BIGINT NOT NULL DEFAULT 0,
     selling_liabilities BIGINT NOT NULL DEFAULT 0,
     flags INTEGER NOT NULL DEFAULT 0,
-    last_modified_ledger INTEGER NOT NULL DEFAULT 0,
+    last_modified_ledger BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (account_address, asset_id)
 );
 

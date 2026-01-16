@@ -170,11 +170,11 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 			tl.AccountAddress,
 			tl.AssetID,
 			tl.Balance,
-			tl.LedgerNumber,
 			tl.Limit,
 			tl.BuyingLiabilities,
 			tl.SellingLiabilities,
 			tl.Flags,
+			tl.LedgerNumber,
 		}
 	}
 
@@ -185,11 +185,11 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 			"account_address",
 			"asset_id",
 			"balance",
-			"last_modified_ledger",
 			"trust_limit",
 			"buying_liabilities",
 			"selling_liabilities",
 			"flags",
+			"last_modified_ledger",
 		},
 		pgx.CopyFromRows(rows),
 	)
