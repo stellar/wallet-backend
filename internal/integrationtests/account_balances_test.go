@@ -79,7 +79,6 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 		case *types.NativeBalance:
 			suite.Require().Equal("10000.0000000", b.GetBalance())
 			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
-			// Verify new native balance fields are populated
 			suite.Require().NotEmpty(b.MinimumBalance, "MinimumBalance should be populated")
 			minBal, err := strconv.ParseFloat(b.MinimumBalance, 64)
 			suite.Require().NoError(err)
@@ -356,7 +355,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.NativeBalance:
-			// Verify balance decreased from initial 10000 (fees were paid for trustline operations)
 			balance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
 			suite.Require().Equal(balance, 10000.0, "Balance should be the same as initial balance")
