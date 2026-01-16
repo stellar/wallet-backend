@@ -60,21 +60,18 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 }
 
 // buildSACBalanceFromDB constructs a SACBalance from database SAC balance data.
-func buildSACBalanceFromDB(sacBalance data.SACBalance, contract *data.Contract) (*graphql1.SACBalance, error) {
-	if contract == nil {
-		return nil, fmt.Errorf("contract metadata not found")
-	}
-
+// Uses embedded contract metadata from the JOIN with contract_tokens.
+func buildSACBalanceFromDB(sacBalance data.SACBalance) *graphql1.SACBalance {
 	return &graphql1.SACBalance{
-		TokenID:           contract.ContractID,
+		TokenID:           sacBalance.TokenID,
 		Balance:           sacBalance.Balance,
 		TokenType:         graphql1.TokenTypeSac,
-		Code:              *contract.Code,
-		Issuer:            *contract.Issuer,
-		Decimals:          int32(contract.Decimals),
+		Code:              sacBalance.Code,
+		Issuer:            sacBalance.Issuer,
+		Decimals:          int32(sacBalance.Decimals),
 		IsAuthorized:      sacBalance.IsAuthorized,
 		IsClawbackEnabled: sacBalance.IsClawbackEnabled,
-	}, nil
+	}
 }
 
 // buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline balance data.
@@ -121,26 +118,6 @@ func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphr
 		IsAuthorized:                      isAuthorized,
 		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 	}, nil
-}
-
-// parseContractIDFromContractData extracts the contract ID string from a contract data entry.
-// Returns the contract ID string, a boolean indicating if extraction was successful, and any error.
-func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (string, bool, error) {
-	if contractDataEntry.Contract.ContractId == nil {
-		return "", false, nil
-	}
-
-	contractID, ok := contractDataEntry.Contract.GetContractId()
-	if !ok {
-		return "", false, nil
-	}
-
-	contractIDStr, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
-	if err != nil {
-		return "", false, fmt.Errorf("encoding contract ID: %w", err)
-	}
-
-	return contractIDStr, true, nil
 }
 
 // contractIDToHash converts a contract ID string to an xdr.ContractId.
@@ -205,71 +182,6 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	return xdr.ScVal{
 		Type:    xdr.ScValTypeScvAddress,
 		Address: &scAddress,
-	}, nil
-}
-
-// parseSACBalance extracts SAC (Stellar Asset Contract) balance from a contract data entry.
-func parseSACBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (*graphql1.SACBalance, error) {
-	if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
-		return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
-	}
-
-	balanceMap := contractDataEntry.Val.MustMap()
-	if balanceMap == nil {
-		return nil, fmt.Errorf("balance map is nil")
-	}
-
-	// Extract amount, authorized, and clawback from map
-	var balanceStr string
-	var isAuthorized, isClawbackEnabled bool
-	var amountFound, authorizedFound, clawbackFound bool
-
-	for _, entry := range *balanceMap {
-		if entry.Key.Type == xdr.ScValTypeScvSymbol {
-			keySymbol := string(entry.Key.MustSym())
-			switch keySymbol {
-			case "amount":
-				if entry.Val.Type != xdr.ScValTypeScvI128 {
-					return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
-				}
-				i128Parts := entry.Val.MustI128()
-				balanceStr = amount.String128(i128Parts)
-				amountFound = true
-			case "authorized":
-				if entry.Val.Type != xdr.ScValTypeScvBool {
-					return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
-				}
-				isAuthorized = entry.Val.MustB()
-				authorizedFound = true
-			case "clawback":
-				if entry.Val.Type != xdr.ScValTypeScvBool {
-					return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
-				}
-				isClawbackEnabled = entry.Val.MustB()
-				clawbackFound = true
-			}
-		}
-	}
-
-	if !amountFound {
-		return nil, fmt.Errorf("amount field not found in SAC balance map")
-	}
-	if !authorizedFound {
-		return nil, fmt.Errorf("authorized field not found in SAC balance map")
-	}
-	if !clawbackFound {
-		return nil, fmt.Errorf("clawback field not found in SAC balance map")
-	}
-
-	return &graphql1.SACBalance{
-		TokenID:           contractIDStr,
-		Balance:           balanceStr,
-		TokenType:         graphql1.TokenTypeSac,
-		Code:              *contract.Code,
-		Issuer:            *contract.Issuer,
-		Decimals:          int32(contract.Decimals),
-		IsAuthorized:      isAuthorized,
-		IsClawbackEnabled: isClawbackEnabled,
 	}, nil
 }
 
@@ -365,23 +277,9 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, contractMet
 	}
 
 	// Add SAC balances from DB (for C addresses)
+	// Contract metadata is embedded in SACBalance from JOIN with contract_tokens
 	for _, sacBalance := range info.sacBalances {
-		// Find contract metadata by deterministic ID
-		var contract *data.Contract
-		for _, c := range info.contractsByID {
-			if c.ID == sacBalance.ContractID {
-				contract = c
-				break
-			}
-		}
-		if contract == nil {
-			continue // Skip if contract metadata not found
-		}
-		sacBalanceGql, err := buildSACBalanceFromDB(sacBalance, contract)
-		if err != nil {
-			return nil, fmt.Errorf("building SAC balance: %w", err)
-		}
-		balances = append(balances, sacBalanceGql)
+		balances = append(balances, buildSACBalanceFromDB(sacBalance))
 	}
 
 	// Add SEP-41 balances from RPC

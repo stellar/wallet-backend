@@ -188,7 +188,6 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account, %d SAC balance changes", len(trustlineChanges), len(contractChanges), len(accountChanges), len(sacBalanceChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

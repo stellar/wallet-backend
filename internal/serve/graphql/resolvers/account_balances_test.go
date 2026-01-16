@@ -2,27 +2,21 @@
 package resolvers
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/alitto/pond/v2"
 	"github.com/google/uuid"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -41,168 +35,11 @@ func ptrToScSymbol(s string) *xdr.ScSymbol {
 	return &sym
 }
 
-// Helper to create ScVec pointer
-func ptrToScVec(vals []xdr.ScVal) **xdr.ScVec {
-	vec := xdr.ScVec(vals)
-	ptr := &vec
-	return &ptr
-}
-
 // Helper to create ScMap pointer
 func ptrToScMap(entries []xdr.ScMapEntry) **xdr.ScMap {
 	m := xdr.ScMap(entries)
 	ptr := &m
 	return &ptr
-}
-
-// encodeLedgerEntryDataToBase64 encodes ledger entry data to base64 string
-func encodeLedgerEntryDataToBase64(data xdr.LedgerEntryData) string {
-	var buf bytes.Buffer
-	_, err := xdr.Marshal(&buf, data)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal XDR: %v", err))
-	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes())
-}
-
-// createAccountLedgerEntry creates a base64 encoded account ledger entry with native balance
-func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntryResult { //nolint:unparam
-	accountID := xdr.MustAddress(address)
-	accountEntry := xdr.AccountEntry{
-		AccountId:     accountID,
-		Balance:       xdr.Int64(balance),
-		SeqNum:        xdr.SequenceNumber(1),
-		NumSubEntries: 0,
-		Thresholds:    xdr.Thresholds{0, 0, 0, 0},
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:    xdr.LedgerEntryTypeAccount,
-		Account: &accountEntry,
-	}
-	ledgerKey, err := utils.GetAccountLedgerKey(address)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get account ledger key: %v", err))
-	}
-
-	return entities.LedgerEntryResult{
-		KeyXDR:             ledgerKey,
-		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
-		LastModifiedLedger: 1000,
-	}
-}
-
-// createSACContractDataEntry creates a SAC balance entry with authorization fields
-func createSACContractDataEntry(contractID, holderAddress string, amount int64, authorized, clawback bool) entities.LedgerEntryResult {
-	// Decode contract ID from strkey
-	contractHash := strkey.MustDecode(strkey.VersionByteContract, contractID)
-
-	// Create balance key [Symbol("Balance"), Address(holder)]
-	holderAccountID := xdr.MustAddress(holderAddress)
-	balanceSymbol := ptrToScSymbol("Balance")
-	balanceKey := xdr.ScVal{
-		Type: xdr.ScValTypeScvVec,
-		Vec: ptrToScVec([]xdr.ScVal{
-			{
-				Type: xdr.ScValTypeScvSymbol,
-				Sym:  balanceSymbol,
-			},
-			{
-				Type: xdr.ScValTypeScvAddress,
-				Address: &xdr.ScAddress{
-					Type:      xdr.ScAddressTypeScAddressTypeAccount,
-					AccountId: &holderAccountID,
-				},
-			},
-		}),
-	}
-
-	// Create SAC balance value as map with amount, authorized, clawback
-	hi := int64(0)
-	if amount < 0 {
-		hi = -1
-	}
-	lo := xdr.Uint64(amount)
-
-	amountSym := ptrToScSymbol("amount")
-	authorizedSym := ptrToScSymbol("authorized")
-	clawbackSym := ptrToScSymbol("clawback")
-
-	balanceValue := xdr.ScVal{
-		Type: xdr.ScValTypeScvMap,
-		Map: ptrToScMap([]xdr.ScMapEntry{
-			{
-				Key: xdr.ScVal{
-					Type: xdr.ScValTypeScvSymbol,
-					Sym:  amountSym,
-				},
-				Val: xdr.ScVal{
-					Type: xdr.ScValTypeScvI128,
-					I128: &xdr.Int128Parts{
-						Hi: xdr.Int64(hi),
-						Lo: lo,
-					},
-				},
-			},
-			{
-				Key: xdr.ScVal{
-					Type: xdr.ScValTypeScvSymbol,
-					Sym:  authorizedSym,
-				},
-				Val: xdr.ScVal{
-					Type: xdr.ScValTypeScvBool,
-					B:    &authorized,
-				},
-			},
-			{
-				Key: xdr.ScVal{
-					Type: xdr.ScValTypeScvSymbol,
-					Sym:  clawbackSym,
-				},
-				Val: xdr.ScVal{
-					Type: xdr.ScValTypeScvBool,
-					B:    &clawback,
-				},
-			},
-		}),
-	}
-
-	contractIDXdr := xdr.ContractId(contractHash)
-	contractDataEntry := xdr.ContractDataEntry{
-		Contract: xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &contractIDXdr,
-		},
-		Key:        balanceKey,
-		Durability: xdr.ContractDataDurabilityPersistent,
-		Val:        balanceValue,
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:         xdr.LedgerEntryTypeContractData,
-		ContractData: &contractDataEntry,
-	}
-
-	ledgerKey, err := utils.GetContractDataEntryLedgerKey(holderAddress, contractID)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get contract data ledger key: %v", err))
-	}
-
-	return entities.LedgerEntryResult{
-		KeyXDR:             ledgerKey,
-		DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
-		LastModifiedLedger: 1000,
-	}
-}
-
-// Helper to create SAC contract data
-func createSACContract(contractID, code, issuer string) *data.Contract {
-	return &data.Contract{
-		ContractID: contractID,
-		Type:       string(types.ContractTypeSAC),
-		Code:       &code,
-		Issuer:     &issuer,
-	}
 }
 
 // Helper to create SEP-41 contract data
@@ -355,45 +192,46 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		}
 	})
 
-	t.Run("success - account with SAC contract balances", func(t *testing.T) {
+	t.Run("success - contract address with SAC balances from DB", func(t *testing.T) {
 		ctx := context.Background()
-		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
-		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
+		mockSACBalanceModel := data.NewSACBalanceModelMock(t)
 		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		// Setup mocks - native balance comes from DB
-		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil) // 100 XLM
-		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
-		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
-			Return([]*data.Contract{createSACContract(testSACContractAddress, "USDC", testUSDCIssuer)}, nil)
+		// For contract addresses (C...), SAC balances come from DB
+		sacContractID := data.DeterministicContractID(testSACContractAddress)
+		mockSACBalanceModel.On("GetByAccount", ctx, testContractAddress).
+			Return([]data.SACBalance{
+				{
+					AccountAddress:    testContractAddress,
+					ContractID:        sacContractID,
+					TokenID:           testSACContractAddress,
+					Balance:           "2500.0000000",
+					IsAuthorized:      true,
+					IsClawbackEnabled: false,
+					LedgerNumber:      1000,
+					Code:              "USDC",
+					Issuer:            testUSDCIssuer,
+					Decimals:          7,
+				},
+			}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testContractAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-
-		// Create SAC ledger entry - only SAC contract uses RPC, native comes from DB
-		sacEntry := createSACContractDataEntry(testSACContractAddress, testAccountAddress, 25000000000, true, false)
-
-		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 1 // only SAC contract key, native comes from DB
-		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{sacEntry},
-		}, nil)
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
+				balanceReader:              NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
 		require.NoError(t, err)
-		require.Len(t, balances, 2) // 1 native + 1 SAC
+		require.Len(t, balances, 1) // 1 SAC
 
 		for _, balance := range balances {
 			switch balance.GetTokenType() {
-			case graphql1.TokenTypeNative:
-				// Native balance verified by count
 			case graphql1.TokenTypeSac:
 				sacBalance := balance.(*graphql1.SACBalance)
 				assert.Equal(t, "2500.0000000", sacBalance.Balance)
@@ -461,7 +299,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		}
 	})
 
-	t.Run("success - mixed balances (native + trustlines + SAC + SEP-41)", func(t *testing.T) {
+	t.Run("success - mixed balances (native + trustlines + SEP-41)", func(t *testing.T) {
 		ctx := context.Background()
 		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
 		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
@@ -470,6 +308,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
 		// Setup mocks - native and trustlines come from DB
+		// For G-addresses, SAC balances ARE trustlines (same underlying data)
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 2000000000}, nil) // 200 XLM
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return([]data.TrustlineBalance{
@@ -483,9 +322,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 					LedgerNumber: 12345,
 				},
 			}, nil)
+		// For G-addresses, only SEP-41 contracts are returned (SAC balances are trustlines)
 		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{
-				createSACContract(testSACContractAddress, "EURC", testEURIssuer),
 				createSEP41Contract(testSEP41ContractAddress, "CustomToken", "CTK", 6),
 			}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
@@ -493,15 +332,6 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		// Mock FetchSingleField for SEP-41 balance call
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(30000000000), nil)
-
-		// Create SAC ledger entry - only SAC uses RPC, native and trustlines come from DB
-		sacEntry := createSACContractDataEntry(testSACContractAddress, testAccountAddress, 15000000000, true, true)
-
-		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-			return len(keys) == 1 // only SAC (native and trustlines from DB, SEP-41 uses simulation)
-		})).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{sacEntry},
-		}, nil)
 
 		resolver := &queryResolver{
 			&Resolver{
@@ -515,7 +345,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.NoError(t, err)
-		require.Len(t, balances, 4)
+		require.Len(t, balances, 3) // native + trustline + SEP-41
 
 		for _, balance := range balances {
 			switch balance.GetTokenType() {
@@ -528,22 +358,22 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 				assert.Equal(t, "CustomToken", sep41Balance.Name)
 				assert.Equal(t, "CTK", sep41Balance.Symbol)
 				assert.Equal(t, int32(6), sep41Balance.Decimals)
-			case graphql1.TokenTypeSac:
-				sacBalance := balance.(*graphql1.SACBalance)
-				assert.Equal(t, "EURC", sacBalance.Code)
-				assert.Equal(t, testEURIssuer, sacBalance.Issuer)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
 			}
 		}
 	})
 
-	t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
+	t.Run("success - contract address with SEP-41 only (no SAC balances)", func(t *testing.T) {
 		ctx := context.Background()
+		mockSACBalanceModel := data.NewSACBalanceModelMock(t)
 		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
-		// For contract addresses, GetTrustlineBalances should NOT be called
-		// Only GetByAccount for contracts
+		// For contract addresses (C...), SAC balances come from DB (empty in this test)
+		mockSACBalanceModel.On("GetByAccount", ctx, testContractAddress).Return([]data.SACBalance{}, nil)
+		// SEP-41 contracts come from account_contract_tokens
 		mockAccountContractTokens.On("GetByAccount", ctx, testContractAddress).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
@@ -552,11 +382,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(10000000000), nil)
 
-		// GetLedgerEntries is NOT called when there are only SEP-41 contracts (no ledger keys to fetch)
-		// The resolver skips the RPC call when ledgerKeys is empty
-
 		resolver := &queryResolver{
 			&Resolver{
+				balanceReader:              NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
@@ -697,33 +525,26 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Nil(t, balances)
 	})
 
-	t.Run("error - GetLedgerEntries RPC fails", func(t *testing.T) {
+	t.Run("error - GetSACBalances DB fails for contract address", func(t *testing.T) {
 		ctx := context.Background()
-		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
-		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
-		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
+		mockSACBalanceModel := data.NewSACBalanceModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 
-		// Setup mocks - need SAC contract to trigger RPC call
-		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 10000000000}, nil)
-		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
-		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
-			Return([]*data.Contract{createSACContract(testSACContractAddress, "USDC", testUSDCIssuer)}, nil)
+		// For contract addresses (C...), SAC balances come from DB - mock DB error
+		mockSACBalanceModel.On("GetByAccount", ctx, testContractAddress).
+			Return(nil, errors.New("database connection failed"))
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-		mockRPCService.On("GetLedgerEntries", mock.Anything).
-			Return(entities.RPCGetLedgerEntriesResult{}, errors.New("RPC node unavailable"))
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
-				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                 mockRPCService,
+				balanceReader: NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
+				rpcService:    mockRPCService,
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgRPCUnavailable)
+		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
 	})
 
@@ -758,131 +579,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Nil(t, balances)
 	})
 
-	// Note: The "GetContractType fails" test is no longer applicable since
-	// GetAccountContracts now returns full Contract objects directly,
-	// without needing a separate BatchGetByIDs call. Removed this test.
-
-	t.Run("error - XDR decoding fails", func(t *testing.T) {
-		ctx := context.Background()
-		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
-		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
-		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
-		mockRPCService := services.NewRPCServiceMock(t)
-
-		// Setup mocks - need SAC contract to trigger RPC call
-		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 10000000000}, nil)
-		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
-		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
-			Return([]*data.Contract{createSACContract(testSACContractAddress, "USDC", testUSDCIssuer)}, nil)
-		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-
-		// Return invalid XDR
-		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{
-				{
-					DataXDR:            "invalid_base64_xdr",
-					LastModifiedLedger: 1000,
-				},
-			},
-		}, nil)
-
-		resolver := &queryResolver{
-			&Resolver{
-				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
-				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                 mockRPCService,
-			},
-		}
-
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
-		assert.Nil(t, balances)
-	})
-
-	t.Run("error - SAC missing amount field", func(t *testing.T) {
-		ctx := context.Background()
-		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
-		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
-		mockNativeBalanceModel.On("GetByAccount", mock.Anything, mock.Anything).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 10000000000}, nil).Maybe()
-		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
-		mockRPCService := services.NewRPCServiceMock(t)
-
-		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
-		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
-			Return([]*data.Contract{createSACContract(testContractAddress, "TEST", testUSDCIssuer)}, nil)
-		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
-
-		// Create SAC entry with missing "amount" field - need to manually create malformed XDR
-		contractHash := strkey.MustDecode(strkey.VersionByteContract, testContractAddress)
-		holderAccountID := xdr.MustAddress(testAccountAddress)
-
-		balanceSymbol := ptrToScSymbol("Balance")
-		balanceKey := xdr.ScVal{
-			Type: xdr.ScValTypeScvVec,
-			Vec: ptrToScVec([]xdr.ScVal{
-				{Type: xdr.ScValTypeScvSymbol, Sym: balanceSymbol},
-				{Type: xdr.ScValTypeScvAddress, Address: &xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeAccount, AccountId: &holderAccountID}},
-			}),
-		}
-
-		// SAC map without "amount" field
-		authorizedSym := ptrToScSymbol("authorized")
-		clawbackSym := ptrToScSymbol("clawback")
-		authorizedBool := true
-		clawbackBool := false
-
-		balanceValue := xdr.ScVal{
-			Type: xdr.ScValTypeScvMap,
-			Map: ptrToScMap([]xdr.ScMapEntry{
-				{
-					Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: authorizedSym},
-					Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: &authorizedBool},
-				},
-				{
-					Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: clawbackSym},
-					Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: &clawbackBool},
-				},
-			}),
-		}
-
-		contractID := xdr.ContractId(contractHash)
-		contractDataEntry := xdr.ContractDataEntry{
-			Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
-			Key:        balanceKey,
-			Durability: xdr.ContractDataDurabilityPersistent,
-			Val:        balanceValue,
-		}
-
-		ledgerEntryData := xdr.LedgerEntryData{
-			Type:         xdr.LedgerEntryTypeContractData,
-			ContractData: &contractDataEntry,
-		}
-
-		malformedEntry := entities.LedgerEntryResult{
-			DataXDR:            encodeLedgerEntryDataToBase64(ledgerEntryData),
-			LastModifiedLedger: 1000,
-		}
-
-		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-
-		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry, malformedEntry},
-		}, nil)
-
-		resolver := &queryResolver{
-			&Resolver{
-				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
-				accountContractTokensModel: mockAccountContractTokens,
-				rpcService:                 mockRPCService,
-			},
-		}
-
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
-		assert.Nil(t, balances)
-	})
+	// Note: Tests for "XDR decoding fails" and "SAC missing amount field" were removed
+	// because SAC balances for G-addresses now come from trustlines, and SAC balances
+	// for C-addresses come from the database with pre-validated data.
 
 	t.Run("error - SEP-41 wrong type (map instead of i128)", func(t *testing.T) {
 		ctx := context.Background()
@@ -1241,23 +940,25 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 
 	t.Run("success - contract address (skips native and trustlines)", func(t *testing.T) {
 		ctx := context.Background()
+		mockSACBalanceModel := data.NewSACBalanceModelMock(t)
 		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
-		// GetTrustlineBalances should NOT be called for contract address
+		// For contract addresses (C...), SAC balances come from DB (empty in this test)
+		mockSACBalanceModel.On("GetByAccount", ctx, testSEP41ContractAddress).Return([]data.SACBalance{}, nil)
+		// SEP-41 contracts come from account_contract_tokens
 		mockAccountContractTokens.On("GetByAccount", ctx, testSEP41ContractAddress).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		// Mock FetchSingleField for SEP-41 balance call - no ledger entries for contract addresses
+		// Mock FetchSingleField for SEP-41 balance call
 		mockContractMetadataService.On("FetchSingleField", mock.Anything, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(10000000000), nil)
 
-		// No GetLedgerEntries call since there are no SAC contracts
-
 		resolver := &queryResolver{
 			&Resolver{
+				balanceReader:              NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
@@ -1352,16 +1053,19 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		ctx := context.Background()
 		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
 		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
+		mockSACBalanceModel := data.NewSACBalanceModelMock(t)
 		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
 		mockRPCService := services.NewRPCServiceMock(t)
 		mockContractMetadataService := services.NewContractMetadataServiceMock(t)
 
-		// Account address - native balance from DB
+		// Account address (G...) - native balance from DB
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 5000000000}, nil)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
 		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
 
-		// Contract address (has SEP-41 contract - GetByAccount returns full Contract objects)
+		// Contract address (C...) - SAC balances from DB (empty in this test)
+		mockSACBalanceModel.On("GetByAccount", ctx, testSEP41ContractAddress).Return([]data.SACBalance{}, nil)
+		// SEP-41 contracts from account_contract_tokens
 		mockAccountContractTokens.On("GetByAccount", ctx, testSEP41ContractAddress).
 			Return([]*data.Contract{createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
@@ -1369,11 +1073,10 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		// Mock FetchSingleField for SEP-41 balance call
 		mockContractMetadataService.On("FetchSingleField", mock.Anything, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(10000000000), nil)
-		// No GetLedgerEntries call needed - native comes from DB, SEP-41 uses FetchSingleField
 
 		resolver := &queryResolver{
 			&Resolver{
-				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,

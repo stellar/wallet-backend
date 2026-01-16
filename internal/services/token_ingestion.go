@@ -333,6 +333,7 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
+	log.Ctx(ctx).Infof("✅ upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
 	return nil
 }
 
@@ -360,6 +361,7 @@ func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context,
 			return fmt.Errorf("batch inserting contract tokens: %w", err)
 		}
 	}
+	log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(changes))
 	return nil
 }
 
@@ -391,6 +393,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
 	}
+	log.Ctx(ctx).Infof("✅ upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	return nil
 }
 
@@ -424,6 +427,7 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
 	}
+	log.Ctx(ctx).Infof("✅ upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
 	return nil
 }
 

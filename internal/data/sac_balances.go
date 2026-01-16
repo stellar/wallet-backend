@@ -16,13 +16,19 @@ import (
 
 // SACBalance contains SAC (Stellar Asset Contract) balance data for contract addresses.
 // Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
+// Includes contract metadata from JOIN with contract_tokens table for API responses.
 type SACBalance struct {
-	AccountAddress    string    // Contract address (C...)
+	AccountAddress    string    // Contract address (C...) of the holder
 	ContractID        uuid.UUID // Deterministic UUID for the SAC contract
 	Balance           string    // Balance as string (handles i128 values)
 	IsAuthorized      bool
 	IsClawbackEnabled bool
 	LedgerNumber      uint32
+	// Contract metadata from JOIN with contract_tokens
+	TokenID  string // SAC contract address (C...) used as token identifier in API
+	Code     string // Asset code (e.g., "USDC")
+	Issuer   string // Asset issuer G-address
+	Decimals uint32 // Token decimals
 }
 
 // SACBalanceModelInterface defines the interface for SAC balance operations.
@@ -45,16 +51,21 @@ type SACBalanceModel struct {
 
 var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
 
-// GetByAccount retrieves all SAC balances for a contract address.
+// GetByAccount retrieves all SAC balances for a contract address with contract metadata.
+// JOINs with contract_tokens to get code, issuer, and decimals for API responses.
 func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
 	const query = `
-		SELECT contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
-		FROM account_sac_balances
-		WHERE account_address = $1`
+		SELECT
+			asb.contract_id, asb.balance, asb.is_authorized,
+			asb.is_clawback_enabled, asb.last_modified_ledger,
+			ct.contract_id, ct.code, ct.issuer, ct.decimals
+		FROM account_sac_balances asb
+		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
+		WHERE asb.account_address = $1`
 
 	start := time.Now()
 	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
@@ -67,7 +78,11 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	var balances []SACBalance
 	for rows.Next() {
 		var bal SACBalance
-		if err := rows.Scan(&bal.ContractID, &bal.Balance, &bal.IsAuthorized, &bal.IsClawbackEnabled, &bal.LedgerNumber); err != nil {
+		if err := rows.Scan(
+			&bal.ContractID, &bal.Balance, &bal.IsAuthorized,
+			&bal.IsClawbackEnabled, &bal.LedgerNumber,
+			&bal.TokenID, &bal.Code, &bal.Issuer, &bal.Decimals,
+		); err != nil {
 			return nil, fmt.Errorf("scanning SAC balance: %w", err)
 		}
 		bal.AccountAddress = accountAddress

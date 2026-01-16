@@ -77,10 +77,25 @@ func (m *MockAccountsProcessor) Name() string {
 	return args.String(0)
 }
 
+type MockSACBalancesProcessor struct {
+	mock.Mock
+}
+
+func (m *MockSACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.SACBalanceChange, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]types.SACBalanceChange), args.Error(1)
+}
+
+func (m *MockSACBalancesProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 var (
-	_ ParticipantsProcessorInterface               = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface              = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface                  = &MockOperationProcessor{}
-	_ LedgerChangeProcessor[types.TrustlineChange] = &MockTrustlinesProcessor{}
-	_ LedgerChangeProcessor[types.AccountChange]   = &MockAccountsProcessor{}
+	_ ParticipantsProcessorInterface                = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface               = &MockTokenTransferProcessor{}
+	_ OperationProcessorInterface                   = &MockOperationProcessor{}
+	_ LedgerChangeProcessor[types.TrustlineChange]  = &MockTrustlinesProcessor{}
+	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
+	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
 )
