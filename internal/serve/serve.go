@@ -80,13 +80,16 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService          services.AccountService
-	FeeBumpService          services.FeeBumpService
-	MetricsService          metrics.MetricsService
-	TransactionService      services.TransactionService
-	RPCService              services.RPCService
-	TokenCacheReader        services.TokenCacheReader
-	ContractMetadataService services.ContractMetadataService
+	AccountService             services.AccountService
+	FeeBumpService             services.FeeBumpService
+	MetricsService             metrics.MetricsService
+	TransactionService         services.TransactionService
+	RPCService                 services.RPCService
+	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
+	NativeBalanceModel         data.NativeBalanceModelInterface
+	SACBalanceModel            data.SACBalanceModelInterface
+	AccountContractTokensModel data.AccountContractTokensModelInterface
+	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -162,8 +165,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	// Serve command only reads from PostgreSQL cache, doesn't need history archive or contract metadata service
-	tokenCacheReader := services.NewTokenCacheReader(models.DB, models.AccountTokens, models.Contract)
+	// AccountTokens model used directly for reading trustlines and contracts
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
@@ -206,7 +208,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
-		TokenCacheReader:            tokenCacheReader,
+		TrustlineBalanceModel:       models.TrustlineBalance,
+		NativeBalanceModel:          models.NativeBalance,
+		SACBalanceModel:             models.SACBalance,
+		AccountContractTokensModel:  models.AccountContractTokens,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
@@ -259,7 +264,8 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				deps.TokenCacheReader,
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
+				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{

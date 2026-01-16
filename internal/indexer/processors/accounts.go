@@ -12,6 +12,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	MinimumBaseReserveCount = 2
+	BaseReserveStroops      = 5_000_000
+)
+
 // AccountsProcessor processes ledger changes to extract account balance modifications.
 type AccountsProcessor struct {
 	networkPassphrase string
@@ -103,6 +108,12 @@ func (p *AccountsProcessor) processAccountChange(change ingest.Change, opWrapper
 	accChange.Balance = int64(account.Balance)
 	accChange.BuyingLiabilities = int64(liabilities.Buying)
 	accChange.SellingLiabilities = int64(liabilities.Selling)
+
+	// Calculate the minimum balance for base reserves
+	numSubEntries := account.NumSubEntries
+	numSponsoring := account.NumSponsoring()
+	numSponsored := account.NumSponsored()
+	accChange.MinimumBalance = int64(MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*BaseReserveStroops + accChange.SellingLiabilities
 
 	return accChange, false, nil
 }

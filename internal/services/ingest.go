@@ -67,7 +67,7 @@ type IngestServiceConfig struct {
 
 	// === Live Mode Dependencies ===
 	ChannelAccountStore     store.ChannelAccountStore
-	TokenCacheWriter        TokenCacheWriter
+	TokenIngestionService   TokenIngestionService
 	ContractMetadataService ContractMetadataService
 
 	// === Processing Options ===
@@ -108,7 +108,7 @@ type ingestService struct {
 	ledgerBackend              ledgerbackend.LedgerBackend
 	ledgerBackendFactory       LedgerBackendFactory
 	chAccStore                 store.ChannelAccountStore
-	tokenCacheWriter           TokenCacheWriter
+	tokenIngestionService      TokenIngestionService
 	contractMetadataService    ContractMetadataService
 	metricsService             metrics.MetricsService
 	networkPassphrase          string
@@ -120,6 +120,7 @@ type ingestService struct {
 	backfillBatchSize          uint32
 	backfillDBInsertBatchSize  uint32
 	catchupThreshold           uint32
+	knownContractIDs           set.Set[string]
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -147,7 +148,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerBackend:              cfg.LedgerBackend,
 		ledgerBackendFactory:       cfg.LedgerBackendFactory,
 		chAccStore:                 cfg.ChannelAccountStore,
-		tokenCacheWriter:           cfg.TokenCacheWriter,
+		tokenIngestionService:      cfg.TokenIngestionService,
 		contractMetadataService:    cfg.ContractMetadataService,
 		metricsService:             cfg.MetricsService,
 		networkPassphrase:          cfg.NetworkPassphrase,
@@ -159,6 +160,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:           uint32(cfg.CatchupThreshold),
+		knownContractIDs:           set.NewSet[string](),
 	}, nil
 }
 
@@ -251,13 +253,11 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 // filteredIngestionData holds the filtered transaction, operation, and state change
 // data ready for database insertion after participant filtering.
 type filteredIngestionData struct {
-	txs                  []*types.Transaction
-	txParticipants       map[string]set.Set[string]
-	ops                  []*types.Operation
-	opParticipants       map[int64]set.Set[string]
-	stateChanges         []types.StateChange
-	trustlineChanges     []types.TrustlineChange
-	contractTokenChanges []types.ContractChange
+	txs            []*types.Transaction
+	txParticipants map[string]set.Set[string]
+	ops            []*types.Operation
+	opParticipants map[int64]set.Set[string]
+	stateChanges   []types.StateChange
 }
 
 // hasRegisteredParticipant checks if any participant in the set is registered.
@@ -354,8 +354,6 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 	ops := indexerBuffer.GetOperations()
 	opParticipants := indexerBuffer.GetOperationsParticipants()
 	stateChanges := indexerBuffer.GetStateChanges()
-	trustlineChanges := indexerBuffer.GetTrustlineChanges()
-	contractChanges := indexerBuffer.GetContractChanges()
 
 	// When filtering is enabled, only store data for registered accounts
 	if m.enableParticipantFiltering {
@@ -366,19 +364,15 @@ func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, 
 		if err != nil {
 			return nil, fmt.Errorf("filtering by registered accounts: %w", err)
 		}
-		filtered.trustlineChanges = trustlineChanges
-		filtered.contractTokenChanges = contractChanges
 		return filtered, nil
 	}
 
 	return &filteredIngestionData{
-		txs:                  txs,
-		txParticipants:       txParticipants,
-		ops:                  ops,
-		opParticipants:       opParticipants,
-		stateChanges:         stateChanges,
-		trustlineChanges:     trustlineChanges,
-		contractTokenChanges: contractChanges,
+		txs:            txs,
+		txParticipants: txParticipants,
+		ops:            ops,
+		opParticipants: opParticipants,
+		stateChanges:   stateChanges,
 	}, nil
 }
 

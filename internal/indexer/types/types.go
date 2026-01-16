@@ -51,12 +51,11 @@ const (
 )
 
 type TrustlineChange struct {
-	AccountID    string
-	Asset        string // "CODE:ISSUER" format
-	OperationID  int64
-	LedgerNumber uint32
-	Operation    TrustlineOpType
-	// XDR fields extracted from TrustLineEntry:
+	AccountID          string
+	Asset              string // "CODE:ISSUER" format
+	OperationID        int64
+	LedgerNumber       uint32
+	Operation          TrustlineOpType
 	Balance            int64
 	Limit              int64
 	BuyingLiabilities  int64
@@ -86,6 +85,7 @@ type AccountChange struct {
 	LedgerNumber       uint32
 	Operation          AccountOpType
 	Balance            int64
+	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
 }

@@ -50,7 +50,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
@@ -159,8 +159,8 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
 			}
 			if len(contracts) > 0 {
-				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
+				if insertErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); insertErr != nil {
+					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, insertErr)
 				}
 			}
 
@@ -181,12 +181,14 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance, SAC balance)
+			trustlineChanges := buffer.GetTrustlineChanges()
+			contractChanges := buffer.GetContractChanges()
 			accountChanges := buffer.GetAccountChanges()
 			sacBalanceChanges := buffer.GetSACBalanceChanges()
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges, accountChanges, sacBalanceChanges); txErr != nil {
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account, %d SAC balance changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges), len(accountChanges), len(sacBalanceChanges))
+			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account, %d SAC balance changes", len(trustlineChanges), len(contractChanges), len(accountChanges), len(sacBalanceChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

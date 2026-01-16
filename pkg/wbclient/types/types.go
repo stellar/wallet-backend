@@ -100,9 +100,13 @@ type Balance interface {
 
 // NativeBalance represents a native XLM balance
 type NativeBalance struct {
-	BalanceValue string    `json:"balance"`
-	TokenID      string    `json:"tokenId"`
-	TokenType    TokenType `json:"tokenType"`
+	BalanceValue       string    `json:"balance"`
+	TokenID            string    `json:"tokenId"`
+	TokenType          TokenType `json:"tokenType"`
+	MinimumBalance     string    `json:"minimumBalance"`
+	BuyingLiabilities  string    `json:"buyingLiabilities"`
+	SellingLiabilities string    `json:"sellingLiabilities"`
+	LastModifiedLedger int32     `json:"lastModifiedLedger"`
 }
 
 func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }

@@ -36,10 +36,10 @@ type IndexerBufferInterface interface {
 	GetTransactions() []*types.Transaction
 	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
-	GetTrustlineChanges() []types.TrustlineChange
+	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetContractChanges() []types.ContractChange
-	GetAccountChanges() []types.AccountChange
-	GetSACBalanceChanges() []types.SACBalanceChange
+	GetAccountChanges() map[string]types.AccountChange
+	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
@@ -88,7 +88,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:    processors.NewTrustLinesProcessor(networkPassphrase, metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
 		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
 		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
 		processors: []OperationProcessorInterface{

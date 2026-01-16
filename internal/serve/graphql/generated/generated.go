@@ -148,9 +148,13 @@ type ComplexityRoot struct {
 	}
 
 	NativeBalance struct {
-		Balance   func(childComplexity int) int
-		TokenID   func(childComplexity int) int
-		TokenType func(childComplexity int) int
+		Balance            func(childComplexity int) int
+		BuyingLiabilities  func(childComplexity int) int
+		LastModifiedLedger func(childComplexity int) int
+		MinimumBalance     func(childComplexity int) int
+		SellingLiabilities func(childComplexity int) int
+		TokenID            func(childComplexity int) int
+		TokenType          func(childComplexity int) int
 	}
 
 	Operation struct {
@@ -907,6 +911,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.NativeBalance.Balance(childComplexity), true
+
+	case "NativeBalance.buyingLiabilities":
+		if e.complexity.NativeBalance.BuyingLiabilities == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.BuyingLiabilities(childComplexity), true
+
+	case "NativeBalance.lastModifiedLedger":
+		if e.complexity.NativeBalance.LastModifiedLedger == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.LastModifiedLedger(childComplexity), true
+
+	case "NativeBalance.minimumBalance":
+		if e.complexity.NativeBalance.MinimumBalance == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.MinimumBalance(childComplexity), true
+
+	case "NativeBalance.sellingLiabilities":
+		if e.complexity.NativeBalance.SellingLiabilities == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.SellingLiabilities(childComplexity), true
 
 	case "NativeBalance.tokenId":
 		if e.complexity.NativeBalance.TokenID == nil {
@@ -1975,6 +2007,11 @@ type NativeBalance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
+
+    minimumBalance: String!
+    buyingLiabilities: String!
+    sellingLiabilities: String!
+    lastModifiedLedger: Int!
 }
 
 type TrustlineBalance implements Balance {
@@ -6402,6 +6439,182 @@ func (ec *executionContext) fieldContext_NativeBalance_tokenType(_ context.Conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type TokenType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_minimumBalance(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_minimumBalance(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MinimumBalance, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_minimumBalance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_buyingLiabilities(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_buyingLiabilities(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.BuyingLiabilities, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_buyingLiabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_sellingLiabilities(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_sellingLiabilities(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SellingLiabilities, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_sellingLiabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_lastModifiedLedger(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_lastModifiedLedger(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LastModifiedLedger, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int32)
+	fc.Result = res
+	return ec.marshalNInt2int32(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -16272,6 +16485,26 @@ func (ec *executionContext) _NativeBalance(ctx context.Context, sel ast.Selectio
 			}
 		case "tokenType":
 			out.Values[i] = ec._NativeBalance_tokenType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "minimumBalance":
+			out.Values[i] = ec._NativeBalance_minimumBalance(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "buyingLiabilities":
+			out.Values[i] = ec._NativeBalance_buyingLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sellingLiabilities":
+			out.Values[i] = ec._NativeBalance_sellingLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastModifiedLedger":
+			out.Values[i] = ec._NativeBalance_lastModifiedLedger(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

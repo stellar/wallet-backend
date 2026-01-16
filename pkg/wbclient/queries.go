@@ -393,6 +393,12 @@ const balanceFragments = `
 		balance
 		tokenId
 		tokenType
+		... on NativeBalance {
+			minimumBalance
+			buyingLiabilities
+			sellingLiabilities
+			lastModifiedLedger
+		}
 		... on TrustlineBalance {
 			code
 			issuer
