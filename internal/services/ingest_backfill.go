@@ -53,11 +53,11 @@ type BackfillResult struct {
 // BatchChanges holds data collected from a backfill batch for catchup mode.
 // This data is processed after all parallel batches complete to ensure proper ordering.
 type BatchChanges struct {
-	TrustlineChangesByKey    map[indexer.TrustlineChangeKey]types.TrustlineChange
-	ContractChanges          []types.ContractChange
-	AccountChanges           []types.AccountChange
-	UniqueTrustlineAssets    map[uuid.UUID]data.TrustlineAsset
-	UniqueContractTokensByID map[string]types.ContractType
+	TrustlineChangesByKey     map[indexer.TrustlineChangeKey]types.TrustlineChange
+	ContractChanges           []types.ContractChange
+	AccountChangesByAccountID map[string]types.AccountChange
+	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
+	UniqueContractTokensByID  map[string]types.ContractType
 }
 
 // mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
@@ -74,6 +74,23 @@ func mergeTrustlineChanges(dest, source map[indexer.TrustlineChangeKey]types.Tru
 			continue
 		}
 		dest[key] = change
+	}
+}
+
+// mergeAccountChanges merges source account changes into dest, keeping highest OperationID per account.
+// Handles CREATE→REMOVE no-op case where an account is created and removed in the same batch.
+func mergeAccountChanges(dest, source map[string]types.AccountChange) {
+	for accountID, change := range source {
+		existing, exists := dest[accountID]
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+		// Handle CREATE→REMOVE no-op case
+		if exists && change.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
+			delete(dest, accountID)
+			continue
+		}
+		dest[accountID] = change
 	}
 }
 
@@ -150,13 +167,13 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
 		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
 		mergedUniqueContractTokens := make(map[string]types.ContractType)
+		mergedAccountChanges := make(map[string]types.AccountChange)
 		var allContractChanges []types.ContractChange
-		var allAccountChanges []types.AccountChange
 		for _, result := range results {
 			if result.BatchChanges != nil {
 				mergeTrustlineChanges(mergedTrustlineChanges, result.BatchChanges.TrustlineChangesByKey)
 				allContractChanges = append(allContractChanges, result.BatchChanges.ContractChanges...)
-				allAccountChanges = append(allAccountChanges, result.BatchChanges.AccountChanges...)
+				mergeAccountChanges(mergedAccountChanges, result.BatchChanges.AccountChangesByAccountID)
 				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
 				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
 			}
@@ -165,7 +182,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, allAccountChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
@@ -359,7 +376,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if batchChanges != nil {
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
 				batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
-				batchChanges.AccountChanges = append(batchChanges.AccountChanges, buffer.GetAccountChanges()...)
+				mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
 				// Collect unique assets (iterate slice into map)
 				for _, asset := range buffer.GetUniqueTrustlineAssets() {
 					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
@@ -421,9 +438,10 @@ func (m *ingestService) processLedgersInBatch(
 	var batchChanges *BatchChanges
 	if mode.isCatchup() {
 		batchChanges = &BatchChanges{
-			TrustlineChangesByKey:    make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
-			UniqueTrustlineAssets:    make(map[uuid.UUID]data.TrustlineAsset),
-			UniqueContractTokensByID: make(map[string]types.ContractType),
+			TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+			AccountChangesByAccountID: make(map[string]types.AccountChange),
+			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
+			UniqueContractTokensByID:  make(map[string]types.ContractType),
 		}
 	}
 
@@ -487,7 +505,7 @@ func (m *ingestService) processBatchChanges(
 	dbTx pgx.Tx,
 	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
 	contractChanges []types.ContractChange,
-	accountChanges []types.AccountChange,
+	accountChangesByAccountID map[string]types.AccountChange,
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
 	uniqueContractTokens map[string]types.ContractType,
 ) error {
@@ -518,12 +536,12 @@ func (m *ingestService) processBatchChanges(
 	}
 
 	// 4. Apply token changes to PostgreSQL
-	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChanges); txErr != nil {
+	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID); txErr != nil {
 		return fmt.Errorf("processing token changes: %w", txErr)
 	}
 
 	log.Ctx(ctx).Infof("Processed batch changes: %d trustline changes, %d contract changes, %d account changes",
-		len(trustlineChangesByKey), len(contractChanges), len(accountChanges))
+		len(trustlineChangesByKey), len(contractChanges), len(accountChangesByAccountID))
 
 	return nil
 }
