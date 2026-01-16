@@ -29,9 +29,10 @@ import (
 )
 
 // BalanceReader provides read-only access to account balance data.
-// This interface abstracts balance retrieval and will grow to include native and SAC balances.
+// This interface abstracts balance retrieval for trustlines and native XLM.
 type BalanceReader interface {
 	GetTrustlineBalances(ctx context.Context, accountAddress string) ([]data.TrustlineBalance, error)
+	GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error)
 }
 
 const (

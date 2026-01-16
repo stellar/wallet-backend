@@ -13,6 +13,7 @@ type Models struct {
 	Contract              ContractModelInterface
 	TrustlineAsset        TrustlineAssetModelInterface
 	TrustlineBalance      TrustlineBalanceModelInterface
+	NativeBalance         NativeBalanceModelInterface
 	AccountContractTokens AccountContractTokensModelInterface
 	IngestStore           *IngestStoreModel
 	Operations            *OperationModel
@@ -31,6 +32,7 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 		Contract:              &ContractModel{DB: db, MetricsService: metricsService},
 		TrustlineAsset:        &TrustlineAssetModel{DB: db, MetricsService: metricsService},
 		TrustlineBalance:      &TrustlineBalanceModel{DB: db, MetricsService: metricsService},
+		NativeBalance:         &NativeBalanceModel{DB: db, MetricsService: metricsService},
 		AccountContractTokens: &AccountContractTokensModel{DB: db, MetricsService: metricsService},
 		IngestStore:           &IngestStoreModel{DB: db, MetricsService: metricsService},
 		Operations:            &OperationModel{DB: db, MetricsService: metricsService},

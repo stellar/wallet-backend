@@ -86,9 +86,13 @@ type Mutation struct {
 }
 
 type NativeBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
-	TokenType TokenType `json:"tokenType"`
+	Balance            string    `json:"balance"`
+	TokenID            string    `json:"tokenId"`
+	TokenType          TokenType `json:"tokenType"`
+	MinimumBalance     string    `json:"minimumBalance"`
+	BuyingLiabilities  string    `json:"buyingLiabilities"`
+	SellingLiabilities string    `json:"sellingLiabilities"`
+	LastModifiedLedger int32     `json:"lastModifiedLedger"`
 }
 
 func (NativeBalance) IsBalance()                   {}

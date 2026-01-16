@@ -8,6 +8,11 @@ type NativeBalance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
+
+    minimumBalance: String!
+    buyingLiabilities: String!
+    sellingLiabilities: String!
+    lastModifiedLedger: Int!
 }
 
 type TrustlineBalance implements Balance {
