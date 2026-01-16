@@ -293,9 +293,9 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.NativeBalance:
-			balance, err := strconv.ParseFloat(b.GetBalance(), 64)
+			parsedBalance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
-			suite.Require().Equal(balance, 10000.0, "Balance should be the same as initial balance")
+			suite.Require().Equal(10000.0, parsedBalance, "Balance should be the same as initial balance")
 			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 			suite.Require().NotEmpty(b.MinimumBalance, "MinimumBalance should be populated")
 			minBal, err := strconv.ParseFloat(b.MinimumBalance, 64)
@@ -354,9 +354,9 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.NativeBalance:
-			balance, err := strconv.ParseFloat(b.GetBalance(), 64)
+			parsedBalance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
-			suite.Require().Equal(balance, 10000.0, "Balance should be the same as initial balance")
+			suite.Require().Equal(10000.0, parsedBalance, "Balance should be the same as initial balance")
 			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 			suite.Require().NotEmpty(b.MinimumBalance, "MinimumBalance should be populated")
 			minBal, err := strconv.ParseFloat(b.MinimumBalance, 64)

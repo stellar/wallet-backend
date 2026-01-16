@@ -109,7 +109,7 @@ func (p *AccountsProcessor) processAccountChange(change ingest.Change, opWrapper
 	accChange.BuyingLiabilities = int64(liabilities.Buying)
 	accChange.SellingLiabilities = int64(liabilities.Selling)
 
-	// Calculate the minimum balance for base reserves
+	// Calculate the minimum balance for base reserves: https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
 	numSubEntries := account.NumSubEntries
 	numSponsoring := account.NumSponsoring()
 	numSponsored := account.NumSponsored()
