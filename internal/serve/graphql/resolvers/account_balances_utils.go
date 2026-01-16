@@ -44,11 +44,19 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 
 	// Convert int64 balance to string format (stroops to decimal)
 	balanceStr := amount.StringFromInt64(nativeBalance.Balance)
+	minimumBalanceStr := amount.StringFromInt64(nativeBalance.MinimumBalance)
+	buyingLiabilitiesStr := amount.StringFromInt64(nativeBalance.BuyingLiabilities)
+	sellingLiabilitiesStr := amount.StringFromInt64(nativeBalance.SellingLiabilities)
+	lastModifiedLedger := int32(nativeBalance.LedgerNumber)
 
 	return &graphql1.NativeBalance{
-		TokenID:   tokenID,
-		Balance:   balanceStr,
-		TokenType: graphql1.TokenTypeNative,
+		TokenID:            tokenID,
+		Balance:            balanceStr,
+		TokenType:          graphql1.TokenTypeNative,
+		MinimumBalance:     minimumBalanceStr,
+		BuyingLiabilities:  buyingLiabilitiesStr,
+		SellingLiabilities: sellingLiabilitiesStr,
+		LastModifiedLedger: lastModifiedLedger,
 	}, nil
 }
 

@@ -14,7 +14,7 @@ import (
 
 const (
 	MINIMUM_BASE_RESERVE_COUNT = 2
-	BASE_RESERVE_STROOPS = 5_000_000
+	BASE_RESERVE_STROOPS       = 5_000_000
 )
 
 // AccountsProcessor processes ledger changes to extract account balance modifications.
@@ -113,7 +113,7 @@ func (p *AccountsProcessor) processAccountChange(change ingest.Change, opWrapper
 	numSubEntries := account.NumSubEntries
 	numSponsoring := account.NumSponsoring()
 	numSponsored := account.NumSponsored()
-	accChange.MinimumBalance = int64(MINIMUM_BASE_RESERVE_COUNT + numSubEntries + numSponsoring - numSponsored) * BASE_RESERVE_STROOPS + accChange.SellingLiabilities
+	accChange.MinimumBalance = int64(MINIMUM_BASE_RESERVE_COUNT+numSubEntries+numSponsoring-numSponsored)*BASE_RESERVE_STROOPS + accChange.SellingLiabilities
 
 	return accChange, false, nil
 }
