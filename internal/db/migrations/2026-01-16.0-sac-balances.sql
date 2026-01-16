@@ -1,9 +1,9 @@
 -- +migrate Up
 
--- Table: account_sac_balances
+-- Table: sac_balances
 -- Stores SAC (Stellar Asset Contract) balance data for contract addresses (C...) during ingestion.
 -- Classic Stellar accounts (G...) have SAC balances in their trustlines, so only contract holders are stored here.
-CREATE TABLE account_sac_balances (
+CREATE TABLE sac_balances (
     account_address TEXT NOT NULL,
     contract_id UUID NOT NULL,
     balance TEXT NOT NULL DEFAULT '0',
@@ -15,4 +15,4 @@ CREATE TABLE account_sac_balances (
 
 -- +migrate Down
 
-DROP TABLE IF EXISTS account_sac_balances;
+DROP TABLE IF EXISTS sac_balances;

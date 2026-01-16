@@ -624,7 +624,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 				}
 
 				// For contract addresses (C...), try to extract SAC balance and stream directly to batch
-				// C-addresses with SAC balances go to account_sac_balances table, not ContractsByHolderAddress
+				// C-addresses with SAC balances go to sac_balances table, not ContractsByHolderAddress
 				if isContractHolderAddress(holderAddress) {
 					balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
 					if err == nil {

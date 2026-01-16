@@ -63,14 +63,14 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 			asb.contract_id, asb.balance, asb.is_authorized,
 			asb.is_clawback_enabled, asb.last_modified_ledger,
 			ct.contract_id, ct.code, ct.issuer, ct.decimals
-		FROM account_sac_balances asb
+		FROM sac_balances asb
 		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
 		WHERE asb.account_address = $1`
 
 	start := time.Now()
 	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "account_sac_balances", "query_error")
+		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
 	}
 	defer rows.Close()
@@ -93,8 +93,8 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 		return nil, fmt.Errorf("iterating SAC balances: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetByAccount", "account_sac_balances")
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetByAccount", "sac_balances")
 	return balances, nil
 }
 
@@ -111,7 +111,7 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 
 	// Upsert query: insert or update all fields
 	const upsertQuery = `
-		INSERT INTO account_sac_balances (
+		INSERT INTO sac_balances (
 			account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
 		) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (account_address, contract_id) DO UPDATE SET
@@ -132,7 +132,7 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	}
 
 	// Delete query
-	const deleteQuery = `DELETE FROM account_sac_balances WHERE account_address = $1 AND contract_id = $2`
+	const deleteQuery = `DELETE FROM sac_balances WHERE account_address = $1 AND contract_id = $2`
 
 	for _, bal := range deletes {
 		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
@@ -153,8 +153,8 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 		return fmt.Errorf("closing SAC balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "account_sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "account_sac_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsert", "sac_balances")
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
-		pgx.Identifier{"account_sac_balances"},
+		pgx.Identifier{"sac_balances"},
 		[]string{
 			"account_address",
 			"contract_id",
@@ -200,7 +200,7 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "account_sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "account_sac_balances")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchCopy", "sac_balances")
 	return nil
 }
