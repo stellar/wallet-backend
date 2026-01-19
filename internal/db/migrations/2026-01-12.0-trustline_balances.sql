@@ -11,8 +11,11 @@ CREATE TABLE trustline_balances (
     buying_liabilities BIGINT NOT NULL DEFAULT 0,
     selling_liabilities BIGINT NOT NULL DEFAULT 0,
     flags INTEGER NOT NULL DEFAULT 0,
-    last_modified_ledger INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (account_address, asset_id)
+    last_modified_ledger BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_address, asset_id),
+    CONSTRAINT fk_trustline_asset
+        FOREIGN KEY (asset_id) REFERENCES trustline_assets(id)
+        DEFERRABLE INITIALLY DEFERRED
 );
 
 -- +migrate Down

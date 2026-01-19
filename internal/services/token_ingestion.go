@@ -283,7 +283,7 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
 //
-// For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
+// For trustlines: handles ADD (new trustline), UPDATE (balance/limit changed), and REMOVE (deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
 // (not SAC/SEP-41) are silently skipped.
 //

@@ -125,7 +125,7 @@ type TrustlineBalance struct {
 	Limit                             string    `json:"limit"`
 	BuyingLiabilities                 string    `json:"buyingLiabilities"`
 	SellingLiabilities                string    `json:"sellingLiabilities"`
-	LastModifiedLedger                int32     `json:"lastModifiedLedger"`
+	LastModifiedLedger                uint32    `json:"lastModifiedLedger"`
 	IsAuthorized                      bool      `json:"isAuthorized"`
 	IsAuthorizedToMaintainLiabilities bool      `json:"isAuthorizedToMaintainLiabilities"`
 }
