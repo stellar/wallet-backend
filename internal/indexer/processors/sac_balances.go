@@ -15,6 +15,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// SAC balance map field names as defined by the Stellar Asset Contract specification.
+const (
+	sacBalanceFieldAmount     = "amount"
+	sacBalanceFieldAuthorized = "authorized"
+	sacBalanceFieldClawback   = "clawback"
+)
+
 // SACBalancesProcessor processes ledger changes to extract SAC balance modifications.
 // SAC balances are stored in contract data entries with a defined format:
 // Key: ["Balance", holder_address]
@@ -152,19 +159,24 @@ func (p *SACBalancesProcessor) extractSACBalanceFields(val xdr.ScVal) (balance s
 		}
 
 		switch string(keySymbol) {
-		case "amount":
+		case sacBalanceFieldAmount:
 			if i128, ok := entry.Val.GetI128(); ok {
 				balance = amount.String128(i128)
 			}
-		case "authorized":
+		case sacBalanceFieldAuthorized:
 			if b, ok := entry.Val.GetB(); ok {
 				authorized = b
 			}
-		case "clawback":
+		case sacBalanceFieldClawback:
 			if b, ok := entry.Val.GetB(); ok {
 				clawback = b
 			}
 		}
+	}
+
+	// Ensure balance has a valid value (defaults to "0" if not found)
+	if balance == "" {
+		balance = "0"
 	}
 
 	return balance, authorized, clawback

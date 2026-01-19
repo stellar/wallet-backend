@@ -287,7 +287,8 @@ func TestSACBalancesProcessor_extractSACBalanceFields(t *testing.T) {
 
 		balance, authorized, clawback := processor.extractSACBalanceFields(emptyMapVal)
 
-		assert.Equal(t, "", balance)
+		// Balance defaults to "0" when amount field is not found in map
+		assert.Equal(t, "0", balance)
 		assert.False(t, authorized)
 		assert.False(t, clawback)
 	})
