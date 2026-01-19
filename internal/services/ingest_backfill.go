@@ -475,7 +475,7 @@ func (m *ingestService) processTokenChanges(
 
 		// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
 		if len(uniqueContracts) > 0 {
-			contracts, txErr := m.prepareNewContracts(ctx, uniqueContracts)
+			contracts, txErr := m.prepareNewContracts(ctx, dbTx, uniqueContracts)
 			if txErr != nil {
 				return fmt.Errorf("preparing contracts: %w", txErr)
 			}
