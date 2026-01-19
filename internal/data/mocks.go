@@ -39,8 +39,8 @@ func (m *ContractModelMock) GetByContractID(ctx context.Context, contractID stri
 	return args.Get(0).(*Contract), args.Error(1)
 }
 
-func (m *ContractModelMock) GetAllContractIDs(ctx context.Context) ([]string, error) {
-	args := m.Called(ctx)
+func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
+	args := m.Called(ctx, dbTx, contractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

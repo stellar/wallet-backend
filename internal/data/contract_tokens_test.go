@@ -51,7 +51,7 @@ func TestContractModel_GetByID(t *testing.T) {
 	})
 }
 
-func TestContractModel_GetAllContractIDs(t *testing.T) {
+func TestContractModel_GetExisting(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -65,11 +65,8 @@ func TestContractModel_GetAllContractIDs(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns empty slice when table is empty", func(t *testing.T) {
-		cleanUpDB()
+	t.Run("returns nil for empty input", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetAllContractIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetAllContractIDs", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -77,20 +74,87 @@ func TestContractModel_GetAllContractIDs(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		ids, err := m.GetAllContractIDs(ctx)
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, txErr := m.GetExisting(ctx, dbTx, []string{})
+			require.NoError(t, txErr)
+			require.Nil(t, ids)
+			return nil
+		})
 		require.NoError(t, err)
-		require.Empty(t, ids)
 	})
 
-	t.Run("returns all contract IDs from DB", func(t *testing.T) {
+	t.Run("returns empty slice when no matches", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &ContractModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, txErr := m.GetExisting(ctx, dbTx, []string{"nonexistent1", "nonexistent2"})
+			require.NoError(t, txErr)
+			require.Empty(t, ids)
+			return nil
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("returns partial matches", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 2).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &ContractModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		name := "Test"
+		symbol := "TST"
+		contracts := []*Contract{
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 7},
+			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
+		}
+
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			txErr := m.BatchInsert(ctx, dbTx, contracts)
+			require.NoError(t, txErr)
+			return nil
+		})
+		require.NoError(t, err)
+
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, txErr := m.GetExisting(ctx, dbTx, []string{"contract1", "contract3", "contract4"})
+			require.NoError(t, txErr)
+			require.Len(t, ids, 1)
+			require.Contains(t, ids, "contract1")
+			return nil
+		})
+		require.NoError(t, err)
+
+		cleanUpDB()
+	})
+
+	t.Run("returns all matches when all exist", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetAllContractIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetAllContractIDs", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -113,10 +177,14 @@ func TestContractModel_GetAllContractIDs(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		ids, err := m.GetAllContractIDs(ctx)
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, txErr := m.GetExisting(ctx, dbTx, []string{"contract1", "contract2"})
+			require.NoError(t, txErr)
+			require.Len(t, ids, 2)
+			require.ElementsMatch(t, []string{"contract1", "contract2"}, ids)
+			return nil
+		})
 		require.NoError(t, err)
-		require.Len(t, ids, 3)
-		require.ElementsMatch(t, []string{"contract1", "contract2", "contract3"}, ids)
 
 		cleanUpDB()
 	})

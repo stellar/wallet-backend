@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -29,7 +28,7 @@ func DeterministicContractID(contractID string) uuid.UUID {
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
 	GetByContractID(ctx context.Context, contractID string) (*Contract, error)
-	GetAllContractIDs(ctx context.Context) ([]string, error)
+	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
 	BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
@@ -74,35 +73,39 @@ func (m *ContractModel) GetByContractID(ctx context.Context, contractID string) 
 	return contract, nil
 }
 
-// GetAllContractIDs returns all contract addresses (C...) from the database.
-func (m *ContractModel) GetAllContractIDs(ctx context.Context) ([]string, error) {
-	const query = `SELECT contract_id FROM contract_tokens`
+// GetExisting returns which of the given contract IDs exist in the database.
+func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
+	if len(contractIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `SELECT contract_id FROM contract_tokens WHERE contract_id = ANY($1)`
 
 	start := time.Now()
-	rows, err := m.DB.QueryxContext(ctx, query)
+	rows, err := dbTx.Query(ctx, query, contractIDs)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetAllContractIDs", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("querying contract IDs: %w", err)
+		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
 	}
-	defer utils.DeferredClose(ctx, rows, "closing contract IDs rows")
+	defer rows.Close()
 
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			m.MetricsService.IncDBQueryError("GetAllContractIDs", "contract_tokens", utils.GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
 			return nil, fmt.Errorf("scanning contract ID: %w", err)
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		m.MetricsService.IncDBQueryError("GetAllContractIDs", "contract_tokens", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("iterating contract rows: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetAllContractIDs", "contract_tokens", duration)
-	m.MetricsService.IncDBQuery("GetAllContractIDs", "contract_tokens")
+	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
+	m.MetricsService.IncDBQuery("GetExisting", "contract_tokens")
 	return ids, nil
 }
 
