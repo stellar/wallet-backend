@@ -166,16 +166,6 @@ func (m *TokenCacheWriterMock) PopulateAccountTokens(ctx context.Context, checkp
 	return args.Error(0)
 }
 
-func (m *TokenCacheWriterMock) EnsureTrustlineAssetsExist(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange) error {
-	args := m.Called(ctx, dbTx, trustlineChanges)
-	return args.Error(0)
-}
-
-func (m *TokenCacheWriterMock) EnsureContractTokensExist(ctx context.Context, dbTx pgx.Tx, contractChanges []types.ContractChange) error {
-	args := m.Called(ctx, dbTx, contractChanges)
-	return args.Error(0)
-}
-
 func (m *TokenCacheWriterMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	args := m.Called(ctx, dbTx, trustlineChanges, contractChanges)
 	return args.Error(0)
