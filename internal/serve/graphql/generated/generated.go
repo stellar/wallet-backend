@@ -2011,7 +2011,7 @@ type NativeBalance implements Balance {
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
-    lastModifiedLedger: Int!
+    lastModifiedLedger: UInt32!
 }
 
 type TrustlineBalance implements Balance {
@@ -2025,7 +2025,7 @@ type TrustlineBalance implements Balance {
     limit: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
-    lastModifiedLedger: Int!
+    lastModifiedLedger: UInt32!
     isAuthorized: Boolean!
     isAuthorizedToMaintainLiabilities: Boolean!
 }
@@ -6602,9 +6602,9 @@ func (ec *executionContext) _NativeBalance_lastModifiedLedger(ctx context.Contex
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int32)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNInt2int32(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_NativeBalance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -6614,7 +6614,7 @@ func (ec *executionContext) fieldContext_NativeBalance_lastModifiedLedger(_ cont
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -12009,9 +12009,9 @@ func (ec *executionContext) _TrustlineBalance_lastModifiedLedger(ctx context.Con
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int32)
+	res := resTmp.(uint32)
 	fc.Result = res
-	return ec.marshalNInt2int32(ctx, field.Selections, res)
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineBalance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -12021,7 +12021,7 @@ func (ec *executionContext) fieldContext_TrustlineBalance_lastModifiedLedger(_ c
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
