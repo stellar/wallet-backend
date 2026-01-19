@@ -10,7 +10,10 @@ CREATE TABLE sac_balances (
     is_authorized BOOLEAN NOT NULL DEFAULT true,
     is_clawback_enabled BOOLEAN NOT NULL DEFAULT false,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (account_address, contract_id)
+    PRIMARY KEY (account_address, contract_id),
+    CONSTRAINT fk_contract_token
+        FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
+        DEFERRABLE INITIALLY DEFERRED
 );
 
 -- +migrate Down
