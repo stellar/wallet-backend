@@ -2283,7 +2283,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenIngestionService.AssertExpectations(t)
 	})
 
-	t.Run("Redis failure rolls back DB transaction", func(t *testing.T) {
+	t.Run("DB failure rolls back transaction", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2318,7 +2318,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock AccountTokenService to return error (simulating Redis failure)
+		// Mock AccountTokenService to return error (simulating DB failure)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
 			mock.Anything, // ctx
@@ -2326,7 +2326,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything, // contractIDMap
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
-		).Return(fmt.Errorf("redis connection failed"))
+		).Return(fmt.Errorf("db connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:              IngestionModeLive,
@@ -2356,19 +2356,19 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should fail after retries due to Redis error
+		// Call ingestProcessedDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
 		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed after")
-		assert.Contains(t, err.Error(), "redis connection failed")
+		assert.Contains(t, err.Error(), "db connection failed")
 
 		// Verify DB cursor was NOT updated (transaction rolled back)
 		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
 		require.NoError(t, err)
-		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when Redis fails")
+		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when DB fails")
 
 		mockTokenIngestionService.AssertExpectations(t)
 	})
@@ -2633,7 +2633,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				// ProcessTokenChanges receives the actual trustline changes
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 1
-				}), []types.ContractChange{}).Return(fmt.Errorf("redis error"))
+				}), []types.ContractChange{}).Return(fmt.Errorf("db error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -3034,7 +3034,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
 				// ProcessTokenChanges fails
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
+				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db connection error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {

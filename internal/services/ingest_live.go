@@ -154,12 +154,12 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
-			contracts, txErr := m.prepareNewContracts(ctx, buffer.GetUniqueContractsByID())
+			contracts, txErr := m.prepareNewContracts(ctx, dbTx, buffer.GetUniqueContractsByID())
 			if txErr != nil {
 				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
 			}
 			if len(contracts) > 0 {
-				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
 				}
 			}
@@ -240,13 +240,19 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 }
 
 // prepareNewContracts filters out existing contracts and fetches metadata for new ones.
-func (m *ingestService) prepareNewContracts(ctx context.Context, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
+func (m *ingestService) prepareNewContracts(ctx context.Context, dbTx pgx.Tx, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
 	if len(contractsByID) == 0 {
 		return nil, nil
 	}
 
-	// Get existing contract IDs from DB
-	existingIDs, err := m.models.Contract.GetAllContractIDs(ctx)
+	// Build list of contract IDs to check
+	contractIDsList := make([]string, 0, len(contractsByID))
+	for id := range contractsByID {
+		contractIDsList = append(contractIDsList, id)
+	}
+
+	// Get existing contract IDs from DB (only checking the ones we need)
+	existingIDs, err := m.models.Contract.GetExisting(ctx, dbTx, contractIDsList)
 	if err != nil {
 		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
 	}

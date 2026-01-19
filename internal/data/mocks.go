@@ -31,28 +31,12 @@ func NewContractModelMock(t interface {
 	return mockContract
 }
 
-func (m *ContractModelMock) GetByContractID(ctx context.Context, contractID string) (*Contract, error) {
-	args := m.Called(ctx, contractID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*Contract), args.Error(1)
-}
-
-func (m *ContractModelMock) GetAllContractIDs(ctx context.Context) ([]string, error) {
-	args := m.Called(ctx)
+func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
+	args := m.Called(ctx, dbTx, contractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]string), args.Error(1)
-}
-
-func (m *ContractModelMock) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error) {
-	args := m.Called(ctx, ids)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*Contract), args.Error(1)
 }
 
 func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
