@@ -5,7 +5,10 @@
 CREATE TABLE account_trustlines (
     account_address TEXT NOT NULL,
     asset_id UUID NOT NULL,
-    PRIMARY KEY (account_address, asset_id)
+    PRIMARY KEY (account_address, asset_id),
+    CONSTRAINT fk_trustline_asset
+        FOREIGN KEY (asset_id) REFERENCES trustline_assets(id)
+        DEFERRABLE INITIALLY DEFERRED
 );
 
 -- Table: account_contracts
@@ -13,7 +16,10 @@ CREATE TABLE account_trustlines (
 CREATE TABLE account_contracts (
     account_address TEXT NOT NULL,
     contract_id UUID NOT NULL,
-    PRIMARY KEY (account_address, contract_id)
+    PRIMARY KEY (account_address, contract_id),
+    CONSTRAINT fk_contract_token
+        FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
+        DEFERRABLE INITIALLY DEFERRED
 );
 
 -- +migrate Down
