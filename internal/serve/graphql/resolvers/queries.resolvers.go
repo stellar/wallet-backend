@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -177,6 +178,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// SAC balances have embedded contract metadata from JOIN with contract_tokens
 		sacBalances, sacErr := r.balanceReader.GetSACBalances(ctx, address)
 		if sacErr != nil {
+			log.Ctx(ctx).Errorf("failed to get SAC balances for %s: %v", address, sacErr)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -191,6 +193,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// G-addresses: Fetch native XLM balance and trustlines from DB
 		nativeBalance, nativeErr := r.balanceReader.GetNativeBalance(ctx, address)
 		if nativeErr != nil {
+			log.Ctx(ctx).Errorf("failed to get native balance for %s: %v", address, nativeErr)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -214,6 +217,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// Fetch trustline balances from DB
 		trustlines, trustlineErr := r.balanceReader.GetTrustlineBalances(ctx, address)
 		if trustlineErr != nil {
+			log.Ctx(ctx).Errorf("failed to get trustline balances for %s: %v", address, trustlineErr)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -239,6 +243,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	// Fetch SEP-41 contract tokens for the account (both G-addresses and C-addresses)
 	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 	if err != nil {
+		log.Ctx(ctx).Errorf("failed to get contract tokens for %s: %v", address, err)
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
 			Extensions: map[string]interface{}{
