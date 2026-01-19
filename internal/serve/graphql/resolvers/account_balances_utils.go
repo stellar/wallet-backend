@@ -46,7 +46,6 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 	minimumBalanceStr := amount.StringFromInt64(nativeBalance.MinimumBalance)
 	buyingLiabilitiesStr := amount.StringFromInt64(nativeBalance.BuyingLiabilities)
 	sellingLiabilitiesStr := amount.StringFromInt64(nativeBalance.SellingLiabilities)
-	lastModifiedLedger := int32(nativeBalance.LedgerNumber)
 
 	return &graphql1.NativeBalance{
 		TokenID:            tokenID,
@@ -55,7 +54,7 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 		MinimumBalance:     minimumBalanceStr,
 		BuyingLiabilities:  buyingLiabilitiesStr,
 		SellingLiabilities: sellingLiabilitiesStr,
-		LastModifiedLedger: lastModifiedLedger,
+		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
 }
 
@@ -114,7 +113,7 @@ func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphr
 		Limit:                             limitStr,
 		BuyingLiabilities:                 buyingLiabilities,
 		SellingLiabilities:                sellingLiabilities,
-		LastModifiedLedger:                int32(trustline.LedgerNumber),
+		LastModifiedLedger:                trustline.LedgerNumber,
 		IsAuthorized:                      isAuthorized,
 		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 	}, nil

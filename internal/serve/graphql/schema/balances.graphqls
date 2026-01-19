@@ -12,7 +12,7 @@ type NativeBalance implements Balance {
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
-    lastModifiedLedger: Int!
+    lastModifiedLedger: UInt32!
 }
 
 type TrustlineBalance implements Balance {
@@ -26,7 +26,7 @@ type TrustlineBalance implements Balance {
     limit: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
-    lastModifiedLedger: Int!
+    lastModifiedLedger: UInt32!
     isAuthorized: Boolean!
     isAuthorizedToMaintainLiabilities: Boolean!
 }

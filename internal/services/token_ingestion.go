@@ -274,7 +274,7 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
 //
-// For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
+// For trustlines: handles ADD (new trustline), UPDATE (balance/limit changed), and REMOVE (deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
 // (not SAC/SEP-41) are silently skipped.
 // For SAC balances (contract addresses only): handles ADD, UPDATE, and REMOVE operations
@@ -580,6 +580,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 			numSubEntries := accountEntry.NumSubEntries
 			numSponsoring := accountEntry.NumSponsoring()
 			numSponsored := accountEntry.NumSponsored()
+			// Calculate the minimum balance for base reserves: https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
 			minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
 			batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), checkpointLedger)
 			entries++
@@ -682,7 +683,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 	// Flush remaining data
 	if batch.count() > 0 {
 		if err := batch.flush(ctx, dbTx); err != nil {
-			return checkpointData{}, fmt.Errorf("flushing final trustline batch: %w", err)
+			return checkpointData{}, fmt.Errorf("flushing final batch: %w", err)
 		}
 		batchCount++
 	}

@@ -242,8 +242,12 @@ func (s *SharedContainers) WaitForBackfillCompletion(ctx context.Context, expect
 					}
 					// Container exited successfully, check cursor one more time
 					oldest, err = s.GetIngestCursor(ctx, "oldest_ingest_ledger")
-					if err == nil && oldest <= expectedOldestLedger {
-						return nil
+					if err == nil {
+						if oldest <= expectedOldestLedger {
+							return nil
+						} else {
+							return fmt.Errorf("backfill container exited successfully but cursor %d did not reach expected %d", oldest, expectedOldestLedger)
+						}
 					}
 				}
 			}
