@@ -227,7 +227,7 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
 //
-// For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
+// For trustlines: handles ADD (new trustline), UPDATE (balance/limit changed), and REMOVE (deleted).
 // For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
 // (not SAC/SEP-41) are silently skipped.
 //
@@ -427,7 +427,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 
 			// Flush batch when full
 			if batch.count() >= trustlineBatchSize {
-				if err := s.flushTrustlineBatch(ctx, dbTx, batch, checkpointLedger); err != nil {
+				if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
 					return checkpointData{}, fmt.Errorf("flushing trustline batch: %w", err)
 				}
 				batchCount++
@@ -480,7 +480,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 
 	// Flush remaining trustlines
 	if batch.count() > 0 {
-		if err := s.flushTrustlineBatch(ctx, dbTx, batch, checkpointLedger); err != nil {
+		if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
 			return checkpointData{}, fmt.Errorf("flushing final trustline batch: %w", err)
 		}
 		batchCount++
@@ -492,7 +492,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 }
 
 // flushTrustlineBatch inserts the batch's trustline assets and trustline balances.
-func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch, _ uint32) error {
+func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch) error {
 	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
 	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
 	for _, asset := range batch.uniqueAssets {

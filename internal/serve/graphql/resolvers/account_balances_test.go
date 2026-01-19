@@ -695,7 +695,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return([]data.TrustlineBalance{}, nil)
 		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
-			Return([]*data.Contract{}, errors.New("redis connection failed"))
+			Return([]*data.Contract{}, errors.New("database query failed"))
 
 		resolver := &queryResolver{
 			&Resolver{
