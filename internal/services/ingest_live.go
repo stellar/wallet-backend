@@ -154,10 +154,9 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
 					return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
 				}
-				log.Ctx(ctx).Infof("✅ inserted %d trustline assets", len(uniqueAssets))
 			}
 
-			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
+			// 2. Insert new contract tokens (filter existing, fetch metadata for SEP41, insert)
 			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
 			if txErr != nil {
 				return fmt.Errorf("preparing contract tokens for ledger %d: %w", currentLedger, txErr)
