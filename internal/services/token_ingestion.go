@@ -632,55 +632,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 			contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
 
 			//exhaustive:ignore
-			switch contractDataEntry.Key.Type {
-			case xdr.ScValTypeScvVec:
-				holderAddress, skip := s.processContractBalanceChange(contractDataEntry)
-				if skip {
-					continue
-				}
-
-				// For contract addresses (C...), validate using SDK and stream SAC balance
-				// C-addresses with SAC balances go to sac_balances table, not ContractsByHolderAddress
-				if isContractHolderAddress(holderAddress) {
-					// Use SDK to validate this is actually a SAC balance entry
-					_, _, ok := sac.ContractBalanceFromContractData(*change.Post, s.networkPassphrase)
-					if ok {
-						// Ensure contract exists in uniqueContractTokens (minimal entry)
-						// This prevents FK violation when balance is inserted before instance entry
-						contractUUID := wbdata.DeterministicContractID(contractAddressStr)
-						if _, exists := data.uniqueContractTokens[contractUUID]; !exists {
-							data.uniqueContractTokens[contractUUID] = &wbdata.Contract{
-								ID:         contractUUID,
-								ContractID: contractAddressStr,
-								Type:       string(types.ContractTypeSAC),
-							}
-						}
-
-						// Extract balance fields and stream to batch
-						balanceStr, authorized, clawback := s.extractSACBalanceFields(contractDataEntry.Val)
-						batch.addSACBalance(wbdata.SACBalance{
-							AccountAddress:    holderAddress,
-							ContractID:        contractUUID,
-							Balance:           balanceStr,
-							IsAuthorized:      authorized,
-							IsClawbackEnabled: clawback,
-							LedgerNumber:      checkpointLedger,
-						})
-						entries++
-						continue // SAC balance processed, move to next
-					}
-					// Non-SAC (SEP41) balance for C-address: fall through to relationship tracking
-				}
-
-				// Non-SAC contract token balance - add to ContractsByHolderAddress for relationship tracking
-				// This handles BOTH G-addresses AND C-addresses with SEP41 balances
-				if _, ok := data.contractTokensByHolderAddress[holderAddress]; !ok {
-					data.contractTokensByHolderAddress[holderAddress] = []uuid.UUID{}
-				}
-				data.contractTokensByHolderAddress[holderAddress] = append(data.contractTokensByHolderAddress[holderAddress], wbdata.DeterministicContractID(contractAddressStr))
-				entries++
-
-			case xdr.ScValTypeScvLedgerKeyContractInstance:
+			if contractDataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
 				contract, wasmHash, isSAC, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
 				if skip {
 					// We skip processing if there is an error
@@ -694,6 +646,47 @@ func (s *tokenIngestionService) streamCheckpointData(
 					continue
 				}
 				data.contractIDsByWasmHash[*wasmHash] = append(data.contractIDsByWasmHash[*wasmHash], contractAddressStr)
+				entries++
+			} else {
+				holderAddress, skip := s.processContractBalanceChange(contractDataEntry)
+				if skip {
+					continue
+				}
+
+				// Use SDK to validate this is actually a SAC balance entry
+				_, _, ok := sac.ContractBalanceFromContractData(*change.Post, s.networkPassphrase)
+				if ok {
+					// Ensure contract exists in uniqueContractTokens (minimal entry)
+					// This prevents FK violation when balance is inserted before instance entry
+					contractUUID := wbdata.DeterministicContractID(contractAddressStr)
+					if _, exists := data.uniqueContractTokens[contractUUID]; !exists {
+						data.uniqueContractTokens[contractUUID] = &wbdata.Contract{
+							ID:         contractUUID,
+							ContractID: contractAddressStr,
+							Type:       string(types.ContractTypeSAC),
+						}
+					}
+
+					// Extract balance fields and stream to batch
+					balanceStr, authorized, clawback := s.extractSACBalanceFields(contractDataEntry.Val)
+					batch.addSACBalance(wbdata.SACBalance{
+						AccountAddress:    holderAddress,
+						ContractID:        contractUUID,
+						Balance:           balanceStr,
+						IsAuthorized:      authorized,
+						IsClawbackEnabled: clawback,
+						LedgerNumber:      checkpointLedger,
+					})
+					entries++
+					continue // SAC balance processed, move to next
+				}
+
+				// Non-SAC contract token balance - add to ContractsByHolderAddress for relationship tracking
+				// This handles BOTH G-addresses AND C-addresses with SEP41 balances
+				if _, ok := data.contractTokensByHolderAddress[holderAddress]; !ok {
+					data.contractTokensByHolderAddress[holderAddress] = []uuid.UUID{}
+				}
+				data.contractTokensByHolderAddress[holderAddress] = append(data.contractTokensByHolderAddress[holderAddress], wbdata.DeterministicContractID(contractAddressStr))
 				entries++
 			}
 		}
@@ -781,6 +774,11 @@ func (s *tokenIngestionService) storeTokensInDB(
 		contractTokens = append(contractTokens, contract)
 	}
 	if len(contractTokens) > 0 {
+		for _, contract := range contractTokens {
+			if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
+				log.Ctx(ctx).Warnf("Contract %s is missing code and issuer", contract.ID)
+			}
+		}
 		if err := s.contractModel.BatchInsert(ctx, dbTx, contractTokens); err != nil {
 			return fmt.Errorf("batch inserting contracts: %w", err)
 		}
@@ -874,10 +872,4 @@ func (s *tokenIngestionService) extractSACBalanceFields(val xdr.ScVal) (balance 
 	}
 
 	return balance, authorized, clawback
-}
-
-// isContractHolderAddress checks if the holder address is a contract address (C...).
-func isContractHolderAddress(address string) bool {
-	_, err := strkey.Decode(strkey.VersionByteContract, address)
-	return err == nil
 }
