@@ -44,8 +44,10 @@ type IndexerBufferInterface interface {
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
+	PushSACContract(c *data.Contract)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueContractsByID() map[string]types.ContractType
+	GetSACContracts() map[string]*data.Contract
 	Merge(other IndexerBufferInterface)
 	Clear()
 }

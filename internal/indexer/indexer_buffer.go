@@ -70,6 +70,7 @@ type IndexerBuffer struct {
 	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
+	sacContractsByID               map[string]*data.Contract     // SAC contract metadata extracted from instance entries
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -88,6 +89,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueContractsByID:            make(map[string]types.ContractType),
+		sacContractsByID:               make(map[string]*data.Contract),
 	}
 }
 
@@ -534,6 +536,13 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 
 	// Merge unique contracts
 	maps.Copy(b.uniqueContractsByID, otherBuffer.uniqueContractsByID)
+
+	// Merge SAC contracts (first-write wins for deduplication)
+	for id, contract := range otherBuffer.sacContractsByID {
+		if _, exists := b.sacContractsByID[id]; !exists {
+			b.sacContractsByID[id] = contract
+		}
+	}
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
@@ -551,6 +560,7 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.uniqueTrustlineAssets)
 	clear(b.uniqueContractsByID)
 	clear(b.trustlineChangesByTrustlineKey)
+	clear(b.sacContractsByID)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
@@ -584,6 +594,26 @@ func (b *IndexerBuffer) GetUniqueContractsByID() map[string]types.ContractType {
 	defer b.mu.RUnlock()
 
 	return maps.Clone(b.uniqueContractsByID)
+}
+
+// PushSACContract adds a SAC contract with extracted metadata to the buffer.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushSACContract(c *data.Contract) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.sacContractsByID[c.ContractID]; !exists {
+		b.sacContractsByID[c.ContractID] = c
+	}
+}
+
+// GetSACContracts returns a map of SAC contract IDs to their metadata.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.sacContractsByID)
 }
 
 // ParseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
