@@ -257,7 +257,10 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 		sep41TokensByAccountAddress := make(map[string][]uuid.UUID)
 		for address, contractTokens := range cpData.contractTokensByHolderAddress {
 			for _, token := range contractTokens {
-				if cpData.uniqueContractTokens[token].Type == string(types.ContractTypeSEP41) {
+				if _, exists := cpData.uniqueContractTokens[token]; exists && cpData.uniqueContractTokens[token].Type == string(types.ContractTypeSEP41) {
+					if _, exists := sep41TokensByAccountAddress[address]; !exists {
+						sep41TokensByAccountAddress[address] = make([]uuid.UUID, 0)
+					}
 					sep41TokensByAccountAddress[address] = append(sep41TokensByAccountAddress[address], token)
 				}
 			}
@@ -535,6 +538,7 @@ func (s *tokenIngestionService) processContractInstanceChange(
 			return &wbdata.Contract{
 				ID:         wbdata.DeterministicContractID(contractAddress),
 				ContractID: contractAddress,
+				Type:       string(types.ContractTypeUnknown),
 			}, &hash, false, false
 		}
 	}
