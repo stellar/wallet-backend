@@ -149,8 +149,12 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// 1. Insert unique trustline assets (pre-tracked in buffer)
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
-				return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
+			uniqueAssets := buffer.GetUniqueTrustlineAssets()
+			if len(uniqueAssets) > 0 {
+				if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
+					return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
+				}
+				log.Ctx(ctx).Infof("✅ inserted %d trustline assets", len(uniqueAssets))
 			}
 
 			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
@@ -162,6 +166,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
 				}
+				log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 			}
 
 			// 3. Filter participant data
@@ -244,7 +249,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 // SAC contracts get their metadata from ledger data (sacContracts parameter).
 // SEP-41 contracts need RPC metadata fetch.
 func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.Tx, sep41ContractTokensByID map[string]types.ContractType, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
-	if len(sep41ContractTokensByID) == 0 {
+	if len(sep41ContractTokensByID) == 0 && len(sacContracts) == 0 {
 		return nil, nil
 	}
 

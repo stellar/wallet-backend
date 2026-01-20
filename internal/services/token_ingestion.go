@@ -371,8 +371,8 @@ func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context,
 		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccount); err != nil {
 			return fmt.Errorf("batch inserting contract tokens: %w", err)
 		}
+		log.Ctx(ctx).Infof("✅ inserted %d account-contract SEP41 relationships", len(contractTokensByAccount))
 	}
-	log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(changes))
 	return nil
 }
 
@@ -403,8 +403,8 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 		if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
+		log.Ctx(ctx).Infof("✅ upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	}
-	log.Ctx(ctx).Infof("✅ upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	return nil
 }
 
@@ -437,8 +437,8 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
+		log.Ctx(ctx).Infof("✅ upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
 	}
-	log.Ctx(ctx).Infof("✅ upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
 	return nil
 }
 
