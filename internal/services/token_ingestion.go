@@ -246,6 +246,24 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 			return fmt.Errorf("streaming checkpoint data: %w", txErr)
 		}
 
+		// Identify SAC contracts missing code/issuer and fetch metadata via RPC
+		sacContractsNeedingMetadata := make([]string, 0)
+		for _, contract := range cpData.uniqueContractTokens {
+			if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
+				sacContractsNeedingMetadata = append(sacContractsNeedingMetadata, contract.ContractID)
+			}
+		}
+		if len(sacContractsNeedingMetadata) > 0 {
+			log.Ctx(ctx).Infof("Fetching metadata for %d SAC contracts via RPC", len(sacContractsNeedingMetadata))
+			sacContracts, txErr := s.contractMetadataService.FetchSACMetadata(ctx, sacContractsNeedingMetadata)
+			if txErr != nil {
+				return fmt.Errorf("fetching SAC metadata: %w", txErr)
+			}
+			for _, contract := range sacContracts {
+				cpData.uniqueContractTokens[contract.ID] = contract
+			}
+		}
+
 		// Extract contract spec from WASM hash and validate SEP-41 contracts
 		sep41Tokens, err := s.fetchSep41Metadata(ctx, cpData.contractIDsByWasmHash, cpData.contractTypesByWasmHash)
 		if err != nil {

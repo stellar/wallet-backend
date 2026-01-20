@@ -381,6 +381,180 @@ func TestFetchSingleField(t *testing.T) {
 	})
 }
 
+func TestFetchSACMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns empty slice for empty input", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{})
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+		// Verify no RPC calls were made
+		mockRPCService.AssertNotCalled(t, "SimulateTransaction", mock.Anything, mock.Anything)
+	})
+
+	t.Run("parses code:issuer format successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "USDC:GCNY..."
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "USDC", *contract.Code)
+		assert.Equal(t, "GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Issuer)
+		assert.Equal(t, "USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Name)
+		assert.Equal(t, "USDC", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("handles native XLM asset", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "native"
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "XLM", *contract.Code)
+		assert.Equal(t, "", *contract.Issuer)
+		assert.Equal(t, "native", *contract.Name)
+		assert.Equal(t, "XLM", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("skips contract with malformed name gracefully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning malformed value (no colon)
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("MALFORMED_NO_COLON")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should not error, but skip the malformed contract
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("skips contract when RPC fails gracefully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should not error, but skip the failed contract
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("processes multiple contracts successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// Mock responses for two contracts - use mock.Anything for both calls
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+		nameScVal2 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		// Return different values for the two calls
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal2}},
+			}, nil,
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+}
+
 func TestFetchBatch(t *testing.T) {
 	ctx := context.Background()
 

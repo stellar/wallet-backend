@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,10 @@ type ContractMetadataService interface {
 	// FetchSep41Metadata fetches metadata for SEP-41 contracts via RPC without storing.
 	// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
 	FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
+	// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
+	// SAC name() returns "code:issuer" format (or "native" for XLM).
+	// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7.
+	FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -116,6 +121,94 @@ func (s *contractMetadataService) FetchSep41Metadata(ctx context.Context, contra
 	}
 
 	return contracts, nil
+}
+
+// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
+// SAC contracts return "code:issuer" format from name() (or "native" for XLM).
+// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7 (hardcoded for Stellar assets).
+func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	if len(contractIDs) == 0 {
+		return []*data.Contract{}, nil
+	}
+
+	start := time.Now()
+	var (
+		contracts []*data.Contract
+		mu        sync.Mutex
+	)
+
+	// Process in batches to avoid overwhelming the RPC
+	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
+		end := min(i+simulateTransactionBatchSize, len(contractIDs))
+		batch := contractIDs[i:end]
+
+		group := s.pool.NewGroupContext(ctx)
+		for _, contractID := range batch {
+			group.Submit(func() {
+				contract, err := s.fetchSACMetadataForContract(ctx, contractID)
+				if err != nil {
+					log.Ctx(ctx).Warnf("Failed to fetch SAC metadata for contract %s: %v", contractID, err)
+					return
+				}
+				mu.Lock()
+				contracts = append(contracts, contract)
+				mu.Unlock()
+			})
+		}
+
+		if err := group.Wait(); err != nil {
+			log.Ctx(ctx).Warnf("Error waiting for SAC metadata batch: %v", err)
+		}
+
+		// Sleep between batches to avoid overwhelming the RPC (skip for last batch)
+		if end < len(contractIDs) {
+			time.Sleep(batchSleepDuration)
+		}
+	}
+
+	log.Ctx(ctx).Infof("Fetched metadata for %d SAC contracts in %.4f seconds", len(contracts), time.Since(start).Seconds())
+	return contracts, nil
+}
+
+// fetchSACMetadataForContract fetches metadata for a single SAC contract by calling name().
+// Parses the name as "code:issuer" format or handles "native" as XLM.
+func (s *contractMetadataService) fetchSACMetadataForContract(ctx context.Context, contractID string) (*data.Contract, error) {
+	nameVal, err := s.FetchSingleField(ctx, contractID, "name")
+	if err != nil {
+		return nil, fmt.Errorf("fetching name: %w", err)
+	}
+
+	nameStr, ok := nameVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("name value is not a string")
+	}
+	name := string(nameStr)
+
+	var code, issuer string
+	if name == "native" {
+		// Native XLM asset
+		code = "XLM"
+		issuer = ""
+	} else {
+		// Parse "code:issuer" format
+		parts := strings.SplitN(name, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("malformed SAC name '%s': expected 'code:issuer' format", name)
+		}
+		code = parts[0]
+		issuer = parts[1]
+	}
+
+	return &data.Contract{
+		ID:         data.DeterministicContractID(contractID),
+		ContractID: contractID,
+		Type:       string(types.ContractTypeSAC),
+		Code:       &code,
+		Issuer:     &issuer,
+		Name:       &name,
+		Symbol:     &code,
+		Decimals:   7, // Stellar assets always use 7 decimals
+	}, nil
 }
 
 // fetchMetadata fetches name, symbol, and decimals for a single SEP-41 contract in parallel.
