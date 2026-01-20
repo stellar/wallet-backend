@@ -28,7 +28,7 @@ import (
 
 const (
 	// FlushBatchSize is the number of entries to buffer before flushing to DB.
-	flushBatchSize = 200_000
+	flushBatchSize = 100_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -240,6 +240,12 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 
 	// Wrap ALL DB operations in a single transaction for atomicity
 	err = db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		// Disable synchronous commit for this transaction only - safe for checkpoint
+		// population since it's idempotent and can be re-run if crash occurs
+		if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
+			return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
+		}
+
 		// Stream trustlines and collect contracts from checkpoint
 		cpData, txErr := s.streamCheckpointData(ctx, dbTx, reader, checkpointLedger)
 		if txErr != nil {
