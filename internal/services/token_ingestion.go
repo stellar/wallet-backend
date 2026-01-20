@@ -254,9 +254,17 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 		for _, token := range sep41Tokens {
 			cpData.uniqueContractTokens[token.ID] = token
 		}
+		sep41TokensByAccountAddress := make(map[string][]uuid.UUID)
+		for address, contractTokens := range cpData.contractTokensByHolderAddress {
+			for _, token := range contractTokens {
+				if cpData.uniqueContractTokens[token].Type == string(types.ContractTypeSEP41) {
+					sep41TokensByAccountAddress[address] = append(sep41TokensByAccountAddress[address], token)
+				}
+			}
+		}
 
 		// Store SEP-41 contract relationships using deterministic IDs
-		if txErr := s.storeTokensInDB(ctx, dbTx, cpData.contractTokensByHolderAddress, cpData.uniqueAssets, cpData.uniqueContractTokens); txErr != nil {
+		if txErr := s.storeTokensInDB(ctx, dbTx, sep41TokensByAccountAddress, cpData.uniqueAssets, cpData.uniqueContractTokens); txErr != nil {
 			return fmt.Errorf("storing SEP-41 tokens in postgres: %w", txErr)
 		}
 
