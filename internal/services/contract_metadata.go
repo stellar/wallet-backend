@@ -126,6 +126,7 @@ func (s *contractMetadataService) FetchSep41Metadata(ctx context.Context, contra
 // FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
 // SAC contracts return "code:issuer" format from name() (or "native" for XLM).
 // Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7 (hardcoded for Stellar assets).
+// This function fails fast if any contract metadata fetch fails - partial results are not returned.
 func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
 	if len(contractIDs) == 0 {
 		return []*data.Contract{}, nil
@@ -133,8 +134,9 @@ func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contract
 
 	start := time.Now()
 	var (
-		contracts []*data.Contract
-		mu        sync.Mutex
+		contracts   []*data.Contract
+		mu          sync.Mutex
+		fetchErrors []error
 	)
 
 	// Process in batches to avoid overwhelming the RPC
@@ -147,7 +149,9 @@ func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contract
 			group.Submit(func() {
 				contract, err := s.fetchSACMetadataForContract(ctx, contractID)
 				if err != nil {
-					log.Ctx(ctx).Warnf("Failed to fetch SAC metadata for contract %s: %v", contractID, err)
+					mu.Lock()
+					fetchErrors = append(fetchErrors, fmt.Errorf("contract %s: %w", contractID, err))
+					mu.Unlock()
 					return
 				}
 				mu.Lock()
@@ -157,13 +161,18 @@ func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contract
 		}
 
 		if err := group.Wait(); err != nil {
-			log.Ctx(ctx).Warnf("Error waiting for SAC metadata batch: %v", err)
+			return nil, fmt.Errorf("error in SAC metadata batch: %w", err)
 		}
 
 		// Sleep between batches to avoid overwhelming the RPC (skip for last batch)
 		if end < len(contractIDs) {
 			time.Sleep(batchSleepDuration)
 		}
+	}
+
+	// Fail if any contract metadata fetch failed - partial results are not acceptable
+	if len(fetchErrors) > 0 {
+		return nil, fmt.Errorf("failed to fetch metadata for %d SAC contracts: %w", len(fetchErrors), errors.Join(fetchErrors...))
 	}
 
 	log.Ctx(ctx).Infof("Fetched metadata for %d SAC contracts in %.4f seconds", len(contracts), time.Since(start).Seconds())

@@ -471,7 +471,7 @@ func TestFetchSACMetadata(t *testing.T) {
 		assert.Equal(t, uint32(7), contract.Decimals)
 	})
 
-	t.Run("skips contract with malformed name gracefully", func(t *testing.T) {
+	t.Run("returns error for contract with malformed name", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
 		mockContractModel := data.NewContractModelMock(t)
 		pool := pond.NewPool(5)
@@ -493,12 +493,14 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		result, err := service.FetchSACMetadata(ctx, []string{contractID})
 
-		// Should not error, but skip the malformed contract
-		require.NoError(t, err)
-		assert.Empty(t, result)
+		// Should return error for malformed contract name
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "malformed SAC name")
 	})
 
-	t.Run("skips contract when RPC fails gracefully", func(t *testing.T) {
+	t.Run("returns error when RPC fails", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
 		mockContractModel := data.NewContractModelMock(t)
 		pool := pond.NewPool(5)
@@ -515,9 +517,11 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		result, err := service.FetchSACMetadata(ctx, []string{contractID})
 
-		// Should not error, but skip the failed contract
-		require.NoError(t, err)
-		assert.Empty(t, result)
+		// Should return error when RPC fails
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "RPC timeout")
 	})
 
 	t.Run("processes multiple contracts successfully", func(t *testing.T) {
@@ -552,6 +556,38 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
+	})
+
+	t.Run("returns error and no partial results when one contract fails", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// First contract succeeds, second fails
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		// Should return error and no partial results
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata for 1 SAC contracts")
 	})
 }
 

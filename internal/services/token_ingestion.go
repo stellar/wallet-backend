@@ -254,7 +254,6 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 			}
 		}
 		if len(sacContractsNeedingMetadata) > 0 {
-			log.Ctx(ctx).Infof("Fetching metadata for %d SAC contracts via RPC", len(sacContractsNeedingMetadata))
 			sacContracts, txErr := s.contractMetadataService.FetchSACMetadata(ctx, sacContractsNeedingMetadata)
 			if txErr != nil {
 				return fmt.Errorf("fetching SAC metadata: %w", txErr)
@@ -792,11 +791,6 @@ func (s *tokenIngestionService) storeTokensInDB(
 		contractTokens = append(contractTokens, contract)
 	}
 	if len(contractTokens) > 0 {
-		for _, contract := range contractTokens {
-			if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
-				log.Ctx(ctx).Warnf("Contract %s is missing code and issuer", contract.ID)
-			}
-		}
 		if err := s.contractModel.BatchInsert(ctx, dbTx, contractTokens); err != nil {
 			return fmt.Errorf("batch inserting contracts: %w", err)
 		}
