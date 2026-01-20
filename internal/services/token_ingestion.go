@@ -495,7 +495,7 @@ func (s *tokenIngestionService) processContractInstanceChange(
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
-) (sacContract *wbdata.Contract, wasmHash *xdr.Hash, skip bool) {
+) (sacContract *wbdata.Contract, wasmHash *xdr.Hash, isSAC bool, skip bool) {
 	ledgerEntry := change.Post
 	asset, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
 	if isSAC {
@@ -503,7 +503,7 @@ func (s *tokenIngestionService) processContractInstanceChange(
 		var assetType, code, issuer string
 		err := asset.Extract(&assetType, &code, &issuer)
 		if err != nil {
-			return nil, nil, true
+			return nil, nil, false, true
 		}
 		name := code + ":" + issuer
 		decimals := uint32(7) // Stellar assets always have 7 decimals
@@ -516,7 +516,7 @@ func (s *tokenIngestionService) processContractInstanceChange(
 			Name:       &name,
 			Symbol:     &code,
 			Decimals:   decimals,
-		}, nil, true
+		}, nil, true, false
 	}
 
 	// For non-SAC contracts, extract WASM hash for later validation
@@ -524,11 +524,14 @@ func (s *tokenIngestionService) processContractInstanceChange(
 	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
 		if contractInstance.Executable.WasmHash != nil {
 			hash := *contractInstance.Executable.WasmHash
-			return nil, &hash, false
+			return &wbdata.Contract{
+				ID:         wbdata.DeterministicContractID(contractAddress),
+				ContractID: contractAddress,
+			}, &hash, false, false
 		}
 	}
 
-	return nil, nil, true
+	return nil, nil, false, true
 }
 
 // streamCheckpointData reads from a ChangeReader and streams trustlines to DB in batches.
@@ -624,23 +627,38 @@ func (s *tokenIngestionService) streamCheckpointData(
 					continue
 				}
 
-				// For contract addresses (C...), try to extract SAC balance and stream directly to batch
+				// For contract addresses (C...), validate using SDK and stream SAC balance
 				// C-addresses with SAC balances go to sac_balances table, not ContractsByHolderAddress
 				if isContractHolderAddress(holderAddress) {
-					balanceStr, authorized, clawback, err := s.extractSACBalanceFromValue(contractDataEntry.Val)
-					if err == nil {
-						// Stream SAC balance directly to batch (like trustlines)
-						batch.addSACBalance(wbdata.SACBalance{
-							AccountAddress:    holderAddress,
-							ContractID:        wbdata.DeterministicContractID(contractAddressStr),
-							Balance:           balanceStr,
-							IsAuthorized:      authorized,
-							IsClawbackEnabled: clawback,
-							LedgerNumber:      checkpointLedger,
-						})
-						entries++
+					// Use SDK to validate this is actually a SAC balance entry
+					_, _, ok := sac.ContractBalanceFromContractData(*change.Post, s.networkPassphrase)
+					if !ok {
 						continue
 					}
+
+					// Ensure contract exists in uniqueContractTokens (minimal entry)
+					// This prevents FK violation when balance is inserted before instance entry
+					contractUUID := wbdata.DeterministicContractID(contractAddressStr)
+					if _, exists := data.uniqueContractTokens[contractUUID]; !exists {
+						data.uniqueContractTokens[contractUUID] = &wbdata.Contract{
+							ID:         contractUUID,
+							ContractID: contractAddressStr,
+							Type:       string(types.ContractTypeSAC),
+						}
+					}
+
+					// Extract balance fields and stream to batch
+					balanceStr, authorized, clawback := s.extractSACBalanceFields(contractDataEntry.Val)
+					batch.addSACBalance(wbdata.SACBalance{
+						AccountAddress:    holderAddress,
+						ContractID:        contractUUID,
+						Balance:           balanceStr,
+						IsAuthorized:      authorized,
+						IsClawbackEnabled: clawback,
+						LedgerNumber:      checkpointLedger,
+					})
+					entries++
+					continue
 				}
 
 				// Non-SAC contract token balance - add to ContractsByHolderAddress for relationship tracking
@@ -651,19 +669,18 @@ func (s *tokenIngestionService) streamCheckpointData(
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				sacContract, wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
-				if sacContract != nil {
-					// Collect SAC contract metadata for batch insert
-					if _, exists := data.uniqueContractTokens[sacContract.ID]; !exists {
-						data.uniqueContractTokens[sacContract.ID] = sacContract
-					}
-					entries++
-					continue
-				}
+				contract, wasmHash, isSAC, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
 				if skip {
+					// We skip processing if there is an error
 					continue
 				}
+				data.uniqueContractTokens[contract.ID] = contract
+				entries++
+				
 				// For non-SAC contracts with WASM hash, track for later validation
+				if isSAC {
+					continue
+				}
 				data.contractIDsByWasmHash[*wasmHash] = append(data.contractIDsByWasmHash[*wasmHash], contractAddressStr)
 				entries++
 			}
@@ -806,23 +823,14 @@ func (s *tokenIngestionService) extractHolderAddress(key xdr.ScVal) (string, err
 	return holderAddress, nil
 }
 
-// extractSACBalanceFromValue extracts balance, authorized, and clawback from a SAC balance map.
+// extractSACBalanceFields extracts balance, authorized, and clawback from a SAC balance map.
+// This function assumes SDK validation has already confirmed this is a valid SAC balance entry.
 // SAC balance format: {amount: i128, authorized: bool, clawback: bool}
-func (s *tokenIngestionService) extractSACBalanceFromValue(val xdr.ScVal) (balance string, authorized bool, clawback bool, err error) {
-	if val.Type != xdr.ScValTypeScvMap {
-		return "", false, false, fmt.Errorf("expected ScMap, got %v", val.Type)
-	}
-
+func (s *tokenIngestionService) extractSACBalanceFields(val xdr.ScVal) (balance string, authorized bool, clawback bool) {
 	balanceMap, ok := val.GetMap()
 	if !ok || balanceMap == nil {
-		return "", false, false, fmt.Errorf("failed to get balance map")
+		return "0", false, false
 	}
-
-	if len(*balanceMap) != 3 {
-		return "", false, false, fmt.Errorf("expected 3 entries (amount, authorized, clawback), got %d", len(*balanceMap))
-	}
-
-	var amountFound, authorizedFound, clawbackFound bool
 
 	for _, entry := range *balanceMap {
 		if entry.Key.Type != xdr.ScValTypeScvSymbol {
@@ -836,34 +844,24 @@ func (s *tokenIngestionService) extractSACBalanceFromValue(val xdr.ScVal) (balan
 
 		switch string(keySymbol) {
 		case "amount":
-			if entry.Val.Type != xdr.ScValTypeScvI128 {
-				return "", false, false, fmt.Errorf("amount is not i128")
+			if entry.Val.Type == xdr.ScValTypeScvI128 {
+				i128Parts := entry.Val.MustI128()
+				balance = amount.String128(i128Parts)
 			}
-			i128Parts := entry.Val.MustI128()
-			balance = amount.String128(i128Parts)
-			amountFound = true
 
 		case "authorized":
-			if entry.Val.Type != xdr.ScValTypeScvBool {
-				return "", false, false, fmt.Errorf("authorized is not bool")
+			if entry.Val.Type == xdr.ScValTypeScvBool {
+				authorized = entry.Val.MustB()
 			}
-			authorized = entry.Val.MustB()
-			authorizedFound = true
 
 		case "clawback":
-			if entry.Val.Type != xdr.ScValTypeScvBool {
-				return "", false, false, fmt.Errorf("clawback is not bool")
+			if entry.Val.Type == xdr.ScValTypeScvBool {
+				clawback = entry.Val.MustB()
 			}
-			clawback = entry.Val.MustB()
-			clawbackFound = true
 		}
 	}
 
-	if !amountFound || !authorizedFound || !clawbackFound {
-		return "", false, false, fmt.Errorf("missing required fields in balance map")
-	}
-
-	return balance, authorized, clawback, nil
+	return balance, authorized, clawback
 }
 
 // isContractHolderAddress checks if the holder address is a contract address (C...).
