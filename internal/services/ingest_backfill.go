@@ -59,6 +59,7 @@ type BatchChanges struct {
 	SACBalanceChangesByKey    map[indexer.SACBalanceChangeKey]types.SACBalanceChange
 	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
 	UniqueContractTokensByID  map[string]types.ContractType
+	SACContractsByID          map[string]*data.Contract // SAC contract metadata extracted from instance entries
 }
 
 // mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
@@ -185,6 +186,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
 		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
 		mergedUniqueContractTokens := make(map[string]types.ContractType)
+		mergedSACContracts := make(map[string]*data.Contract)
 		mergedAccountChanges := make(map[string]types.AccountChange)
 		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
 		var allContractChanges []types.ContractChange
@@ -196,13 +198,19 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 				mergeSACBalanceChanges(mergedSACBalanceChanges, result.BatchChanges.SACBalanceChangesByKey)
 				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
 				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
+				// Merge SAC contracts (first-write wins)
+				for id, contract := range result.BatchChanges.SACContractsByID {
+					if _, exists := mergedSACContracts[id]; !exists {
+						mergedSACContracts[id] = contract
+					}
+				}
 			}
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts)
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
@@ -404,6 +412,12 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				}
 				// Collect unique contract tokens
 				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueContractsByID())
+				// Collect SAC contract metadata (first-write wins for deduplication)
+				for id, contract := range buffer.GetSACContracts() {
+					if _, exists := batchChanges.SACContractsByID[id]; !exists {
+						batchChanges.SACContractsByID[id] = contract
+					}
+				}
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
@@ -464,6 +478,7 @@ func (m *ingestService) processLedgersInBatch(
 			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
 			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
+			SACContractsByID:          make(map[string]*data.Contract),
 		}
 	}
 
@@ -531,6 +546,7 @@ func (m *ingestService) processBatchChanges(
 	sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange,
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
 	uniqueContractTokens map[string]types.ContractType,
+	sacContracts map[string]*data.Contract,
 ) error {
 	// 1. Convert unique assets map to slice for BatchInsert
 	assetSlice := make([]data.TrustlineAsset, 0, len(uniqueAssets))
@@ -547,7 +563,7 @@ func (m *ingestService) processBatchChanges(
 
 	// 3. Insert new contract tokens (filter existing, fetch metadata, insert)
 	if len(uniqueContractTokens) > 0 {
-		contracts, txErr := m.prepareNewContracts(ctx, dbTx, uniqueContractTokens)
+		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, uniqueContractTokens, sacContracts)
 		if txErr != nil {
 			return fmt.Errorf("preparing contracts: %w", txErr)
 		}

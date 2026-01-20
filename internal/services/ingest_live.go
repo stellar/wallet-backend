@@ -154,7 +154,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
-			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueContractsByID())
+			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueContractsByID(), buffer.GetSACContracts())
 			if txErr != nil {
 				return fmt.Errorf("preparing contract tokens for ledger %d: %w", currentLedger, txErr)
 			}
