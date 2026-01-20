@@ -67,7 +67,9 @@ func (p *SACInstanceProcessor) ProcessOperation(ctx context.Context, opWrapper *
 
 		var assetType xdr.AssetType
 		var code, issuer string
-		asset.Extract(&assetType, &code, &issuer)
+		if err := asset.Extract(&assetType, &code, &issuer); err != nil {
+			continue
+		}
 
 		name := fmt.Sprintf("%s:%s", code, issuer)
 		contracts = append(contracts, &data.Contract{

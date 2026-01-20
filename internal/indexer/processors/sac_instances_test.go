@@ -37,6 +37,8 @@ func computeSACContractID(code, issuer string) [32]byte {
 
 // sacInstanceLedgerEntry creates a SAC contract instance ledger entry for testing.
 // Uses the SDK's sac.AssetToContractData to create a valid instance entry.
+//
+//nolint:unparam // issuer parameter kept for API consistency with test variations
 func sacInstanceLedgerEntry(code, issuer string) *xdr.LedgerEntry {
 	contractID := computeSACContractID(code, issuer)
 	ledgerData, err := sac.AssetToContractData(false, code, issuer, contractID)
@@ -195,13 +197,9 @@ func TestSACInstanceProcessor_ProcessOperation(t *testing.T) {
 				contract := contracts[0]
 				assert.Equal(t, tc.expectedContractID, contract.ContractID)
 				assert.Equal(t, tc.expectedContractType, contract.Type)
-				require.NotNil(t, contract.Code)
 				assert.Equal(t, tc.expectedCode, *contract.Code)
-				require.NotNil(t, contract.Issuer)
 				assert.Equal(t, tc.expectedIssuer, *contract.Issuer)
-				require.NotNil(t, contract.Name)
 				assert.Equal(t, tc.expectedCode+":"+tc.expectedIssuer, *contract.Name)
-				require.NotNil(t, contract.Symbol)
 				assert.Equal(t, tc.expectedCode, *contract.Symbol)
 				assert.Equal(t, uint32(7), contract.Decimals)
 				// Verify deterministic ID is set
@@ -249,8 +247,6 @@ func TestSACInstanceProcessor_ProcessOperation_AlphaNum12(t *testing.T) {
 
 	contract := contracts[0]
 	assert.Equal(t, expectedContractIDStr, contract.ContractID)
-	require.NotNil(t, contract.Code)
 	assert.Equal(t, longCode, *contract.Code)
-	require.NotNil(t, contract.Issuer)
 	assert.Equal(t, testAssetIssuer, *contract.Issuer)
 }

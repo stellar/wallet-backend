@@ -411,7 +411,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
 				}
 				// Collect unique contract tokens
-				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueContractsByID())
+				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
 				// Collect SAC contract metadata (first-write wins for deduplication)
 				for id, contract := range buffer.GetSACContracts() {
 					if _, exists := batchChanges.SACContractsByID[id]; !exists {

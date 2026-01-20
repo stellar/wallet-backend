@@ -10,6 +10,7 @@ import (
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -20,8 +21,8 @@ import (
 
 // isContractAddress determines if the given address is a contract address (C...) or account address (G...)
 func isContractAddress(address string) bool {
-	// Contract addresses start with 'C' and account addresses start with 'G'
-	return len(address) > 0 && address[0] == 'C'
+	_, err := strkey.Decode(strkey.VersionByteContract, address)
+	return err == nil
 }
 
 type IndexerBufferInterface interface {
@@ -46,7 +47,7 @@ type IndexerBufferInterface interface {
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
-	GetUniqueContractsByID() map[string]types.ContractType
+	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
 	Merge(other IndexerBufferInterface)
 	Clear()
@@ -73,28 +74,28 @@ type LedgerChangeProcessor[T any] interface {
 }
 
 type Indexer struct {
-	participantsProcessor   ParticipantsProcessorInterface
-	tokenTransferProcessor  TokenTransferProcessorInterface
-	trustlinesProcessor     LedgerChangeProcessor[types.TrustlineChange]
-	accountsProcessor       LedgerChangeProcessor[types.AccountChange]
-	sacBalancesProcessor    LedgerChangeProcessor[types.SACBalanceChange]
-	sacInstancesProcessor   LedgerChangeProcessor[*data.Contract]
-	processors              []OperationProcessorInterface
-	pool                    pond.Pool
-	metricsService          processors.MetricsServiceInterface
-	skipTxMeta              bool
-	skipTxEnvelope          bool
-	networkPassphrase       string
+	participantsProcessor  ParticipantsProcessorInterface
+	tokenTransferProcessor TokenTransferProcessorInterface
+	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
+	sacInstancesProcessor  LedgerChangeProcessor[*data.Contract]
+	processors             []OperationProcessorInterface
+	pool                   pond.Pool
+	metricsService         processors.MetricsServiceInterface
+	skipTxMeta             bool
+	skipTxEnvelope         bool
+	networkPassphrase      string
 }
 
 func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
-		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:     processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
-		accountsProcessor:       processors.NewAccountsProcessor(networkPassphrase, metricsService),
-		sacBalancesProcessor:    processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
-		sacInstancesProcessor:   processors.NewSACInstanceProcessor(networkPassphrase),
+		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
+		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
+		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -250,11 +251,11 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		case types.StateChangeCategoryBalance:
 			// Only store contract changes when:
 			// - Account is C-address, OR
-			// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
+			// - Account is G-address AND contract token is SEP41
 			accountIsContract := isContractAddress(stateChange.AccountID)
-			tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
+			tokenIsSEP41 := stateChange.ContractType == types.ContractTypeSEP41
 
-			if accountIsContract || !tokenIsSACOrNative {
+			if accountIsContract || tokenIsSEP41 {
 				contractChange := types.ContractChange{
 					AccountID:    stateChange.AccountID,
 					OperationID:  stateChange.OperationID,

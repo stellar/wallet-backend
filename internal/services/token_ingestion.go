@@ -688,7 +688,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 				}
 				data.uniqueContractTokens[contract.ID] = contract
 				entries++
-				
+
 				// For non-SAC contracts with WASM hash, track for later validation
 				if isSAC {
 					continue

@@ -154,7 +154,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			}
 
 			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
-			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueContractsByID(), buffer.GetSACContracts())
+			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
 			if txErr != nil {
 				return fmt.Errorf("preparing contract tokens for ledger %d: %w", currentLedger, txErr)
 			}
@@ -243,46 +243,47 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 // prepareNewContractTokens filters out existing contracts and prepares metadata for new contracts.
 // SAC contracts get their metadata from ledger data (sacContracts parameter).
 // SEP-41 contracts need RPC metadata fetch.
-func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.Tx, contractsByID map[string]types.ContractType, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
-	if len(contractsByID) == 0 {
+func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.Tx, sep41ContractTokensByID map[string]types.ContractType, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
+	if len(sep41ContractTokensByID) == 0 {
 		return nil, nil
 	}
 
 	// Build list of contract IDs to check
-	contractIDsList := make([]string, 0, len(contractsByID))
-	for id := range contractsByID {
-		contractIDsList = append(contractIDsList, id)
+	contractAddresses := make([]string, 0, len(sep41ContractTokensByID))
+	for address := range sep41ContractTokensByID {
+		contractAddresses = append(contractAddresses, address)
+	}
+	for address := range sacContracts {
+		contractAddresses = append(contractAddresses, address)
 	}
 
 	// Get existing contract IDs from DB (only checking the ones we need)
-	existingIDs, err := m.models.Contract.GetExisting(ctx, dbTx, contractIDsList)
+	existingAddresses, err := m.models.Contract.GetExisting(ctx, dbTx, contractAddresses)
 	if err != nil {
 		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
 	}
-	existingSet := set.NewSet(existingIDs...)
+	existingSet := set.NewSet(existingAddresses...)
 
-	// Collect new contracts
+	// Collect new contract tokens
 	var contracts []*data.Contract
-	var newSep41ContractIDs []string
-
-	for id, ctype := range contractsByID {
-		if existingSet.Contains(id) {
+	for address := range sacContracts {
+		if existingSet.Contains(address) {
 			continue
 		}
-		switch ctype {
-		case types.ContractTypeSAC:
-			// SAC metadata already extracted from ledger
-			if c, ok := sacContracts[id]; ok {
-				contracts = append(contracts, c)
-			}
-		case types.ContractTypeSEP41:
-			newSep41ContractIDs = append(newSep41ContractIDs, id)
+		contracts = append(contracts, sacContracts[address])
+	}
+
+	var newSep41ContractAddresses []string
+	for address := range sep41ContractTokensByID {
+		if existingSet.Contains(address) {
+			continue
 		}
+		newSep41ContractAddresses = append(newSep41ContractAddresses, address)
 	}
 
 	// Fetch metadata for new SEP-41 contracts via RPC
-	if len(newSep41ContractIDs) > 0 {
-		sep41Contracts, fetchErr := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractIDs)
+	if len(newSep41ContractAddresses) > 0 {
+		sep41Contracts, fetchErr := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractAddresses)
 		if fetchErr != nil {
 			return nil, fmt.Errorf("fetching metadata for new SEP-41 contracts: %w", fetchErr)
 		}
