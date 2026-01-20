@@ -73,26 +73,28 @@ type LedgerChangeProcessor[T any] interface {
 }
 
 type Indexer struct {
-	participantsProcessor  ParticipantsProcessorInterface
-	tokenTransferProcessor TokenTransferProcessorInterface
-	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
-	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
-	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
-	processors             []OperationProcessorInterface
-	pool                   pond.Pool
-	metricsService         processors.MetricsServiceInterface
-	skipTxMeta             bool
-	skipTxEnvelope         bool
-	networkPassphrase      string
+	participantsProcessor   ParticipantsProcessorInterface
+	tokenTransferProcessor  TokenTransferProcessorInterface
+	trustlinesProcessor     LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor       LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor    LedgerChangeProcessor[types.SACBalanceChange]
+	sacInstancesProcessor   LedgerChangeProcessor[*data.Contract]
+	processors              []OperationProcessorInterface
+	pool                    pond.Pool
+	metricsService          processors.MetricsServiceInterface
+	skipTxMeta              bool
+	skipTxEnvelope          bool
+	networkPassphrase       string
 }
 
 func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
-		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
-		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
-		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
+		trustlinesProcessor:     processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
+		accountsProcessor:       processors.NewAccountsProcessor(networkPassphrase, metricsService),
+		sacBalancesProcessor:    processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		sacInstancesProcessor:   processors.NewSACInstanceProcessor(networkPassphrase),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -230,6 +232,14 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, sacChange := range sacBalanceChanges {
 			buffer.PushSACBalanceChange(sacChange)
+		}
+
+		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if sacInstanceErr != nil {
+			return 0, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
+		}
+		for _, c := range sacContracts {
+			buffer.PushSACContract(c)
 		}
 	}
 
