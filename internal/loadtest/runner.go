@@ -111,7 +111,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	servers := startServers(cfg, metricsService)
 	defer shutdownServers(servers)
 
-	// Load seed data if provided
+	// Load seed data, this uses the mainnet tokens
 	if err := loadSeedData(ctx, cfg.DatabaseURL, cfg.SeedDataPath); err != nil {
 		return fmt.Errorf("loading seed data: %w", err)
 	}
