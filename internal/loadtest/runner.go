@@ -96,9 +96,24 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	metricsService.RegisterPoolMetrics("loadtest_indexer", indexerPool)
 	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, metricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
 
+	// Create TokenIngestionService for token change processing
+	tokenIngestionService := services.NewTokenIngestionServiceForLoadtest(
+		dbPool,
+		cfg.NetworkPassphrase,
+		models.TrustlineBalance,
+		models.NativeBalance,
+		models.SACBalance,
+		models.AccountContractTokens,
+	)
+
 	// Start metrics server
 	servers := startServers(cfg, metricsService)
 	defer shutdownServers(servers)
+
+	// Load seed data if provided
+	if err := loadSeedData(ctx, dbPool, cfg.SeedDataPath); err != nil {
+		return fmt.Errorf("loading seed data: %w", err)
+	}
 
 	// Initialize cursor
 	if err := initializeCursor(ctx, models, loadtestLatestCursor); err != nil {
@@ -106,7 +121,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 
 	// Run ingestion loop
-	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, models, metricsService)
+	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, models, metricsService, tokenIngestionService)
 }
 
 // initializeCursor ensures the loadtest cursor exists with value 0.
@@ -150,6 +165,7 @@ func runIngestionLoop(
 	ledgerIndexer *indexer.Indexer,
 	models *data.Models,
 	metricsService metrics.MetricsService,
+	tokenIngestionService services.TokenIngestionService,
 ) error {
 	// Prepare unbounded range - the backend will signal completion when file is exhausted
 	ledgerRange := ledgerbackend.UnboundedRange(cfg.StartLedger)
@@ -196,7 +212,7 @@ func runIngestionLoop(
 
 		// Write to database
 		dbStart := time.Now()
-		numTxs, numOps, err := persistLedgerData(ctx, models, buffer, currentLedger)
+		numTxs, numOps, err := persistLedgerData(ctx, models, tokenIngestionService, buffer, currentLedger)
 		if err != nil {
 			return fmt.Errorf("persisting ledger %d: %w", currentLedger, err)
 		}
