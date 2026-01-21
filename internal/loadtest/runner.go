@@ -43,6 +43,7 @@ type RunConfig struct {
 	SkipTxMeta          bool
 	SkipTxEnvelope      bool
 	StartLedger         uint32
+	SeedDataPath        string // Optional path to SQL file containing seed data
 }
 
 // Run executes ingestion from synthetic ledgers file.
