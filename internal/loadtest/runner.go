@@ -168,7 +168,8 @@ func runIngestionLoop(
 		ingestStart := time.Now()
 		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
-		if _, err := indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer); err != nil {
+		_, err = indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer)
+		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
