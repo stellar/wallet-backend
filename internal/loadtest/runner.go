@@ -123,6 +123,24 @@ func initializeCursor(ctx context.Context, models *data.Models, cursorName strin
 	return nil
 }
 
+// loadSeedData loads SQL seed data from the specified file path.
+// If seedDataPath is empty, this is a no-op.
+func loadSeedData(ctx context.Context, dbPool db.ConnectionPool, seedDataPath string) error {
+	if seedDataPath == "" {
+		return nil
+	}
+	content, err := os.ReadFile(seedDataPath)
+	if err != nil {
+		return fmt.Errorf("reading seed data file: %w", err)
+	}
+	_, err = dbPool.Exec(ctx, string(content))
+	if err != nil {
+		return fmt.Errorf("executing seed data: %w", err)
+	}
+	log.Infof("Loaded seed data from %s", seedDataPath)
+	return nil
+}
+
 // runIngestionLoop processes ledgers until the loadtest backend signals completion.
 func runIngestionLoop(
 	ctx context.Context,
