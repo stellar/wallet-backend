@@ -24,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 const (
@@ -221,7 +222,7 @@ func runIngestionLoop(
 }
 
 // persistLedgerData writes the processed data to the database.
-func persistLedgerData(ctx context.Context, models *data.Models, buffer *indexer.IndexerBuffer, ledgerSeq uint32) (int, int, error) {
+func persistLedgerData(ctx context.Context, models *data.Models, tokenIngestionService services.TokenIngestionService, buffer *indexer.IndexerBuffer, ledgerSeq uint32) (int, int, error) {
 	txs := buffer.GetTransactions()
 	ops := buffer.GetOperations()
 	stateChanges := buffer.GetStateChanges()
@@ -246,6 +247,35 @@ func persistLedgerData(ctx context.Context, models *data.Models, buffer *indexer
 			if _, err := models.StateChanges.BatchCopy(ctx, dbTx, stateChanges); err != nil {
 				return fmt.Errorf("inserting state changes: %w", err)
 			}
+		}
+
+		// Insert unique trustline assets (prerequisite for trustline balances FK)
+		uniqueAssets := buffer.GetUniqueTrustlineAssets()
+		if len(uniqueAssets) > 0 {
+			if err := models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+				return fmt.Errorf("inserting trustline assets: %w", err)
+			}
+		}
+
+		// Insert SAC contracts (prerequisite for SAC balances FK)
+		sacContracts := buffer.GetSACContracts()
+		if len(sacContracts) > 0 {
+			contracts := make([]*data.Contract, 0, len(sacContracts))
+			for _, c := range sacContracts {
+				contracts = append(contracts, c)
+			}
+			if err := models.Contract.BatchInsert(ctx, dbTx, contracts); err != nil {
+				return fmt.Errorf("inserting SAC contracts: %w", err)
+			}
+		}
+
+		// Process all token changes using TokenIngestionService
+		trustlineChanges := buffer.GetTrustlineChanges()
+		contractChanges := buffer.GetContractChanges()
+		accountChanges := buffer.GetAccountChanges()
+		sacBalanceChanges := buffer.GetSACBalanceChanges()
+		if err := tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); err != nil {
+			return fmt.Errorf("processing token changes: %w", err)
 		}
 
 		// Update cursor
