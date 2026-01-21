@@ -50,6 +50,7 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 		SkipTxMeta          bool
 		SkipTxEnvelope      bool
 		StartLedger         int
+		SeedDataPath        string
 	}{}
 
 	cfgOpts := config.ConfigOptions{
@@ -130,6 +131,14 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 			FlagDefault: 606644043,
 			Required:    false,
 		},
+		{
+			Name:        "seed-data-path",
+			Usage:       "Path to SQL file containing seed data for trustline_assets and contract_tokens",
+			OptType:     types.String,
+			ConfigKey:   &cfg.SeedDataPath,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
@@ -175,6 +184,9 @@ Example:
 			log.Infof("  Network passphrase: %s", cfg.NetworkPassphrase)
 			log.Infof("  Server port: %d", cfg.ServerPort)
 			log.Infof("  Start ledger: %d", cfg.StartLedger)
+			if cfg.SeedDataPath != "" {
+				log.Infof("  Seed data path: %s", cfg.SeedDataPath)
+			}
 
 			err := loadtest.Run(ctx, loadtest.RunConfig{
 				LedgersFilePath:     cfg.LedgersFilePath,
@@ -185,6 +197,7 @@ Example:
 				SkipTxMeta:          cfg.SkipTxMeta,
 				SkipTxEnvelope:      cfg.SkipTxEnvelope,
 				StartLedger:         uint32(cfg.StartLedger),
+				SeedDataPath:        cfg.SeedDataPath,
 			})
 			if err != nil {
 				log.Errorf("Loadtest run failed: %v", err)
