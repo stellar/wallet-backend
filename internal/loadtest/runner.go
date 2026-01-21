@@ -149,7 +149,7 @@ func loadSeedData(ctx context.Context, dbPool db.ConnectionPool, seedDataPath st
 	if err != nil {
 		return fmt.Errorf("reading seed data file: %w", err)
 	}
-	_, err = dbPool.Exec(ctx, string(content))
+	_, err = dbPool.ExecContext(ctx, string(content))
 	if err != nil {
 		return fmt.Errorf("executing seed data: %w", err)
 	}
@@ -189,7 +189,6 @@ func runIngestionLoop(
 		}
 
 		// Get ledger from backend
-		ledgerStart := time.Now()
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
 			log.Info("Loadtest complete - all ledgers processed")
@@ -198,7 +197,6 @@ func runIngestionLoop(
 		if err != nil {
 			return fmt.Errorf("getting ledger %d: %w", currentLedger, err)
 		}
-		metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(ledgerStart).Seconds())
 
 		// Process ledger
 		ingestStart := time.Now()
@@ -216,7 +214,7 @@ func runIngestionLoop(
 		if err != nil {
 			return fmt.Errorf("persisting ledger %d: %w", currentLedger, err)
 		}
-		metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(dbStart).Seconds())
+		metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
 
 		// Record metrics
 		ingestionDuration := time.Since(ingestStart).Seconds()
