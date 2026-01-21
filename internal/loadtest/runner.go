@@ -33,6 +33,8 @@ const (
 	loadtestLatestCursor = "loadtest_latest_ledger"
 	// serverShutdownTimeout is the timeout for graceful server shutdown.
 	serverShutdownTimeout = 10 * time.Second
+	// syntheticLedgerCount is the number of ledgers in the synthetic ledger file.
+	syntheticLedgerCount = 451
 )
 
 // RunConfig holds configuration for the loadtest runner.
@@ -174,20 +176,15 @@ func runIngestionLoop(
 	}
 
 	currentLedger := cfg.StartLedger
+	lastExpectedLedger := cfg.StartLedger + uint32(syntheticLedgerCount) - 1
 	totalStart := time.Now()
 	ledgersProcessed := 0
 	txsProcessed := 0
 	opsProcessed := 0
 
-	log.Infof("Starting loadtest ingestion from ledger %d", cfg.StartLedger)
+	log.Infof("Starting loadtest ingestion from ledger %d (last expected: %d)", cfg.StartLedger, lastExpectedLedger)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart)
-		default:
-		}
-
+	for currentLedger <= lastExpectedLedger{
 		// Get ledger from backend
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
@@ -231,6 +228,8 @@ func runIngestionLoop(
 		log.Infof("Ingested ledger %d in %.3fs", currentLedger, ingestionDuration)
 		currentLedger++
 	}
+	log.Info("Loadtest complete - all synthetic ledgers processed")
+	return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart)
 }
 
 // persistLedgerData writes the processed data to the database.
