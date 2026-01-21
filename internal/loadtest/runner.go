@@ -184,7 +184,7 @@ func runIngestionLoop(
 
 	log.Infof("Starting loadtest ingestion from ledger %d (last expected: %d)", cfg.StartLedger, lastExpectedLedger)
 
-	for currentLedger <= lastExpectedLedger{
+	for currentLedger <= lastExpectedLedger {
 		// Get ledger from backend
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
