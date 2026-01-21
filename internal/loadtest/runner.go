@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -111,7 +112,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	defer shutdownServers(servers)
 
 	// Load seed data if provided
-	if err := loadSeedData(ctx, dbPool, cfg.SeedDataPath); err != nil {
+	if err := loadSeedData(ctx, cfg.DatabaseURL, cfg.SeedDataPath); err != nil {
 		return fmt.Errorf("loading seed data: %w", err)
 	}
 
@@ -139,20 +140,19 @@ func initializeCursor(ctx context.Context, models *data.Models, cursorName strin
 	return nil
 }
 
-// loadSeedData loads SQL seed data from the specified file path.
-// If seedDataPath is empty, this is a no-op.
-func loadSeedData(ctx context.Context, dbPool db.ConnectionPool, seedDataPath string) error {
+// loadSeedData loads SQL seed data from the specified file path using psql.
+// The file should contain pg_dump COPY format data. If seedDataPath is empty, this is a no-op.
+func loadSeedData(ctx context.Context, databaseURL string, seedDataPath string) error {
 	if seedDataPath == "" {
 		return nil
 	}
-	content, err := os.ReadFile(seedDataPath)
+
+	cmd := exec.CommandContext(ctx, "psql", databaseURL, "-f", seedDataPath)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("reading seed data file: %w", err)
+		return fmt.Errorf("executing psql: %w, output: %s", err, string(output))
 	}
-	_, err = dbPool.ExecContext(ctx, string(content))
-	if err != nil {
-		return fmt.Errorf("executing seed data: %w", err)
-	}
+
 	log.Infof("Loaded seed data from %s", seedDataPath)
 	return nil
 }
@@ -228,9 +228,7 @@ func runIngestionLoop(
 		txsProcessed += numTxs
 		opsProcessed += numOps
 
-		log.Infof("Ingested ledger %d (%d txs, %d ops) in %.3fs",
-			currentLedger, numTxs, numOps, ingestionDuration)
-
+		log.Infof("Ingested ledger %d in %.3fs", currentLedger, ingestionDuration)
 		currentLedger++
 	}
 }
@@ -262,6 +260,7 @@ func persistLedgerData(ctx context.Context, models *data.Models, tokenIngestionS
 				return fmt.Errorf("inserting state changes: %w", err)
 			}
 		}
+		log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 
 		// Insert unique trustline assets (prerequisite for trustline balances FK)
 		uniqueAssets := buffer.GetUniqueTrustlineAssets()
