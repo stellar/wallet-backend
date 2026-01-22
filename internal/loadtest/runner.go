@@ -181,6 +181,7 @@ func runIngestionLoop(
 	ledgersProcessed := 0
 	txsProcessed := 0
 	opsProcessed := 0
+	var totalIngestionDuration time.Duration
 
 	log.Infof("Starting loadtest ingestion from ledger %d (last expected: %d)", cfg.StartLedger, lastExpectedLedger)
 
@@ -189,7 +190,7 @@ func runIngestionLoop(
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
 			log.Info("Loadtest complete - all ledgers processed")
-			return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart)
+			return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart, totalIngestionDuration)
 		}
 		if err != nil {
 			return fmt.Errorf("getting ledger %d: %w", currentLedger, err)
@@ -214,8 +215,9 @@ func runIngestionLoop(
 		metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
 
 		// Record metrics
-		ingestionDuration := time.Since(ingestStart).Seconds()
-		metricsService.ObserveIngestionDuration(ingestionDuration)
+		ingestionDuration := time.Since(ingestStart)
+		totalIngestionDuration += ingestionDuration
+		metricsService.ObserveIngestionDuration(ingestionDuration.Seconds())
 		metricsService.IncIngestionLedgersProcessed(1)
 		metricsService.IncIngestionTransactionsProcessed(numTxs)
 		metricsService.IncIngestionOperationsProcessed(numOps)
@@ -225,11 +227,11 @@ func runIngestionLoop(
 		txsProcessed += numTxs
 		opsProcessed += numOps
 
-		log.Infof("Ingested ledger %d in %.3fs", currentLedger, ingestionDuration)
+		log.Infof("Ingested ledger %d in %.3fs", currentLedger, ingestionDuration.Seconds())
 		currentLedger++
 	}
 	log.Info("Loadtest complete - all synthetic ledgers processed")
-	return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart)
+	return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart, totalIngestionDuration)
 }
 
 // persistLedgerData writes the processed data to the database.
@@ -302,7 +304,7 @@ func persistLedgerData(ctx context.Context, models *data.Models, tokenIngestionS
 }
 
 // printSummary logs final statistics and returns nil.
-func printSummary(ledgers, txs, ops int, start time.Time) error {
+func printSummary(ledgers, txs, ops int, start time.Time, totalIngestionDuration time.Duration) error {
 	duration := time.Since(start)
 	log.Info("=== Loadtest Summary ===")
 	log.Infof("Total ledgers processed: %d", ledgers)
@@ -310,8 +312,8 @@ func printSummary(ledgers, txs, ops int, start time.Time) error {
 	log.Infof("Total operations: %d", ops)
 	log.Infof("Total duration: %v", duration)
 	if ledgers > 0 {
-		log.Infof("Average time per ledger: %v", duration/time.Duration(ledgers))
-		log.Infof("Ledgers per second: %.2f", float64(ledgers)/duration.Seconds())
+		log.Infof("Total ingestion duration: %v", totalIngestionDuration)
+		log.Infof("Average ingestion duration per ledger: %v", totalIngestionDuration/time.Duration(ledgers))
 	}
 	return nil
 }
