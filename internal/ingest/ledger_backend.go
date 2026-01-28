@@ -93,7 +93,7 @@ type LoadtestBackendConfig struct {
 func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
 	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create datastore ledger backend: %v", err)
+		return nil, fmt.Errorf("creating datastore ledger backend: %w", err)
 	}
 	config := goloadtest.LedgerBackendConfig{
 		NetworkPassphrase:   cfg.NetworkPassphrase,

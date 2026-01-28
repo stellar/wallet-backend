@@ -54,7 +54,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
-	defer dbPool.Close()
+	defer dbPool.Close() // nolint:errcheck
 
 	sqlxDB, err := dbPool.SqlxDB(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		DatastoreConfigPath: "config/datastore-pubnet.toml",
 	})
 	if err != nil {
-		return fmt.Errorf("creating load test ledger backend: %v", err)
+		return fmt.Errorf("creating load test ledger backend: %w", err)
 	}
 	defer func() {
 		if closeErr := backend.Close(); closeErr != nil {
@@ -86,7 +86,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	// Create indexer with worker pool
 	indexerPool := pond.NewPool(0)
 	defer indexerPool.StopAndWait()
-	
+
 	metricsService.RegisterPoolMetrics("loadtest_indexer", indexerPool)
 	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, metricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
 
