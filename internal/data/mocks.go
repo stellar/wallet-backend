@@ -122,6 +122,45 @@ func (m *NativeBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, bal
 	return args.Error(0)
 }
 
+// SACBalanceModelMock is a mock implementation of SACBalanceModelInterface.
+type SACBalanceModelMock struct {
+	mock.Mock
+}
+
+var _ SACBalanceModelInterface = (*SACBalanceModelMock)(nil)
+
+// NewSACBalanceModelMock creates a new instance of SACBalanceModelMock.
+func NewSACBalanceModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *SACBalanceModelMock {
+	mockModel := &SACBalanceModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
+	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]SACBalance), args.Error(1)
+}
+
+func (m *SACBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
+	args := m.Called(ctx, dbTx, upserts, deletes)
+	return args.Error(0)
+}
+
+func (m *SACBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error {
+	args := m.Called(ctx, dbTx, balances)
+	return args.Error(0)
+}
+
 // AccountContractTokensModelMock is a mock implementation of AccountContractTokensModelInterface.
 type AccountContractTokensModelMock struct {
 	mock.Mock

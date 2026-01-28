@@ -337,8 +337,8 @@ func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change
 
 // isContractAddress determines if the given address is a contract address (C...) or account address (G...)
 func isContractAddress(address string) bool {
-	// Contract addresses start with 'C' and account addresses start with 'G'
-	return len(address) > 0 && address[0] == 'C'
+	_, err := strkey.Decode(strkey.VersionByteContract, address)
+	return err == nil
 }
 
 // extractContractAuthorizationChanges extracts the previous authorization bit for a contract address.

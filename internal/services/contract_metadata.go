@@ -31,23 +31,24 @@ const (
 	batchSleepDuration = 2 * time.Second
 )
 
-// ContractMetadata holds the metadata for a contract token (name, symbol, decimals).
+// ContractMetadata holds the metadata for a SEP-41 contract token (name, symbol, decimals).
 type ContractMetadata struct {
 	ContractID string
-	Type       types.ContractType
-	Code       string // For SAC: extracted from name (CODE:ISSUER)
-	Issuer     string // For SAC: extracted from name (CODE:ISSUER)
 	Name       string
 	Symbol     string
 	Decimals   uint32
 }
 
 // ContractMetadataService handles fetching metadata (name, symbol, decimals)
-// for Stellar Asset Contract (SAC) and SEP-41 token contracts via RPC simulation.
+// for SEP-41 token contracts via RPC simulation.
 type ContractMetadataService interface {
-	// FetchMetadata fetches metadata for the given contracts via RPC without storing.
+	// FetchSep41Metadata fetches metadata for SEP-41 contracts via RPC without storing.
 	// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
-	FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error)
+	FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
+	// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
+	// SAC name() returns "code:issuer" format (or "native" for XLM).
+	// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7.
+	FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -86,31 +87,25 @@ func NewContractMetadataService(
 	}, nil
 }
 
-// FetchMetadata fetches metadata for contracts via RPC without storing in database.
+// FetchSep41Metadata fetches metadata for SEP-41 contracts via RPC without storing in database.
 // Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
-func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
-	if len(contractTypesByID) == 0 {
+func (s *contractMetadataService) FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	if len(contractIDs) == 0 {
 		return []*data.Contract{}, nil
 	}
 
-	// Build initial metadata map and contract IDs slice
-	metadataMap := make(map[string]ContractMetadata, len(contractTypesByID))
-	contractIDs := make([]string, 0, len(contractTypesByID))
-	for contractID, contractType := range contractTypesByID {
+	// Build initial metadata map
+	metadataMap := make(map[string]ContractMetadata, len(contractIDs))
+	for _, contractID := range contractIDs {
 		metadataMap[contractID] = ContractMetadata{
 			ContractID: contractID,
-			Type:       contractType,
 		}
-		contractIDs = append(contractIDs, contractID)
 	}
 
 	// Fetch metadata in parallel batches
 	start := time.Now()
 	metadataMap = s.fetchBatch(ctx, metadataMap, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-
-	// Parse SAC code:issuer from name field
-	s.parseSACMetadata(metadataMap)
+	log.Ctx(ctx).Infof("Fetched metadata for %d SEP-41 contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
 
 	// Convert to []*data.Contract with pre-computed deterministic IDs
 	contracts := make([]*data.Contract, 0, len(metadataMap))
@@ -118,9 +113,7 @@ func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTyp
 		contracts = append(contracts, &data.Contract{
 			ID:         data.DeterministicContractID(metadata.ContractID),
 			ContractID: metadata.ContractID,
-			Type:       string(metadata.Type),
-			Code:       &metadata.Code,
-			Issuer:     &metadata.Issuer,
+			Type:       string(types.ContractTypeSEP41),
 			Name:       &metadata.Name,
 			Symbol:     &metadata.Symbol,
 			Decimals:   metadata.Decimals,
@@ -130,9 +123,106 @@ func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTyp
 	return contracts, nil
 }
 
-// fetchMetadata fetches name, symbol, and decimals for a single contract in parallel.
+// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
+// SAC contracts return "code:issuer" format from name() (or "native" for XLM).
+// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7 (hardcoded for Stellar assets).
+// This function fails fast if any contract metadata fetch fails - partial results are not returned.
+func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	if len(contractIDs) == 0 {
+		return []*data.Contract{}, nil
+	}
+
+	start := time.Now()
+	var (
+		contracts   []*data.Contract
+		mu          sync.Mutex
+		fetchErrors []error
+	)
+
+	// Process in batches to avoid overwhelming the RPC
+	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
+		end := min(i+simulateTransactionBatchSize, len(contractIDs))
+		batch := contractIDs[i:end]
+
+		group := s.pool.NewGroupContext(ctx)
+		for _, contractID := range batch {
+			group.Submit(func() {
+				contract, err := s.fetchSACMetadataForContract(ctx, contractID)
+				if err != nil {
+					mu.Lock()
+					fetchErrors = append(fetchErrors, fmt.Errorf("contract %s: %w", contractID, err))
+					mu.Unlock()
+					return
+				}
+				mu.Lock()
+				contracts = append(contracts, contract)
+				mu.Unlock()
+			})
+		}
+
+		if err := group.Wait(); err != nil {
+			return nil, fmt.Errorf("error in SAC metadata batch: %w", err)
+		}
+
+		// Sleep between batches to avoid overwhelming the RPC (skip for last batch)
+		if end < len(contractIDs) {
+			time.Sleep(batchSleepDuration)
+		}
+	}
+
+	// Fail if any contract metadata fetch failed - partial results are not acceptable
+	if len(fetchErrors) > 0 {
+		return nil, fmt.Errorf("failed to fetch metadata for %d SAC contracts: %w", len(fetchErrors), errors.Join(fetchErrors...))
+	}
+
+	log.Ctx(ctx).Infof("Fetched metadata for %d SAC contracts in %.4f seconds", len(contracts), time.Since(start).Seconds())
+	return contracts, nil
+}
+
+// fetchSACMetadataForContract fetches metadata for a single SAC contract by calling name().
+// Parses the name as "code:issuer" format or handles "native" as XLM.
+func (s *contractMetadataService) fetchSACMetadataForContract(ctx context.Context, contractID string) (*data.Contract, error) {
+	nameVal, err := s.FetchSingleField(ctx, contractID, "name")
+	if err != nil {
+		return nil, fmt.Errorf("fetching name: %w", err)
+	}
+
+	nameStr, ok := nameVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("name value is not a string")
+	}
+	name := string(nameStr)
+
+	var code, issuer string
+	if name == "native" {
+		// Native XLM asset
+		code = "XLM"
+		issuer = ""
+	} else {
+		// Parse "code:issuer" format
+		parts := strings.SplitN(name, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("malformed SAC name '%s': expected 'code:issuer' format", name)
+		}
+		code = parts[0]
+		issuer = parts[1]
+	}
+
+	return &data.Contract{
+		ID:         data.DeterministicContractID(contractID),
+		ContractID: contractID,
+		Type:       string(types.ContractTypeSAC),
+		Code:       &code,
+		Issuer:     &issuer,
+		Name:       &name,
+		Symbol:     &code,
+		Decimals:   7, // Stellar assets always use 7 decimals
+	}, nil
+}
+
+// fetchMetadata fetches name, symbol, and decimals for a single SEP-41 contract in parallel.
 // Returns ContractMetadata with the fetched values.
-func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID string, contractType types.ContractType) (ContractMetadata, error) {
+func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID string) (ContractMetadata, error) {
 	group := s.pool.NewGroupContext(ctx)
 
 	var (
@@ -210,7 +300,6 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 
 	return ContractMetadata{
 		ContractID: contractID,
-		Type:       contractType,
 		Name:       name,
 		Symbol:     symbol,
 		Decimals:   decimals,
@@ -281,7 +370,7 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 	return result.Results[0].XDR, nil
 }
 
-// fetchBatch fetches metadata for multiple contracts in parallel using pond groups.
+// fetchBatch fetches metadata for multiple SEP-41 contracts in parallel using pond groups.
 // Processes contracts in batches to limit RPC load.
 func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap map[string]ContractMetadata, contractIDs []string) map[string]ContractMetadata {
 	var mu sync.Mutex
@@ -294,7 +383,7 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 		for _, contractID := range contractIDsBatch {
 			group.Submit(func() {
 				existing := metadataMap[contractID]
-				metadata, err := s.fetchMetadata(ctx, contractID, existing.Type)
+				metadata, err := s.fetchMetadata(ctx, contractID)
 				if err != nil {
 					log.Ctx(ctx).Warnf("Failed to fetch metadata for contract %s: %v", contractID, err)
 					return
@@ -321,25 +410,4 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 		time.Sleep(batchSleepDuration)
 	}
 	return metadataMap
-}
-
-// parseSACMetadata parses the code:issuer format from SAC token names and populates the Code and Issuer fields.
-func (s *contractMetadataService) parseSACMetadata(metadataMap map[string]ContractMetadata) {
-	for contractID, metadata := range metadataMap {
-		if metadata.Type != types.ContractTypeSAC {
-			continue
-		}
-		if metadata.Name == "" {
-			continue
-		}
-
-		parts := strings.Split(metadata.Name, ":")
-		if len(parts) != 2 {
-			continue
-		}
-
-		metadata.Code = parts[0]
-		metadata.Issuer = parts[1]
-		metadataMap[contractID] = metadata
-	}
 }

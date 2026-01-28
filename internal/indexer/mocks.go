@@ -7,6 +7,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -77,10 +78,40 @@ func (m *MockAccountsProcessor) Name() string {
 	return args.String(0)
 }
 
+type MockSACBalancesProcessor struct {
+	mock.Mock
+}
+
+func (m *MockSACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.SACBalanceChange, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]types.SACBalanceChange), args.Error(1)
+}
+
+func (m *MockSACBalancesProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+type MockSACInstancesProcessor struct {
+	mock.Mock
+}
+
+func (m *MockSACInstancesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]*data.Contract, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]*data.Contract), args.Error(1)
+}
+
+func (m *MockSACInstancesProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 var (
-	_ ParticipantsProcessorInterface               = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface              = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface                  = &MockOperationProcessor{}
-	_ LedgerChangeProcessor[types.TrustlineChange] = &MockTrustlinesProcessor{}
-	_ LedgerChangeProcessor[types.AccountChange]   = &MockAccountsProcessor{}
+	_ ParticipantsProcessorInterface                = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface               = &MockTokenTransferProcessor{}
+	_ OperationProcessorInterface                   = &MockOperationProcessor{}
+	_ LedgerChangeProcessor[types.TrustlineChange]  = &MockTrustlinesProcessor{}
+	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
+	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
+	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
 )

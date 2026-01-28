@@ -50,6 +50,12 @@ type TrustlineChangeKey struct {
 	TrustlineID uuid.UUID
 }
 
+// SACBalanceChangeKey is a composite key for deduplicating SAC balance changes.
+type SACBalanceChangeKey struct {
+	AccountID  string
+	ContractID string
+}
+
 type IndexerBuffer struct {
 	mu                             sync.RWMutex
 	txByHash                       map[string]*types.Transaction
@@ -60,9 +66,11 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	contractChanges                []types.ContractChange
 	accountChangesByAccountID      map[string]types.AccountChange
+	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
-	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
+	uniqueSEP41ContractTokensByID  map[string]types.ContractType // contractID → type (SEP-41 only)
+	sacContractsByID               map[string]*data.Contract     // SAC contract metadata extracted from instance entries
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -77,9 +85,11 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		contractChanges:                make([]types.ContractChange, 0),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
+		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
 		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
-		uniqueContractsByID:            make(map[string]types.ContractType),
+		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
+		sacContractsByID:               make(map[string]*data.Contract),
 	}
 }
 
@@ -212,7 +222,7 @@ func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.Trust
 	return b.trustlineChangesByTrustlineKey
 }
 
-// PushContractChange adds a contract change to the buffer and tracks unique SAC/SEP-41 contracts.
+// PushContractChange adds a contract change to the buffer and tracks unique SEP-41 contracts.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) {
 	b.mu.Lock()
@@ -220,16 +230,15 @@ func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) 
 
 	b.contractChanges = append(b.contractChanges, contractChange)
 
-	// Only track SAC and SEP-41 contracts for DB insertion
-	if contractChange.ContractType != types.ContractTypeSAC &&
-		contractChange.ContractType != types.ContractTypeSEP41 {
+	// Only track SEP-41 contracts for DB insertion
+	if contractChange.ContractType != types.ContractTypeSEP41 {
 		return
 	}
 	if contractChange.ContractID == "" {
 		return
 	}
-	if _, exists := b.uniqueContractsByID[contractChange.ContractID]; !exists {
-		b.uniqueContractsByID[contractChange.ContractID] = contractChange.ContractType
+	if _, exists := b.uniqueSEP41ContractTokensByID[contractChange.ContractID]; !exists {
+		b.uniqueSEP41ContractTokensByID[contractChange.ContractID] = contractChange.ContractType
 	}
 }
 
@@ -274,6 +283,42 @@ func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	defer b.mu.RUnlock()
 
 	return b.accountChangesByAccountID
+}
+
+// PushSACBalanceChange adds a SAC balance change to the buffer with deduplication.
+// Keeps the change with highest OperationID per (AccountID, ContractID). Handles ADD→REMOVE no-op case.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := SACBalanceChangeKey{
+		AccountID:  sacBalanceChange.AccountID,
+		ContractID: sacBalanceChange.ContractID,
+	}
+	existing, exists := b.sacBalanceChangesByKey[key]
+
+	// Keep the change with highest OperationID
+	if exists && existing.OperationID > sacBalanceChange.OperationID {
+		return
+	}
+
+	// Handle ADD→REMOVE no-op case: balance created and removed in same batch
+	if exists && sacBalanceChange.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
+		delete(b.sacBalanceChangesByKey, key)
+		return
+	}
+
+	b.sacBalanceChangesByKey[key] = sacBalanceChange
+}
+
+// GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.sacBalanceChangesByKey
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
@@ -463,6 +508,23 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		b.accountChangesByAccountID[accountID] = change
 	}
 
+	// Merge SAC balance changes with deduplication (same logic as PushSACBalanceChange)
+	for key, change := range otherBuffer.sacBalanceChangesByKey {
+		existing, exists := b.sacBalanceChangesByKey[key]
+
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
+			delete(b.sacBalanceChangesByKey, key)
+			continue
+		}
+
+		b.sacBalanceChangesByKey[key] = change
+	}
+
 	// Merge all participants
 	for participant := range otherBuffer.allParticipants.Iter() {
 		b.allParticipants.Add(participant)
@@ -472,7 +534,14 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
 
 	// Merge unique contracts
-	maps.Copy(b.uniqueContractsByID, otherBuffer.uniqueContractsByID)
+	maps.Copy(b.uniqueSEP41ContractTokensByID, otherBuffer.uniqueSEP41ContractTokensByID)
+
+	// Merge SAC contracts (first-write wins for deduplication)
+	for id, contract := range otherBuffer.sacContractsByID {
+		if _, exists := b.sacContractsByID[id]; !exists {
+			b.sacContractsByID[id] = contract
+		}
+	}
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
@@ -488,15 +557,17 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.opByID)
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
-	clear(b.uniqueContractsByID)
+	clear(b.uniqueSEP41ContractTokensByID)
 	clear(b.trustlineChangesByTrustlineKey)
+	clear(b.sacContractsByID)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
 	b.contractChanges = b.contractChanges[:0]
 
-	// Clear account changes map
+	// Clear account and SAC balance changes maps
 	clear(b.accountChangesByAccountID)
+	clear(b.sacBalanceChangesByKey)
 
 	// Clear all participants set
 	b.allParticipants.Clear()
@@ -515,13 +586,33 @@ func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
 	return assets
 }
 
-// GetUniqueContractsByID returns a map of unique SAC/SEP-41 contract IDs to their types.
+// GetUniqueSEP41ContractTokensByID returns a map of unique SEP-41 contract IDs to their types.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetUniqueContractsByID() map[string]types.ContractType {
+func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.uniqueContractsByID)
+	return maps.Clone(b.uniqueSEP41ContractTokensByID)
+}
+
+// PushSACContract adds a SAC contract with extracted metadata to the buffer.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushSACContract(c *data.Contract) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.sacContractsByID[c.ContractID]; !exists {
+		b.sacContractsByID[c.ContractID] = c
+	}
+}
+
+// GetSACContracts returns a map of SAC contract IDs to their metadata.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.sacContractsByID)
 }
 
 // ParseAssetString parses a "CODE:ISSUER" formatted asset string into its components.

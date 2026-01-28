@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/stellar/go-stellar-sdk/xdr"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -173,13 +173,27 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	networkPassphrase := r.rpcService.NetworkPassphrase()
 	var balances []graphql1.Balance
 
-	// Build ledger keys for RPC (SAC contracts only, native XLM and trustlines come from DB)
-	ledgerKeys := make([]string, 0)
-
-	if !utils.IsContractAddress(address) {
-		// Fetch native XLM balance from DB
+	if utils.IsContractAddress(address) {
+		// Contract addresses (C...): Fetch SAC balances from DB
+		// SAC balances have embedded contract metadata from JOIN with contract_tokens
+		sacBalances, sacErr := r.balanceReader.GetSACBalances(ctx, address)
+		if sacErr != nil {
+			log.Ctx(ctx).Errorf("failed to get SAC balances for %s: %v", address, sacErr)
+			return nil, &gqlerror.Error{
+				Message: ErrMsgBalancesFetchFailed,
+				Extensions: map[string]interface{}{
+					"code": "INTERNAL_ERROR",
+				},
+			}
+		}
+		for _, sacBalance := range sacBalances {
+			balances = append(balances, buildSACBalanceFromDB(sacBalance))
+		}
+	} else {
+		// G-addresses: Fetch native XLM balance and trustlines from DB
 		nativeBalance, nativeErr := r.balanceReader.GetNativeBalance(ctx, address)
 		if nativeErr != nil {
+			log.Ctx(ctx).Errorf("failed to get native balance for %s: %v", address, nativeErr)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -200,9 +214,10 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, nativeBalanceResult)
 		}
 
-		// Fetch trustline balances from DB (no RPC needed)
+		// Fetch trustline balances from DB
 		trustlines, trustlineErr := r.balanceReader.GetTrustlineBalances(ctx, address)
 		if trustlineErr != nil {
+			log.Ctx(ctx).Errorf("failed to get trustline balances for %s: %v", address, trustlineErr)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
@@ -211,7 +226,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 		}
 
-		// Build TrustlineBalance directly from DB data
 		for _, trustline := range trustlines {
 			trustlineBalance, buildErr := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
 			if buildErr != nil {
@@ -226,9 +240,10 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 	}
 
-	// Fetch contracts for the account
+	// Fetch SEP-41 contract tokens for the account (both G-addresses and C-addresses)
 	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
 	if err != nil {
+		log.Ctx(ctx).Errorf("failed to get contract tokens for %s: %v", address, err)
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
 			Extensions: map[string]interface{}{
@@ -237,85 +252,13 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 	}
 
-	// Build ledger keys for SAC contracts (SEP-41 uses simulation)
+	// Collect SEP-41 contract IDs for balance simulation
 	contractsByContractID := make(map[string]*data.Contract)
 	sep41TokenIDs := make([]string, 0)
 	for _, contract := range contractTokens {
-		switch contract.Type {
-		case "SAC":
-			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ContractID)
-			if keyErr != nil {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-			ledgerKeys = append(ledgerKeys, ledgerKey)
-		case "SEP41":
+		if contract.Type == "SEP41" {
 			sep41TokenIDs = append(sep41TokenIDs, contract.ContractID)
-		default:
-			continue
-		}
-		contractsByContractID[contract.ContractID] = contract
-	}
-
-	// Call RPC to get ledger entries (SAC contracts only, native XLM comes from DB)
-	if len(ledgerKeys) > 0 {
-		ledgerEntriesResult, err := r.rpcService.GetLedgerEntries(ledgerKeys)
-		if err != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgRPCUnavailable,
-				Extensions: map[string]interface{}{
-					"code": "RPC_UNAVAILABLE",
-				},
-			}
-		}
-
-		for _, entry := range ledgerEntriesResult.Entries {
-			var ledgerEntryData xdr.LedgerEntryData
-			err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
-			if err != nil {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-
-			//exhaustive:ignore
-			switch ledgerEntryData.Type {
-			case xdr.LedgerEntryTypeContractData:
-				contractDataEntry := ledgerEntryData.MustContractData()
-
-				contractIDStr, ok, err := parseContractIDFromContractData(&contractDataEntry)
-				if err != nil {
-					return nil, &gqlerror.Error{
-						Message: ErrMsgBalancesFetchFailed,
-						Extensions: map[string]interface{}{
-							"code": "INTERNAL_ERROR",
-						},
-					}
-				}
-				if !ok {
-					continue
-				}
-
-				balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contractsByContractID[contractIDStr])
-				if err != nil {
-					return nil, &gqlerror.Error{
-						Message: ErrMsgBalancesFetchFailed,
-						Extensions: map[string]interface{}{
-							"code": "INTERNAL_ERROR",
-						},
-					}
-				}
-				if balance != nil {
-					balances = append(balances, balance)
-				}
-			}
+			contractsByContractID[contract.ContractID] = contract
 		}
 	}
 
@@ -403,8 +346,18 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				sep41ContractIDs: make([]string, 0),
 			}
 
-			// Get native balance and trustline balances (skip for contract addresses)
-			if !info.isContract {
+			// Get native balance, trustlines, and SAC balances based on address type
+			if info.isContract {
+				// Contract addresses: get SAC balances from DB
+				sacBalances, err := r.balanceReader.GetSACBalances(ctx, address)
+				if err != nil {
+					info.collectionErr = fmt.Errorf("getting SAC balances: %w", err)
+					accountInfos[index] = info
+					return
+				}
+				info.sacBalances = sacBalances
+			} else {
+				// G-addresses: get native balance and trustlines from DB
 				nativeBalance, err := r.balanceReader.GetNativeBalance(ctx, address)
 				if err != nil {
 					info.collectionErr = fmt.Errorf("getting native balance: %w", err)
@@ -448,24 +401,16 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
-	// Build ledger keys for RPC (SAC contracts only, native XLM and trustlines come from DB)
+	// Build ledger keys to get SEP41 balances from RPC
 	ledgerKeys := make([]string, 0)
 	for _, info := range accountInfos {
 		if info.collectionErr != nil {
 			continue // Skip accounts with collection errors
 		}
 
-		// Build ledger keys for SAC contracts (SEP-41 uses simulation)
+		// Build ledger keys for SEP-41 contract tokens
 		for _, contract := range info.contractsByID {
 			switch contract.Type {
-			case "SAC":
-				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ContractID)
-				if keyErr != nil {
-					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ContractID, keyErr)
-					break
-				}
-				ledgerKeys = append(ledgerKeys, ledgerKey)
-				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			case "SEP41":
 				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ContractID)
 			default:
@@ -531,7 +476,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(ctx, info, ledgerEntriesByLedgerKeys, r.contractMetadataService, networkPassphrase, r.pool)
+			balances, parseErr := parseAccountBalances(ctx, info, r.contractMetadataService, networkPassphrase, r.pool)
 			if parseErr != nil {
 				errStr := fmt.Sprintf("parsing account balances: %v", parseErr)
 				result.Error = &errStr

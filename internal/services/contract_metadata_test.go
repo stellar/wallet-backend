@@ -17,7 +17,6 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // Helper functions for creating test XDR values
@@ -75,78 +74,7 @@ func TestNewContractMetadataService(t *testing.T) {
 	})
 }
 
-func TestParseSACMetadata(t *testing.T) {
-	mockRPCService := NewRPCServiceMock(t)
-	mockContractModel := data.NewContractModelMock(t)
-	pool := pond.NewPool(0)
-	defer pool.Stop()
-
-	service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-	assert.NoError(t, err)
-
-	cms := service.(*contractMetadataService)
-
-	tests := []struct {
-		name     string
-		input    map[string]ContractMetadata
-		expected map[string]ContractMetadata
-	}{
-		{
-			name: "parses SAC code:issuer format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS", Code: "USDC", Issuer: "GAISSUERTESTADDRESS"},
-			},
-		},
-		{
-			name: "skips non-SAC contracts",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-		},
-		{
-			name: "skips SAC with empty name",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-		},
-		{
-			name: "skips SAC with invalid format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-		},
-		{
-			name: "handles multiple colons",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cms.parseSACMetadata(tt.input)
-			assert.Equal(t, tt.expected, tt.input)
-		})
-	}
-}
-
-func TestFetchMetadata(t *testing.T) {
+func TestFetchSep41Metadata(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("fetches all three fields successfully", func(t *testing.T) {
@@ -188,11 +116,10 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		metadata, err := cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		metadata, err := cms.fetchMetadata(ctx, contractID)
 
 		require.NoError(t, err)
 		assert.Equal(t, contractID, metadata.ContractID)
-		assert.Equal(t, types.ContractTypeSEP41, metadata.Type)
 		assert.Equal(t, "TestName", metadata.Name)
 		assert.Equal(t, "TST", metadata.Symbol)
 		assert.Equal(t, uint32(8), metadata.Decimals)
@@ -228,7 +155,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fetching contract metadata")
@@ -267,7 +194,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a string")
@@ -306,7 +233,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a uint32")
@@ -454,6 +381,216 @@ func TestFetchSingleField(t *testing.T) {
 	})
 }
 
+func TestFetchSACMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns empty slice for empty input", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{})
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+		// Verify no RPC calls were made
+		mockRPCService.AssertNotCalled(t, "SimulateTransaction", mock.Anything, mock.Anything)
+	})
+
+	t.Run("parses code:issuer format successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "USDC:GCNY..."
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "USDC", *contract.Code)
+		assert.Equal(t, "GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Issuer)
+		assert.Equal(t, "USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Name)
+		assert.Equal(t, "USDC", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("handles native XLM asset", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "native"
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "XLM", *contract.Code)
+		assert.Equal(t, "", *contract.Issuer)
+		assert.Equal(t, "native", *contract.Name)
+		assert.Equal(t, "XLM", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("returns error for contract with malformed name", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning malformed value (no colon)
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("MALFORMED_NO_COLON")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should return error for malformed contract name
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "malformed SAC name")
+	})
+
+	t.Run("returns error when RPC fails", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should return error when RPC fails
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "RPC timeout")
+	})
+
+	t.Run("processes multiple contracts successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// Mock responses for two contracts - use mock.Anything for both calls
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+		nameScVal2 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		// Return different values for the two calls
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal2}},
+			}, nil,
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("returns error and no partial results when one contract fails", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// First contract succeeds, second fails
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		// Should return error and no partial results
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata for 1 SAC contracts")
+	})
+}
+
 func TestFetchBatch(t *testing.T) {
 	ctx := context.Background()
 
@@ -467,8 +604,8 @@ func TestFetchBatch(t *testing.T) {
 		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
-			contractID2: {ContractID: contractID2, Type: types.ContractTypeSEP41},
+			contractID1: {ContractID: contractID1},
+			contractID2: {ContractID: contractID2},
 		}
 		contractIDs := []string{contractID1, contractID2}
 
@@ -521,7 +658,7 @@ func TestFetchBatch(t *testing.T) {
 		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
+			contractID1: {ContractID: contractID1},
 		}
 		contractIDs := []string{contractID1}
 

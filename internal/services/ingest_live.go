@@ -149,19 +149,23 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// 1. Insert unique trustline assets (pre-tracked in buffer)
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
-				return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
+			uniqueAssets := buffer.GetUniqueTrustlineAssets()
+			if len(uniqueAssets) > 0 {
+				if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
+					return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
+				}
 			}
 
-			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
-			contracts, txErr := m.prepareNewContracts(ctx, dbTx, buffer.GetUniqueContractsByID())
+			// 2. Insert new contract tokens (filter existing, fetch metadata for SEP41, insert)
+			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
 			if txErr != nil {
-				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
+				return fmt.Errorf("preparing contract tokens for ledger %d: %w", currentLedger, txErr)
 			}
 			if len(contracts) > 0 {
 				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
 				}
+				log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 			}
 
 			// 3. Filter participant data
@@ -180,14 +184,14 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
+			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance, SAC balance)
 			trustlineChanges := buffer.GetTrustlineChanges()
 			contractChanges := buffer.GetContractChanges()
 			accountChanges := buffer.GetAccountChanges()
-			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
+			sacBalanceChanges := buffer.GetSACBalanceChanges()
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(trustlineChanges), len(contractChanges), len(accountChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {
@@ -240,41 +244,55 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	return nil
 }
 
-// prepareNewContracts filters out existing contracts and fetches metadata for new ones.
-func (m *ingestService) prepareNewContracts(ctx context.Context, dbTx pgx.Tx, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
-	if len(contractsByID) == 0 {
+// prepareNewContractTokens filters out existing contracts and prepares metadata for new contracts.
+// SAC contracts get their metadata from ledger data (sacContracts parameter).
+// SEP-41 contracts need RPC metadata fetch.
+func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.Tx, sep41ContractTokensByID map[string]types.ContractType, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
+	if len(sep41ContractTokensByID) == 0 && len(sacContracts) == 0 {
 		return nil, nil
 	}
 
 	// Build list of contract IDs to check
-	contractIDsList := make([]string, 0, len(contractsByID))
-	for id := range contractsByID {
-		contractIDsList = append(contractIDsList, id)
+	contractAddresses := make([]string, 0, len(sep41ContractTokensByID))
+	for address := range sep41ContractTokensByID {
+		contractAddresses = append(contractAddresses, address)
+	}
+	for address := range sacContracts {
+		contractAddresses = append(contractAddresses, address)
 	}
 
 	// Get existing contract IDs from DB (only checking the ones we need)
-	existingIDs, err := m.models.Contract.GetExisting(ctx, dbTx, contractIDsList)
+	existingAddresses, err := m.models.Contract.GetExisting(ctx, dbTx, contractAddresses)
 	if err != nil {
 		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
 	}
-	existingSet := set.NewSet(existingIDs...)
+	existingSet := set.NewSet(existingAddresses...)
 
-	// Filter to only new contracts
-	newContractsByID := make(map[string]types.ContractType)
-	for id, ctype := range contractsByID {
-		if !existingSet.Contains(id) {
-			newContractsByID[id] = ctype
+	// Collect new contract tokens
+	var contracts []*data.Contract
+	for address := range sacContracts {
+		if existingSet.Contains(address) {
+			continue
 		}
+		contracts = append(contracts, sacContracts[address])
 	}
 
-	if len(newContractsByID) == 0 {
-		return nil, nil
+	var newSep41ContractAddresses []string
+	for address := range sep41ContractTokensByID {
+		if existingSet.Contains(address) {
+			continue
+		}
+		newSep41ContractAddresses = append(newSep41ContractAddresses, address)
 	}
 
-	// Fetch metadata for new contracts via RPC
-	contracts, err := m.contractMetadataService.FetchMetadata(ctx, newContractsByID)
-	if err != nil {
-		return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
+	// Fetch metadata for new SEP-41 contracts via RPC
+	if len(newSep41ContractAddresses) > 0 {
+		sep41Contracts, fetchErr := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractAddresses)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("fetching metadata for new SEP-41 contracts: %w", fetchErr)
+		}
+		contracts = append(contracts, sep41Contracts...)
 	}
+
 	return contracts, nil
 }
