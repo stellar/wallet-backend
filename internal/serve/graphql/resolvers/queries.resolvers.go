@@ -219,9 +219,9 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		if trustlineErr != nil {
 			log.Ctx(ctx).Errorf("failed to get trustline balances for %s: %v", address, trustlineErr)
 			return nil, &gqlerror.Error{
-				Message: ErrMsgRPCUnavailable,
+				Message: ErrMsgBalancesFetchFailed,
 				Extensions: map[string]interface{}{
-					"code": "RPC_UNAVAILABLE",
+					"code": "INTERNAL_ERROR",
 				},
 			}
 		}
