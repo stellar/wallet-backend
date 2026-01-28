@@ -10,20 +10,14 @@ import (
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
-
-// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
-func isContractAddress(address string) bool {
-	_, err := strkey.Decode(strkey.VersionByteContract, address)
-	return err == nil
-}
 
 type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
@@ -252,7 +246,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			// Only store contract changes when:
 			// - Account is C-address, OR
 			// - Account is G-address AND contract token is SEP41
-			accountIsContract := isContractAddress(stateChange.AccountID)
+			accountIsContract := utils.IsContractAddress(stateChange.AccountID)
 			tokenIsSEP41 := stateChange.ContractType == types.ContractTypeSEP41
 
 			if accountIsContract || tokenIsSEP41 {
