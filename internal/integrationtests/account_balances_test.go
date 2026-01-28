@@ -83,7 +83,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 			minBal, err := strconv.ParseFloat(b.MinimumBalance, 64)
 			suite.Require().NoError(err)
 			suite.Require().Greater(minBal, 0.0, "MinimumBalance should be positive")
-			suite.Require().GreaterOrEqual(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+			suite.Require().Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
@@ -141,7 +141,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 			minBal, err := strconv.ParseFloat(b.MinimumBalance, 64)
 			suite.Require().NoError(err)
 			suite.Require().Greater(minBal, 0.0, "MinimumBalance should be positive")
-			suite.Require().GreaterOrEqual(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+			suite.Require().Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
