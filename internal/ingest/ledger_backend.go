@@ -3,9 +3,11 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pelletier/go-toml"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
@@ -13,7 +15,7 @@ import (
 func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	switch cfg.LedgerBackendType {
 	case LedgerBackendTypeDatastore:
-		return newDatastoreLedgerBackend(ctx, cfg)
+		return newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	case LedgerBackendTypeRPC:
 		return newRPCLedgerBackend(cfg)
 	default:
@@ -21,13 +23,13 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 	}
 }
 
-func newDatastoreLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBackend, error) {
-	storageBackendConfig, err := loadDatastoreBackendConfig(cfg.DatastoreConfigPath)
+func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
+	storageBackendConfig, err := loadDatastoreBackendConfig(datastoreConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading datastore config: %w", err)
 	}
 
-	storageBackendConfig.DataStoreConfig.NetworkPassphrase = cfg.NetworkPassphrase
+	storageBackendConfig.DataStoreConfig.NetworkPassphrase = networkPassphrase
 
 	dataStore, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
 	if err != nil {
@@ -77,4 +79,29 @@ func loadDatastoreBackendConfig(configPath string) (StorageBackendConfig, error)
 	}
 
 	return storageBackendConfig, nil
+}
+
+// LoadtestBackendConfig holds configuration for the loadtest ledger backend.
+type LoadtestBackendConfig struct {
+	NetworkPassphrase   string
+	LedgersFilePath     string
+	LedgerCloseDuration time.Duration
+	DatastoreConfigPath string
+}
+
+// NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
+func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
+	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("creating datastore ledger backend: %w", err)
+	}
+	config := goloadtest.LedgerBackendConfig{
+		NetworkPassphrase:   cfg.NetworkPassphrase,
+		LedgersFilePath:     cfg.LedgersFilePath,
+		LedgerCloseDuration: cfg.LedgerCloseDuration,
+		LedgerBackend:       datastoreBackend,
+	}
+	backend := goloadtest.NewLedgerBackend(config)
+	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
+	return backend, nil
 }

@@ -209,6 +209,28 @@ func NewTokenIngestionService(
 	}
 }
 
+// NewTokenIngestionServiceForLoadtest creates a minimal TokenIngestionService
+// that only supports ProcessTokenChanges (not PopulateAccountTokens).
+// This is used by the loadtest runner which doesn't need archive/validator/metadata services.
+func NewTokenIngestionServiceForLoadtest(
+	dbPool db.ConnectionPool,
+	networkPassphrase string,
+	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
+	nativeBalanceModel wbdata.NativeBalanceModelInterface,
+	sacBalanceModel wbdata.SACBalanceModelInterface,
+	accountContractTokensModel wbdata.AccountContractTokensModelInterface,
+) TokenIngestionService {
+	return &tokenIngestionService{
+		db:                         dbPool,
+		networkPassphrase:          networkPassphrase,
+		trustlineBalanceModel:      trustlineBalanceModel,
+		nativeBalanceModel:         nativeBalanceModel,
+		sacBalanceModel:            sacBalanceModel,
+		accountContractTokensModel: accountContractTokensModel,
+		// archive, contractValidator, contractMetadataService left nil - not needed for ProcessTokenChanges
+	}
+}
+
 // PopulateAccountTokens performs initial PostgreSQL cache population from Stellar history archive.
 // This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // Trustlines are streamed in batches of 50K to avoid memory pressure with 30M+ entries.
