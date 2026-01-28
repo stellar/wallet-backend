@@ -437,10 +437,12 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 	var stateChange types.StateChange
 
+	// Note: XDR fields (balance, liabilities, flags) are NOT extracted here.
+	// TrustlinesProcessor handles balance tracking from ledger changes directly.
+	// This function only tracks trustline add/remove/update for state change history.
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
-		// Create the trustline state change
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{

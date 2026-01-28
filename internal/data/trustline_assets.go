@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -33,8 +32,6 @@ type TrustlineAssetModelInterface interface {
 	// BatchInsert inserts multiple trustline assets with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error
-	// BatchGetByIDs retrieves trustline assets by their IDs.
-	BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*TrustlineAsset, error)
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -90,28 +87,4 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, asse
 	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
 	return nil
-}
-
-// BatchGetByIDs retrieves trustline assets by their IDs.
-// Returns assets in arbitrary order (not necessarily matching input order).
-func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*TrustlineAsset, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-
-	const query = `SELECT id, code, issuer, created_at FROM trustline_assets WHERE id = ANY($1)`
-
-	start := time.Now()
-	var assets []*TrustlineAsset
-	err := m.DB.SelectContext(ctx, &assets, query, pq.Array(ids))
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "trustline_assets", duration)
-
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "trustline_assets", "query_error")
-		return nil, fmt.Errorf("batch getting trustline assets by IDs: %w", err)
-	}
-
-	m.MetricsService.IncDBQuery("BatchGetByIDs", "trustline_assets")
-	return assets, nil
 }

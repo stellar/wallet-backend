@@ -50,7 +50,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenCacheWriter.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
@@ -159,7 +159,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
 			}
 			if len(contracts) > 0 {
-				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
 				}
 			}
@@ -180,11 +180,13 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
 			}
 
-			// 6. Process token changes (trustline add/remove, contract token add)
-			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
+			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
+			trustlineChanges := buffer.GetTrustlineChanges()
+			contractTokenChanges := buffer.GetContractChanges()
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractTokenChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
+			log.Ctx(ctx).Infof("✅ processed %d trustline and %d contract changes", len(trustlineChanges), len(contractTokenChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -28,9 +27,7 @@ func DeterministicContractID(contractID string) uuid.UUID {
 
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
-	GetByContractID(ctx context.Context, contractID string) (*Contract, error)
 	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
-	BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
@@ -57,21 +54,6 @@ type Contract struct {
 	Decimals   uint32    `db:"decimals" json:"decimals"`
 	CreatedAt  time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt  time.Time `db:"updated_at" json:"updatedAt"`
-}
-
-// GetByContractID retrieves a contract by its contract address (C...).
-func (m *ContractModel) GetByContractID(ctx context.Context, contractID string) (*Contract, error) {
-	start := time.Now()
-	contract := &Contract{}
-	err := m.DB.GetContext(ctx, contract, "SELECT * FROM contract_tokens WHERE contract_id = $1", contractID)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByContractID", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByContractID", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting contract by contract_id %s: %w", contractID, err)
-	}
-	m.MetricsService.IncDBQuery("GetByContractID", "contract_tokens")
-	return contract, nil
 }
 
 // GetExisting returns which of the given contract IDs exist in the database.
@@ -108,25 +90,6 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
 	m.MetricsService.IncDBQuery("GetExisting", "contract_tokens")
 	return ids, nil
-}
-
-// BatchGetByIDs retrieves contracts by their UUIDs.
-func (m *ContractModel) BatchGetByIDs(ctx context.Context, ids []uuid.UUID) ([]*Contract, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-
-	start := time.Now()
-	var contracts []*Contract
-	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contract_tokens WHERE id = ANY($1)", pq.Array(ids))
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting contracts by IDs: %w", err)
-	}
-	m.MetricsService.IncDBQuery("BatchGetByIDs", "contract_tokens")
-	return contracts, nil
 }
 
 // BatchInsert inserts multiple contracts with pre-computed deterministic IDs.

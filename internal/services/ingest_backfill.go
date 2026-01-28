@@ -3,10 +3,10 @@ package services
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -47,14 +47,33 @@ type BackfillResult struct {
 	LedgersCount int
 	Duration     time.Duration
 	Error        error
-	TokenChanges *BatchTokenChanges // Only populated for catchup mode
+	BatchChanges *BatchChanges // Only populated for catchup mode
 }
 
-// BatchTokenChanges holds token data collected from a backfill batch for catchup mode.
+// BatchChanges holds data collected from a backfill batch for catchup mode.
 // This data is processed after all parallel batches complete to ensure proper ordering.
-type BatchTokenChanges struct {
-	TrustlineChanges []types.TrustlineChange
-	ContractChanges  []types.ContractChange
+type BatchChanges struct {
+	TrustlineChangesByKey    map[indexer.TrustlineChangeKey]types.TrustlineChange
+	ContractChanges          []types.ContractChange
+	UniqueTrustlineAssets    map[uuid.UUID]data.TrustlineAsset
+	UniqueContractTokensByID map[string]types.ContractType
+}
+
+// mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
+// Handles ADD→REMOVE no-op case where a trustline is created and removed in the same batch.
+func mergeTrustlineChanges(dest, source map[indexer.TrustlineChangeKey]types.TrustlineChange) {
+	for key, change := range source {
+		existing, exists := dest[key]
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.TrustlineOpRemove && existing.Operation == types.TrustlineOpAdd {
+			delete(dest, key)
+			continue
+		}
+		dest[key] = change
+	}
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -126,24 +145,28 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
 		}
 
-		// Aggregate token changes from all batch results
-		var allTrustlineChanges []types.TrustlineChange
+		// Merge all batch changes into single maps
+		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
+		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
+		mergedUniqueContractTokens := make(map[string]types.ContractType)
 		var allContractChanges []types.ContractChange
 		for _, result := range results {
-			if result.TokenChanges != nil {
-				allTrustlineChanges = append(allTrustlineChanges, result.TokenChanges.TrustlineChanges...)
-				allContractChanges = append(allContractChanges, result.TokenChanges.ContractChanges...)
+			if result.BatchChanges != nil {
+				mergeTrustlineChanges(mergedTrustlineChanges, result.BatchChanges.TrustlineChangesByKey)
+				allContractChanges = append(allContractChanges, result.BatchChanges.ContractChanges...)
+				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
+				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
 			}
-		}
-
-		// Process aggregated token changes (token cache updates)
-		if err := m.processTokenChanges(ctx, allTrustlineChanges, allContractChanges); err != nil {
-			return fmt.Errorf("processing token changes: %w", err)
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			innerErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger)
+			// Process aggregated changes (token cache updates)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens)
+			if innerErr != nil {
+				return fmt.Errorf("processing batch changes: %w", innerErr)
+			}
+			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", endLedger, innerErr)
 			}
@@ -276,9 +299,9 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	}()
 
 	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
-	ledgersCount, tokenChanges, err := m.processLedgersInBatch(ctx, backend, batch, mode)
+	ledgersCount, batchChanges, err := m.processLedgersInBatch(ctx, backend, batch, mode)
 	result.LedgersCount = ledgersCount
-	result.TokenChanges = tokenChanges
+	result.BatchChanges = batchChanges
 	if err != nil {
 		result.Error = err
 		result.Duration = time.Since(start)
@@ -315,7 +338,7 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 
 // flushBatchBufferWithRetry persists buffered data to the database within a transaction.
 // If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, tokenChanges *BatchTokenChanges) error {
+func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges) error {
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -329,10 +352,16 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if err != nil {
 				return fmt.Errorf("filtering participant data: %w", err)
 			}
-			// Collect token changes for post-catchup processing if requested
-			if tokenChanges != nil {
-				tokenChanges.TrustlineChanges = append(tokenChanges.TrustlineChanges, filteredData.trustlineChanges...)
-				tokenChanges.ContractChanges = append(tokenChanges.ContractChanges, filteredData.contractTokenChanges...)
+			// Collect changes for post-catchup processing if requested
+			if batchChanges != nil {
+				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
+				batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
+				// Collect unique assets (iterate slice into map)
+				for _, asset := range buffer.GetUniqueTrustlineAssets() {
+					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
+				}
+				// Collect unique contract tokens
+				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueContractsByID())
 			}
 			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
@@ -372,22 +401,26 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 
 // processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
 // For historical backfill mode, the cursor is updated atomically with the final data flush.
-// For catchup mode, returns collected token changes for post-catchup processing.
-// Returns the count of ledgers processed and token changes (nil for historical mode).
+// For catchup mode, returns collected batch changes for post-catchup processing.
+// Returns the count of ledgers processed and batch changes (nil for historical mode).
 func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
 	mode BackfillMode,
-) (int, *BatchTokenChanges, error) {
+) (int, *BatchChanges, error) {
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 	ledgersProcessed := 0
 
-	// Initialize token changes collector for catchup mode
-	var tokenChanges *BatchTokenChanges
+	// Initialize batch changes collector for catchup mode
+	var batchChanges *BatchChanges
 	if mode.isCatchup() {
-		tokenChanges = &BatchTokenChanges{}
+		batchChanges = &BatchChanges{
+			TrustlineChangesByKey:    make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+			UniqueTrustlineAssets:    make(map[uuid.UUID]data.TrustlineAsset),
+			UniqueContractTokensByID: make(map[string]types.ContractType),
+		}
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
@@ -404,8 +437,8 @@ func (m *ingestService) processLedgersInBatch(
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, tokenChanges); err != nil {
-				return ledgersProcessed, tokenChanges, err
+			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges); err != nil {
+				return ledgersProcessed, batchChanges, err
 			}
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
@@ -418,8 +451,8 @@ func (m *ingestService) processLedgersInBatch(
 		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
-		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, tokenChanges); err != nil {
-			return ledgersProcessed, tokenChanges, err
+		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges); err != nil {
+			return ledgersProcessed, batchChanges, err
 		}
 	} else if mode.isHistorical() {
 		// All data was flushed in intermediate batches, but we still need to update the cursor
@@ -429,7 +462,7 @@ func (m *ingestService) processLedgersInBatch(
 		}
 	}
 
-	return ledgersProcessed, tokenChanges, nil
+	return ledgersProcessed, batchChanges, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
@@ -443,113 +476,49 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 	return nil
 }
 
-// processTokenChanges processes aggregated token changes after all parallel batches complete.
-// This ensures proper ordering of token changes for cache updates.
-func (m *ingestService) processTokenChanges(
+// processBatchChanges processes aggregated batch changes after all parallel batches complete.
+// Unique assets and contracts are pre-collected during batch processing.
+func (m *ingestService) processBatchChanges(
 	ctx context.Context,
-	trustlineChanges []types.TrustlineChange,
+	dbTx pgx.Tx,
+	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
 	contractChanges []types.ContractChange,
+	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
+	uniqueContractTokens map[string]types.ContractType,
 ) error {
-	// Sort changes by (LedgerNumber, OperationID) to ensure proper ordering
-	sort.Slice(trustlineChanges, func(i, j int) bool {
-		return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
-	})
-	sort.Slice(contractChanges, func(i, j int) bool {
-		return contractChanges[i].OperationID < contractChanges[j].OperationID
-	})
-
-	// Extract unique trustline assets from changes
-	uniqueAssets := extractUniqueTrustlineAssets(trustlineChanges)
-
-	// Extract unique SAC/SEP-41 contracts from changes
-	uniqueContracts := extractUniqueSACAndSEP41Contracts(contractChanges)
-
-	// All token operations in a single atomic transaction
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		// 1. Insert unique trustline assets
-		if len(uniqueAssets) > 0 {
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-				return fmt.Errorf("inserting trustline assets: %w", txErr)
-			}
-		}
-
-		// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
-		if len(uniqueContracts) > 0 {
-			contracts, txErr := m.prepareNewContracts(ctx, dbTx, uniqueContracts)
-			if txErr != nil {
-				return fmt.Errorf("preparing contracts: %w", txErr)
-			}
-			if len(contracts) > 0 {
-				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-					return fmt.Errorf("inserting contracts: %w", txErr)
-				}
-			}
-		}
-
-		// 3. Apply token changes to PostgreSQL
-		if txErr := m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges); txErr != nil {
-			return fmt.Errorf("processing token changes: %w", txErr)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("processing token changes in transaction: %w", err)
+	// 1. Convert unique assets map to slice for BatchInsert
+	assetSlice := make([]data.TrustlineAsset, 0, len(uniqueAssets))
+	for _, asset := range uniqueAssets {
+		assetSlice = append(assetSlice, asset)
 	}
 
-	log.Ctx(ctx).Infof("Processed token changes: %d trustline changes, %d contract changes",
-		len(trustlineChanges), len(contractChanges))
+	// 2. Insert unique trustline assets
+	if len(assetSlice) > 0 {
+		if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, assetSlice); txErr != nil {
+			return fmt.Errorf("inserting trustline assets: %w", txErr)
+		}
+	}
+
+	// 3. Insert new contract tokens (filter existing, fetch metadata, insert)
+	if len(uniqueContractTokens) > 0 {
+		contracts, txErr := m.prepareNewContracts(ctx, dbTx, uniqueContractTokens)
+		if txErr != nil {
+			return fmt.Errorf("preparing contracts: %w", txErr)
+		}
+		if len(contracts) > 0 {
+			if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				return fmt.Errorf("inserting contracts: %w", txErr)
+			}
+		}
+	}
+
+	// 4. Apply token changes to PostgreSQL
+	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges); txErr != nil {
+		return fmt.Errorf("processing token changes: %w", txErr)
+	}
+
+	log.Ctx(ctx).Infof("Processed batch changes: %d trustline changes, %d contract changes",
+		len(trustlineChangesByKey), len(contractChanges))
 
 	return nil
-}
-
-// extractUniqueTrustlineAssets extracts unique trustline assets from changes with pre-computed IDs.
-func extractUniqueTrustlineAssets(trustlineChanges []types.TrustlineChange) []data.TrustlineAsset {
-	if len(trustlineChanges) == 0 {
-		return nil
-	}
-
-	seen := set.NewSet[string]()
-	var assets []data.TrustlineAsset
-	for _, change := range trustlineChanges {
-		code, issuer, err := indexer.ParseAssetString(change.Asset)
-		if err != nil {
-			continue
-		}
-		key := code + ":" + issuer
-		if seen.Contains(key) {
-			continue
-		}
-		seen.Add(key)
-		assets = append(assets, data.TrustlineAsset{
-			ID:     data.DeterministicAssetID(code, issuer),
-			Code:   code,
-			Issuer: issuer,
-		})
-	}
-	return assets
-}
-
-// extractUniqueSACAndSEP41Contracts extracts unique SAC/SEP-41 contract IDs from changes.
-func extractUniqueSACAndSEP41Contracts(contractChanges []types.ContractChange) map[string]types.ContractType {
-	if len(contractChanges) == 0 {
-		return nil
-	}
-
-	seen := set.NewSet[string]()
-	result := make(map[string]types.ContractType)
-
-	for _, change := range contractChanges {
-		// Only process SAC and SEP-41 contracts
-		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
-			continue
-		}
-		if change.ContractID == "" || seen.Contains(change.ContractID) {
-			continue
-		}
-		seen.Add(change.ContractID)
-		result[change.ContractID] = change.ContractType
-	}
-
-	return result
 }

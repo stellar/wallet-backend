@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -16,40 +15,6 @@ import (
 
 // Compile-time check that pgx.Tx is still used in other tests
 var _ pgx.Tx = (pgx.Tx)(nil)
-
-func TestContractModel_GetByID(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-	}
-
-	t.Run("returns error when contract not found", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		contract, err := m.GetByContractID(context.Background(), "nonexistent")
-		require.Error(t, err)
-		require.Nil(t, contract)
-		require.Contains(t, err.Error(), "getting contract by contract_id nonexistent")
-
-		cleanUpDB()
-	})
-}
 
 func TestContractModel_GetExisting(t *testing.T) {
 	ctx := context.Background()
@@ -190,133 +155,6 @@ func TestContractModel_GetExisting(t *testing.T) {
 	})
 }
 
-func TestContractModel_BatchGetByIDs(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-	}
-
-	t.Run("returns empty slice for empty IDs slice", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		// No metrics expected - early return for empty input
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{})
-		require.NoError(t, err)
-		require.Empty(t, contracts)
-	})
-
-	t.Run("returns empty slice when no contracts found", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		// Use random UUIDs that don't exist in the database
-		contracts, err := m.BatchGetByIDs(ctx, []uuid.UUID{uuid.New(), uuid.New()})
-		require.NoError(t, err)
-		require.Empty(t, contracts)
-	})
-
-	t.Run("returns existing contracts by IDs", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 2).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		code1 := "TEST1"
-		issuer1 := "GTEST123"
-		name1 := "Test Contract 1"
-		symbol1 := "TST1"
-		code2 := "TEST2"
-		issuer2 := "GTEST456"
-		name2 := "Test Contract 2"
-		symbol2 := "TST2"
-		contracts := []*Contract{
-			{
-				ID:         DeterministicContractID("contract1"),
-				ContractID: "contract1",
-				Type:       "sac",
-				Code:       &code1,
-				Issuer:     &issuer1,
-				Name:       &name1,
-				Symbol:     &symbol1,
-				Decimals:   7,
-			},
-			{
-				ID:         DeterministicContractID("contract2"),
-				ContractID: "contract2",
-				Type:       "sep41",
-				Code:       &code2,
-				Issuer:     &issuer2,
-				Name:       &name2,
-				Symbol:     &symbol2,
-				Decimals:   18,
-			},
-		}
-
-		// Insert contracts first
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			txErr := m.BatchInsert(ctx, dbTx, contracts)
-			require.NoError(t, txErr)
-			return nil
-		})
-		require.NoError(t, err)
-
-		// Fetch contracts by deterministic UUIDs (including a non-existent one)
-		uuids := []uuid.UUID{DeterministicContractID("contract1"), DeterministicContractID("contract2"), uuid.New()}
-		fetchedContracts, err := m.BatchGetByIDs(ctx, uuids)
-		require.NoError(t, err)
-		require.Len(t, fetchedContracts, 2)
-
-		// Verify fetched contracts
-		contractMap := make(map[string]*Contract)
-		for _, c := range fetchedContracts {
-			contractMap[c.ContractID] = c
-		}
-
-		require.Equal(t, "sac", contractMap["contract1"].Type)
-		require.Equal(t, "TEST1", *contractMap["contract1"].Code)
-		require.Equal(t, "GTEST123", *contractMap["contract1"].Issuer)
-		require.Equal(t, uint32(7), contractMap["contract1"].Decimals)
-
-		require.Equal(t, "sep41", contractMap["contract2"].Type)
-		require.Equal(t, "TEST2", *contractMap["contract2"].Code)
-		require.Equal(t, uint32(18), contractMap["contract2"].Decimals)
-
-		cleanUpDB()
-	})
-}
-
 func TestContractModel_BatchInsert(t *testing.T) {
 	ctx := context.Background()
 
@@ -355,8 +193,6 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -412,8 +248,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify contracts were inserted
-		contract1, err := m.GetByContractID(ctx, "contract1")
+		// Verify contracts were inserted using direct SQL
+		var contract1 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
@@ -422,11 +259,13 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "TST1", *contract1.Symbol)
 		require.Equal(t, uint32(7), contract1.Decimals)
 
-		contract2, err := m.GetByContractID(ctx, "contract2")
+		var contract2 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract2, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
 		require.NoError(t, err)
 		require.Equal(t, "sep41", contract2.Type)
 
-		contract3, err := m.GetByContractID(ctx, "contract3")
+		var contract3 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract3, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
 		require.NoError(t, err)
 		require.Nil(t, contract3.Code)
 		require.Nil(t, contract3.Issuer)
@@ -441,8 +280,6 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByContractID", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByContractID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -502,8 +339,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify original contract was not updated
-		contract1, err := m.GetByContractID(ctx, "contract1")
+		// Verify original contract was not updated using direct SQL
+		var contract1 Contract
+		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "Original Name", *contract1.Name)

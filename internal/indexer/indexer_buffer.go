@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -44,34 +45,39 @@ import (
 // All public methods use RWMutex for concurrent read/exclusive write access.
 // Callers can safely use multiple buffers in parallel goroutines.
 
+type TrustlineChangeKey struct {
+	AccountID   string
+	TrustlineID uuid.UUID
+}
+
 type IndexerBuffer struct {
-	mu                    sync.RWMutex
-	txByHash              map[string]*types.Transaction
-	participantsByTxHash  map[string]set.Set[string]
-	opByID                map[int64]*types.Operation
-	participantsByOpID    map[int64]set.Set[string]
-	stateChanges          []types.StateChange
-	trustlineChanges      []types.TrustlineChange
-	contractChanges       []types.ContractChange
-	allParticipants       set.Set[string]
-	uniqueTrustlineAssets map[string]data.TrustlineAsset // "CODE:ISSUER" → asset with pre-computed ID
-	uniqueContractsByID   map[string]types.ContractType  // contractID → type (SAC/SEP-41 only)
+	mu                             sync.RWMutex
+	txByHash                       map[string]*types.Transaction
+	participantsByTxHash           map[string]set.Set[string]
+	opByID                         map[int64]*types.Operation
+	participantsByOpID             map[int64]set.Set[string]
+	stateChanges                   []types.StateChange
+	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
+	contractChanges                []types.ContractChange
+	allParticipants                set.Set[string]
+	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
+	uniqueContractsByID            map[string]types.ContractType // contractID → type (SAC/SEP-41 only)
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		txByHash:              make(map[string]*types.Transaction),
-		participantsByTxHash:  make(map[string]set.Set[string]),
-		opByID:                make(map[int64]*types.Operation),
-		participantsByOpID:    make(map[int64]set.Set[string]),
-		stateChanges:          make([]types.StateChange, 0),
-		trustlineChanges:      make([]types.TrustlineChange, 0),
-		contractChanges:       make([]types.ContractChange, 0),
-		allParticipants:       set.NewSet[string](),
-		uniqueTrustlineAssets: make(map[string]data.TrustlineAsset),
-		uniqueContractsByID:   make(map[string]types.ContractType),
+		txByHash:                       make(map[string]*types.Transaction),
+		participantsByTxHash:           make(map[string]set.Set[string]),
+		opByID:                         make(map[int64]*types.Operation),
+		participantsByOpID:             make(map[int64]set.Set[string]),
+		stateChanges:                   make([]types.StateChange, 0),
+		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
+		contractChanges:                make([]types.ContractChange, 0),
+		allParticipants:                set.NewSet[string](),
+		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
+		uniqueContractsByID:            make(map[string]types.ContractType),
 	}
 }
 
@@ -161,30 +167,47 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.trustlineChanges = append(b.trustlineChanges, trustlineChange)
-
-	// Track unique asset with pre-computed deterministic ID
 	code, issuer, err := ParseAssetString(trustlineChange.Asset)
 	if err != nil {
 		return // Skip invalid assets
 	}
-	key := code + ":" + issuer
-	if _, exists := b.uniqueTrustlineAssets[key]; !exists {
-		b.uniqueTrustlineAssets[key] = data.TrustlineAsset{
-			ID:     data.DeterministicAssetID(code, issuer),
+	trustlineID := data.DeterministicAssetID(code, issuer)
+
+	// Track unique asset with pre-computed deterministic ID
+	if _, exists := b.uniqueTrustlineAssets[trustlineID]; !exists {
+		b.uniqueTrustlineAssets[trustlineID] = data.TrustlineAsset{
+			ID:     trustlineID,
 			Code:   code,
 			Issuer: issuer,
 		}
 	}
+
+	changeKey := TrustlineChangeKey{
+		AccountID:   trustlineChange.AccountID,
+		TrustlineID: trustlineID,
+	}
+	prevChange, exists := b.trustlineChangesByTrustlineKey[changeKey]
+	if exists && prevChange.OperationID > trustlineChange.OperationID {
+		return
+	}
+
+	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation for the same trustline from previous operation,
+	// it is a no-op for current ledger.
+	if exists && trustlineChange.Operation == types.TrustlineOpRemove && prevChange.Operation == types.TrustlineOpAdd {
+		delete(b.trustlineChangesByTrustlineKey, changeKey)
+		return
+	}
+
+	b.trustlineChangesByTrustlineKey[changeKey] = trustlineChange
 }
 
 // GetTrustlineChanges returns all trustline changes stored in the buffer.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetTrustlineChanges() []types.TrustlineChange {
+func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.trustlineChanges
+	return b.trustlineChangesByTrustlineKey
 }
 
 // PushContractChange adds a contract change to the buffer and tracks unique SAC/SEP-41 contracts.
@@ -368,7 +391,21 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	b.stateChanges = append(b.stateChanges, otherBuffer.stateChanges...)
 
 	// Merge trustline changes
-	b.trustlineChanges = append(b.trustlineChanges, otherBuffer.trustlineChanges...)
+	for key, change := range otherBuffer.trustlineChangesByTrustlineKey {
+		existing, exists := b.trustlineChangesByTrustlineKey[key]
+
+		if exists && existing.OperationID > change.OperationID {
+			continue
+		}
+
+		// Handle ADD→REMOVE no-op case
+		if exists && change.Operation == types.TrustlineOpRemove && existing.Operation == types.TrustlineOpAdd {
+			delete(b.trustlineChangesByTrustlineKey, key)
+			continue
+		}
+
+		b.trustlineChangesByTrustlineKey[key] = change
+	}
 
 	// Merge contract changes
 	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
@@ -399,10 +436,10 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
 	clear(b.uniqueContractsByID)
+	clear(b.trustlineChangesByTrustlineKey)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
-	b.trustlineChanges = b.trustlineChanges[:0]
 	b.contractChanges = b.contractChanges[:0]
 
 	// Clear all participants set

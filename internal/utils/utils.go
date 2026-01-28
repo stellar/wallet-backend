@@ -62,41 +62,6 @@ func GetAccountLedgerKey(address string) (string, error) {
 	return keyXdr, nil
 }
 
-// GetTrustlineLedgerKey creates a base64-encoded XDR ledger key for a trustline.
-func GetTrustlineLedgerKey(accountAddress, assetCode, assetIssuer string) (string, error) {
-	// Decode the account address
-	decoded, err := strkey.Decode(strkey.VersionByteAccountID, accountAddress)
-	if err != nil {
-		return "", fmt.Errorf("decoding account address %q: %w", accountAddress, err)
-	}
-	var key xdr.Uint256
-	copy(key[:], decoded)
-	accountID := xdr.AccountId(xdr.PublicKey{
-		Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
-		Ed25519: &key,
-	})
-
-	// Create the asset
-	asset, err := xdr.NewCreditAsset(assetCode, assetIssuer)
-	if err != nil {
-		return "", fmt.Errorf("creating credit asset: %w", err)
-	}
-
-	// Create the ledger key
-	ledgerKey := &xdr.LedgerKey{}
-	err = ledgerKey.SetTrustline(accountID, asset.ToTrustLineAsset())
-	if err != nil {
-		return "", fmt.Errorf("setting trustline ledger key: %w", err)
-	}
-
-	// Marshal to base64
-	keyXdr, err := ledgerKey.MarshalBinaryBase64()
-	if err != nil {
-		return "", fmt.Errorf("marshalling ledger key: %w", err)
-	}
-	return keyXdr, nil
-}
-
 // GetContractDataEntryLedgerKey creates a base64-encoded XDR ledger key for a contract data entry balance.
 func GetContractDataEntryLedgerKey(holderAddress, contractAddress string) (string, error) {
 	// Create holder ScAddress - handle both G... (account) and C... (contract) addresses

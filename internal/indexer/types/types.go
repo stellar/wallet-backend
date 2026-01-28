@@ -51,11 +51,16 @@ const (
 )
 
 type TrustlineChange struct {
-	AccountID    string
-	Asset        string
-	OperationID  int64
-	LedgerNumber uint32
-	Operation    TrustlineOpType
+	AccountID          string
+	Asset              string // "CODE:ISSUER" format
+	OperationID        int64
+	LedgerNumber       uint32
+	Operation          TrustlineOpType
+	Balance            int64
+	Limit              int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+	Flags              uint32
 }
 
 type TrustlineOpType string
@@ -63,6 +68,7 @@ type TrustlineOpType string
 const (
 	TrustlineOpAdd    TrustlineOpType = "ADD"
 	TrustlineOpRemove TrustlineOpType = "REMOVE"
+	TrustlineOpUpdate TrustlineOpType = "UPDATE"
 )
 
 type ContractChange struct {
@@ -319,7 +325,7 @@ type StateChange struct {
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string
+	// code:issuer formatted asset string (used for state change history)
 	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
