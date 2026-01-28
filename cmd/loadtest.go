@@ -46,7 +46,6 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 		DatabaseURL         string
 		NetworkPassphrase   string
 		ServerPort          int
-		AdminPort           int
 		SkipTxMeta          bool
 		SkipTxEnvelope      bool
 		StartLedger         int

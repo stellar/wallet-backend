@@ -90,11 +90,10 @@ type LoadtestBackendConfig struct {
 }
 
 // NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
-func NewLoadtestLedgerBackend(cfg LoadtestBackendConfig) ledgerbackend.LedgerBackend {
-	datastoreBackend, err := newDatastoreLedgerBackend(context.Background(), cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
+	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	if err != nil {
-		log.Errorf("Failed to create datastore ledger backend: %v", err)
-		return nil
+		return nil, fmt.Errorf("Failed to create datastore ledger backend: %v", err)
 	}
 	config := goloadtest.LedgerBackendConfig{
 		NetworkPassphrase:   cfg.NetworkPassphrase,
@@ -104,5 +103,5 @@ func NewLoadtestLedgerBackend(cfg LoadtestBackendConfig) ledgerbackend.LedgerBac
 	}
 	backend := goloadtest.NewLedgerBackend(config)
 	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
-	return backend
+	return backend, nil
 }

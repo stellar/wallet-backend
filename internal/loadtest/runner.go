@@ -82,12 +82,15 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 
 	// Create ledger backend
-	backend := ingest.NewLoadtestLedgerBackend(ingest.LoadtestBackendConfig{
+	backend, err := ingest.NewLoadtestLedgerBackend(ctx, ingest.LoadtestBackendConfig{
 		NetworkPassphrase:   cfg.NetworkPassphrase,
 		LedgersFilePath:     cfg.LedgersFilePath,
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
 		DatastoreConfigPath: "config/datastore-pubnet.toml",
 	})
+	if err != nil {
+		return fmt.Errorf("creating load test ledger backend: %v", err)
+	}
 	defer func() {
 		if closeErr := backend.Close(); closeErr != nil {
 			log.Warnf("Error closing ledger backend: %v", closeErr)
