@@ -120,15 +120,12 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 // initializeCursor ensures the loadtest cursor exists with value 0.
 func initializeCursor(ctx context.Context, models *data.Models, cursorName string) error {
-	_, err := models.IngestStore.Get(ctx, cursorName)
-	if err != nil {
-		// Cursor doesn't exist, create it
-		txErr := db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
-			return models.IngestStore.Update(ctx, dbTx, cursorName, 0)
-		})
-		if txErr != nil {
-			return fmt.Errorf("creating cursor %s: %w", cursorName, txErr)
-		}
+	// Cursor doesn't exist, create it
+	txErr := db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
+		return models.IngestStore.Update(ctx, dbTx, cursorName, 0)
+	})
+	if txErr != nil {
+		return fmt.Errorf("creating cursor %s: %w", cursorName, txErr)
 	}
 	return nil
 }
