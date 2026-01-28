@@ -179,7 +179,6 @@ Example:
 			log.Info("Starting loadtest ingestion run...")
 			log.Infof("  Ledgers file: %s", cfg.LedgersFilePath)
 			log.Infof("  Ledger close duration: %v", cfg.LedgerCloseDuration)
-			log.Infof("  Database URL: %s", cfg.DatabaseURL)
 			log.Infof("  Network passphrase: %s", cfg.NetworkPassphrase)
 			log.Infof("  Server port: %d", cfg.ServerPort)
 			log.Infof("  Start ledger: %d", cfg.StartLedger)
