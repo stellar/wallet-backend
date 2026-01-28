@@ -7,10 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -52,23 +49,12 @@ type RunConfig struct {
 
 // Run executes ingestion from synthetic ledgers file.
 func Run(ctx context.Context, cfg RunConfig) error {
-	// Setup context with signal handling
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-signalChan
-		log.Info("Received shutdown signal, cleaning up...")
-		cancel()
-	}()
-
 	// Setup dependencies
 	dbPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
+	defer dbPool.Close()
 
 	sqlxDB, err := dbPool.SqlxDB(ctx)
 	if err != nil {
@@ -99,6 +85,8 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 	// Create indexer with worker pool
 	indexerPool := pond.NewPool(0)
+	defer indexerPool.StopAndWait()
+	
 	metricsService.RegisterPoolMetrics("loadtest_indexer", indexerPool)
 	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, metricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
 
@@ -189,6 +177,13 @@ func runIngestionLoop(
 	log.Infof("Starting loadtest ingestion from ledger %d (last expected: %d)", cfg.StartLedger, lastExpectedLedger)
 
 	for currentLedger <= lastExpectedLedger {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled")
+		default:
+			// fall through and continue normally
+		}
+
 		// Get ledger from backend
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
 		if errors.Is(err, goloadtest.ErrLoadTestDone) {
