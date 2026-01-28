@@ -20,14 +20,13 @@ const (
 
 // AccountsProcessor processes ledger changes to extract account balance modifications.
 type AccountsProcessor struct {
-	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService MetricsServiceInterface
 }
 
 // NewAccountsProcessor creates a new accounts processor.
 func NewAccountsProcessor(metricsService MetricsServiceInterface) *AccountsProcessor {
 	return &AccountsProcessor{
-		metricsService:    metricsService,
+		metricsService: metricsService,
 	}
 }
 
@@ -46,7 +45,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 			p.metricsService.ObserveStateChangeProcessingDuration("AccountsProcessor", duration)
 		}
 	}()
-	
+
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
