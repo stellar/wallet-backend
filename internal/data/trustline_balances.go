@@ -163,21 +163,6 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 
 	start := time.Now()
 
-	// Build rows for COPY with all trustline fields
-	rows := make([][]any, len(balances))
-	for i, tl := range balances {
-		rows[i] = []any{
-			tl.AccountAddress,
-			tl.AssetID,
-			tl.Balance,
-			tl.Limit,
-			tl.BuyingLiabilities,
-			tl.SellingLiabilities,
-			tl.Flags,
-			tl.LedgerNumber,
-		}
-	}
-
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"trustline_balances"},
@@ -191,14 +176,26 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 			"flags",
 			"last_modified_ledger",
 		},
-		pgx.CopyFromRows(rows),
+		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
+			tl := balances[i]
+			return []any{
+				tl.AccountAddress,
+				tl.AssetID,
+				tl.Balance,
+				tl.Limit,
+				tl.BuyingLiabilities,
+				tl.SellingLiabilities,
+				tl.Flags,
+				tl.LedgerNumber,
+			}, nil
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("batch inserting trustline balances via COPY: %w", err)
 	}
 
-	if int(copyCount) != len(rows) {
-		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
+	if int(copyCount) != len(balances) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "trustline_balances", time.Since(start).Seconds())

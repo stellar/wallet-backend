@@ -11,7 +11,6 @@ import (
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -21,12 +20,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
-
-// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
-func isContractAddress(address string) bool {
-	_, err := strkey.Decode(strkey.VersionByteContract, address)
-	return err == nil
-}
 
 type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
@@ -95,10 +88,10 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
-		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
 		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
 		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
+		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -255,7 +248,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			// Only store contract changes when:
 			// - Account is C-address, OR
 			// - Account is G-address AND contract token is SEP41
-			accountIsContract := isContractAddress(stateChange.AccountID)
+			accountIsContract := utils.IsContractAddress(stateChange.AccountID)
 			tokenIsSEP41 := stateChange.ContractType == types.ContractTypeSEP41
 
 			if accountIsContract || tokenIsSEP41 {

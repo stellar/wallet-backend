@@ -59,22 +59,14 @@ func poolShareLedgerEntry(accountID xdr.AccountId) *xdr.LedgerEntry {
 	}
 }
 
-func TestNewTrustlinesProcessor(t *testing.T) {
-	processor := NewTrustlinesProcessor(networkPassphrase, nil)
-
-	assert.NotNil(t, processor)
-	assert.Equal(t, networkPassphrase, processor.networkPassphrase)
-	assert.Nil(t, processor.metricsService)
-}
-
 func TestTrustlinesProcessor_Name(t *testing.T) {
-	processor := NewTrustlinesProcessor(networkPassphrase, nil)
+	processor := NewTrustlinesProcessor(nil)
 
 	assert.Equal(t, "trustlines", processor.Name())
 }
 
 func TestTrustlinesProcessor_ProcessOperation(t *testing.T) {
-	processor := NewTrustlinesProcessor(networkPassphrase, nil)
+	processor := NewTrustlinesProcessor(nil)
 	testAccount := accountA.ToAccountId()
 	testAsset := usdcAsset
 

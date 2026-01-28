@@ -248,52 +248,6 @@ func TestSACBalancesProcessor_ProcessOperation_WithInt128Balance(t *testing.T) {
 	assert.NotEmpty(t, result[0].Balance)
 }
 
-func TestSACBalancesProcessor_extractSACBalanceFields(t *testing.T) {
-	processor := NewSACBalancesProcessor(networkPassphrase, nil)
-
-	t.Run("extracts all fields from valid map", func(t *testing.T) {
-		// Create a valid SAC balance value using SDK
-		entry := sacBalanceLedgerEntry(testSACContractBytes, testHolderContractBytes, 5000000)
-		contractData := entry.Data.MustContractData()
-
-		balance, authorized, clawback := processor.extractSACBalanceFields(contractData.Val)
-
-		// SDK creates balances with default authorization settings
-		assert.NotEmpty(t, balance)
-		// Note: the SDK's BalanceToContractData creates entries with specific defaults
-		_ = authorized
-		_ = clawback
-	})
-
-	t.Run("returns defaults for invalid map", func(t *testing.T) {
-		// Test with a non-map ScVal
-		invalidVal := xdr.ScVal{Type: xdr.ScValTypeScvVoid}
-
-		balance, authorized, clawback := processor.extractSACBalanceFields(invalidVal)
-
-		assert.Equal(t, "0", balance)
-		assert.False(t, authorized)
-		assert.False(t, clawback)
-	})
-
-	t.Run("returns defaults for empty map", func(t *testing.T) {
-		// Test with a map type but empty entries
-		emptyMap := xdr.ScMap{}
-		emptyMapPtr := &emptyMap
-		emptyMapVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvMap,
-			Map:  &emptyMapPtr,
-		}
-
-		balance, authorized, clawback := processor.extractSACBalanceFields(emptyMapVal)
-
-		// Balance defaults to "0" when amount field is not found in map
-		assert.Equal(t, "0", balance)
-		assert.False(t, authorized)
-		assert.False(t, clawback)
-	})
-}
-
 func TestSACBalancesProcessor_SkipsGAddressHolders(t *testing.T) {
 	processor := NewSACBalancesProcessor(networkPassphrase, nil)
 

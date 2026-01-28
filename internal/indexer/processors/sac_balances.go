@@ -15,13 +15,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// SAC balance map field names as defined by the Stellar Asset Contract specification.
-const (
-	sacBalanceFieldAmount     = "amount"
-	sacBalanceFieldAuthorized = "authorized"
-	sacBalanceFieldClawback   = "clawback"
-)
-
 // SACBalancesProcessor processes ledger changes to extract SAC balance modifications.
 // SAC balances are stored in contract data entries with a defined format:
 // Key: ["Balance", holder_address]
@@ -144,40 +137,8 @@ func (p *SACBalancesProcessor) processSACBalanceChange(change ingest.Change, opW
 }
 
 // extractSACBalanceFields extracts balance, authorized, and clawback from a SAC balance map.
-// Assumes ContractBalanceFromContractData already validated the structure.
-// SAC balance format: {amount: i128, authorized: bool, clawback: bool}
+// SDK's ContractBalanceFromContractData already validated: map[0]=amount(i128), map[1]=authorized(bool), map[2]=clawback(bool)
 func (p *SACBalancesProcessor) extractSACBalanceFields(val xdr.ScVal) (balance string, authorized bool, clawback bool) {
-	balanceMap, ok := val.GetMap()
-	if !ok || balanceMap == nil {
-		return "0", false, false
-	}
-
-	for _, entry := range *balanceMap {
-		keySymbol, ok := entry.Key.GetSym()
-		if !ok {
-			continue
-		}
-
-		switch string(keySymbol) {
-		case sacBalanceFieldAmount:
-			if i128, ok := entry.Val.GetI128(); ok {
-				balance = amount.String128(i128)
-			}
-		case sacBalanceFieldAuthorized:
-			if b, ok := entry.Val.GetB(); ok {
-				authorized = b
-			}
-		case sacBalanceFieldClawback:
-			if b, ok := entry.Val.GetB(); ok {
-				clawback = b
-			}
-		}
-	}
-
-	// Ensure balance has a valid value (defaults to "0" if not found)
-	if balance == "" {
-		balance = "0"
-	}
-
-	return balance, authorized, clawback
+	entries := *val.MustMap()
+	return amount.String128(entries[0].Val.MustI128()), entries[1].Val.MustB(), entries[2].Val.MustB()
 }
