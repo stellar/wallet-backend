@@ -5,6 +5,7 @@ package processors
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -16,15 +17,13 @@ import (
 // Unlike effects-based processing, this captures ALL trustline changes including balance
 // updates from payments, path payments, and other operations that modify trustline balances.
 type TrustlinesProcessor struct {
-	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService MetricsServiceInterface
 }
 
 // NewTrustlinesProcessor creates a new trustlines processor.
-func NewTrustlinesProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *TrustlinesProcessor {
+func NewTrustlinesProcessor(metricsService MetricsServiceInterface) *TrustlinesProcessor {
 	return &TrustlinesProcessor{
-		networkPassphrase: networkPassphrase,
-		metricsService:    metricsService,
+		metricsService: metricsService,
 	}
 }
 
@@ -36,6 +35,14 @@ func (p *TrustlinesProcessor) Name() string {
 // ProcessOperation extracts trustline changes from an operation's ledger changes.
 // Returns TrustlineChange structs with full XDR data for database upsert.
 func (p *TrustlinesProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.TrustlineChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("TrustlinesProcessor", duration)
+		}
+	}()
+
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)

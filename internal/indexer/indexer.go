@@ -85,8 +85,8 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(networkPassphrase, metricsService),
-		accountsProcessor:      processors.NewAccountsProcessor(networkPassphrase, metricsService),
+		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
