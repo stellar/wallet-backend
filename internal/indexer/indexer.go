@@ -245,13 +245,8 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
 		case types.StateChangeCategoryBalance:
-			// Only store contract changes when:
-			// - Account is C-address, OR
-			// - Account is G-address AND contract token is SEP41
-			accountIsContract := utils.IsContractAddress(stateChange.AccountID)
-			tokenIsSEP41 := stateChange.ContractType == types.ContractTypeSEP41
-
-			if accountIsContract || tokenIsSEP41 {
+			// Only store contract changes when contract token is SEP41
+			if stateChange.ContractType == types.ContractTypeSEP41 {
 				contractChange := types.ContractChange{
 					AccountID:    stateChange.AccountID,
 					OperationID:  stateChange.OperationID,
