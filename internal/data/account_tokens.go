@@ -208,10 +208,18 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 	start := time.Now()
 
 	// Build rows for COPY
-	var rows [][]any
+	type trustlineRow struct {
+		address     string
+		trustlineID uuid.UUID
+	}
+
+	var rows []trustlineRow
 	for addr, ids := range trustlinesByAccount {
 		for _, id := range ids {
-			rows = append(rows, []any{addr, id})
+			rows = append(rows, trustlineRow{
+				address:     addr,
+				trustlineID: id,
+			})
 		}
 	}
 
@@ -219,7 +227,9 @@ func (m *AccountTokensModel) BulkInsertTrustlines(ctx context.Context, dbTx pgx.
 		ctx,
 		pgx.Identifier{"account_trustlines"},
 		[]string{"account_address", "asset_id"},
-		pgx.CopyFromRows(rows),
+		pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
+			return []any{rows[i].address, rows[i].trustlineID}, nil
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("bulk inserting trustlines via COPY: %w", err)
