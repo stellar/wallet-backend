@@ -1,5 +1,5 @@
 // Package services provides business logic for the wallet-backend.
-// This file implements ContractMetadataService for fetching and storing SAC/SEP-41 token metadata.
+// This file implements ContractMetadataService for fetching SAC/SEP-41 token metadata via RPC.
 package services
 
 import (
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -43,15 +42,12 @@ type ContractMetadata struct {
 	Decimals   uint32
 }
 
-// ContractMetadataService handles fetching and storing metadata (name, symbol, decimals)
+// ContractMetadataService handles fetching metadata (name, symbol, decimals)
 // for Stellar Asset Contract (SAC) and SEP-41 token contracts via RPC simulation.
 type ContractMetadataService interface {
-	// FetchAndStoreMetadata fetches metadata for the given contracts and stores in the database.
-	// Parameters:
-	//   - dbTx: the database transaction to use for storing metadata
-	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
-	// Returns error only for critical failures; individual fetch failures are logged.
-	FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error
+	// FetchMetadata fetches metadata for the given contracts via RPC without storing.
+	// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
+	FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -90,11 +86,11 @@ func NewContractMetadataService(
 	}, nil
 }
 
-// FetchAndStoreMetadata fetches metadata for contracts and stores in database.
-func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbTx pgx.Tx, contractTypesByID map[string]types.ContractType) error {
+// FetchMetadata fetches metadata for contracts via RPC without storing in database.
+// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
+func (s *contractMetadataService) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
 	if len(contractTypesByID) == 0 {
-		log.Ctx(ctx).Info("No contracts to fetch metadata for")
-		return nil
+		return []*data.Contract{}, nil
 	}
 
 	// Build initial metadata map and contract IDs slice
@@ -116,11 +112,22 @@ func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, dbT
 	// Parse SAC code:issuer from name field
 	s.parseSACMetadata(metadataMap)
 
-	// Store in database
-	start = time.Now()
-	err := s.storeInDB(ctx, dbTx, metadataMap)
-	log.Ctx(ctx).Infof("Inserted %d contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-	return err
+	// Convert to []*data.Contract with pre-computed deterministic IDs
+	contracts := make([]*data.Contract, 0, len(metadataMap))
+	for _, metadata := range metadataMap {
+		contracts = append(contracts, &data.Contract{
+			ID:         data.DeterministicContractID(metadata.ContractID),
+			ContractID: metadata.ContractID,
+			Type:       string(metadata.Type),
+			Code:       &metadata.Code,
+			Issuer:     &metadata.Issuer,
+			Name:       &metadata.Name,
+			Symbol:     &metadata.Symbol,
+			Decimals:   metadata.Decimals,
+		})
+	}
+
+	return contracts, nil
 }
 
 // fetchMetadata fetches name, symbol, and decimals for a single contract in parallel.
@@ -314,35 +321,6 @@ func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap ma
 		time.Sleep(batchSleepDuration)
 	}
 	return metadataMap
-}
-
-// storeInDB stores contract metadata in the contract_tokens database table.
-func (s *contractMetadataService) storeInDB(ctx context.Context, dbTx pgx.Tx, metadataMap map[string]ContractMetadata) error {
-	if len(metadataMap) == 0 {
-		log.Ctx(ctx).Info("No contract metadata to store in database")
-		return nil
-	}
-
-	// Build contracts slice from metadata map
-	contracts := make([]*data.Contract, 0, len(metadataMap))
-	for _, metadata := range metadataMap {
-		contracts = append(contracts, &data.Contract{
-			ID:       metadata.ContractID,
-			Type:     string(metadata.Type),
-			Code:     &metadata.Code,
-			Issuer:   &metadata.Issuer,
-			Name:     &metadata.Name,
-			Symbol:   &metadata.Symbol,
-			Decimals: metadata.Decimals,
-		})
-	}
-
-	// Batch insert all contracts
-	_, err := s.contractModel.BatchInsert(ctx, dbTx, contracts)
-	if err != nil {
-		return fmt.Errorf("storing contract metadata in database: %w", err)
-	}
-	return nil
 }
 
 // parseSACMetadata parses the code:issuer format from SAC token names and populates the Code and Issuer fields.

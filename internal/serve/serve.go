@@ -28,7 +28,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	cache "github.com/stellar/wallet-backend/internal/store"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -41,8 +40,6 @@ import (
 
 type Configs struct {
 	Port                        int
-	RedisHost                   string
-	RedisPort                   int
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
@@ -102,7 +99,7 @@ type handlerDeps struct {
 
 func Serve(cfg Configs) error {
 	ctx := context.Background()
-	redisStore, deps, err := initHandlerDeps(ctx, cfg)
+	deps, err := initHandlerDeps(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
@@ -116,47 +113,44 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
-			if err := redisStore.Close(); err != nil {
-				log.Errorf("Error closing Redis connection: %v", err)
-			}
 		},
 	})
 
 	return nil
 }
 
-func initHandlerDeps(ctx context.Context, cfg Configs) (*cache.RedisStore, handlerDeps, error) {
+func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
+		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	db, err := dbConnectionPool.SqlxDB(ctx)
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
+		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
 	}
-	metricsService := metrics.NewMetricsService(db)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
+		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
 	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
 	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	accountService, err := services.NewAccountService(models, metricsService)
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}
 
 	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
@@ -165,16 +159,15 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (*cache.RedisStore, handl
 		Models:                             models,
 	})
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
-	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	tokenCacheReader := services.NewTokenCacheReader(models.DB, redisStore, models.TrustlineAsset)
+	// Serve command only reads from PostgreSQL cache, doesn't need history archive or contract metadata service
+	tokenCacheReader := services.NewTokenCacheReader(models.DB, models.TrustlineAsset, models.AccountTokens, models.Contract)
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
@@ -186,7 +179,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (*cache.RedisStore, handl
 		BaseFee:                            int64(cfg.BaseFee),
 	})
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating transaction service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating transaction service: %w", err)
 	}
 
 	httpClient = http.Client{Timeout: 30 * time.Second}
@@ -201,11 +194,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (*cache.RedisStore, handl
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
 	})
 	if err != nil {
-		return nil, handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-	return redisStore, handlerDeps{
+	return handlerDeps{
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
 		SupportedAssets:             cfg.SupportedAssets,

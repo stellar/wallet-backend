@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -57,9 +58,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
-		if err := m.initializeKnownContractIDs(ctx); err != nil {
-			return fmt.Errorf("initializing known contract IDs: %w", err)
-		}
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
 			return fmt.Errorf("getting health check result from RPC: %w", err)
@@ -75,14 +73,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			startLedger = networkLatestLedger + 1
 		}
 	}
-
-	// Load known contract IDs into cache to avoid per-ledger DB lookups
-	ids, err := m.models.Contract.GetAllIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("loading contract IDs into cache: %w", err)
-	}
-	m.knownContractIDs.Append(ids...)
-	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
 
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
@@ -100,17 +90,6 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing oldest cursor: %w", err)
 	}
-	return nil
-}
-
-// initializeKnownContractIDs populates the in-memory cache of known contract IDs.
-func (m *ingestService) initializeKnownContractIDs(ctx context.Context) error {
-	ids, err := m.models.Contract.GetAllIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("loading contract IDs into cache: %w", err)
-	}
-	m.knownContractIDs.Append(ids...)
-	log.Ctx(ctx).Infof("Loaded %d contract IDs into cache", len(ids))
 	return nil
 }
 
@@ -134,14 +113,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
 
-		// Pre-commit asset IDs in a separate transaction before the main transaction
-		// to prevent orphan IDs if the main transaction rolls back
+		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		trustlineAssetIDMap, err := m.insertTrustlinesAndContractTokensWithRetry(ctx, currentLedger, buffer.GetTrustlineChanges(), buffer.GetContractChanges())
-		if err != nil {
-			return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, err)
-		}
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer, trustlineAssetIDMap)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -158,67 +132,10 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// insertTrustlinesAndContractTokensWithRetry inserts trustlines and contract tokens into the database.
-func (m *ingestService) insertTrustlinesAndContractTokensWithRetry(ctx context.Context, currentLedger uint32, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) (map[string]int64, error) {
-	var trustlineAssetIDMap map[string]int64
-	var innerErr error
-	var lastErr error
-
-	// Filter new contracts using in-memory cache (outside transaction - no DB call)
-	newContractTypesByID := m.filterNewContractTokens(contractChanges)
-
-	for attempt := 0; attempt <= maxIngestProcessedDataRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("context done: %w", ctx.Err())
-		default:
-		}
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			trustlineAssetIDMap, innerErr = m.tokenCacheWriter.GetOrInsertTrustlineAssets(ctx, trustlineChanges)
-			if innerErr != nil {
-				return fmt.Errorf("inserting trustline assets: %w", innerErr)
-			}
-			// Fetch and store metadata for new SAC/SEP-41 contracts
-			if len(newContractTypesByID) > 0 {
-				innerErr = m.contractMetadataService.FetchAndStoreMetadata(ctx, dbTx, newContractTypesByID)
-				if innerErr != nil {
-					return fmt.Errorf("fetching and storing new contract tokens metadata: %w", innerErr)
-				}
-			}
-			return nil
-		})
-		if err == nil {
-			// Update cache AFTER transaction commits to avoid stale cache on rollback
-			for contractID := range newContractTypesByID {
-				m.knownContractIDs.Add(contractID)
-			}
-			return trustlineAssetIDMap, nil
-		}
-		lastErr = err
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxIngestProcessedDataRetryBackoff {
-			backoff = maxIngestProcessedDataRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error ingesting trustline and contract tokens for ledger %d (attempt %d/%d): %v, retrying in %v...",
-			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
-
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-	}
-	if lastErr != nil {
-		return nil, fmt.Errorf("inserting trustline and contract tokens: %w", lastErr)
-	}
-	return trustlineAssetIDMap, nil
-}
-
-// ingestProcessedDataWithRetry ingests the processed data into the database with retry logic,
-// unlocks channel accounts, and processes token changes.
-// The assetIDMap must be pre-populated by calling GetOrInsertTrustlineAssets before this function.
-func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer, assetIDMap map[string]int64) (int, int, error) {
+// ingestProcessedDataWithRetry ingests all ledger data into the database in a single atomic transaction.
+// This includes trustline assets, contract tokens, transactions, operations, token changes, and cursor update.
+// All operations succeed or fail together, ensuring data consistency.
+func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
 	numTransactionProcessed := 0
 	numOperationProcessed := 0
 
@@ -231,27 +148,49 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			filteredData, innerErr := m.filterParticipantData(ctx, dbTx, buffer)
-			if innerErr != nil {
-				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, innerErr)
+			// 1. Insert unique trustline assets (pre-tracked in buffer)
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, buffer.GetUniqueTrustlineAssets()); txErr != nil {
+				return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
 			}
-			innerErr = m.insertIntoDB(ctx, dbTx, filteredData)
-			if innerErr != nil {
-				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, innerErr)
+
+			// 2. Insert new contract tokens (filter existing, fetch metadata, insert)
+			contracts, txErr := m.prepareNewContracts(ctx, dbTx, buffer.GetUniqueContractsByID())
+			if txErr != nil {
+				return fmt.Errorf("preparing contracts for ledger %d: %w", currentLedger, txErr)
 			}
-			innerErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions())
-			if innerErr != nil {
-				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, innerErr)
+			if len(contracts) > 0 {
+				if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
+				}
 			}
-			innerErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, assetIDMap, filteredData.trustlineChanges, filteredData.contractTokenChanges)
-			if innerErr != nil {
-				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, innerErr)
+
+			// 3. Filter participant data
+			filteredData, txErr := m.filterParticipantData(ctx, dbTx, buffer)
+			if txErr != nil {
+				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, txErr)
+			}
+
+			// 4. Insert transactions and operations
+			if txErr = m.insertIntoDB(ctx, dbTx, filteredData); txErr != nil {
+				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, txErr)
+			}
+
+			// 5. Unlock channel accounts
+			if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
+				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
+			}
+
+			// 6. Process token changes (trustline add/remove, contract token add)
+			if txErr = m.tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, filteredData.trustlineChanges, filteredData.contractTokenChanges); txErr != nil {
+				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredData.trustlineChanges), len(filteredData.contractTokenChanges))
-			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger)
-			if innerErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, innerErr)
+
+			// 7. Update cursor (all operations atomic with this)
+			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {
+				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, txErr)
 			}
+
 			numTransactionProcessed = len(filteredData.txs)
 			numOperationProcessed = len(filteredData.ops)
 			return nil
@@ -280,7 +219,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
 func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction) error {
-	if len(txs) == 0 {
+	if len(txs) == 0 || m.chAccStore == nil {
 		return nil
 	}
 
@@ -298,33 +237,41 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	return nil
 }
 
-// filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
-// checks which contracts already exist in the in-memory cache, and returns a map of only new contracts.
-// This function uses the knownContractIDs cache to avoid per-ledger database queries.
-func (m *ingestService) filterNewContractTokens(contractChanges []types.ContractChange) map[string]types.ContractType {
-	if len(contractChanges) == 0 {
-		return nil
+// prepareNewContracts filters out existing contracts and fetches metadata for new ones.
+func (m *ingestService) prepareNewContracts(ctx context.Context, dbTx pgx.Tx, contractsByID map[string]types.ContractType) ([]*data.Contract, error) {
+	if len(contractsByID) == 0 {
+		return nil, nil
 	}
 
-	// Extract unique SAC and SEP-41 contract IDs not already in cache
-	seen := set.NewSet[string]()
-	newContracts := make(map[string]types.ContractType)
+	// Build list of contract IDs to check
+	contractIDsList := make([]string, 0, len(contractsByID))
+	for id := range contractsByID {
+		contractIDsList = append(contractIDsList, id)
+	}
 
-	for _, change := range contractChanges {
-		// Only process SAC and SEP-41 contracts
-		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
-			continue
-		}
-		if change.ContractID == "" || seen.Contains(change.ContractID) {
-			continue
-		}
-		seen.Add(change.ContractID)
+	// Get existing contract IDs from DB (only checking the ones we need)
+	existingIDs, err := m.models.Contract.GetExisting(ctx, dbTx, contractIDsList)
+	if err != nil {
+		return nil, fmt.Errorf("getting existing contract IDs: %w", err)
+	}
+	existingSet := set.NewSet(existingIDs...)
 
-		// Check cache - if not known, it's a new contract
-		if !m.knownContractIDs.Contains(change.ContractID) {
-			newContracts[change.ContractID] = change.ContractType
+	// Filter to only new contracts
+	newContractsByID := make(map[string]types.ContractType)
+	for id, ctype := range contractsByID {
+		if !existingSet.Contains(id) {
+			newContractsByID[id] = ctype
 		}
 	}
 
-	return newContracts
+	if len(newContractsByID) == 0 {
+		return nil, nil
+	}
+
+	// Fetch metadata for new contracts via RPC
+	contracts, err := m.contractMetadataService.FetchMetadata(ctx, newContractsByID)
+	if err != nil {
+		return nil, fmt.Errorf("fetching metadata for new contracts: %w", err)
+	}
+	return contracts, nil
 }

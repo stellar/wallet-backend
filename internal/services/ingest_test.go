@@ -11,6 +11,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1971,9 +1972,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		return mockBackend, nil
 	}
 
-	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
@@ -1990,7 +1988,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		Archive:                   &HistoryArchiveMock{},
 		BackfillBatchSize:         10,
 		BackfillDBInsertBatchSize: 50,
-		ChannelAccountStore:       mockChAccStore,
 	})
 	require.NoError(t, svcErr)
 
@@ -2234,7 +2231,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
 		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // assetIDMap
+			mock.Anything, // trustlineAssetIDMap
+			mock.Anything, // contractIDMap
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
 		).Return(nil)
@@ -2268,8 +2266,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify success
 		require.NoError(t, err)
@@ -2284,7 +2282,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockTokenCacheWriter.AssertExpectations(t)
 	})
 
-	t.Run("Redis failure rolls back DB transaction", func(t *testing.T) {
+	t.Run("DB failure rolls back transaction", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -2319,14 +2317,15 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock AccountTokenService to return error (simulating Redis failure)
+		// Mock AccountTokenService to return error (simulating DB failure)
 		mockTokenCacheWriter := NewTokenCacheWriterMock(t)
 		mockTokenCacheWriter.On("ProcessTokenChanges",
 			mock.Anything, // ctx
-			mock.Anything, // assetIDMap
+			mock.Anything, // trustlineAssetIDMap
+			mock.Anything, // contractIDMap
 			mock.Anything, // trustlineChanges
 			mock.Anything, // contractChanges
-		).Return(fmt.Errorf("redis connection failed"))
+		).Return(fmt.Errorf("db connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:              IngestionModeLive,
@@ -2356,19 +2355,19 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should fail after retries due to Redis error
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
+		// Call ingestProcessedDataWithRetry - should fail after retries due to DB error
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed after")
-		assert.Contains(t, err.Error(), "redis connection failed")
+		assert.Contains(t, err.Error(), "db connection failed")
 
 		// Verify DB cursor was NOT updated (transaction rolled back)
 		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
 		require.NoError(t, err)
-		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when Redis fails")
+		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when DB fails")
 
 		mockTokenCacheWriter.AssertExpectations(t)
 	})
@@ -2415,8 +2414,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
+			mock.Anything,
 		).Return(fmt.Errorf("transient error")).Once()
 		mockTokenCacheWriter.On("ProcessTokenChanges",
+			mock.Anything,
 			mock.Anything,
 			mock.Anything,
 			mock.Anything,
@@ -2452,8 +2453,8 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		})
 
 		// Call ingestProcessedDataWithRetry - should succeed after retry
-		assetIDMap := map[string]int64{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": 1}
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer, assetIDMap)
+		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
 
 		// Verify success after retry
 		require.NoError(t, err)
@@ -2471,6 +2472,11 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 // Test_ingestService_processTokenChanges tests the processTokenChanges method which processes
 // aggregated token changes after all parallel batches complete.
+// NOTE: The implementation now:
+// 1. Calls models.TrustlineAsset.BatchInsert for trustline assets (real DB operation)
+// 2. Calls contractMetadataService.FetchMetadata for new contracts (mocked)
+// 3. Calls models.Contract.BatchInsert for contracts (real DB operation)
+// 4. Calls tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges) (mocked)
 func Test_ingestService_processTokenChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -2481,131 +2487,146 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name             string
-		trustlineChanges []types.TrustlineChange
-		contractChanges  []types.ContractChange
-		setupMocks       func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock)
-		wantErr          bool
-		wantErrContains  string
+		name                string
+		trustlineChanges    []types.TrustlineChange
+		contractChanges     []types.ContractChange
+		setupMocks          func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock)
+		wantErr             bool
+		wantErrContains     string
+		verifySortedChanges func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock)
 	}{
 		{
-			name:             "empty_data_no_calls",
+			name:             "empty_data_calls_ProcessTokenChanges",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges:  []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// GetOrInsertTrustlineAssets should be called even with empty data
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, []types.TrustlineChange{}).Return(map[string]int64{}, nil)
-				// ProcessTokenChanges should be called even with empty data
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, map[string]int64{}, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
+				// ProcessTokenChanges is called with (ctx, dbTx, trustlineChanges, contractChanges)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
+			// TOID encodes (ledger, tx, op) into a single int64 - sorting by OperationID naturally sorts by ledger order
 			name: "sorts_trustline_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USD:GA1", OperationID: 10, LedgerNumber: 100},
-				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: 1, LedgerNumber: 101},
-				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: 5, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USD:GA1", OperationID: toid.New(100, 0, 10).ToInt64(), LedgerNumber: 100},
+				{AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
+				{AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Verify sorted order by OperationID: 1, 5, 10
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+				// Verify sorted order by OperationID (TOID): GA3 (L100,Op5), GA1 (L100,Op10), GA2 (L101,Op1)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					return changes[0].OperationID == 1 && changes[1].OperationID == 5 && changes[2].OperationID == 10
-				})).Return(map[string]int64{"USD:GA1": 1, "EUR:GA2": 2, "GBP:GA3": 3}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+					// First: L100, Op5 (GA3)
+					if changes[0].LedgerNumber != 100 || changes[0].OperationID != toid.New(100, 0, 5).ToInt64() {
+						return false
+					}
+					// Second: L100, Op10 (GA1)
+					if changes[1].LedgerNumber != 100 || changes[1].OperationID != toid.New(100, 0, 10).ToInt64() {
+						return false
+					}
+					// Third: L101, Op1 (GA2)
+					if changes[2].LedgerNumber != 101 || changes[2].OperationID != toid.New(101, 0, 1).ToInt64() {
+						return false
+					}
+					return true
+				}), []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
+			// TOID encodes (ledger, tx, op) into a single int64 - sorting by OperationID naturally sorts by ledger order
 			name:             "sorts_contract_changes_by_operation_id",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "C1", OperationID: 20, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA2", ContractID: "C2", OperationID: 5, LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA3", ContractID: "C3", OperationID: 1, LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA1", ContractID: "C1", OperationID: toid.New(200, 0, 20).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA2", ContractID: "C2", OperationID: toid.New(200, 0, 5).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA3", ContractID: "C3", OperationID: toid.New(201, 0, 1).ToInt64(), LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				// Verify sorted order by OperationID: 1, 5, 20
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.ContractChange) bool {
+				// Verify sorted order by OperationID (TOID): GA2 (L200,Op5), GA1 (L200,Op20), GA3 (L201,Op1)
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, mock.MatchedBy(func(changes []types.ContractChange) bool {
 					if len(changes) != 3 {
 						return false
 					}
-					return changes[0].OperationID == 1 && changes[1].OperationID == 5 && changes[2].OperationID == 20
+					// First: L200, Op5 (GA2)
+					if changes[0].LedgerNumber != 200 || changes[0].OperationID != toid.New(200, 0, 5).ToInt64() {
+						return false
+					}
+					// Second: L200, Op20 (GA1)
+					if changes[1].LedgerNumber != 200 || changes[1].OperationID != toid.New(200, 0, 20).ToInt64() {
+						return false
+					}
+					// Third: L201, Op1 (GA3)
+					if changes[2].LedgerNumber != 201 || changes[2].OperationID != toid.New(201, 0, 1).ToInt64() {
+						return false
+					}
+					return true
 				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "calls_GetOrInsertTrustlineAssets",
+			name: "inserts_trustline_assets_and_calls_ProcessTokenChanges",
 			trustlineChanges: []types.TrustlineChange{
 				{AccountID: "GA1", Asset: "USDC:GISSUER", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+				// ProcessTokenChanges is called after trustline assets are inserted to DB
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
 					return len(changes) == 1 && changes[0].Asset == "USDC:GISSUER"
-				})).Return(map[string]int64{"USDC:GISSUER": 42}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				}), []types.ContractChange{}).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name:             "calls_FetchAndStoreMetadata_for_new_contracts",
+			// Note: Unknown contracts don't get inserted into contracts table but are still passed to ProcessTokenChanges
+			name:             "processes_unknown_contract_changes",
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "CNEWCONTRACT", OperationID: 1, LedgerNumber: 100, ContractType: types.ContractTypeSAC},
+				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				contractMetadataSvc.On("FetchAndStoreMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(contracts map[string]types.ContractType) bool {
-					return len(contracts) == 1 && contracts["CNEWCONTRACT"] == types.ContractTypeSAC
+				// Unknown contracts don't trigger FetchMetadata but are passed to ProcessTokenChanges
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, []types.TrustlineChange{}, mock.MatchedBy(func(changes []types.ContractChange) bool {
+					return len(changes) == 1 && changes[0].ContractType == types.ContractTypeUnknown
 				})).Return(nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "calls_ProcessTokenChanges_with_sorted_data",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{
-				{AccountID: "GA2", ContractID: "C1", OperationID: 2, LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
+				{AccountID: "GA2", ContractID: "C1", OperationID: toid.New(100, 0, 2).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
 			},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.MatchedBy(func(assetMap map[string]int64) bool {
-					return assetMap["USDC:GA"] == 1
-				}), mock.Anything, mock.Anything).Return(nil)
+				// ProcessTokenChanges receives both trustline and contract changes
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+					return len(changes) == 1 && changes[0].Asset == "USDC:GA"
+				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
+					return len(changes) == 1 && changes[0].ContractID == "C1"
+				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "propagates_GetOrInsertTrustlineAssets_error",
-			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
-			},
-			contractChanges: []types.ContractChange{},
-			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
-			},
-			wantErr:         true,
-			wantErrContains: "getting or inserting trustline assets",
-		},
-		{
 			name: "propagates_ProcessTokenChanges_error",
 			trustlineChanges: []types.TrustlineChange{
-				{AccountID: "GA1", Asset: "USDC:GA", OperationID: 1, LedgerNumber: 100},
+				{AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
 			contractChanges: []types.ContractChange{},
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{"USDC:GA": 1}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis error"))
+				// ProcessTokenChanges receives the actual trustline changes
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes []types.TrustlineChange) bool {
+					return len(changes) == 1
+				}), []types.ContractChange{}).Return(fmt.Errorf("db error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -2661,6 +2682,10 @@ func Test_ingestService_processTokenChanges(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
+			}
+
+			if tc.verifySortedChanges != nil {
+				tc.verifySortedChanges(t, mockTokenCacheWriter)
 			}
 		})
 	}
@@ -2820,12 +2845,6 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:              IngestionModeBackfill,
 				Models:                     models,
@@ -2834,7 +2853,6 @@ func Test_ingestService_flushBatchBuffer_tokenChanges(t *testing.T) {
 				AppTracker:                 &apptracker.MockAppTracker{},
 				RPCService:                 mockRPCService,
 				LedgerBackend:              &LedgerBackendMock{},
-				ChannelAccountStore:        mockChAccStore,
 				MetricsService:             mockMetricsService,
 				GetLedgersLimit:            defaultGetLedgersLimit,
 				Network:                    network.TestNetworkPassphrase,
@@ -2992,6 +3010,11 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 	require.NoError(t, err)
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
+	// NOTE: processTokenChanges now only calls:
+	// 1. models.TrustlineAsset.BatchInsert (real DB operation)
+	// 2. contractMetadataService.FetchMetadata (mocked, but not triggered with empty data)
+	// 3. models.Contract.BatchInsert (real DB operation)
+	// 4. tokenCacheWriter.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges)
 	testCases := []struct {
 		name             string
 		setupMocks       func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error))
@@ -3002,8 +3025,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "successful_catchup_processes_token_changes",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
+				// ProcessTokenChanges is the only mock needed on tokenCacheWriter
 				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				// Backend factory
@@ -3021,9 +3043,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "token_processing_error_returns_error",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls - fail on ProcessTokenChanges
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(map[string]int64{}, nil)
-				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("redis connection error"))
+				// ProcessTokenChanges fails
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db connection error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -3041,8 +3062,8 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesTokenChanges(t *te
 		{
 			name: "cursor_not_updated_if_token_processing_fails",
 			setupMocks: func(t *testing.T, tokenCacheWriter *TokenCacheWriterMock, backendFactory *func(ctx context.Context) (ledgerbackend.LedgerBackend, error)) {
-				// Token cache calls - fail on GetOrInsertTrustlineAssets
-				tokenCacheWriter.On("GetOrInsertTrustlineAssets", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
+				// ProcessTokenChanges fails - cursor should not be updated
+				tokenCacheWriter.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db error"))
 
 				// Backend factory
 				*backendFactory = func(_ context.Context) (ledgerbackend.LedgerBackend, error) {

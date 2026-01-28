@@ -213,17 +213,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 	}
 
-	// Fetch the current contracts for the account
-	contractIDs, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
-	if err != nil {
-		return nil, &gqlerror.Error{
-			Message: ErrMsgBalancesFetchFailed,
-			Extensions: map[string]interface{}{
-				"code": "INTERNAL_ERROR",
-			},
-		}
-	}
-	contractTokens, err := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
+	// Fetch the current contracts for the account (already resolved to full Contract objects)
+	contractTokens, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: ErrMsgBalancesFetchFailed,
@@ -239,7 +230,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	for _, contract := range contractTokens {
 		switch contract.Type {
 		case "SAC":
-			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
+			ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ContractID)
 			if keyErr != nil {
 				return nil, &gqlerror.Error{
 					Message: ErrMsgBalancesFetchFailed,
@@ -250,11 +241,11 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 			ledgerKeys = append(ledgerKeys, ledgerKey)
 		case "SEP41":
-			sep41TokenIDs = append(sep41TokenIDs, contract.ID)
+			sep41TokenIDs = append(sep41TokenIDs, contract.ContractID)
 		default:
 			continue
 		}
-		contractsByContractID[contract.ID] = contract
+		contractsByContractID[contract.ContractID] = contract
 	}
 
 	// Call RPC to get ledger entries
@@ -442,25 +433,17 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.trustlines = trustlines
 			}
 
-			// Get contract IDs for the account: note that this also contains contract tokens that we currently dont support (non SEP-41)
-			contractIDs, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
+			// Get contracts for the account (already resolved to full Contract objects)
+			contracts, err := r.tokenCacheReader.GetAccountContracts(ctx, address)
 			if err != nil {
 				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
 				accountInfos[index] = info
 				return
 			}
 
-			// Get contract metadata: note that this will always return only the supported tokens irrespective of non-supported contract IDs
-			if len(contractIDs) > 0 {
-				contracts, contractErr := r.models.Contract.BatchGetByIDs(ctx, contractIDs)
-				if contractErr != nil {
-					info.collectionErr = fmt.Errorf("getting contract metadata: %w", contractErr)
-					accountInfos[index] = info
-					return
-				}
-				for _, c := range contracts {
-					info.contractsByID[c.ID] = c
-				}
+			// Populate contract metadata map
+			for _, c := range contracts {
+				info.contractsByID[c.ContractID] = c
 			}
 
 			accountInfos[index] = info
@@ -514,15 +497,15 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		for _, contract := range info.contractsByID {
 			switch contract.Type {
 			case "SAC":
-				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ID)
+				ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(info.address, contract.ContractID)
 				if keyErr != nil {
-					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ID, keyErr)
+					info.collectionErr = fmt.Errorf("creating contract ledger key for %s: %w", contract.ContractID, keyErr)
 					break
 				}
 				ledgerKeys = append(ledgerKeys, ledgerKey)
 				info.ledgerKeys = append(info.ledgerKeys, ledgerKey)
 			case "SEP41":
-				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ID)
+				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ContractID)
 			default:
 				continue
 			}
