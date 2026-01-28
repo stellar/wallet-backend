@@ -193,6 +193,8 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 					assert.Equal(t, int64(10000000), change.Balance)
 					assert.Equal(t, int64(100), change.BuyingLiabilities)
 					assert.Equal(t, int64(200), change.SellingLiabilities)
+					// MinimumBalance = (2 + 0 + 0 - 0) * 5_000_000 + 200 = 10_000_200
+					assert.Equal(t, int64(10000200), change.MinimumBalance)
 				}
 			}
 		})
