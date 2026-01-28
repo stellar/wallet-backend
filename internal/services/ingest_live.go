@@ -182,11 +182,12 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add)
 			trustlineChanges := buffer.GetTrustlineChanges()
-			contractTokenChanges := buffer.GetContractChanges()
-			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractTokenChanges); txErr != nil {
+			contractChanges := buffer.GetContractChanges()
+			accountChanges := buffer.GetAccountChanges()
+			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges); txErr != nil {
 				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ processed %d trustline and %d contract changes", len(trustlineChanges), len(contractTokenChanges))
+			log.Ctx(ctx).Infof("✅ processed %d trustline, %d contract, %d account changes", len(trustlineChanges), len(contractChanges), len(accountChanges))
 
 			// 7. Update cursor (all operations atomic with this)
 			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {

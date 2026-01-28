@@ -79,6 +79,25 @@ type ContractChange struct {
 	ContractType ContractType
 }
 
+type AccountChange struct {
+	AccountID          string
+	OperationID        int64
+	LedgerNumber       uint32
+	Operation          AccountOpType
+	Balance            int64
+	MinimumBalance     int64
+	BuyingLiabilities  int64
+	SellingLiabilities int64
+}
+
+type AccountOpType string
+
+const (
+	AccountOpCreate AccountOpType = "CREATE"
+	AccountOpUpdate AccountOpType = "UPDATE"
+	AccountOpRemove AccountOpType = "REMOVE"
+)
+
 type Account struct {
 	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`

@@ -21,12 +21,13 @@ import (
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 const (
-	// TrustlineBatchSize is the number of trustline entries to buffer before flushing to DB.
-	trustlineBatchSize = 500_000
+	// FlushBatchSize is the number of entries to buffer before flushing to DB.
+	flushBatchSize = 200_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -42,22 +43,38 @@ type checkpointData struct {
 	ContractTypesByWasmHash map[xdr.Hash]types.ContractType
 }
 
-// trustlineBatch holds a batch of trustline balances for streaming insertion.
-type trustlineBatch struct {
-	// balances holds the trustline balance entries for batch insert
-	balances []wbdata.TrustlineBalance
+// batch holds a batch of trustline balances and native balances for streaming insertion.
+type batch struct {
+	// trustlines holds the trustline balance entries for batch insert
+	trustlines []wbdata.TrustlineBalance
+	// nativeBalances holds the native balance entries for batch insert
+	nativeBalances []wbdata.NativeBalance
 	// uniqueAssets tracks unique assets with their computed IDs for batch insert
 	uniqueAssets map[string]wbdata.TrustlineAsset
+	// trustlineAssetModel is the model for inserting trustline assets
+	trustlineAssetModel wbdata.TrustlineAssetModelInterface
+	// trustlineBalanceModel is the model for inserting trustline balances
+	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface
+	// nativeBalanceModel is the model for inserting native balances
+	nativeBalanceModel wbdata.NativeBalanceModelInterface
 }
 
-func newTrustlineBatch() *trustlineBatch {
-	return &trustlineBatch{
-		balances:     nil,
-		uniqueAssets: make(map[string]wbdata.TrustlineAsset),
+func newBatch(
+	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
+	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
+	nativeBalanceModel wbdata.NativeBalanceModelInterface,
+) *batch {
+	return &batch{
+		trustlines:            make([]wbdata.TrustlineBalance, 0, flushBatchSize),
+		nativeBalances:        make([]wbdata.NativeBalance, 0, flushBatchSize),
+		uniqueAssets:          make(map[string]wbdata.TrustlineAsset),
+		trustlineAssetModel:   trustlineAssetModel,
+		trustlineBalanceModel: trustlineBalanceModel,
+		nativeBalanceModel:    nativeBalanceModel,
 	}
 }
 
-func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
+func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
 	key := asset.Code + ":" + asset.Issuer
 	assetID := wbdata.DeterministicAssetID(asset.Code, asset.Issuer)
 
@@ -71,7 +88,7 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 	}
 
 	// Add trustline balance with all XDR fields
-	b.balances = append(b.balances, wbdata.TrustlineBalance{
+	b.trustlines = append(b.trustlines, wbdata.TrustlineBalance{
 		AccountAddress:     accountAddress,
 		AssetID:            assetID,
 		Balance:            balance,
@@ -83,12 +100,48 @@ func (b *trustlineBatch) add(accountAddress string, asset wbdata.TrustlineAsset,
 	})
 }
 
-func (b *trustlineBatch) count() int {
-	return len(b.balances)
+func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
+	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
+		AccountAddress:     accountAddress,
+		Balance:            balance,
+		MinimumBalance:     minimumBalance,
+		BuyingLiabilities:  buyingLiabilities,
+		SellingLiabilities: sellingLiabilities,
+		LedgerNumber:       ledger,
+	})
 }
 
-func (b *trustlineBatch) reset() {
-	b.balances = nil
+// flush inserts the batch's data into DB.
+func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
+	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
+	assets := make([]wbdata.TrustlineAsset, 0, len(b.uniqueAssets))
+	for _, asset := range b.uniqueAssets {
+		assets = append(assets, asset)
+	}
+	if err := b.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
+		return fmt.Errorf("batch inserting assets: %w", err)
+	}
+
+	// 2. Batch insert trustline balances using BatchCopy
+	if err := b.trustlineBalanceModel.BatchCopy(ctx, dbTx, b.trustlines); err != nil {
+		return fmt.Errorf("batch inserting trustline balances: %w", err)
+	}
+
+	// 3. Batch insert native balances using BatchCopy
+	if err := b.nativeBalanceModel.BatchCopy(ctx, dbTx, b.nativeBalances); err != nil {
+		return fmt.Errorf("batch inserting native balances: %w", err)
+	}
+
+	return nil
+}
+
+func (b *batch) count() int {
+	return len(b.trustlines) + len(b.nativeBalances)
+}
+
+func (b *batch) reset() {
+	b.trustlines = b.trustlines[:0]
+	b.nativeBalances = b.nativeBalances[:0]
 	b.uniqueAssets = make(map[string]wbdata.TrustlineAsset)
 }
 
@@ -113,7 +166,7 @@ type TokenIngestionService interface {
 	//   so we track all contracts an account has ever held a balance in.
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange) error
 }
 
 // Verify interface compliance at compile time
@@ -127,6 +180,7 @@ type tokenIngestionService struct {
 	contractMetadataService    ContractMetadataService
 	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel         wbdata.NativeBalanceModelInterface
 	accountContractTokensModel wbdata.AccountContractTokensModelInterface
 	contractModel              wbdata.ContractModelInterface
 	networkPassphrase          string
@@ -141,6 +195,7 @@ func NewTokenIngestionService(
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
+	nativeBalanceModel wbdata.NativeBalanceModelInterface,
 	accountContractTokensModel wbdata.AccountContractTokensModelInterface,
 	contractModel wbdata.ContractModelInterface,
 ) TokenIngestionService {
@@ -151,6 +206,7 @@ func NewTokenIngestionService(
 		contractMetadataService:    contractMetadataService,
 		trustlineAssetModel:        trustlineAssetModel,
 		trustlineBalanceModel:      trustlineBalanceModel,
+		nativeBalanceModel:         nativeBalanceModel,
 		accountContractTokensModel: accountContractTokensModel,
 		contractModel:              contractModel,
 		networkPassphrase:          networkPassphrase,
@@ -233,8 +289,8 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 //
 // Both trustline and contract IDs are computed using deterministic hash functions.
 // The dbTx parameter allows this function to participate in an outer transaction for atomicity.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange) error {
-	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange) error {
+	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 && len(accountChangesByAccountID) == 0 {
 		return nil
 	}
 
@@ -286,6 +342,33 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 	if len(contractsByAccount) > 0 {
 		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractsByAccount); err != nil {
 			return fmt.Errorf("batch inserting contract tokens: %w", err)
+		}
+	}
+
+	// Process account changes (native XLM balance)
+	// Deduplication and no-op handling already done in IndexerBuffer
+	if len(accountChangesByAccountID) > 0 {
+		var nativeUpserts []wbdata.NativeBalance
+		var nativeDeletes []string
+		for _, change := range accountChangesByAccountID {
+			if change.Operation == types.AccountOpRemove {
+				nativeDeletes = append(nativeDeletes, change.AccountID)
+			} else {
+				nativeUpserts = append(nativeUpserts, wbdata.NativeBalance{
+					AccountAddress:     change.AccountID,
+					Balance:            change.Balance,
+					MinimumBalance:     change.MinimumBalance,
+					BuyingLiabilities:  change.BuyingLiabilities,
+					SellingLiabilities: change.SellingLiabilities,
+					LedgerNumber:       change.LedgerNumber,
+				})
+			}
+		}
+
+		if len(nativeUpserts) > 0 || len(nativeDeletes) > 0 {
+			if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, nativeUpserts, nativeDeletes); err != nil {
+				return fmt.Errorf("upserting native balances: %w", err)
+			}
 		}
 	}
 
@@ -391,9 +474,10 @@ func (s *tokenIngestionService) streamCheckpointData(
 		ContractTypesByWasmHash:   make(map[xdr.Hash]types.ContractType),
 	}
 
-	batch := newTrustlineBatch()
+	batch := newBatch(s.trustlineAssetModel, s.trustlineBalanceModel, s.nativeBalanceModel)
 	entries := 0
 	trustlineCount := 0
+	accountCount := 0
 	batchCount := 0
 	startTime := time.Now()
 
@@ -415,6 +499,19 @@ func (s *tokenIngestionService) streamCheckpointData(
 
 		//exhaustive:ignore
 		switch change.Type {
+		case xdr.LedgerEntryTypeAccount:
+			accountEntry := change.Post.Data.MustAccount()
+			liabilities := accountEntry.Liabilities()
+			// Calculate minimum balance using same formula as live ingestion (accounts.go)
+			numSubEntries := accountEntry.NumSubEntries
+			numSponsoring := accountEntry.NumSponsoring()
+			numSponsored := accountEntry.NumSponsored()
+			// Calculate the minimum balance for base reserves: https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
+			minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
+			batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), checkpointLedger)
+			entries++
+			accountCount++
+
 		case xdr.LedgerEntryTypeTrustline:
 			accountAddress, asset, xdrFields, skip := s.processTrustlineChange(change)
 			if skip {
@@ -422,18 +519,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 			}
 			entries++
 			trustlineCount++
-
-			batch.add(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags, checkpointLedger)
-
-			// Flush batch when full
-			if batch.count() >= trustlineBatchSize {
-				if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
-					return checkpointData{}, fmt.Errorf("flushing trustline batch: %w", err)
-				}
-				batchCount++
-				log.Ctx(ctx).Infof("Flushed trustline batch %d (%d entries so far)", batchCount, trustlineCount)
-				batch.reset()
-			}
+			batch.addTrustline(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags, checkpointLedger)
 
 		case xdr.LedgerEntryTypeContractCode:
 			contractCodeEntry := change.Post.Data.MustContractCode()
@@ -476,38 +562,29 @@ func (s *tokenIngestionService) streamCheckpointData(
 				entries++
 			}
 		}
+
+		// Flush batch when full
+		if batch.count() >= flushBatchSize {
+			if err := batch.flush(ctx, dbTx); err != nil {
+				return checkpointData{}, fmt.Errorf("flushing batch: %w", err)
+			}
+			batchCount++
+			log.Ctx(ctx).Infof("Flushed batch %d (%d entries so far)", batchCount, entries)
+			batch.reset()
+		}
 	}
 
-	// Flush remaining trustlines
+	// Flush remaining data
 	if batch.count() > 0 {
-		if err := s.flushTrustlineBatch(ctx, dbTx, batch); err != nil {
-			return checkpointData{}, fmt.Errorf("flushing final trustline batch: %w", err)
+		if err := batch.flush(ctx, dbTx); err != nil {
+			return checkpointData{}, fmt.Errorf("flushing final batch: %w", err)
 		}
 		batchCount++
 	}
 
-	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines in %d batches) in %.2f minutes",
-		entries, trustlineCount, batchCount, time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines, %d accounts in %d batches) in %.2f minutes",
+		entries, trustlineCount, accountCount, batchCount, time.Since(startTime).Minutes())
 	return data, nil
-}
-
-// flushTrustlineBatch inserts the batch's trustline assets and trustline balances.
-func (s *tokenIngestionService) flushTrustlineBatch(ctx context.Context, dbTx pgx.Tx, batch *trustlineBatch) error {
-	// 1. Insert unique assets (ON CONFLICT DO NOTHING)
-	assets := make([]wbdata.TrustlineAsset, 0, len(batch.uniqueAssets))
-	for _, asset := range batch.uniqueAssets {
-		assets = append(assets, asset)
-	}
-	if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, assets); err != nil {
-		return fmt.Errorf("batch inserting assets: %w", err)
-	}
-
-	// 2. Batch insert trustline balances (ledger is already set on each balance in batch.add)
-	if err := s.trustlineBalanceModel.BatchCopy(ctx, dbTx, batch.balances); err != nil {
-		return fmt.Errorf("batch inserting trustline balances: %w", err)
-	}
-
-	return nil
 }
 
 // enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.

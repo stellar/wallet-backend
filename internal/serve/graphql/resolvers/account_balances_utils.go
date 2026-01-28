@@ -24,17 +24,16 @@ import (
 type accountKeyInfo struct {
 	address          string
 	isContract       bool
+	nativeBalance    *data.NativeBalance     // Native XLM balance from DB
 	trustlines       []data.TrustlineBalance // Full trustline balance data from DB
 	contractsByID    map[string]*data.Contract
 	sep41ContractIDs []string
-	ledgerKeys       []string // base64 XDR keys for this account (for native XLM and contracts only)
+	ledgerKeys       []string // base64 XDR keys for this account (for SAC contracts only)
 	collectionErr    error    // error during data collection phase
 }
 
-// parseNativeBalance extracts native XLM balance from an account entry.
-func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string) (*graphql1.NativeBalance, error) {
-	balanceStr := amount.String(accountEntry.Balance)
-
+// buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
+func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphrase string) (*graphql1.NativeBalance, error) {
 	// Get native asset contract ID
 	nativeAsset := xdr.MustNewNativeAsset()
 	contractID, err := nativeAsset.ContractID(networkPassphrase)
@@ -43,10 +42,20 @@ func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string)
 	}
 	tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
+	// Convert int64 balance to string format (stroops to decimal)
+	balanceStr := amount.StringFromInt64(nativeBalance.Balance)
+	minimumBalanceStr := amount.StringFromInt64(nativeBalance.MinimumBalance)
+	buyingLiabilitiesStr := amount.StringFromInt64(nativeBalance.BuyingLiabilities)
+	sellingLiabilitiesStr := amount.StringFromInt64(nativeBalance.SellingLiabilities)
+
 	return &graphql1.NativeBalance{
-		TokenID:   tokenID,
-		Balance:   balanceStr,
-		TokenType: graphql1.TokenTypeNative,
+		TokenID:            tokenID,
+		Balance:            balanceStr,
+		TokenType:          graphql1.TokenTypeNative,
+		MinimumBalance:     minimumBalanceStr,
+		BuyingLiabilities:  buyingLiabilitiesStr,
+		SellingLiabilities: sellingLiabilitiesStr,
+		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
 }
 
@@ -90,7 +99,7 @@ func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphr
 		Limit:                             limitStr,
 		BuyingLiabilities:                 buyingLiabilities,
 		SellingLiabilities:                sellingLiabilities,
-		LastModifiedLedger:                int32(trustline.LedgerNumber),
+		LastModifiedLedger:                trustline.LedgerNumber,
 		IsAuthorized:                      isAuthorized,
 		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 	}, nil
@@ -313,13 +322,22 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 	return results, nil
 }
 
-// parseAccountBalances parses ledger entries and DB trustlines for a single account and returns balances.
-// Trustlines come from DB (no RPC needed), while native XLM and SAC contracts use RPC.
+// parseAccountBalances parses ledger entries and DB data for a single account and returns balances.
+// Native XLM and trustlines come from DB, while SAC contracts use RPC.
 // This is used by the multi-account balance resolver.
 func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
 	var balances []graphql1.Balance
 
-	// Add trustline balances from DB (no RPC needed)
+	// Add native balance from DB
+	if info.nativeBalance != nil {
+		nativeBalance, err := buildNativeBalanceFromDB(info.nativeBalance, networkPassphrase)
+		if err != nil {
+			return nil, fmt.Errorf("building native balance: %w", err)
+		}
+		balances = append(balances, nativeBalance)
+	}
+
+	// Add trustline balances from DB
 	for _, trustline := range info.trustlines {
 		trustlineBalance, err := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
 		if err != nil {
@@ -328,7 +346,7 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 		balances = append(balances, trustlineBalance)
 	}
 
-	// Parse RPC ledger entries (native XLM and SAC contracts only)
+	// Parse RPC ledger entries (SAC contracts only)
 	for _, ledgerKey := range info.ledgerKeys {
 		entry, exists := ledgerEntriesByLedgerKeys[ledgerKey]
 		if !exists || entry == nil {
@@ -342,14 +360,6 @@ func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntri
 
 		//exhaustive:ignore
 		switch ledgerEntryData.Type {
-		case xdr.LedgerEntryTypeAccount:
-			accountEntry := ledgerEntryData.MustAccount()
-			nativeBalance, err := parseNativeBalance(accountEntry, networkPassphrase)
-			if err != nil {
-				return nil, err
-			}
-			balances = append(balances, nativeBalance)
-
 		case xdr.LedgerEntryTypeContractData:
 			contractDataEntry := ledgerEntryData.MustContractData()
 

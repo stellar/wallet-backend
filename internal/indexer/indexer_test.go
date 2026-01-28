@@ -154,6 +154,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
 		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice", "bob")
@@ -185,12 +186,14 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		}, nil)
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
 			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -229,6 +232,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
 		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 
 	t.Run("🟢 multiple transactions with overlapping participants", func(t *testing.T) {
@@ -239,6 +243,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
 		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
 
 		// Setup mocks for first transaction
 		txParticipants1 := set.NewSet("alice", "bob")
@@ -280,12 +285,14 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx2).Return([]types.StateChange{}, nil)
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
 			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -311,6 +318,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
 		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 
 	t.Run("🟢 empty transaction list", func(t *testing.T) {
@@ -558,6 +566,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
 		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice")
@@ -587,12 +596,14 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
 			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -635,6 +646,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
 		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 }
 

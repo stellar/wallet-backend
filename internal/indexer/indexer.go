@@ -38,8 +38,10 @@ type IndexerBufferInterface interface {
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetContractChanges() []types.ContractChange
+	GetAccountChanges() map[string]types.AccountChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
+	PushAccountChange(accountChange types.AccountChange)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueContractsByID() map[string]types.ContractType
 	Merge(other IndexerBufferInterface)
@@ -60,15 +62,17 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
-type TrustlinesProcessorInterface interface {
-	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.TrustlineChange, error)
+// LedgerChangeProcessor is a generic interface for processors that extract data from ledger changes.
+type LedgerChangeProcessor[T any] interface {
+	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]T, error)
 	Name() string
 }
 
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
-	trustlinesProcessor    TrustlinesProcessorInterface
+	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
@@ -81,6 +85,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
+		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
 		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
@@ -195,7 +200,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Process trustline changes from ledger changes (captures ALL trustline modifications including payments)
+	// Process trustline and account changes from ledger changes
 	for _, opParticipants := range opsParticipants {
 		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if tlErr != nil {
@@ -203,6 +208,14 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, tlChange := range trustlineChanges {
 			buffer.PushTrustlineChange(tlChange)
+		}
+
+		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if accErr != nil {
+			return 0, fmt.Errorf("processing account changes: %w", accErr)
+		}
+		for _, accChange := range accountChanges {
+			buffer.PushAccountChange(accChange)
 		}
 	}
 

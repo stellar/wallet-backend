@@ -135,8 +135,8 @@ func (m *TokenIngestionServiceMock) PopulateAccountTokens(ctx context.Context, c
 	return args.Error(0)
 }
 
-func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges)
+func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChangesByAccountID)
 	return args.Error(0)
 }
 
