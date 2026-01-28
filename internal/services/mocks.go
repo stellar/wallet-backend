@@ -289,6 +289,14 @@ func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, cont
 	return args.Get(0).(xdr.ScVal), args.Error(1)
 }
 
+func (c *ContractMetadataServiceMock) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
+	args := c.Called(ctx, contractTypesByID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*data.Contract), args.Error(1)
+}
+
 // NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.
 func NewContractMetadataServiceMock(t interface {
 	mock.TestingT

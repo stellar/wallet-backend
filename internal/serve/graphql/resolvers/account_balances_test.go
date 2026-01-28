@@ -482,7 +482,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
-			Return([]data.TrustlineBalance{}, errors.New("redis connection failed"))
+			Return([]data.TrustlineBalance{}, errors.New("database query failed"))
 
 		resolver := &queryResolver{
 			&Resolver{
