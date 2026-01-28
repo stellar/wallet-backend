@@ -1,0 +1,203 @@
+// Package data provides data access layer for SAC balance operations.
+// This file handles PostgreSQL storage of SAC (Stellar Asset Contract) balances for contract addresses.
+package data
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
+)
+
+// SACBalance contains SAC (Stellar Asset Contract) balance data for contract addresses.
+// Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
+// Includes contract metadata from JOIN with contract_tokens table for API responses.
+type SACBalance struct {
+	AccountAddress    string    // Contract address (C...) of the holder
+	ContractID        uuid.UUID // Deterministic UUID for the SAC contract
+	Balance           string    // Balance as string (handles i128 values)
+	IsAuthorized      bool
+	IsClawbackEnabled bool
+	LedgerNumber      uint32
+	// Contract metadata from JOIN with contract_tokens
+	TokenID  string // SAC contract address (C...) used as token identifier in API
+	Code     string // Asset code (e.g., "USDC")
+	Issuer   string // Asset issuer G-address
+	Decimals uint32 // Token decimals
+}
+
+// SACBalanceModelInterface defines the interface for SAC balance operations.
+type SACBalanceModelInterface interface {
+	// Read operations (for API/balances queries)
+	GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error)
+
+	// Write operations (for live ingestion)
+	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error
+
+	// Batch operations (for initial population)
+	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error
+}
+
+// SACBalanceModel implements SACBalanceModelInterface.
+type SACBalanceModel struct {
+	DB             db.ConnectionPool
+	MetricsService metrics.MetricsService
+}
+
+var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
+
+// GetByAccount retrieves all SAC balances for a contract address with contract metadata.
+// JOINs with contract_tokens to get code, issuer, and decimals for API responses.
+func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	const query = `
+		SELECT
+			asb.contract_id, asb.balance, asb.is_authorized,
+			asb.is_clawback_enabled, asb.last_modified_ledger,
+			ct.contract_id, ct.code, ct.issuer, ct.decimals
+		FROM sac_balances asb
+		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
+		WHERE asb.account_address = $1`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
+		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
+	}
+	defer rows.Close()
+
+	var balances []SACBalance
+	for rows.Next() {
+		var bal SACBalance
+		if err := rows.Scan(
+			&bal.ContractID, &bal.Balance, &bal.IsAuthorized,
+			&bal.IsClawbackEnabled, &bal.LedgerNumber,
+			&bal.TokenID, &bal.Code, &bal.Issuer, &bal.Decimals,
+		); err != nil {
+			return nil, fmt.Errorf("scanning SAC balance: %w", err)
+		}
+		bal.AccountAddress = accountAddress
+		balances = append(balances, bal)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating SAC balances: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetByAccount", "sac_balances")
+	return balances, nil
+}
+
+// BatchUpsert performs upserts and deletes for SAC balances.
+// For upserts (ADD/UPDATE): inserts or updates balance with authorization flags.
+// For deletes (REMOVE): removes the balance row.
+func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
+	if len(upserts) == 0 && len(deletes) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	batch := &pgx.Batch{}
+
+	// Upsert query: insert or update all fields
+	const upsertQuery = `
+		INSERT INTO sac_balances (
+			account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (account_address, contract_id) DO UPDATE SET
+			balance = EXCLUDED.balance,
+			is_authorized = EXCLUDED.is_authorized,
+			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
+			last_modified_ledger = EXCLUDED.last_modified_ledger`
+
+	for _, bal := range upserts {
+		batch.Queue(upsertQuery,
+			bal.AccountAddress,
+			bal.ContractID,
+			bal.Balance,
+			bal.IsAuthorized,
+			bal.IsClawbackEnabled,
+			bal.LedgerNumber,
+		)
+	}
+
+	// Delete query
+	const deleteQuery = `DELETE FROM sac_balances WHERE account_address = $1 AND contract_id = $2`
+
+	for _, bal := range deletes {
+		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
+	}
+
+	if batch.Len() == 0 {
+		return nil
+	}
+
+	br := dbTx.SendBatch(ctx, batch)
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close() //nolint:errcheck // cleanup on error path
+			return fmt.Errorf("upserting SAC balances: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("closing SAC balance batch: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchUpsert", "sac_balances")
+	return nil
+}
+
+// BatchCopy performs bulk insert using COPY protocol for speed during checkpoint population.
+func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error {
+	if len(balances) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	copyCount, err := dbTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"sac_balances"},
+		[]string{
+			"account_address",
+			"contract_id",
+			"balance",
+			"is_authorized",
+			"is_clawback_enabled",
+			"last_modified_ledger",
+		},
+		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
+			bal := balances[i]
+			return []any{
+				bal.AccountAddress,
+				bal.ContractID,
+				bal.Balance,
+				bal.IsAuthorized,
+				bal.IsClawbackEnabled,
+				bal.LedgerNumber,
+			}, nil
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("batch inserting SAC balances via COPY: %w", err)
+	}
+
+	if int(copyCount) != len(balances) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "sac_balances", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchCopy", "sac_balances")
+	return nil
+}

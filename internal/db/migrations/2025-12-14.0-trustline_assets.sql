@@ -1,9 +1,9 @@
 -- +migrate Up
 
 -- Table: trustline_assets
--- Stores classic Stellar trustline assets with auto-incrementing IDs for memory-efficient storage.
+-- Stores classic Stellar trustline assets with deterministic UUID IDs (namespace-based UUID v5 derived from a fixed namespace UUID and the 'CODE:ISSUER' string).
 CREATE TABLE trustline_assets (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY,
     code TEXT NOT NULL,
     issuer TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

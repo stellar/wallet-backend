@@ -28,7 +28,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	cache "github.com/stellar/wallet-backend/internal/store"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -41,8 +40,6 @@ import (
 
 type Configs struct {
 	Port                        int
-	RedisHost                   string
-	RedisPort                   int
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
@@ -83,13 +80,16 @@ type handlerDeps struct {
 	EnableParticipantFiltering bool
 
 	// Services
-	AccountService          services.AccountService
-	FeeBumpService          services.FeeBumpService
-	MetricsService          metrics.MetricsService
-	TransactionService      services.TransactionService
-	RPCService              services.RPCService
-	AccountTokenService     services.AccountTokenService
-	ContractMetadataService services.ContractMetadataService
+	AccountService             services.AccountService
+	FeeBumpService             services.FeeBumpService
+	MetricsService             metrics.MetricsService
+	TransactionService         services.TransactionService
+	RPCService                 services.RPCService
+	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
+	NativeBalanceModel         data.NativeBalanceModelInterface
+	SACBalanceModel            data.SACBalanceModelInterface
+	AccountContractTokensModel data.AccountContractTokensModelInterface
+	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -127,11 +127,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	db, err := dbConnectionPool.SqlxDB(ctx)
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
 	}
-	metricsService := metrics.NewMetricsService(db)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
@@ -165,16 +165,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
-	contractValidator := services.NewContractValidator()
-	// Serve command only reads from Redis cache, doesn't need history archive or contract metadata service
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, nil, redisStore, contractValidator, nil, models.TrustlineAsset, pond.NewPool(0))
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
-	}
-	if err := accountTokenService.InitializeTrustlineIDByAssetCache(ctx); err != nil {
-		return handlerDeps{}, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
-	}
+	// AccountTokens model used directly for reading trustlines and contracts
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
@@ -217,7 +208,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
-		AccountTokenService:         accountTokenService,
+		TrustlineBalanceModel:       models.TrustlineBalance,
+		NativeBalanceModel:          models.NativeBalance,
+		SACBalanceModel:             models.SACBalance,
+		AccountContractTokensModel:  models.AccountContractTokens,
 		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
@@ -270,7 +264,8 @@ func handler(deps handlerDeps) http.Handler {
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
-				deps.AccountTokenService,
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
+				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{

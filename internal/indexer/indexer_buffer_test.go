@@ -669,3 +669,289 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		assert.ElementsMatch(t, []string{"alice", "bob", "charlie", "dave"}, allParticipants)
 	})
 }
+
+func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
+	t.Run("🟢 stores SAC balance changes", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		change1 := types.SACBalanceChange{
+			AccountID:   "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+			ContractID:  "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP",
+			Balance:     "1000000",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 100,
+		}
+
+		buffer.PushSACBalanceChange(change1)
+
+		changes := buffer.GetSACBalanceChanges()
+		assert.Len(t, changes, 1)
+
+		key := SACBalanceChangeKey{AccountID: change1.AccountID, ContractID: change1.ContractID}
+		assert.Equal(t, change1, changes[key])
+	})
+
+	t.Run("🟢 keeps change with highest OperationID", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		change1 := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "1000000",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 100,
+		}
+		change2 := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "2000000",
+			Operation:   types.SACBalanceOpUpdate,
+			OperationID: 200, // Higher operation ID
+		}
+		change3 := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "500000",
+			Operation:   types.SACBalanceOpUpdate,
+			OperationID: 50, // Lower operation ID - should be ignored
+		}
+
+		buffer.PushSACBalanceChange(change1)
+		buffer.PushSACBalanceChange(change2)
+		buffer.PushSACBalanceChange(change3) // Should be ignored (lower opID)
+
+		changes := buffer.GetSACBalanceChanges()
+		assert.Len(t, changes, 1)
+
+		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
+		assert.Equal(t, "2000000", changes[key].Balance)
+		assert.Equal(t, int64(200), changes[key].OperationID)
+	})
+
+	t.Run("🟢 handles ADD→REMOVE no-op case", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		addChange := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "1000000",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 100,
+		}
+		removeChange := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "0",
+			Operation:   types.SACBalanceOpRemove,
+			OperationID: 200,
+		}
+
+		buffer.PushSACBalanceChange(addChange)
+		buffer.PushSACBalanceChange(removeChange)
+
+		// ADD→REMOVE in same batch is a no-op - entry should be removed
+		changes := buffer.GetSACBalanceChanges()
+		assert.Len(t, changes, 0)
+	})
+
+	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		updateChange := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "1000000",
+			Operation:   types.SACBalanceOpUpdate,
+			OperationID: 100,
+		}
+		removeChange := types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "0",
+			Operation:   types.SACBalanceOpRemove,
+			OperationID: 200,
+		}
+
+		buffer.PushSACBalanceChange(updateChange)
+		buffer.PushSACBalanceChange(removeChange)
+
+		// UPDATE→REMOVE is NOT a no-op - the balance existed before and needs deletion
+		changes := buffer.GetSACBalanceChanges()
+		assert.Len(t, changes, 1)
+
+		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
+		assert.Equal(t, types.SACBalanceOpRemove, changes[key].Operation)
+	})
+
+	t.Run("🟢 handles multiple accounts and contracts", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		account1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		account2 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+		contract1 := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+		contract2 := "CBGTG7XFRY3L6OKAUTR6KGDKUXUQBX3YDJ3QFDYTGVMOM7VV4O7NCODG"
+
+		changes := []types.SACBalanceChange{
+			{AccountID: account1, ContractID: contract1, Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: 1},
+			{AccountID: account1, ContractID: contract2, Balance: "200", Operation: types.SACBalanceOpAdd, OperationID: 2},
+			{AccountID: account2, ContractID: contract1, Balance: "300", Operation: types.SACBalanceOpAdd, OperationID: 3},
+		}
+
+		for _, change := range changes {
+			buffer.PushSACBalanceChange(change)
+		}
+
+		result := buffer.GetSACBalanceChanges()
+		assert.Len(t, result, 3)
+
+		// Verify each unique (account, contract) pair is stored
+		key1 := SACBalanceChangeKey{AccountID: account1, ContractID: contract1}
+		key2 := SACBalanceChangeKey{AccountID: account1, ContractID: contract2}
+		key3 := SACBalanceChangeKey{AccountID: account2, ContractID: contract1}
+
+		assert.Equal(t, "100", result[key1].Balance)
+		assert.Equal(t, "200", result[key2].Balance)
+		assert.Equal(t, "300", result[key3].Balance)
+	})
+}
+
+func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
+	t.Run("🟢 merge SAC balance changes from two buffers", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		account1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		account2 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+		contract1 := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   account1,
+			ContractID:  contract1,
+			Balance:     "100",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 1,
+		})
+
+		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   account2,
+			ContractID:  contract1,
+			Balance:     "200",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 2,
+		})
+
+		buffer1.Merge(buffer2)
+
+		changes := buffer1.GetSACBalanceChanges()
+		assert.Len(t, changes, 2)
+	})
+
+	t.Run("🟢 merge keeps higher OperationID during merge", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "100",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 50,
+		})
+
+		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "200",
+			Operation:   types.SACBalanceOpUpdate,
+			OperationID: 100, // Higher
+		})
+
+		buffer1.Merge(buffer2)
+
+		changes := buffer1.GetSACBalanceChanges()
+		assert.Len(t, changes, 1)
+
+		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
+		assert.Equal(t, "200", changes[key].Balance)
+		assert.Equal(t, int64(100), changes[key].OperationID)
+	})
+
+	t.Run("🟢 merge handles ADD→REMOVE no-op across buffers", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		// Buffer1 has ADD
+		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "100",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 50,
+		})
+
+		// Buffer2 has REMOVE (higher opID)
+		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "0",
+			Operation:   types.SACBalanceOpRemove,
+			OperationID: 100,
+		})
+
+		buffer1.Merge(buffer2)
+
+		// ADD→REMOVE across merge is a no-op
+		changes := buffer1.GetSACBalanceChanges()
+		assert.Len(t, changes, 0)
+	})
+
+	t.Run("🟢 merge ignores lower OperationID from other buffer", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+
+		// Buffer1 has higher opID
+		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "200",
+			Operation:   types.SACBalanceOpUpdate,
+			OperationID: 100,
+		})
+
+		// Buffer2 has lower opID - should be ignored
+		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+			AccountID:   accountID,
+			ContractID:  contractID,
+			Balance:     "50",
+			Operation:   types.SACBalanceOpAdd,
+			OperationID: 50,
+		})
+
+		buffer1.Merge(buffer2)
+
+		changes := buffer1.GetSACBalanceChanges()
+		assert.Len(t, changes, 1)
+
+		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
+		assert.Equal(t, "200", changes[key].Balance)
+		assert.Equal(t, int64(100), changes[key].OperationID)
+	})
+}

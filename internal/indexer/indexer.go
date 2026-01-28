@@ -12,16 +12,12 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
-
-// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
-func isContractAddress(address string) bool {
-	// Contract addresses start with 'C' and account addresses start with 'G'
-	return len(address) > 0 && address[0] == 'C'
-}
 
 type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
@@ -35,10 +31,18 @@ type IndexerBufferInterface interface {
 	GetTransactions() []*types.Transaction
 	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
-	GetTrustlineChanges() []types.TrustlineChange
+	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetContractChanges() []types.ContractChange
+	GetAccountChanges() map[string]types.AccountChange
+	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
+	PushAccountChange(accountChange types.AccountChange)
+	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
+	PushSACContract(c *data.Contract)
+	GetUniqueTrustlineAssets() []data.TrustlineAsset
+	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
+	GetSACContracts() map[string]*data.Contract
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
@@ -57,9 +61,19 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
+// LedgerChangeProcessor is a generic interface for processors that extract data from ledger changes.
+type LedgerChangeProcessor[T any] interface {
+	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]T, error)
+	Name() string
+}
+
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
+	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
+	sacInstancesProcessor  LedgerChangeProcessor[*data.Contract]
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
@@ -72,6 +86,10 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
+		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
+		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -185,35 +203,53 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Process state changes to extract trustline and contract changes
+	// Process trustline, account, and SAC balance changes from ledger changes
+	for _, opParticipants := range opsParticipants {
+		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if tlErr != nil {
+			return 0, fmt.Errorf("processing trustline changes: %w", tlErr)
+		}
+		for _, tlChange := range trustlineChanges {
+			buffer.PushTrustlineChange(tlChange)
+		}
+
+		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if accErr != nil {
+			return 0, fmt.Errorf("processing account changes: %w", accErr)
+		}
+		for _, accChange := range accountChanges {
+			buffer.PushAccountChange(accChange)
+		}
+
+		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if sacErr != nil {
+			return 0, fmt.Errorf("processing SAC balance changes: %w", sacErr)
+		}
+		for _, sacChange := range sacBalanceChanges {
+			buffer.PushSACBalanceChange(sacChange)
+		}
+
+		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if sacInstanceErr != nil {
+			return 0, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
+		}
+		for _, c := range sacContracts {
+			buffer.PushSACContract(c)
+		}
+	}
+
+	// Process state changes to extract contract changes
 	for _, stateChange := range stateChanges {
 		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryTrustline:
-			trustlineChange := types.TrustlineChange{
-				AccountID:    stateChange.AccountID,
-				OperationID:  stateChange.OperationID,
-				Asset:        stateChange.TrustlineAsset,
-				LedgerNumber: tx.Ledger.LedgerSequence(),
-			}
-			//exhaustive:ignore
-			switch *stateChange.StateChangeReason {
-			case types.StateChangeReasonAdd:
-				trustlineChange.Operation = types.TrustlineOpAdd
-			case types.StateChangeReasonRemove:
-				trustlineChange.Operation = types.TrustlineOpRemove
-			case types.StateChangeReasonUpdate:
-				continue
-			}
-			buffer.PushTrustlineChange(trustlineChange)
 		case types.StateChangeCategoryBalance:
 			// Only store contract changes when:
 			// - Account is C-address, OR
-			// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
-			accountIsContract := isContractAddress(stateChange.AccountID)
-			tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
+			// - Account is G-address AND contract token is SEP41
+			accountIsContract := utils.IsContractAddress(stateChange.AccountID)
+			tokenIsSEP41 := stateChange.ContractType == types.ContractTypeSEP41
 
-			if accountIsContract || !tokenIsSACOrNative {
+			if accountIsContract || tokenIsSEP41 {
 				contractChange := types.ContractChange{
 					AccountID:    stateChange.AccountID,
 					OperationID:  stateChange.OperationID,

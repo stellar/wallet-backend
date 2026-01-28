@@ -15,7 +15,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -24,17 +23,16 @@ import (
 type accountKeyInfo struct {
 	address          string
 	isContract       bool
-	trustlines       []*data.TrustlineAsset
+	nativeBalance    *data.NativeBalance     // Native XLM balance from DB
+	trustlines       []data.TrustlineBalance // Full trustline balance data from DB
+	sacBalances      []data.SACBalance       // SAC balances from DB (for contract addresses)
 	contractsByID    map[string]*data.Contract
 	sep41ContractIDs []string
-	ledgerKeys       []string // base64 XDR keys for this account
-	collectionErr    error    // error during data collection phase
+	collectionErr    error // error during data collection phase
 }
 
-// parseNativeBalance extracts native XLM balance from an account entry.
-func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string) (*graphql1.NativeBalance, error) {
-	balanceStr := amount.String(accountEntry.Balance)
-
+// buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
+func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphrase string) (*graphql1.NativeBalance, error) {
 	// Get native asset contract ID
 	nativeAsset := xdr.MustNewNativeAsset()
 	contractID, err := nativeAsset.ContractID(networkPassphrase)
@@ -43,21 +41,44 @@ func parseNativeBalance(accountEntry xdr.AccountEntry, networkPassphrase string)
 	}
 	tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
+	// Convert int64 balance to string format (stroops to decimal)
+	balanceStr := amount.StringFromInt64(nativeBalance.Balance)
+	minimumBalanceStr := amount.StringFromInt64(nativeBalance.MinimumBalance)
+	buyingLiabilitiesStr := amount.StringFromInt64(nativeBalance.BuyingLiabilities)
+	sellingLiabilitiesStr := amount.StringFromInt64(nativeBalance.SellingLiabilities)
+
 	return &graphql1.NativeBalance{
-		TokenID:   tokenID,
-		Balance:   balanceStr,
-		TokenType: graphql1.TokenTypeNative,
+		TokenID:            tokenID,
+		Balance:            balanceStr,
+		TokenType:          graphql1.TokenTypeNative,
+		MinimumBalance:     minimumBalanceStr,
+		BuyingLiabilities:  buyingLiabilitiesStr,
+		SellingLiabilities: sellingLiabilitiesStr,
+		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
 }
 
-// parseTrustlineBalance extracts trustline balance from a trustline entry.
-func parseTrustlineBalance(trustlineEntry xdr.TrustLineEntry, lastModifiedLedger uint32, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
-	balanceStr := amount.String(trustlineEntry.Balance)
+// buildSACBalanceFromDB constructs a SACBalance from database SAC balance data.
+// Uses embedded contract metadata from the JOIN with contract_tokens.
+func buildSACBalanceFromDB(sacBalance data.SACBalance) *graphql1.SACBalance {
+	return &graphql1.SACBalance{
+		TokenID:           sacBalance.TokenID,
+		Balance:           sacBalance.Balance,
+		TokenType:         graphql1.TokenTypeSac,
+		Code:              sacBalance.Code,
+		Issuer:            sacBalance.Issuer,
+		Decimals:          int32(sacBalance.Decimals),
+		IsAuthorized:      sacBalance.IsAuthorized,
+		IsClawbackEnabled: sacBalance.IsClawbackEnabled,
+	}
+}
 
-	var assetType, assetCode, assetIssuer string
-	asset := trustlineEntry.Asset.ToAsset()
-	if err := asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		return nil, fmt.Errorf("extracting asset info: %w", err)
+// buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline balance data.
+func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
+	// Build xdr.Asset to compute contract ID
+	asset, err := xdr.NewCreditAsset(trustline.Code, trustline.Issuer)
+	if err != nil {
+		return nil, fmt.Errorf("building asset from code/issuer: %w", err)
 	}
 
 	contractID, err := asset.ContractID(networkPassphrase)
@@ -66,58 +87,36 @@ func parseTrustlineBalance(trustlineEntry xdr.TrustLineEntry, lastModifiedLedger
 	}
 	tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
-	// Extract limit
-	limitStr := amount.String(trustlineEntry.Limit)
-
-	// Extract liabilities (V1 extension)
-	var buyingLiabilities, sellingLiabilities string
-	if trustlineEntry.Ext.V == 1 && trustlineEntry.Ext.V1 != nil {
-		buyingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Buying)
-		sellingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Selling)
-	} else {
-		buyingLiabilities = "0.0000000"
-		sellingLiabilities = "0.0000000"
+	// Determine asset type string
+	assetType := "credit_alphanum4"
+	if len(trustline.Code) > 4 {
+		assetType = "credit_alphanum12"
 	}
 
+	// Convert int64 balances to string format (stroops to decimal)
+	balanceStr := amount.StringFromInt64(trustline.Balance)
+	limitStr := amount.StringFromInt64(trustline.Limit)
+	buyingLiabilities := amount.StringFromInt64(trustline.BuyingLiabilities)
+	sellingLiabilities := amount.StringFromInt64(trustline.SellingLiabilities)
+
 	// Extract authorization flags
-	flags := uint32(trustlineEntry.Flags)
-	isAuthorized := (flags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
-	isAuthorizedToMaintainLiabilities := (flags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
+	isAuthorized := (trustline.Flags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
+	isAuthorizedToMaintainLiabilities := (trustline.Flags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
 
 	return &graphql1.TrustlineBalance{
 		TokenID:                           tokenID,
 		Balance:                           balanceStr,
 		TokenType:                         graphql1.TokenTypeClassic,
-		Code:                              assetCode,
-		Issuer:                            assetIssuer,
+		Code:                              trustline.Code,
+		Issuer:                            trustline.Issuer,
 		Type:                              assetType,
 		Limit:                             limitStr,
 		BuyingLiabilities:                 buyingLiabilities,
 		SellingLiabilities:                sellingLiabilities,
-		LastModifiedLedger:                int32(lastModifiedLedger),
+		LastModifiedLedger:                trustline.LedgerNumber,
 		IsAuthorized:                      isAuthorized,
 		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 	}, nil
-}
-
-// parseContractIDFromContractData extracts the contract ID string from a contract data entry.
-// Returns the contract ID string, a boolean indicating if extraction was successful, and any error.
-func parseContractIDFromContractData(contractDataEntry *xdr.ContractDataEntry) (string, bool, error) {
-	if contractDataEntry.Contract.ContractId == nil {
-		return "", false, nil
-	}
-
-	contractID, ok := contractDataEntry.Contract.GetContractId()
-	if !ok {
-		return "", false, nil
-	}
-
-	contractIDStr, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
-	if err != nil {
-		return "", false, fmt.Errorf("encoding contract ID: %w", err)
-	}
-
-	return contractIDStr, true, nil
 }
 
 // contractIDToHash converts a contract ID string to an xdr.ContractId.
@@ -182,71 +181,6 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	return xdr.ScVal{
 		Type:    xdr.ScValTypeScvAddress,
 		Address: &scAddress,
-	}, nil
-}
-
-// parseSACBalance extracts SAC (Stellar Asset Contract) balance from a contract data entry.
-func parseSACBalance(contractDataEntry *xdr.ContractDataEntry, contractIDStr string, contract *data.Contract) (*graphql1.SACBalance, error) {
-	if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
-		return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
-	}
-
-	balanceMap := contractDataEntry.Val.MustMap()
-	if balanceMap == nil {
-		return nil, fmt.Errorf("balance map is nil")
-	}
-
-	// Extract amount, authorized, and clawback from map
-	var balanceStr string
-	var isAuthorized, isClawbackEnabled bool
-	var amountFound, authorizedFound, clawbackFound bool
-
-	for _, entry := range *balanceMap {
-		if entry.Key.Type == xdr.ScValTypeScvSymbol {
-			keySymbol := string(entry.Key.MustSym())
-			switch keySymbol {
-			case "amount":
-				if entry.Val.Type != xdr.ScValTypeScvI128 {
-					return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
-				}
-				i128Parts := entry.Val.MustI128()
-				balanceStr = amount.String128(i128Parts)
-				amountFound = true
-			case "authorized":
-				if entry.Val.Type != xdr.ScValTypeScvBool {
-					return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
-				}
-				isAuthorized = entry.Val.MustB()
-				authorizedFound = true
-			case "clawback":
-				if entry.Val.Type != xdr.ScValTypeScvBool {
-					return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
-				}
-				isClawbackEnabled = entry.Val.MustB()
-				clawbackFound = true
-			}
-		}
-	}
-
-	if !amountFound {
-		return nil, fmt.Errorf("amount field not found in SAC balance map")
-	}
-	if !authorizedFound {
-		return nil, fmt.Errorf("authorized field not found in SAC balance map")
-	}
-	if !clawbackFound {
-		return nil, fmt.Errorf("clawback field not found in SAC balance map")
-	}
-
-	return &graphql1.SACBalance{
-		TokenID:           contractIDStr,
-		Balance:           balanceStr,
-		TokenType:         graphql1.TokenTypeSac,
-		Code:              *contract.Code,
-		Issuer:            *contract.Issuer,
-		Decimals:          int32(contract.Decimals),
-		IsAuthorized:      isAuthorized,
-		IsClawbackEnabled: isClawbackEnabled,
 	}, nil
 }
 
@@ -317,65 +251,37 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 	return results, nil
 }
 
-// parseAccountBalances parses ledger entries for a single account and returns balances.
+// parseAccountBalances parses ledger entries and DB data for a single account and returns balances.
+// Native XLM and trustlines come from DB, while SAC contracts use RPC.
 // This is used by the multi-account balance resolver.
-func parseAccountBalances(ctx context.Context, info *accountKeyInfo, ledgerEntriesByLedgerKeys map[string]*entities.LedgerEntryResult, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
+func parseAccountBalances(ctx context.Context, info *accountKeyInfo, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
 	var balances []graphql1.Balance
-	for _, ledgerKey := range info.ledgerKeys {
-		entry, exists := ledgerEntriesByLedgerKeys[ledgerKey]
-		if !exists || entry == nil {
-			continue
+
+	// Add native balance from DB
+	if info.nativeBalance != nil {
+		nativeBalance, err := buildNativeBalanceFromDB(info.nativeBalance, networkPassphrase)
+		if err != nil {
+			return nil, fmt.Errorf("building native balance: %w", err)
 		}
-
-		var ledgerEntryData xdr.LedgerEntryData
-		if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData); err != nil {
-			return nil, fmt.Errorf("decoding ledger entry: %w", err)
-		}
-
-		//exhaustive:ignore
-		switch ledgerEntryData.Type {
-		case xdr.LedgerEntryTypeAccount:
-			accountEntry := ledgerEntryData.MustAccount()
-			nativeBalance, err := parseNativeBalance(accountEntry, networkPassphrase)
-			if err != nil {
-				return nil, err
-			}
-			balances = append(balances, nativeBalance)
-
-		case xdr.LedgerEntryTypeTrustline:
-			trustlineEntry := ledgerEntryData.MustTrustLine()
-			trustlineBalance, err := parseTrustlineBalance(trustlineEntry, entry.LastModifiedLedger, networkPassphrase)
-			if err != nil {
-				return nil, err
-			}
-			balances = append(balances, trustlineBalance)
-
-		case xdr.LedgerEntryTypeContractData:
-			contractDataEntry := ledgerEntryData.MustContractData()
-
-			contractIDStr, ok, err := parseContractIDFromContractData(&contractDataEntry)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-
-			contract, exists := info.contractsByID[contractIDStr]
-			if !exists {
-				continue
-			}
-
-			balance, err := parseSACBalance(&contractDataEntry, contractIDStr, contract)
-			if err != nil {
-				return nil, err
-			}
-			if balance != nil {
-				balances = append(balances, balance)
-			}
-		}
+		balances = append(balances, nativeBalance)
 	}
 
+	// Add trustline balances from DB
+	for _, trustline := range info.trustlines {
+		trustlineBalance, err := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
+		if err != nil {
+			return nil, fmt.Errorf("building trustline balance: %w", err)
+		}
+		balances = append(balances, trustlineBalance)
+	}
+
+	// Add SAC balances from DB (for C addresses)
+	// Contract metadata is embedded in SACBalance from JOIN with contract_tokens
+	for _, sacBalance := range info.sacBalances {
+		balances = append(balances, buildSACBalanceFromDB(sacBalance))
+	}
+
+	// Add SEP-41 balances from RPC
 	if len(info.sep41ContractIDs) > 0 {
 		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
 		if err != nil {

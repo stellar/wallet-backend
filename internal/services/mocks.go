@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -121,55 +123,30 @@ func NewRPCServiceMock(t interface {
 	return mock
 }
 
-type AccountTokenServiceMock struct {
+// TokenIngestionServiceMock is a mock implementation of the TokenIngestionService interface
+type TokenIngestionServiceMock struct {
 	mock.Mock
 }
 
-var _ AccountTokenService = (*AccountTokenServiceMock)(nil)
+var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
-	args := a.Called()
-	return args.Get(0).(uint32)
-}
-
-func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error {
-	args := a.Called(ctx, checkpointLedger)
+func (m *TokenIngestionServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := m.Called(ctx, checkpointLedger, initializeCursors)
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]*data.TrustlineAsset, error) {
-	args := a.Called(ctx, accountAddress)
-	return args.Get(0).([]*data.TrustlineAsset), args.Error(1)
-}
-
-func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
-	args := a.Called(ctx, accountAddress)
-	return args.Get(0).([]string), args.Error(1)
-}
-
-func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
-	args := a.Called(ctx, trustlineChanges, contractChanges)
+func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey)
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) InitializeTrustlineIDByAssetCache(ctx context.Context) error {
-	args := a.Called(ctx)
-	return args.Error(0)
-}
-
-func (a *AccountTokenServiceMock) InitializeTrustlineAssetByIDCache(ctx context.Context) error {
-	args := a.Called(ctx)
-	return args.Error(0)
-}
-
-// NewAccountTokenServiceMock creates a new instance of AccountTokenServiceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
-func NewAccountTokenServiceMock(t interface {
+// NewTokenIngestionServiceMock creates a new instance of TokenIngestionServiceMock.
+func NewTokenIngestionServiceMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *AccountTokenServiceMock {
-	mock := &AccountTokenServiceMock{}
+) *TokenIngestionServiceMock {
+	mock := &TokenIngestionServiceMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })
@@ -291,14 +268,33 @@ type ContractMetadataServiceMock struct {
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
 
-func (c *ContractMetadataServiceMock) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
-	args := c.Called(ctx, contractTypesByID)
-	return args.Error(0)
+func (c *ContractMetadataServiceMock) FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	args := c.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*data.Contract), args.Error(1)
+}
+
+func (c *ContractMetadataServiceMock) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
+	args := c.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
 	args := c.Called(ctx, contractAddress, functionName, funcArgs)
 	return args.Get(0).(xdr.ScVal), args.Error(1)
+}
+
+func (c *ContractMetadataServiceMock) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
+	args := c.Called(ctx, contractTypesByID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 // NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.

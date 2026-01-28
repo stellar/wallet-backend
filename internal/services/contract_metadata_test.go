@@ -16,11 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // Helper functions for creating test XDR values
@@ -78,676 +74,7 @@ func TestNewContractMetadataService(t *testing.T) {
 	})
 }
 
-func TestParseSACMetadata(t *testing.T) {
-	mockRPCService := NewRPCServiceMock(t)
-	mockContractModel := data.NewContractModelMock(t)
-	pool := pond.NewPool(0)
-	defer pool.Stop()
-
-	service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-	assert.NoError(t, err)
-
-	cms := service.(*contractMetadataService)
-
-	tests := []struct {
-		name     string
-		input    map[string]ContractMetadata
-		expected map[string]ContractMetadata
-	}{
-		{
-			name: "parses SAC code:issuer format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:GAISSUERTESTADDRESS", Code: "USDC", Issuer: "GAISSUERTESTADDRESS"},
-			},
-		},
-		{
-			name: "skips non-SAC contracts",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSEP41, Name: "MyToken:SomeIssuer"},
-			},
-		},
-		{
-			name: "skips SAC with empty name",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: ""},
-			},
-		},
-		{
-			name: "skips SAC with invalid format",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "InvalidFormat"},
-			},
-		},
-		{
-			name: "handles multiple colons",
-			input: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-			expected: map[string]ContractMetadata{
-				"CAAAA": {Type: types.ContractTypeSAC, Name: "USDC:ISSUER:EXTRA"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cms.parseSACMetadata(tt.input)
-			assert.Equal(t, tt.expected, tt.input)
-		})
-	}
-}
-
-func TestFetchAndStoreMetadata(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("returns nil for empty contracts", func(t *testing.T) {
-		mockRPCService := NewRPCServiceMock(t)
-		mockContractModel := data.NewContractModelMock(t)
-		pool := pond.NewPool(0)
-		defer pool.Stop()
-
-		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, map[string]types.ContractType{})
-		assert.NoError(t, err)
-
-		// Verify no RPC or DB calls were made
-		mockRPCService.AssertNotCalled(t, "SimulateTransaction")
-		mockContractModel.AssertNotCalled(t, "BatchInsert")
-	})
-
-	t.Run("fetches and stores metadata successfully for SAC contract", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		// Valid contract ID (C prefix, 56 characters)
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSAC,
-		}
-
-		// Mock RPC responses - use MatchedBy to return different values based on the function name in the transaction
-		// The calls happen in parallel, so we match on the encoded function name
-		nameScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvString,
-			Str:  ptrToScString("USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
-		}
-		symbolScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvString,
-			Str:  ptrToScString("USDC"),
-		}
-		decimalsScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvU32,
-			U32:  ptrToXdrUint32(7),
-		}
-
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "name")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
-			}, nil,
-		)
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "symbol")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}},
-			}, nil,
-		)
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "decimals")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}},
-			}, nil,
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored correctly in database
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSAC), contract.Type)
-		assert.Equal(t, "USDC", *contract.Code)
-		assert.Equal(t, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", *contract.Issuer)
-		assert.Equal(t, "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", *contract.Name)
-		assert.Equal(t, "USDC", *contract.Symbol)
-		assert.Equal(t, uint32(7), contract.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("fetches and stores metadata successfully for SEP41 contract", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC responses - use MatchedBy to return different values based on the function name in the transaction
-		// The calls happen in parallel, so we match on the encoded function name
-		nameScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvString,
-			Str:  ptrToScString("MyToken"),
-		}
-		symbolScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvString,
-			Str:  ptrToScString("MTK"),
-		}
-		decimalsScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvU32,
-			U32:  ptrToXdrUint32(18),
-		}
-
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "name")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
-			}, nil,
-		)
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "symbol")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}},
-			}, nil,
-		)
-		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
-			return containsFunction(txXDR, "decimals")
-		}), mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}},
-			}, nil,
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored correctly in database
-		// SEP41 should NOT have Code/Issuer parsed (name is not in code:issuer format)
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
-		assert.Equal(t, "", *contract.Code)
-		assert.Equal(t, "", *contract.Issuer)
-		assert.Equal(t, "MyToken", *contract.Name)
-		assert.Equal(t, "MTK", *contract.Symbol)
-		assert.Equal(t, uint32(18), contract.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("returns error when database insert fails", func(t *testing.T) {
-		mockRPCService := NewRPCServiceMock(t)
-		mockContractModel := data.NewContractModelMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC to allow any calls (metadata fetching happens before DB insert)
-		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{}, nil,
-		).Maybe()
-
-		// Mock DB error
-		mockContractModel.On("BatchInsert", ctx, mock.Anything, mock.Anything).Return(
-			[]string{}, errors.New("database connection failed"),
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "storing contract metadata in database")
-		assert.Contains(t, err.Error(), "database connection failed")
-	})
-
-	t.Run("handles RPC simulation error gracefully and stores contract with empty metadata", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC to return error
-		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{}, errors.New("RPC unavailable"),
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
-		assert.Equal(t, "", *contract.Name)
-		assert.Equal(t, "", *contract.Symbol)
-		assert.Equal(t, uint32(0), contract.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("handles RPC simulation failure response and stores contract with empty metadata", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC to return error in result
-		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{Error: "simulation failed: contract not found"},
-			nil,
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
-		assert.Equal(t, "", *contract.Name)
-		assert.Equal(t, "", *contract.Symbol)
-		assert.Equal(t, uint32(0), contract.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("handles empty simulation results and stores contract with empty metadata", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC to return empty results
-		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{}},
-			nil,
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
-		assert.Equal(t, "", *contract.Name)
-		assert.Equal(t, "", *contract.Symbol)
-		assert.Equal(t, uint32(0), contract.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("handles type conversion errors gracefully and stores contract with empty metadata", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(5)
-		defer pool.Stop()
-
-		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-
-		contractTypes := map[string]types.ContractType{
-			contractID: types.ContractTypeSEP41,
-		}
-
-		// Mock RPC to return wrong types - name as U32 instead of string
-		wrongTypeScVal := xdr.ScVal{
-			Type: xdr.ScValTypeScvU32,
-			U32:  ptrToXdrUint32(123),
-		}
-
-		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
-			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: wrongTypeScVal}},
-			}, nil,
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		err = service.FetchAndStoreMetadata(ctx, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract was stored with empty metadata
-		contract, err := contractModel.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, contractID, contract.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract.Type)
-		assert.Equal(t, "", *contract.Name)
-		assert.Equal(t, "", *contract.Symbol)
-		assert.Equal(t, uint32(0), contract.Decimals)
-
-		cleanUpDB()
-	})
-}
-
-func TestStoreInDB(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("returns nil for empty metadata map", func(t *testing.T) {
-		mockRPCService := NewRPCServiceMock(t)
-		mockContractModel := data.NewContractModelMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
-		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-		require.NoError(t, err)
-
-		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, map[string]ContractMetadata{})
-		assert.NoError(t, err)
-
-		mockContractModel.AssertNotCalled(t, "BatchInsert")
-	})
-
-	t.Run("stores contracts correctly in database", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
-		cleanUpDB := func() {
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-			require.NoError(t, err)
-		}
-		cleanUpDB()
-
-		mockRPCService := NewRPCServiceMock(t)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
-
-		contractModel := &data.ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
-		metadataMap := map[string]ContractMetadata{
-			"CONTRACT1": {
-				ContractID: "CONTRACT1",
-				Type:       types.ContractTypeSAC,
-				Code:       "USDC",
-				Issuer:     "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-				Name:       "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-				Symbol:     "USDC",
-				Decimals:   7,
-			},
-			"CONTRACT2": {
-				ContractID: "CONTRACT2",
-				Type:       types.ContractTypeSEP41,
-				Name:       "MyToken",
-				Symbol:     "MTK",
-				Decimals:   18,
-			},
-		}
-
-		service, err := NewContractMetadataService(mockRPCService, contractModel, pool)
-		require.NoError(t, err)
-
-		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, metadataMap)
-		require.NoError(t, err)
-
-		// Verify CONTRACT1 was stored correctly
-		contract1, err := contractModel.GetByID(ctx, "CONTRACT1")
-		require.NoError(t, err)
-		assert.Equal(t, "CONTRACT1", contract1.ID)
-		assert.Equal(t, string(types.ContractTypeSAC), contract1.Type)
-		assert.Equal(t, "USDC", *contract1.Code)
-		assert.Equal(t, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", *contract1.Issuer)
-		assert.Equal(t, "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", *contract1.Name)
-		assert.Equal(t, "USDC", *contract1.Symbol)
-		assert.Equal(t, uint32(7), contract1.Decimals)
-
-		// Verify CONTRACT2 was stored correctly
-		contract2, err := contractModel.GetByID(ctx, "CONTRACT2")
-		require.NoError(t, err)
-		assert.Equal(t, "CONTRACT2", contract2.ID)
-		assert.Equal(t, string(types.ContractTypeSEP41), contract2.Type)
-		assert.Equal(t, "MyToken", *contract2.Name)
-		assert.Equal(t, "MTK", *contract2.Symbol)
-		assert.Equal(t, uint32(18), contract2.Decimals)
-
-		cleanUpDB()
-	})
-
-	t.Run("returns error when batch insert fails", func(t *testing.T) {
-		mockRPCService := NewRPCServiceMock(t)
-		mockContractModel := data.NewContractModelMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
-		metadataMap := map[string]ContractMetadata{
-			"CONTRACT1": {
-				ContractID: "CONTRACT1",
-				Type:       types.ContractTypeSAC,
-			},
-		}
-
-		mockContractModel.On("BatchInsert", ctx, mock.Anything, mock.Anything).Return(
-			[]string{}, errors.New("unique constraint violation"),
-		)
-
-		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
-		require.NoError(t, err)
-
-		cms := service.(*contractMetadataService)
-		err = cms.storeInDB(ctx, metadataMap)
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "storing contract metadata in database")
-		assert.Contains(t, err.Error(), "unique constraint violation")
-	})
-}
-
-func TestFetchMetadata(t *testing.T) {
+func TestFetchSep41Metadata(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("fetches all three fields successfully", func(t *testing.T) {
@@ -789,11 +116,10 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		metadata, err := cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		metadata, err := cms.fetchMetadata(ctx, contractID)
 
 		require.NoError(t, err)
 		assert.Equal(t, contractID, metadata.ContractID)
-		assert.Equal(t, types.ContractTypeSEP41, metadata.Type)
 		assert.Equal(t, "TestName", metadata.Name)
 		assert.Equal(t, "TST", metadata.Symbol)
 		assert.Equal(t, uint32(8), metadata.Decimals)
@@ -829,7 +155,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fetching contract metadata")
@@ -868,7 +194,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a string")
@@ -907,7 +233,7 @@ func TestFetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
-		_, err = cms.fetchMetadata(ctx, contractID, types.ContractTypeSEP41)
+		_, err = cms.fetchMetadata(ctx, contractID)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a uint32")
@@ -1055,6 +381,216 @@ func TestFetchSingleField(t *testing.T) {
 	})
 }
 
+func TestFetchSACMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns empty slice for empty input", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{})
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+		// Verify no RPC calls were made
+		mockRPCService.AssertNotCalled(t, "SimulateTransaction", mock.Anything, mock.Anything)
+	})
+
+	t.Run("parses code:issuer format successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "USDC:GCNY..."
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "USDC", *contract.Code)
+		assert.Equal(t, "GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Issuer)
+		assert.Equal(t, "USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY", *contract.Name)
+		assert.Equal(t, "USDC", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("handles native XLM asset", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning "native"
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		contract := result[0]
+		assert.Equal(t, contractID, contract.ContractID)
+		assert.Equal(t, "SAC", contract.Type)
+		assert.Equal(t, "XLM", *contract.Code)
+		assert.Equal(t, "", *contract.Issuer)
+		assert.Equal(t, "native", *contract.Name)
+		assert.Equal(t, "XLM", *contract.Symbol)
+		assert.Equal(t, uint32(7), contract.Decimals)
+	})
+
+	t.Run("returns error for contract with malformed name", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Mock name() returning malformed value (no colon)
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("MALFORMED_NO_COLON")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+			}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should return error for malformed contract name
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "malformed SAC name")
+	})
+
+	t.Run("returns error when RPC fails", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID})
+
+		// Should return error when RPC fails
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata")
+		assert.Contains(t, err.Error(), "RPC timeout")
+	})
+
+	t.Run("processes multiple contracts successfully", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// Mock responses for two contracts - use mock.Anything for both calls
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+		nameScVal2 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("native")}
+
+		// Return different values for the two calls
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal2}},
+			}, nil,
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("returns error and no partial results when one contract fails", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+
+		// First contract succeeds, second fails
+		nameScVal1 := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("USDC:GCNY5OXYSY4FKHOPT2SPOQZAOEIGXB5LBYW3HVU3OWSTQITS65M5RCNY")}
+
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+			}, nil,
+		).Once()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("RPC timeout"),
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		result, err := service.FetchSACMetadata(ctx, []string{contractID1, contractID2})
+
+		// Should return error and no partial results
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to fetch metadata for 1 SAC contracts")
+	})
+}
+
 func TestFetchBatch(t *testing.T) {
 	ctx := context.Background()
 
@@ -1068,8 +604,8 @@ func TestFetchBatch(t *testing.T) {
 		contractID2 := "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
-			contractID2: {ContractID: contractID2, Type: types.ContractTypeSEP41},
+			contractID1: {ContractID: contractID1},
+			contractID2: {ContractID: contractID2},
 		}
 		contractIDs := []string{contractID1, contractID2}
 
@@ -1122,7 +658,7 @@ func TestFetchBatch(t *testing.T) {
 		contractID1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		metadataMap := map[string]ContractMetadata{
-			contractID1: {ContractID: contractID1, Type: types.ContractTypeSAC},
+			contractID1: {ContractID: contractID1},
 		}
 		contractIDs := []string{contractID1}
 

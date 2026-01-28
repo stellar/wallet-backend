@@ -6,20 +6,32 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// Note: pq is still used by BatchGetByIDs for sqlx compatibility
+
+// assetNamespace is a custom namespace UUID derived deterministically from the
+// DNS namespace UUID and the "trustline_assets" table name. This ensures a
+// stable, reproducible namespace for generating asset IDs.
+var assetNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("trustline_assets"))
+
+// DeterministicAssetID computes a deterministic UUID for a trustline asset
+// using UUID v5 (SHA-1) of "CODE:ISSUER". This enables streaming checkpoint processing
+// without needing DB roundtrips to get auto-generated IDs.
+func DeterministicAssetID(code, issuer string) uuid.UUID {
+	return uuid.NewSHA1(assetNamespace, []byte(code+":"+issuer))
+}
+
 // TrustlineAssetModelInterface defines the interface for trustline asset operations.
 type TrustlineAssetModelInterface interface {
-	// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
-	BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error)
-	// BatchGetByIDs retrieves trustline assets by their IDs.
-	BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error)
-	// GetTopN returns the top N assets by frequency.
-	GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error)
+	// BatchInsert inserts multiple trustline assets with pre-computed IDs.
+	// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error
 }
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
@@ -32,7 +44,7 @@ var _ TrustlineAssetModelInterface = (*TrustlineAssetModel)(nil)
 
 // TrustlineAsset represents a classic Stellar trustline asset.
 type TrustlineAsset struct {
-	ID        int64     `db:"id" json:"id"`
+	ID        uuid.UUID `db:"id" json:"id"`
 	Code      string    `db:"code" json:"code"`
 	Issuer    string    `db:"issuer" json:"issuer"`
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
@@ -43,134 +55,36 @@ func (a *TrustlineAsset) AssetKey() string {
 	return fmt.Sprintf("%s:%s", a.Code, a.Issuer)
 }
 
-// BatchGetOrInsert returns IDs for multiple trustline assets, creating any that don't exist.
-// Uses batch INSERT ... ON CONFLICT for atomic upsert behavior.
-// Returns a map of "code:issuer" -> id.
-func (m *TrustlineAssetModel) BatchGetOrInsert(ctx context.Context, assets []TrustlineAsset) (map[string]int64, error) {
+// BatchInsert inserts multiple trustline assets with pre-computed deterministic IDs.
+// Uses INSERT ... ON CONFLICT (code, issuer) DO NOTHING for idempotent operations.
+// Assets must have their ID field set via DeterministicAssetID before calling.
+func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
 	if len(assets) == 0 {
-		return make(map[string]int64), nil
+		return nil
 	}
 
+	ids := make([]uuid.UUID, len(assets))
 	codes := make([]string, len(assets))
 	issuers := make([]string, len(assets))
 	for i, a := range assets {
+		ids[i] = a.ID
 		codes[i] = a.Code
 		issuers[i] = a.Issuer
 	}
 
-	// Step 1: Try to get existing rows first (cheap SELECT)
-	const selectQuery = `
-		SELECT id, code, issuer FROM trustline_assets
-		WHERE (code, issuer) IN (SELECT * FROM UNNEST($1::text[], $2::text[]))
+	const query = `
+		INSERT INTO trustline_assets (id, code, issuer)
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[])
+		ON CONFLICT (code, issuer) DO NOTHING
 	`
 
 	start := time.Now()
-	rows, err := m.DB.QueryxContext(ctx, selectQuery, pq.Array(codes), pq.Array(issuers))
+	_, err := dbTx.Exec(ctx, query, ids, codes, issuers)
 	if err != nil {
-		return nil, fmt.Errorf("selecting trustline assets: %w", err)
+		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
 
-	result := make(map[string]int64, len(assets))
-	for rows.Next() {
-		var id int64
-		var code, issuer string
-		if err := rows.Scan(&id, &code, &issuer); err != nil {
-			err = rows.Close()
-			if err != nil {
-				return nil, fmt.Errorf("closing rows: %w", err)
-			}
-			return nil, fmt.Errorf("scanning trustline asset: %w", err)
-		}
-		result[code+":"+issuer] = id
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("closing rows: %w", err)
-	}
-
-	// Step 2: If all found, we're done (fast path - most common case)
-	if len(result) == len(assets) {
-		m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())
-		m.MetricsService.IncDBQuery("BatchGetOrInsert", "trustline_assets")
-		return result, nil
-	}
-
-	// Step 3: Insert only missing ones
-	var newCodes, newIssuers []string
-	for i, a := range assets {
-		if _, exists := result[a.Code+":"+a.Issuer]; !exists {
-			newCodes = append(newCodes, codes[i])
-			newIssuers = append(newIssuers, issuers[i])
-		}
-	}
-
-	const insertQuery = `
-		INSERT INTO trustline_assets (code, issuer)
-		SELECT * FROM UNNEST($1::text[], $2::text[])
-		ON CONFLICT (code, issuer) DO UPDATE SET code = EXCLUDED.code
-		RETURNING id, code, issuer
-	`
-
-	rows, err = m.DB.QueryxContext(ctx, insertQuery, pq.Array(newCodes), pq.Array(newIssuers))
-	if err != nil {
-		return nil, fmt.Errorf("inserting trustline assets: %w", err)
-	}
-
-	for rows.Next() {
-		var id int64
-		var code, issuer string
-		if err := rows.Scan(&id, &code, &issuer); err != nil {
-			return nil, fmt.Errorf("scanning inserted trustline asset: %w", err)
-		}
-		result[code+":"+issuer] = id
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("closing rows: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchGetOrInsert", "trustline_assets", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchGetOrInsert", "trustline_assets")
-	return result, nil
-}
-
-// BatchGetByIDs retrieves trustline assets by their IDs.
-// Returns assets in arbitrary order (not necessarily matching input order).
-func (m *TrustlineAssetModel) BatchGetByIDs(ctx context.Context, ids []int64) ([]*TrustlineAsset, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-
-	const query = `SELECT id, code, issuer, created_at FROM trustline_assets WHERE id = ANY($1)`
-
-	start := time.Now()
-	var assets []*TrustlineAsset
-	err := m.DB.SelectContext(ctx, &assets, query, pq.Array(ids))
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "trustline_assets", duration)
-
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "trustline_assets", "query_error")
-		return nil, fmt.Errorf("batch getting trustline assets by IDs: %w", err)
-	}
-
-	m.MetricsService.IncDBQuery("BatchGetByIDs", "trustline_assets")
-	return assets, nil
-}
-
-// GetTopN returns the top N assets by frequency.
-func (m *TrustlineAssetModel) GetTopN(ctx context.Context, n int) ([]*TrustlineAsset, error) {
-	const query = `SELECT id, code, issuer, created_at FROM trustline_assets ORDER BY id LIMIT $1`
-
-	start := time.Now()
-	var assets []*TrustlineAsset
-	err := m.DB.SelectContext(ctx, &assets, query, n)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetTopNAssets", "trustline_assets", duration)
-
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetTopNAssets", "trustline_assets", "query_error")
-		return nil, fmt.Errorf("getting top N trustline assets: %w", err)
-	}
-
-	m.MetricsService.IncDBQuery("GetTopNAssets", "trustline_assets")
-	return assets, nil
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
+	return nil
 }

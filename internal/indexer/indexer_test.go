@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -153,6 +154,10 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
+		mockSACBalances := &MockSACBalancesProcessor{}
+		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice", "bob")
@@ -183,10 +188,19 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			{ToID: 3, AccountID: "dave", OperationID: 0, SortKey: "0-1"},
 		}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
+			sacBalancesProcessor:   mockSACBalances,
+			sacInstancesProcessor:  mockSACInstances,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -224,6 +238,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 
 	t.Run("🟢 multiple transactions with overlapping participants", func(t *testing.T) {
@@ -233,6 +249,10 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
+		mockSACBalances := &MockSACBalancesProcessor{}
+		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mocks for first transaction
 		txParticipants1 := set.NewSet("alice", "bob")
@@ -273,10 +293,19 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx2).Return([]types.StateChange{}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
+			sacBalancesProcessor:   mockSACBalances,
+			sacInstancesProcessor:  mockSACInstances,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -301,6 +330,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 
 	t.Run("🟢 empty transaction list", func(t *testing.T) {
@@ -547,6 +578,10 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects := &MockOperationProcessor{}
 		mockContractDeploy := &MockOperationProcessor{}
 		mockSACEvents := &MockOperationProcessor{}
+		mockTrustlines := &MockTrustlinesProcessor{}
+		mockAccounts := &MockAccountsProcessor{}
+		mockSACBalances := &MockSACBalancesProcessor{}
+		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mock expectations
 		txParticipants := set.NewSet("alice")
@@ -575,10 +610,19 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 
+		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
+		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
+
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			trustlinesProcessor:    mockTrustlines,
+			accountsProcessor:      mockAccounts,
+			sacBalancesProcessor:   mockSACBalances,
+			sacInstancesProcessor:  mockSACInstances,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -620,6 +664,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockEffects.AssertExpectations(t)
 		mockContractDeploy.AssertExpectations(t)
 		mockSACEvents.AssertExpectations(t)
+		mockTrustlines.AssertExpectations(t)
+		mockAccounts.AssertExpectations(t)
 	})
 }
 

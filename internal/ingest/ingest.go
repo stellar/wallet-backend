@@ -25,7 +25,6 @@ import (
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
 const (
@@ -53,8 +52,6 @@ type Configs struct {
 	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 	DatabaseURL            string
-	RedisHost              string
-	RedisPort              int
 	ServerPort             int
 	StartLedger            int
 	EndLedger              int
@@ -156,12 +153,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
-
-	// Create pond pool for account token operations
-	accountTokenPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("account_token", accountTokenPool)
 
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
@@ -173,7 +165,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	// Initialize history archive once for use by both AccountTokenService and IngestService
+	// Initialize history archive once for use by both TokenIngestionService and IngestService
 	archive, err := historyarchive.Connect(
 		cfg.ArchiveURL,
 		historyarchive.ArchiveOptions{
@@ -185,13 +177,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, models.TrustlineAsset, accountTokenPool)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating account token service: %w", err)
-	}
-	if err := accountTokenService.InitializeTrustlineIDByAssetCache(context.Background()); err != nil {
-		return nil, fmt.Errorf("initializing trustline ID by asset cache: %w", err)
-	}
+	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -208,7 +194,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackend:              ledgerBackend,
 		LedgerBackendFactory:       ledgerBackendFactory,
 		ChannelAccountStore:        chAccStore,
-		AccountTokenService:        accountTokenService,
+		TokenIngestionService:      tokenIngestionService,
 		ContractMetadataService:    contractMetadataService,
 		MetricsService:             metricsService,
 		GetLedgersLimit:            cfg.GetLedgersLimit,

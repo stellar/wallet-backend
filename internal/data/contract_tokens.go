@@ -1,3 +1,5 @@
+// Package data provides data access layer for contract token operations.
+// This file handles PostgreSQL storage of Soroban contract token metadata.
 package data
 
 import (
@@ -5,20 +7,34 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// ContractModelInterface defines the interface for contract token operations
-type ContractModelInterface interface {
-	GetByID(ctx context.Context, contractID string) (*Contract, error)
-	BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
-	BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error)
+// contractNamespace is derived from table name for reproducibility.
+var contractNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("contract_tokens"))
+
+// DeterministicContractID computes a deterministic UUID for a contract token
+// using UUID v5 (SHA-1) of the contract address (C...). This enables streaming checkpoint
+// processing without needing DB roundtrips to get auto-generated IDs.
+func DeterministicContractID(contractID string) uuid.UUID {
+	return uuid.NewSHA1(contractNamespace, []byte(contractID))
 }
 
+// ContractModelInterface defines the interface for contract token operations.
+type ContractModelInterface interface {
+	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
+	// BatchInsert inserts multiple contracts with pre-computed IDs.
+	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
+	// Contracts must have their ID field set via DeterministicContractID before calling.
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error
+}
+
+// ContractModel implements ContractModelInterface.
 type ContractModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
@@ -26,60 +42,66 @@ type ContractModel struct {
 
 var _ ContractModelInterface = (*ContractModel)(nil)
 
+// Contract represents a Soroban contract token.
 type Contract struct {
-	ID        string    `db:"id" json:"id"`
-	Type      string    `db:"type" json:"type"`
-	Code      *string   `db:"code" json:"code"`
-	Issuer    *string   `db:"issuer" json:"issuer"`
-	Name      *string   `db:"name" json:"name"`
-	Symbol    *string   `db:"symbol" json:"symbol"`
-	Decimals  uint32    `db:"decimals" json:"decimals"`
-	CreatedAt time.Time `db:"created_at" json:"createdAt"`
-	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
+	ID         uuid.UUID `db:"id" json:"id"`
+	ContractID string    `db:"contract_id" json:"contractId"`
+	Type       string    `db:"type" json:"type"`
+	Code       *string   `db:"code" json:"code"`
+	Issuer     *string   `db:"issuer" json:"issuer"`
+	Name       *string   `db:"name" json:"name"`
+	Symbol     *string   `db:"symbol" json:"symbol"`
+	Decimals   uint32    `db:"decimals" json:"decimals"`
+	CreatedAt  time.Time `db:"created_at" json:"createdAt"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updatedAt"`
 }
 
-func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contract, error) {
-	start := time.Now()
-	contract := &Contract{}
-	err := m.DB.GetContext(ctx, contract, "SELECT * FROM contract_tokens WHERE id = $1", contractID)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByID", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByID", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting contract by ID %s: %w", contractID, err)
-	}
-	m.MetricsService.IncDBQuery("GetByID", "contract_tokens")
-	return contract, nil
-}
-
-func (m *ContractModel) BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
-	start := time.Now()
-	var contracts []*Contract
-	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contract_tokens WHERE id = ANY($1)", pq.Array(contractIDs))
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting contracts by IDs: %w", err)
-	}
-	m.MetricsService.IncDBQuery("BatchGetByIDs", "contract_tokens")
-	return contracts, nil
-}
-
-// BatchInsert inserts multiple contracts in a single query using UNNEST.
-// It returns the IDs of successfully inserted contracts.
-// Contracts that already exist (duplicate IDs) are skipped via ON CONFLICT DO NOTHING.
-func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error) {
-	if len(contracts) == 0 {
+// GetExisting returns which of the given contract IDs exist in the database.
+func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
+	if len(contractIDs) == 0 {
 		return nil, nil
 	}
 
-	if sqlExecuter == nil {
-		sqlExecuter = m.DB
+	const query = `SELECT contract_id FROM contract_tokens WHERE contract_id = ANY($1)`
+
+	start := time.Now()
+	rows, err := dbTx.Query(ctx, query, contractIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
+			return nil, fmt.Errorf("scanning contract ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("iterating contract rows: %w", err)
 	}
 
-	// Flatten contracts into parallel slices
-	ids := make([]string, len(contracts))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
+	m.MetricsService.IncDBQuery("GetExisting", "contract_tokens")
+	return ids, nil
+}
+
+// BatchInsert inserts multiple contracts with pre-computed deterministic IDs.
+// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
+// Contracts must have their ID field set via DeterministicContractID before calling.
+func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
+	if len(contracts) == 0 {
+		return nil
+	}
+
+	ids := make([]uuid.UUID, len(contracts))
+	contractIDs := make([]string, len(contracts))
 	types := make([]string, len(contracts))
 	codes := make([]*string, len(contracts))
 	issuers := make([]*string, len(contracts))
@@ -89,6 +111,7 @@ func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecu
 
 	for i, c := range contracts {
 		ids[i] = c.ID
+		contractIDs[i] = c.ContractID
 		types[i] = c.Type
 		codes[i] = c.Code
 		issuers[i] = c.Issuer
@@ -97,46 +120,21 @@ func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecu
 		decimals[i] = c.Decimals
 	}
 
-	const insertQuery = `
-		WITH inserted_contracts AS (
-			INSERT INTO contract_tokens (id, type, code, issuer, name, symbol, decimals)
-			SELECT
-				c.id, c.type, c.code, c.issuer, c.name, c.symbol, c.decimals
-			FROM (
-				SELECT
-					UNNEST($1::text[]) AS id,
-					UNNEST($2::text[]) AS type,
-					UNNEST($3::text[]) AS code,
-					UNNEST($4::text[]) AS issuer,
-					UNNEST($5::text[]) AS name,
-					UNNEST($6::text[]) AS symbol,
-					UNNEST($7::smallint[]) AS decimals
-			) c
-			ON CONFLICT (id) DO NOTHING
-			RETURNING id
-		)
-		SELECT id FROM inserted_contracts;
+	const query = `
+		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, name, symbol, decimals)
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::smallint[])
+		ON CONFLICT (contract_id) DO NOTHING
 	`
 
 	start := time.Now()
-	var insertedIDs []string
-	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
-		pq.Array(ids),
-		pq.Array(types),
-		pq.Array(codes),
-		pq.Array(issuers),
-		pq.Array(names),
-		pq.Array(symbols),
-		pq.Array(decimals),
-	)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "contract_tokens", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchInsert", "contract_tokens", len(contracts))
+	_, err := dbTx.Exec(ctx, query, ids, contractIDs, types, codes, issuers, names, symbols, decimals)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchInsert", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("batch inserting contracts: %w", err)
+		return fmt.Errorf("batch inserting contracts: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchInsert", "contract_tokens")
 
-	return insertedIDs, nil
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "contract_tokens", time.Since(start).Seconds())
+	m.MetricsService.ObserveDBBatchSize("BatchInsert", "contract_tokens", len(contracts))
+	m.MetricsService.IncDBQuery("BatchInsert", "contract_tokens")
+	return nil
 }
