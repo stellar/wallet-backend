@@ -166,19 +166,6 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 
 	start := time.Now()
 
-	// Build rows for COPY
-	rows := make([][]any, len(balances))
-	for i, bal := range balances {
-		rows[i] = []any{
-			bal.AccountAddress,
-			bal.ContractID,
-			bal.Balance,
-			bal.IsAuthorized,
-			bal.IsClawbackEnabled,
-			bal.LedgerNumber,
-		}
-	}
-
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"sac_balances"},
@@ -190,14 +177,24 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 			"is_clawback_enabled",
 			"last_modified_ledger",
 		},
-		pgx.CopyFromRows(rows),
+		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
+			bal := balances[i]
+			return []any{
+				bal.AccountAddress,
+				bal.ContractID,
+				bal.Balance,
+				bal.IsAuthorized,
+				bal.IsClawbackEnabled,
+				bal.LedgerNumber,
+			}, nil
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("batch inserting SAC balances via COPY: %w", err)
 	}
 
-	if int(copyCount) != len(rows) {
-		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
+	if int(copyCount) != len(balances) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "sac_balances", time.Since(start).Seconds())
