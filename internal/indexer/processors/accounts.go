@@ -5,6 +5,7 @@ package processors
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -24,9 +25,8 @@ type AccountsProcessor struct {
 }
 
 // NewAccountsProcessor creates a new accounts processor.
-func NewAccountsProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *AccountsProcessor {
+func NewAccountsProcessor(metricsService MetricsServiceInterface) *AccountsProcessor {
 	return &AccountsProcessor{
-		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,
 	}
 }
@@ -39,6 +39,14 @@ func (p *AccountsProcessor) Name() string {
 // ProcessOperation extracts account balance changes from an operation's ledger changes.
 // Returns AccountChange structs with balance and liabilities data for database upsert.
 func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.AccountChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("AccountsProcessor", duration)
+		}
+	}()
+	
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)

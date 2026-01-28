@@ -62,22 +62,13 @@ func accountLedgerEntrySignersOnly(accountID xdr.AccountId, balance int64, numSi
 	}
 }
 
-func TestNewAccountsProcessor(t *testing.T) {
-	processor := NewAccountsProcessor(networkPassphrase, nil)
-
-	assert.NotNil(t, processor)
-	assert.Equal(t, networkPassphrase, processor.networkPassphrase)
-	assert.Nil(t, processor.metricsService)
-}
-
 func TestAccountsProcessor_Name(t *testing.T) {
-	processor := NewAccountsProcessor(networkPassphrase, nil)
-
+	processor := NewAccountsProcessor(nil)
 	assert.Equal(t, "accounts", processor.Name())
 }
 
 func TestAccountsProcessor_ProcessOperation(t *testing.T) {
-	processor := NewAccountsProcessor(networkPassphrase, nil)
+	processor := NewAccountsProcessor(nil)
 	testAccount := accountA.ToAccountId()
 
 	tests := []struct {
