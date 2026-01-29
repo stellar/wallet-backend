@@ -247,11 +247,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		envelopeXDR = &envelopeXDRStr
 	}
 
-	// Extract fee_charged and result_code from transaction result
-	// transaction.Result is TransactionResultPair, which contains Result (TransactionResult)
-	// TransactionResult has FeeCharged and Result (TransactionResultResult with Code)
-	feeCharged := int64(transaction.Result.Result.FeeCharged)
-	resultCode := transaction.Result.Result.Result.Code.String()
+	feeCharged, _ := transaction.FeeCharged()
 
 	var metaXDR *string
 	if !skipTxMeta {
@@ -291,7 +287,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
 		EnvelopeXDR:          envelopeXDR,
 		FeeCharged:           feeCharged,
-		ResultCode:           resultCode,
+		ResultCode:           transaction.ResultCode(),
 		MetaXDR:              metaXDR,
 		LedgerNumber:         ledgerSequence,
 		InnerTransactionHash: innerTxHash,
