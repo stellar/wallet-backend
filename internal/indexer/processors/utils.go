@@ -248,8 +248,10 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 	}
 
 	// Extract fee_charged and result_code from transaction result
-	feeCharged := int64(transaction.Result.FeeCharged)
-	resultCode := transaction.Result.Result.Code.String()
+	// transaction.Result is TransactionResultPair, which contains Result (TransactionResult)
+	// TransactionResult has FeeCharged and Result (TransactionResultResult with Code)
+	feeCharged := int64(transaction.Result.Result.FeeCharged)
+	resultCode := transaction.Result.Result.Result.Code.String()
 
 	var metaXDR *string
 	if !skipTxMeta {
