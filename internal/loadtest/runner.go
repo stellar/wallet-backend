@@ -4,7 +4,6 @@ package loadtest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -14,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
-	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -30,8 +28,6 @@ const (
 	loadtestLatestCursor = "loadtest_latest_ledger"
 	// serverShutdownTimeout is the timeout for graceful server shutdown.
 	serverShutdownTimeout = 10 * time.Second
-	// syntheticLedgerCount is the number of ledgers in the synthetic ledger file.
-	syntheticLedgerCount = 451
 )
 
 // RunConfig holds configuration for the loadtest runner.
@@ -147,7 +143,7 @@ func loadSeedData(ctx context.Context, databaseURL string, seedDataPath string) 
 	return nil
 }
 
-// runIngestionLoop processes ledgers until the loadtest backend signals completion.
+// runIngestionLoop processes ledgers until the last available ledger.
 func runIngestionLoop(
 	ctx context.Context,
 	cfg RunConfig,
@@ -157,23 +153,29 @@ func runIngestionLoop(
 	metricsService metrics.MetricsService,
 	tokenIngestionService services.TokenIngestionService,
 ) error {
-	// Prepare unbounded range - the backend will signal completion when file is exhausted
+	// Prepare unbounded range - backend will read all ledgers from file
 	ledgerRange := ledgerbackend.UnboundedRange(cfg.StartLedger)
 	if err := backend.PrepareRange(ctx, ledgerRange); err != nil {
 		return fmt.Errorf("preparing ledger range: %w", err)
 	}
 
+	// Query the actual latest ledger sequence from the backend
+	latestSeq, err := backend.GetLatestLedgerSequence(ctx)
+	if err != nil {
+		return fmt.Errorf("getting latest ledger sequence: %w", err)
+	}
+
 	currentLedger := cfg.StartLedger
-	lastExpectedLedger := cfg.StartLedger + uint32(syntheticLedgerCount) - 1
 	totalStart := time.Now()
 	ledgersProcessed := 0
 	txsProcessed := 0
 	opsProcessed := 0
 	var totalIngestionDuration time.Duration
 
-	log.Infof("Starting loadtest ingestion from ledger %d (last expected: %d)", cfg.StartLedger, lastExpectedLedger)
+	log.Infof("Starting loadtest ingestion from ledger %d to %d", cfg.StartLedger, latestSeq)
 
-	for currentLedger <= lastExpectedLedger {
+	// Bounded loop - process all ledgers up to and including latestSeq
+	for currentLedger <= latestSeq {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled")
@@ -183,10 +185,6 @@ func runIngestionLoop(
 
 		// Get ledger from backend
 		ledgerMeta, err := backend.GetLedger(ctx, currentLedger)
-		if errors.Is(err, goloadtest.ErrLoadTestDone) {
-			log.Info("Loadtest complete - all ledgers processed")
-			return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart, totalIngestionDuration)
-		}
 		if err != nil {
 			return fmt.Errorf("getting ledger %d: %w", currentLedger, err)
 		}
@@ -225,7 +223,8 @@ func runIngestionLoop(
 		log.Infof("Ingested ledger %d in %.3fs", currentLedger, ingestionDuration.Seconds())
 		currentLedger++
 	}
-	log.Info("Loadtest complete - all synthetic ledgers processed")
+
+	log.Info("Loadtest complete - all ledgers processed")
 	return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart, totalIngestionDuration)
 }
 
