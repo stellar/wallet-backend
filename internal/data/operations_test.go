@@ -68,7 +68,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
@@ -77,7 +78,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
@@ -251,7 +253,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
@@ -260,7 +263,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
@@ -417,8 +421,8 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	// Create a parent transaction that the operation will reference
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ('tx_for_dup_test', 1, 'env', 'res', 'meta', 1, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ('tx_for_dup_test', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -498,10 +502,10 @@ func TestOperationModel_GetAll(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
@@ -545,10 +549,10 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
@@ -733,10 +737,10 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -786,10 +790,10 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
@@ -834,10 +838,10 @@ func TestOperationModel_GetByID(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -897,10 +901,10 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
-			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
@@ -965,8 +969,8 @@ func BenchmarkOperationModel_BatchInsert(b *testing.B) {
 	const txHash = "benchmark_tx_hash"
 	now := time.Now()
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)
@@ -1029,8 +1033,8 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 	const txHash = "benchmark_tx_hash"
 	now := time.Now()
 	_, err = conn.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'env', 'res', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2)
 	`, txHash, now)
 	if err != nil {
 		b.Fatalf("failed to create parent transaction: %v", err)

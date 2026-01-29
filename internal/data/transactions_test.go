@@ -36,7 +36,8 @@ func generateTestTransactions(n int, startToID int64) ([]*types.Transaction, map
 			Hash:            hash,
 			ToID:            startToID + int64(i),
 			EnvelopeXDR:     &envelope,
-			ResultXDR:       result,
+			FeeCharged:      int64(100 * (i + 1)),
+			ResultCode:      "TransactionResultCodeTxSuccess",
 			MetaXDR:         &meta,
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
@@ -70,7 +71,8 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
@@ -79,7 +81,8 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
@@ -231,7 +234,8 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
@@ -240,7 +244,8 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
@@ -250,7 +255,8 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		Hash:            "tx3",
 		ToID:            3,
 		EnvelopeXDR:     nil,
-		ResultXDR:       "result3",
+		FeeCharged:      300,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         nil,
 		LedgerNumber:    3,
 		LedgerCreatedAt: now,
@@ -392,7 +398,8 @@ func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
 		Hash:            "tx_duplicate_test",
 		ToID:            100,
 		EnvelopeXDR:     &envelope,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
@@ -466,8 +473,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	// Create test transaction
 	txHash := "test_tx_hash"
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'envelope', 'result', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'envelope', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2)
 	`, txHash, now)
 	require.NoError(t, err)
 
@@ -502,11 +509,11 @@ func TestTransactionModel_GetAll(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -555,11 +562,11 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -605,11 +612,11 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -666,11 +673,11 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 

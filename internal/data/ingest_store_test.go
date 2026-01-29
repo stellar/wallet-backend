@@ -231,8 +231,8 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 				// Insert consecutive ledgers: 100, 101, 102
 				for i, ledger := range []uint32{100, 101, 102} {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
 					require.NoError(t, err)
 				}
@@ -245,8 +245,8 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 				// Insert ledgers 100 and 105, creating gap 101-104
 				for i, ledger := range []uint32{100, 105} {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
 					require.NoError(t, err)
 				}
@@ -261,8 +261,8 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 				// Insert ledgers 100, 105, 110, creating gaps 101-104 and 106-109
 				for i, ledger := range []uint32{100, 105, 110} {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
 					require.NoError(t, err)
 				}
@@ -278,8 +278,8 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 				// Insert ledgers 100 and 102, creating gap of just 101
 				for i, ledger := range []uint32{100, 102} {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
 					require.NoError(t, err)
 				}

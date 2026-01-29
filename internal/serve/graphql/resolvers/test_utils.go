@@ -57,7 +57,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			Hash:            fmt.Sprintf("tx%d", i+1),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
 			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
-			ResultXDR:       fmt.Sprintf("result%d", i+1),
+			FeeCharged:      int64(100 * (i + 1)),
+			ResultCode:      "TransactionResultCodeTxSuccess",
 			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
@@ -130,8 +131,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, txn := range txns {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.ResultXDR, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt)
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.FeeCharged, txn.ResultCode, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
