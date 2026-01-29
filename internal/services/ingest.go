@@ -89,6 +89,10 @@ func generateAdvisoryLockID(network string) int {
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
+	// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
+	// This is the shared core used by both live ingestion and loadtest.
+	// Returns the number of transactions and operations persisted.
+	PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error)
 }
 
 var _ IngestService = (*ingestService)(nil)
