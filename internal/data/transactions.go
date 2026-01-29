@@ -180,7 +180,8 @@ func (m *TransactionModel) BatchInsert(
 	hashes := make([]string, len(txs))
 	toIDs := make([]int64, len(txs))
 	envelopeXDRs := make([]*string, len(txs))
-	resultXDRs := make([]string, len(txs))
+	feesCharged := make([]int64, len(txs))
+	resultCodes := make([]string, len(txs))
 	metaXDRs := make([]*string, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
@@ -189,7 +190,8 @@ func (m *TransactionModel) BatchInsert(
 		hashes[i] = t.Hash
 		toIDs[i] = t.ToID
 		envelopeXDRs[i] = t.EnvelopeXDR
-		resultXDRs[i] = t.ResultXDR
+		feesCharged[i] = t.FeeCharged
+		resultCodes[i] = t.ResultCode
 		metaXDRs[i] = t.MetaXDR
 		ledgerNumbers[i] = int(t.LedgerNumber)
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
@@ -210,18 +212,19 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions
 	inserted_transactions AS (
 		INSERT INTO transactions
-			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+			(hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		SELECT
-			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
+			t.hash, t.to_id, t.envelope_xdr, t.fee_charged, t.result_code, t.meta_xdr, t.ledger_number, t.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::text[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
 				UNNEST($3::text[]) AS envelope_xdr,
-				UNNEST($4::text[]) AS result_xdr,
-				UNNEST($5::text[]) AS meta_xdr,
-				UNNEST($6::bigint[]) AS ledger_number,
-				UNNEST($7::timestamptz[]) AS ledger_created_at
+				UNNEST($4::bigint[]) AS fee_charged,
+				UNNEST($5::text[]) AS result_code,
+				UNNEST($6::text[]) AS meta_xdr,
+				UNNEST($7::bigint[]) AS ledger_number,
+				UNNEST($8::timestamptz[]) AS ledger_created_at
 		) t
 		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
@@ -235,8 +238,8 @@ func (m *TransactionModel) BatchInsert(
 			ta.tx_hash, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($9::text[]) AS tx_hash,
+				UNNEST($10::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -251,7 +254,8 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(hashes),
 		pq.Array(toIDs),
 		pq.Array(envelopeXDRs),
-		pq.Array(resultXDRs),
+		pq.Array(feesCharged),
+		pq.Array(resultCodes),
 		pq.Array(metaXDRs),
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
@@ -302,14 +306,15 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "result_xdr", "meta_xdr", "ledger_number", "ledger_created_at"},
+		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			return []any{
 				pgtype.Text{String: tx.Hash, Valid: true},
 				pgtype.Int8{Int64: tx.ToID, Valid: true},
 				pgtypeTextFromPtr(tx.EnvelopeXDR),
-				pgtype.Text{String: tx.ResultXDR, Valid: true},
+				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
+				pgtype.Text{String: tx.ResultCode, Valid: true},
 				pgtypeTextFromPtr(tx.MetaXDR),
 				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},

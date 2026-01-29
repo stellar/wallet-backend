@@ -3,7 +3,8 @@
 type Transaction{
   hash:            String!
   envelopeXdr:     String
-  resultXdr:       String!
+  feeCharged:      Int64!
+  resultCode:      String!
   metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!

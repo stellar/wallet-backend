@@ -247,10 +247,9 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		envelopeXDR = &envelopeXDRStr
 	}
 
-	resultXDR, err := xdr.MarshalBase64(transaction.Result)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction result: %w", err)
-	}
+	// Extract fee_charged and result_code from transaction result
+	feeCharged := int64(transaction.Result.FeeCharged)
+	resultCode := transaction.Result.Result.Code.String()
 
 	var metaXDR *string
 	if !skipTxMeta {
@@ -289,7 +288,8 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		Hash:                 transaction.Hash.HexString(),
 		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
 		EnvelopeXDR:          envelopeXDR,
-		ResultXDR:            resultXDR,
+		FeeCharged:           feeCharged,
+		ResultCode:           resultCode,
 		MetaXDR:              metaXDR,
 		LedgerNumber:         ledgerSequence,
 		InnerTransactionHash: innerTxHash,

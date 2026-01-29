@@ -136,7 +136,8 @@ type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
-	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
+	FeeCharged      int64     `json:"feeCharged,omitempty" db:"fee_charged"`
+	ResultCode      string    `json:"resultCode,omitempty" db:"result_code"`
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
