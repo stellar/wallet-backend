@@ -310,12 +310,12 @@ const (
 // Flag bitmask constants for encoding/decoding authorization flags.
 // These map to the flags SMALLINT column in the state_changes table.
 const (
-	FlagBitAuthorized                     int16 = 1 << 0 // Bit 0: authorized
-	FlagBitAuthRequired                   int16 = 1 << 1 // Bit 1: auth_required
-	FlagBitAuthRevocable                  int16 = 1 << 2 // Bit 2: auth_revocable
-	FlagBitAuthImmutable                  int16 = 1 << 3 // Bit 3: auth_immutable
-	FlagBitAuthClawbackEnabled            int16 = 1 << 4 // Bit 4: auth_clawback_enabled
-	FlagBitClawbackEnabled                int16 = 1 << 5 // Bit 5: clawback_enabled
+	FlagBitAuthorized                      int16 = 1 << 0 // Bit 0: authorized
+	FlagBitAuthRequired                    int16 = 1 << 1 // Bit 1: auth_required
+	FlagBitAuthRevocable                   int16 = 1 << 2 // Bit 2: auth_revocable
+	FlagBitAuthImmutable                   int16 = 1 << 3 // Bit 3: auth_immutable
+	FlagBitAuthClawbackEnabled             int16 = 1 << 4 // Bit 4: auth_clawback_enabled
+	FlagBitClawbackEnabled                 int16 = 1 << 5 // Bit 5: clawback_enabled
 	FlagBitAuthorizedToMaintainLiabilities int16 = 1 << 6 // Bit 6: authorized_to_maintain_liabilities
 )
 
@@ -333,12 +333,12 @@ var flagNameToBit = map[string]int16{
 
 // flagBitToName maps bitmask values to flag names (for decoding)
 var flagBitToName = map[int16]string{
-	FlagBitAuthorized:                     "authorized",
-	FlagBitAuthRequired:                   "auth_required",
-	FlagBitAuthRevocable:                  "auth_revocable",
-	FlagBitAuthImmutable:                  "auth_immutable",
-	FlagBitAuthClawbackEnabled:            "auth_clawback_enabled",
-	FlagBitClawbackEnabled:                "clawback_enabled",
+	FlagBitAuthorized:                      "authorized",
+	FlagBitAuthRequired:                    "auth_required",
+	FlagBitAuthRevocable:                   "auth_revocable",
+	FlagBitAuthImmutable:                   "auth_immutable",
+	FlagBitAuthClawbackEnabled:             "auth_clawback_enabled",
+	FlagBitClawbackEnabled:                 "clawback_enabled",
 	FlagBitAuthorizedToMaintainLiabilities: "authorized_to_maintain_liabilities",
 }
 

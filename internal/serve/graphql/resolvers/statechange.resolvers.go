@@ -185,6 +185,16 @@ func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.
 	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
+// LiquidityPoolID is the resolver for the liquidityPoolID field.
+func (r *reservesChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
+}
+
+// ClaimableBalanceID is the resolver for the claimableBalanceID field.
+func (r *reservesChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.ClaimableBalanceID), nil
+}
+
 // KeyValue is the resolver for the keyValue field.
 func (r *reservesChangeResolver) KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
 	return r.resolveJSONBField(obj.KeyValue)

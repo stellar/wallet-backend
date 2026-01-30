@@ -205,17 +205,19 @@ type ComplexityRoot struct {
 	}
 
 	ReservesChange struct {
-		Account          func(childComplexity int) int
-		IngestedAt       func(childComplexity int) int
-		KeyValue         func(childComplexity int) int
-		LedgerCreatedAt  func(childComplexity int) int
-		LedgerNumber     func(childComplexity int) int
-		Operation        func(childComplexity int) int
-		Reason           func(childComplexity int) int
-		SponsorAddress   func(childComplexity int) int
-		SponsoredAddress func(childComplexity int) int
-		Transaction      func(childComplexity int) int
-		Type             func(childComplexity int) int
+		Account            func(childComplexity int) int
+		ClaimableBalanceID func(childComplexity int) int
+		IngestedAt         func(childComplexity int) int
+		KeyValue           func(childComplexity int) int
+		LedgerCreatedAt    func(childComplexity int) int
+		LedgerNumber       func(childComplexity int) int
+		LiquidityPoolID    func(childComplexity int) int
+		Operation          func(childComplexity int) int
+		Reason             func(childComplexity int) int
+		SponsorAddress     func(childComplexity int) int
+		SponsoredAddress   func(childComplexity int) int
+		Transaction        func(childComplexity int) int
+		Type               func(childComplexity int) int
 	}
 
 	SACBalance struct {
@@ -415,6 +417,8 @@ type ReservesChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error)
 	SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 	SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
+	LiquidityPoolID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
+	ClaimableBalanceID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 	KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 }
 type SignerChangeResolver interface {
@@ -1213,6 +1217,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ReservesChange.Account(childComplexity), true
 
+	case "ReservesChange.claimableBalanceID":
+		if e.complexity.ReservesChange.ClaimableBalanceID == nil {
+			break
+		}
+
+		return e.complexity.ReservesChange.ClaimableBalanceID(childComplexity), true
+
 	case "ReservesChange.ingestedAt":
 		if e.complexity.ReservesChange.IngestedAt == nil {
 			break
@@ -1240,6 +1251,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ReservesChange.LedgerNumber(childComplexity), true
+
+	case "ReservesChange.liquidityPoolID":
+		if e.complexity.ReservesChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.complexity.ReservesChange.LiquidityPoolID(childComplexity), true
 
 	case "ReservesChange.operation":
 		if e.complexity.ReservesChange.Operation == nil {
@@ -2500,6 +2518,8 @@ type ReservesChange implements BaseStateChange{
 
   sponsoredAddress:         String @goField(forceResolver: true)
   sponsorAddress:           String @goField(forceResolver: true)
+  liquidityPoolID:          String @goField(forceResolver: true)
+  claimableBalanceID:       String @goField(forceResolver: true)
   keyValue:                 String
 }
 
@@ -8815,6 +8835,88 @@ func (ec *executionContext) _ReservesChange_sponsorAddress(ctx context.Context, 
 }
 
 func (ec *executionContext) fieldContext_ReservesChange_sponsorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReservesChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReservesChange_liquidityPoolID(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_liquidityPoolID(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.ReservesChange().LiquidityPoolID(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ReservesChange_liquidityPoolID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReservesChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReservesChange_claimableBalanceID(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_claimableBalanceID(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.ReservesChange().ClaimableBalanceID(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ReservesChange_claimableBalanceID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ReservesChange",
 		Field:      field,
@@ -17639,6 +17741,72 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 					}
 				}()
 				res = ec._ReservesChange_sponsorAddress(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "liquidityPoolID":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ReservesChange_liquidityPoolID(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "claimableBalanceID":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ReservesChange_claimableBalanceID(ctx, field, obj)
 				return res
 			}
 

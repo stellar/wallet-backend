@@ -49,7 +49,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, stateChanges[1].Flags)
 	})
 
 	t.Run("V4 Format - set_authorized = true (was unauthorized)", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, stateChanges[1].Flags)
 	})
 
 	t.Run("V4 Format - set_authorized = false (was authorized)", func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, stateChanges[1].Flags)
 	})
 
 	// Edge case tests for different flag combinations
@@ -199,7 +199,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, stateChanges[0].Flags)
 	})
 
 	t.Run("Trustline change not found - should skip event", func(t *testing.T) {
