@@ -6,6 +6,8 @@ CREATE TABLE operations (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
     operation_type TEXT NOT NULL,
     operation_xdr TEXT,
+    result_code TEXT NOT NULL,
+    successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -14,6 +16,7 @@ CREATE TABLE operations (
 CREATE INDEX idx_operations_tx_hash ON operations(tx_hash);
 CREATE INDEX idx_operations_operation_type ON operations(operation_type);
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
+CREATE INDEX idx_operations_successful ON operations(successful) WHERE successful = false;
 
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
