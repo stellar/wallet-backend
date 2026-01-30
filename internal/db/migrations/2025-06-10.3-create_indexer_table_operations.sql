@@ -16,7 +16,6 @@ CREATE TABLE operations (
 CREATE INDEX idx_operations_tx_hash ON operations(tx_hash);
 CREATE INDEX idx_operations_operation_type ON operations(operation_type);
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
-CREATE INDEX idx_operations_successful ON operations(successful) WHERE successful = false;
 
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
