@@ -21,9 +21,9 @@ const (
 	OpDoesNotExist  = "op_does_not_exist"
 )
 
-// ForOperationResult returns the string representation of an operation result code.
+// forOperationResult returns the string representation of an operation result code.
 // It returns (resultCode, successful, error).
-func ForOperationResult(opr xdr.OperationResult) (string, bool, error) {
+func forOperationResult(opr xdr.OperationResult) (string, bool, error) {
 	// Handle outer result codes (op_bad_auth, op_no_source_account, etc.)
 	if opr.Code != xdr.OperationResultCodeOpInner {
 		code, err := stringForOperationResultCode(opr.Code)

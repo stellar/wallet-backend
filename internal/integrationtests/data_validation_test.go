@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
@@ -120,6 +121,7 @@ func validateOperationBase(suite *DataValidationTestSuite, op *types.Operation, 
 	suite.Require().NotNil(op, "operation should not be nil")
 	suite.Require().Equal(expectedOperationType, op.OperationType, "operation type mismatch")
 	suite.Require().NotEmpty(op.OperationXdr, "operation XDR should not be empty")
+	suite.Require().Equal(processors.OpSuccess, op.ResultCode, "operation result code does not match")
 	suite.Require().Equal(expectedLedgerNumber, int64(op.LedgerNumber), "ledger number mismatch")
 	suite.Require().False(op.LedgerCreatedAt.IsZero(), "ledger created at should not be zero")
 	suite.Require().False(op.IngestedAt.IsZero(), "ingested at should not be zero")

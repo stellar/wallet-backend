@@ -311,7 +311,7 @@ func ConvertOperation(
 	var resultCode string
 	var successful bool
 	if int(opIndex) < len(opResults) {
-		resultCode, successful, err = ForOperationResult(opResults[opIndex])
+		resultCode, successful, err = forOperationResult(opResults[opIndex])
 		if err != nil {
 			return nil, fmt.Errorf("getting result code for operation %d: %w", opID, err)
 		}

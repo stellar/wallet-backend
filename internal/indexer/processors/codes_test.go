@@ -55,7 +55,7 @@ func TestForOperationResult_OuterCodes(t *testing.T) {
 			opr := xdr.OperationResult{
 				Code: tt.code,
 			}
-			code, succ, err := ForOperationResult(opr)
+			code, succ, err := forOperationResult(opr)
 			if tt.expectError {
 				require.Error(t, err)
 			} else {
@@ -80,7 +80,7 @@ func TestForOperationResult_PaymentSuccess(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpSuccess, code)
 	assert.True(t, succ)
@@ -99,7 +99,7 @@ func TestForOperationResult_PaymentUnderfunded(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpUnderfunded, code)
 	assert.False(t, succ)
@@ -118,7 +118,7 @@ func TestForOperationResult_CreateAccountSuccess(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpSuccess, code)
 	assert.True(t, succ)
@@ -137,7 +137,7 @@ func TestForOperationResult_CreateAccountAlreadyExists(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, "op_already_exists", code)
 	assert.False(t, succ)
@@ -156,7 +156,7 @@ func TestForOperationResult_InvokeHostFunctionSuccess(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpSuccess, code)
 	assert.True(t, succ)
@@ -175,7 +175,7 @@ func TestForOperationResult_InvokeHostFunctionTrapped(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, "function_trapped", code)
 	assert.False(t, succ)
@@ -194,7 +194,7 @@ func TestForOperationResult_ChangeTrustSuccess(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpSuccess, code)
 	assert.True(t, succ)
@@ -213,7 +213,7 @@ func TestForOperationResult_ChangeTrustLowReserve(t *testing.T) {
 		Tr:   &tr,
 	}
 
-	code, succ, err := ForOperationResult(opr)
+	code, succ, err := forOperationResult(opr)
 	require.NoError(t, err)
 	assert.Equal(t, OpLowReserve, code)
 	assert.False(t, succ)
