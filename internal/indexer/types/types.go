@@ -319,15 +319,17 @@ const (
 	FlagBitAuthorizedToMaintainLiabilites int16 = 1 << 6 // Bit 6: authorized_to_maintain_liabilities
 )
 
-// FlagNameToBit maps flag names to their bitmask values
+// FlagNameToBit maps flag names to their bitmask values.
+// Includes both correct spelling and legacy typo for backward compatibility.
 var FlagNameToBit = map[string]int16{
-	"authorized":                        FlagBitAuthorized,
-	"auth_required":                     FlagBitAuthRequired,
-	"auth_revocable":                    FlagBitAuthRevocable,
-	"auth_immutable":                    FlagBitAuthImmutable,
-	"auth_clawback_enabled":             FlagBitAuthClawbackEnabled,
-	"clawback_enabled":                  FlagBitClawbackEnabled,
+	"authorized":                         FlagBitAuthorized,
+	"auth_required":                      FlagBitAuthRequired,
+	"auth_revocable":                     FlagBitAuthRevocable,
+	"auth_immutable":                     FlagBitAuthImmutable,
+	"auth_clawback_enabled":              FlagBitAuthClawbackEnabled,
+	"clawback_enabled":                   FlagBitClawbackEnabled,
 	"authorized_to_maintain_liabilities": FlagBitAuthorizedToMaintainLiabilites,
+	"authorized_to_maintain_liabilites":  FlagBitAuthorizedToMaintainLiabilites, // legacy typo support
 }
 
 // FlagBitToName maps bitmask values to flag names (for decoding)

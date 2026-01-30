@@ -5,6 +5,7 @@ package processors
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/hash"
@@ -177,6 +178,31 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 	}
 
 	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
+}
+
+// getContractIDFromAssetString converts an asset string in "CODE:ISSUER" format to a contract ID.
+// For native assets, use "native" as the input.
+func getContractIDFromAssetString(networkPassphrase string, assetStr string) (string, error) {
+	if assetStr == "native" {
+		return getContractIDFromAssetDetails(networkPassphrase, "native", "", "")
+	}
+
+	// Parse CODE:ISSUER format
+	parts := strings.Split(assetStr, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid asset format, expected CODE:ISSUER: %s", assetStr)
+	}
+
+	assetCode := parts[0]
+	assetIssuer := parts[1]
+
+	// Determine asset type based on code length
+	assetType := "credit_alphanum4"
+	if len(assetCode) > 4 {
+		assetType = "credit_alphanum12"
+	}
+
+	return getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
 }
 
 // isLiquidityPool checks if the given account ID is a liquidity pool
