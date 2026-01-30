@@ -121,7 +121,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
-		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, changes[0].Flags)
+		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, changes[0].Flags)
 
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)

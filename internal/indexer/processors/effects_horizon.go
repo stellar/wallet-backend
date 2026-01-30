@@ -665,7 +665,7 @@ func setTrustLineFlagDetails(flagDetails map[string]interface{}, flags xdr.Trust
 		flagDetails["authorized_flag"] = setValue
 	}
 	if flags.IsAuthorizedToMaintainLiabilitiesFlag() {
-		flagDetails["authorized_to_maintain_liabilites"] = setValue
+		flagDetails["authorized_to_maintain_liabilities"] = setValue
 	}
 	if flags.IsClawbackEnabledFlag() {
 		flagDetails["clawback_enabled_flag"] = setValue
