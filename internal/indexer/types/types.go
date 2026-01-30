@@ -468,53 +468,6 @@ type StateChangeCursorGetter interface {
 
 type NullableJSONB map[string]any
 
-// NullableJSON represents a nullable JSON array of strings
-type NullableJSON []string
-
-var _ sql.Scanner = (*NullableJSON)(nil)
-
-func (n *NullableJSON) Scan(value any) error {
-	if value == nil {
-		*n = nil
-		return nil
-	}
-
-	switch v := value.(type) {
-	case []byte:
-		var stringSlice []string
-		if err := json.Unmarshal(v, &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value []byte: %w", err)
-		}
-		*n = stringSlice
-	case string:
-		var stringSlice []string
-		if err := json.Unmarshal([]byte(v), &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value string: %w", err)
-		}
-		*n = stringSlice
-	default:
-		return fmt.Errorf("unsupported type for JSON array: %T", value)
-	}
-
-	return nil
-}
-
-var _ driver.Valuer = (*NullableJSON)(nil)
-
-func (n NullableJSON) Value() (driver.Value, error) {
-	// Handle nil slice as empty array to avoid null in JSON
-	if n == nil {
-		return []byte("[]"), nil
-	}
-
-	bytes, err := json.Marshal([]string(n))
-	if err != nil {
-		return nil, fmt.Errorf("marshalling JSON array: %w", err)
-	}
-
-	return bytes, nil
-}
-
 var _ sql.Scanner = (*NullableJSONB)(nil)
 
 func (n *NullableJSONB) Scan(value any) error {

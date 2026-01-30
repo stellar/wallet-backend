@@ -60,16 +60,6 @@ func jsonbFromMap(m types.NullableJSONB) any {
 	return map[string]any(m)
 }
 
-// jsonbFromSlice converts types.NullableJSON to any for pgx CopyFrom.
-// pgx automatically handles []string → JSONB conversion.
-func jsonbFromSlice(s types.NullableJSON) any {
-	if s == nil {
-		return nil
-	}
-	// Return the slice directly; pgx handles JSON marshaling automatically
-	return []string(s)
-}
-
 // pgtypeInt2FromNullInt16 converts sql.NullInt16 to pgtype.Int2 for efficient binary COPY.
 func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
 	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}

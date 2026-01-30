@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -42,13 +43,13 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
 
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG (was set before)
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
 	})
 
 	t.Run("V4 Format - set_authorized = true (was unauthorized)", func(t *testing.T) {
@@ -77,13 +78,13 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
 
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
 	})
 
 	t.Run("V4 Format - set_authorized = false (was authorized)", func(t *testing.T) {
@@ -112,13 +113,13 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
 
 		// Second state change: Set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
 		assertContractEvent(t, stateChanges[1], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[1].Flags)
 	})
 
 	// Edge case tests for different flag combinations
@@ -169,7 +170,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
 	})
 
 	t.Run("Deauthorizing when already deauthorized but with different maintain liabilities state", func(t *testing.T) {
@@ -198,7 +199,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilites, Valid: true}, stateChanges[0].Flags)
 	})
 
 	t.Run("Trustline change not found - should skip event", func(t *testing.T) {
@@ -246,7 +247,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
 	})
 
 	// Error case tests
@@ -378,7 +379,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			contractAccount,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
+		require.Equal(t, sql.NullInt16{Valid: false}, stateChanges[0].Flags) // Contract accounts don't use flags
 	})
 
 	t.Run("Contract Account - set_authorized = false (was authorized)", func(t *testing.T) {
@@ -407,7 +408,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonClear,
 			contractAccount,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
+		require.Equal(t, sql.NullInt16{Valid: false}, stateChanges[0].Flags) // Contract accounts don't use flags
 	})
 
 	t.Run("Contract Account - No state changes when already in desired state", func(t *testing.T) {
@@ -496,7 +497,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
 			contractAccount,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
+		require.Equal(t, sql.NullInt16{Valid: false}, stateChanges[0].Flags) // Contract accounts don't use flags
 	})
 
 	// Contract Account Error Handling Tests

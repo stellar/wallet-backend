@@ -52,25 +52,34 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	})
 }
 
-func TestStateChangeResolver_JSONFields(t *testing.T) {
+func TestStateChangeResolver_TypedFields(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("signer weights", func(t *testing.T) {
+	t.Run("signer weights with values", func(t *testing.T) {
 		resolver := &signerChangeResolver{&Resolver{}}
 		obj := &types.SignerStateChangeModel{
 			StateChange: types.StateChange{
-				SignerWeights: types.NullableJSONB{"weight": 1},
+				SignerWeightOld: sql.NullInt16{Int16: 10, Valid: true},
+				SignerWeightNew: sql.NullInt16{Int16: 5, Valid: true},
 			},
 		}
-		expectedJSON, err := json.Marshal(obj.SignerWeights)
-		require.NoError(t, err)
 
 		jsonStr, err := resolver.SignerWeights(ctx, obj)
 		require.NoError(t, err)
-		assert.JSONEq(t, string(expectedJSON), *jsonStr)
+		require.NotNil(t, jsonStr)
+		assert.JSONEq(t, `{"old": 10, "new": 5}`, *jsonStr)
+	})
 
-		obj.SignerWeights = nil
-		jsonStr, err = resolver.SignerWeights(ctx, obj)
+	t.Run("signer weights null when both invalid", func(t *testing.T) {
+		resolver := &signerChangeResolver{&Resolver{}}
+		obj := &types.SignerStateChangeModel{
+			StateChange: types.StateChange{
+				SignerWeightOld: sql.NullInt16{Valid: false},
+				SignerWeightNew: sql.NullInt16{Valid: false},
+			},
+		}
+
+		jsonStr, err := resolver.SignerWeights(ctx, obj)
 		require.NoError(t, err)
 		assert.Nil(t, jsonStr)
 	})
@@ -79,32 +88,96 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 		resolver := &signerThresholdsChangeResolver{&Resolver{}}
 		obj := &types.SignerThresholdsStateChangeModel{
 			StateChange: types.StateChange{
-				Thresholds: types.NullableJSONB{"low": 1, "med": 2},
+				ThresholdOld: sql.NullInt16{Int16: 1, Valid: true},
+				ThresholdNew: sql.NullInt16{Int16: 2, Valid: true},
 			},
 		}
-		expectedJSON, err := json.Marshal(obj.Thresholds)
-		require.NoError(t, err)
 
 		jsonStr, err := resolver.Thresholds(ctx, obj)
 		require.NoError(t, err)
-		assert.JSONEq(t, string(expectedJSON), jsonStr)
+		assert.JSONEq(t, `{"old": "1", "new": "2"}`, jsonStr)
 	})
 
-	t.Run("flags", func(t *testing.T) {
+	t.Run("flags with bitmask", func(t *testing.T) {
 		resolver := &flagsChangeResolver{&Resolver{}}
+		// Bitmask for auth_required (2) | auth_revocable (4) = 6
 		obj := &types.FlagsStateChangeModel{
 			StateChange: types.StateChange{
-				Flags: types.NullableJSON{"auth_required", "auth_revocable"},
+				Flags: sql.NullInt16{Int16: 6, Valid: true},
 			},
 		}
 		flags, err := resolver.Flags(ctx, obj)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"auth_required", "auth_revocable"}, flags)
+		assert.ElementsMatch(t, []string{"auth_required", "auth_revocable"}, flags)
+	})
 
-		obj.Flags = nil
-		flags, err = resolver.Flags(ctx, obj)
+	t.Run("flags empty when invalid", func(t *testing.T) {
+		resolver := &flagsChangeResolver{&Resolver{}}
+		obj := &types.FlagsStateChangeModel{
+			StateChange: types.StateChange{
+				Flags: sql.NullInt16{Valid: false},
+			},
+		}
+		flags, err := resolver.Flags(ctx, obj)
 		require.NoError(t, err)
 		assert.Empty(t, flags)
+	})
+
+	t.Run("balance authorization flags with bitmask", func(t *testing.T) {
+		resolver := &balanceAuthorizationChangeResolver{&Resolver{}}
+		// Bitmask for authorized (1) | clawback_enabled (32) = 33
+		obj := &types.BalanceAuthorizationStateChangeModel{
+			StateChange: types.StateChange{
+				Flags: sql.NullInt16{Int16: 33, Valid: true},
+			},
+		}
+		flags, err := resolver.Flags(ctx, obj)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"authorized", "clawback_enabled"}, flags)
+	})
+
+	t.Run("trustline limit with values", func(t *testing.T) {
+		resolver := &trustlineChangeResolver{&Resolver{}}
+		obj := &types.TrustlineStateChangeModel{
+			StateChange: types.StateChange{
+				TrustlineLimitOld: sql.NullString{String: "1000000", Valid: true},
+				TrustlineLimitNew: sql.NullString{String: "2000000", Valid: true},
+			},
+		}
+
+		jsonStr, err := resolver.Limit(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, jsonStr)
+		assert.JSONEq(t, `{"old": "1000000", "new": "2000000"}`, *jsonStr)
+	})
+
+	t.Run("trustline limit null when both invalid", func(t *testing.T) {
+		resolver := &trustlineChangeResolver{&Resolver{}}
+		obj := &types.TrustlineStateChangeModel{
+			StateChange: types.StateChange{
+				TrustlineLimitOld: sql.NullString{Valid: false},
+				TrustlineLimitNew: sql.NullString{Valid: false},
+			},
+		}
+
+		jsonStr, err := resolver.Limit(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, jsonStr)
+	})
+
+	t.Run("trustline limit with partial values", func(t *testing.T) {
+		resolver := &trustlineChangeResolver{&Resolver{}}
+		obj := &types.TrustlineStateChangeModel{
+			StateChange: types.StateChange{
+				TrustlineLimitOld: sql.NullString{Valid: false},
+				TrustlineLimitNew: sql.NullString{String: "5000000", Valid: true},
+			},
+		}
+
+		jsonStr, err := resolver.Limit(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, jsonStr)
+		assert.JSONEq(t, `{"old": null, "new": "5000000"}`, *jsonStr)
 	})
 
 	t.Run("key value", func(t *testing.T) {

@@ -221,6 +221,7 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		fieldName := field.Name
 		// In our graphql schema, the following fields do not match the Go json tags. For e.g. sponsoredAddress in graphql vs sponsoredAccountId in Go struct.
 		// So in order to have them resolve to the db column, we need to manually change the field name here.
+		// Some GraphQL fields map to multiple database columns (old/new pairs).
 		switch fieldName {
 		case "type":
 			fieldName = "stateChangeCategory"
@@ -235,7 +236,17 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		case "funderAddress":
 			fieldName = "funderAccountId"
 		case "limit":
-			fieldName = "trustlineLimit"
+			// GraphQL "limit" field requires both old and new trustline limit columns
+			dbColumns = append(dbColumns, "trustline_limit_old", "trustline_limit_new")
+			continue
+		case "signerWeights":
+			// GraphQL "signerWeights" field requires both old and new signer weight columns
+			dbColumns = append(dbColumns, "signer_weight_old", "signer_weight_new")
+			continue
+		case "thresholds":
+			// GraphQL "thresholds" field requires both old and new threshold columns
+			dbColumns = append(dbColumns, "threshold_old", "threshold_new")
+			continue
 		}
 		if colName, ok := fieldToColumnMap[fieldName]; ok {
 			dbColumns = append(dbColumns, colName)
