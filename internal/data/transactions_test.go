@@ -29,17 +29,18 @@ func generateTestTransactions(n int, startToID int64) ([]*types.Transaction, map
 		hash := fmt.Sprintf("e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760-%d", startToID+int64(i))
 		envelope := "AAAAAgAAAAB/NpQ+s+cP+ztX7ryuKgXrxowZPHd4qAxhseOye/JeUgAehIAC2NL/AAflugAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAwAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAAAAAAQ3FwMxshxQAfwV8AAAAAYTGQ3QAAAAAAAAAMAAAAAAAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAGXwFksiHwAEXz8QAAAABhoaQjAAAAAAAAAAF78l5SAAAAQD7LgvZA8Pdvfh5L2b9B9RC7DlacGBJuOchuZDHQdVD1P0bn6nGQJXxDDI4oN76J49JxB7bIgDVim39MU43MOgE="
 		meta := "AAAAAwAAAAAAAAAEAAAAAwM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAQM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAwM6LTkAAAAAAAAAAKl6DQcpepRdTbO/Vw4hYBENfE/95GevM7SNA0ftK0gtAAAAA8Kuf0AC+zZCAAAATAAAAAMAAAABAAAAAMRxxkNwYslQaok0LlOKGtpATS9Bzx06JV9DIffG4OF1AAAAAAAAAAlsb2JzdHIuY28AAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAyZ54QAAAABmrTXCAAAAAAAAAAEDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAAAABAAAAAMDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAzqeHAAAAAAAAAAAqXoNByl6lF1Ns79XDiFgEQ18T/3kZ68ztI0DR+0rSC0AAAACmKiNQAL7NkIAAABNAAAAAwAAAAEAAAAAxHHGQ3BiyVBqiTQuU4oa2kBNL0HPHTolX0Mh98bg4XUAAAAAAAAACWxvYnN0ci5jbwAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAADOp4cAAAAAGchnR8AAAAAAAAAAwM6nZoAAAAAAAAAALKxMozkOH3rgpz3/u3+93wsR4p6z4K82HmJ5NTuaZbYAAACZaqAwoIBqycyAABVlQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAzqSNgAAAABnIVdaAAAAAAAAAAEDOp4cAAAAAAAAAACysTKM5Dh964Kc9/7t/vd8LEeKes+CvNh5ieTU7mmW2AAAAmbUhrSCAasnMgAAVZUAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6kjYAAAAAZyFXWgAAAAAAAAAAAAAAAA=="
-		result := "AAAAAAAAAMgAAAAAAAAAAgAAAAAAAAADAAAAAAAAAAAAAAABAAAAAH82lD6z5w/7O1fuvK4qBevGjBk8d3ioDGGx47J78l5SAAAAAGExkN0AAAABUEFMTAAAAACh3OCCm3FvBzz4Mt8zobqr/Odcu9p3yxmtB1V8SETcxwAAAAAAAAAAAENxcDMbIcUAH8FfAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAQAAAAB/NpQ+s+cP+ztX7ryuKgXrxowZPHd4qAxhseOye/JeUgAAAABhoaQjAAAAAAAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAkrzGAARfPxZLIh8AAAAAAAAAAAAAAAAA=="
 		address := keypair.MustRandom().Address()
 
 		txs[i] = &types.Transaction{
 			Hash:            hash,
 			ToID:            startToID + int64(i),
 			EnvelopeXDR:     &envelope,
-			ResultXDR:       result,
+			FeeCharged:      int64(100 * (i + 1)),
+			ResultCode:      "TransactionResultCodeTxSuccess",
 			MetaXDR:         &meta,
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
+			IsFeeBump:       false,
 		}
 		addressesByHash[hash] = set.NewSet(address)
 	}
@@ -70,19 +71,23 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
+		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
+		IsFeeBump:       true,
 	}
 
 	testCases := []struct {
@@ -231,29 +236,35 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
+		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
-		ResultXDR:       "result2",
+		FeeCharged:      200,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
+		IsFeeBump:       true,
 	}
 	// Transaction with nullable fields (nil envelope and meta)
 	tx3 := types.Transaction{
 		Hash:            "tx3",
 		ToID:            3,
 		EnvelopeXDR:     nil,
-		ResultXDR:       "result3",
+		FeeCharged:      300,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         nil,
 		LedgerNumber:    3,
 		LedgerCreatedAt: now,
+		IsFeeBump:       false,
 	}
 
 	testCases := []struct {
@@ -392,10 +403,12 @@ func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
 		Hash:            "tx_duplicate_test",
 		ToID:            100,
 		EnvelopeXDR:     &envelope,
-		ResultXDR:       "result1",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
+		IsFeeBump:       false,
 	}
 
 	// Pre-insert the transaction using BatchInsert (which uses ON CONFLICT DO NOTHING)
@@ -466,8 +479,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	// Create test transaction
 	txHash := "test_tx_hash"
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES ($1, 1, 'envelope', 'result', 'meta', 1, $2)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, 1, 'envelope', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2, false)
 	`, txHash, now)
 	require.NoError(t, err)
 
@@ -502,11 +515,11 @@ func TestTransactionModel_GetAll(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
 	`, now)
 	require.NoError(t, err)
 
@@ -555,11 +568,11 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
 	`, now)
 	require.NoError(t, err)
 
@@ -605,11 +618,11 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
 	`, now)
 	require.NoError(t, err)
 
@@ -666,11 +679,11 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
-			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
-			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
 	`, now)
 	require.NoError(t, err)
 

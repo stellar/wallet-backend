@@ -287,13 +287,15 @@ type ComplexityRoot struct {
 	Transaction struct {
 		Accounts        func(childComplexity int) int
 		EnvelopeXDR     func(childComplexity int) int
+		FeeCharged      func(childComplexity int) int
 		Hash            func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
+		IsFeeBump       func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		MetaXDR         func(childComplexity int) int
 		Operations      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		ResultXDR       func(childComplexity int) int
+		ResultCode      func(childComplexity int) int
 		StateChanges    func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
@@ -1608,6 +1610,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Transaction.EnvelopeXDR(childComplexity), true
 
+	case "Transaction.feeCharged":
+		if e.complexity.Transaction.FeeCharged == nil {
+			break
+		}
+
+		return e.complexity.Transaction.FeeCharged(childComplexity), true
+
 	case "Transaction.hash":
 		if e.complexity.Transaction.Hash == nil {
 			break
@@ -1621,6 +1630,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Transaction.IngestedAt(childComplexity), true
+
+	case "Transaction.isFeeBump":
+		if e.complexity.Transaction.IsFeeBump == nil {
+			break
+		}
+
+		return e.complexity.Transaction.IsFeeBump(childComplexity), true
 
 	case "Transaction.ledgerCreatedAt":
 		if e.complexity.Transaction.LedgerCreatedAt == nil {
@@ -1655,12 +1671,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Transaction.Operations(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
-	case "Transaction.resultXdr":
-		if e.complexity.Transaction.ResultXDR == nil {
+	case "Transaction.resultCode":
+		if e.complexity.Transaction.ResultCode == nil {
 			break
 		}
 
-		return e.complexity.Transaction.ResultXDR(childComplexity), true
+		return e.complexity.Transaction.ResultCode(childComplexity), true
 
 	case "Transaction.stateChanges":
 		if e.complexity.Transaction.StateChanges == nil {
@@ -2489,10 +2505,12 @@ type BalanceAuthorizationChange implements BaseStateChange{
 type Transaction{
   hash:            String!
   envelopeXdr:     String
-  resultXdr:       String!
+  feeCharged:      Int64!
+  resultCode:      String!
   metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
+  isFeeBump:       Boolean!
   ingestedAt:      Time!
   
   # GraphQL Relationships - these fields require resolvers
@@ -4280,14 +4298,18 @@ func (ec *executionContext) fieldContext_AccountChange_transaction(_ context.Con
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -4722,14 +4744,18 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_transaction(
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -5554,14 +5580,18 @@ func (ec *executionContext) fieldContext_FlagsChange_transaction(_ context.Conte
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -5999,14 +6029,18 @@ func (ec *executionContext) fieldContext_MetadataChange_transaction(_ context.Co
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -6927,14 +6961,18 @@ func (ec *executionContext) fieldContext_Operation_transaction(_ context.Context
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -7478,14 +7516,18 @@ func (ec *executionContext) fieldContext_Query_transactionByHash(ctx context.Con
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -8542,14 +8584,18 @@ func (ec *executionContext) fieldContext_ReservesChange_transaction(_ context.Co
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -9682,14 +9728,18 @@ func (ec *executionContext) fieldContext_SignerChange_transaction(_ context.Cont
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -10165,14 +10215,18 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_transaction(_ co
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -10610,14 +10664,18 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_transaction(_ con
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -10992,8 +11050,8 @@ func (ec *executionContext) fieldContext_Transaction_envelopeXdr(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _Transaction_resultXdr(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Transaction_resultXdr(ctx, field)
+func (ec *executionContext) _Transaction_feeCharged(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Transaction_feeCharged(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -11006,7 +11064,51 @@ func (ec *executionContext) _Transaction_resultXdr(ctx context.Context, field gr
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.ResultXDR, nil
+		return obj.FeeCharged, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int64)
+	fc.Result = res
+	return ec.marshalNInt642int64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Transaction_feeCharged(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Transaction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int64 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Transaction_resultCode(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Transaction_resultCode(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ResultCode, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -11023,7 +11125,7 @@ func (ec *executionContext) _Transaction_resultXdr(ctx context.Context, field gr
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Transaction_resultXdr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Transaction_resultCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
@@ -11160,6 +11262,50 @@ func (ec *executionContext) fieldContext_Transaction_ledgerCreatedAt(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Transaction_isFeeBump(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Transaction_isFeeBump(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IsFeeBump, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Transaction_isFeeBump(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Transaction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -11520,14 +11666,18 @@ func (ec *executionContext) fieldContext_TransactionEdge_node(_ context.Context,
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -12493,14 +12643,18 @@ func (ec *executionContext) fieldContext_TrustlineChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_hash(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
 			case "metaXdr":
 				return ec.fieldContext_Transaction_metaXdr(ctx, field)
 			case "ledgerNumber":
 				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -18494,8 +18648,13 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 			}
 		case "envelopeXdr":
 			out.Values[i] = ec._Transaction_envelopeXdr(ctx, field, obj)
-		case "resultXdr":
-			out.Values[i] = ec._Transaction_resultXdr(ctx, field, obj)
+		case "feeCharged":
+			out.Values[i] = ec._Transaction_feeCharged(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "resultCode":
+			out.Values[i] = ec._Transaction_resultCode(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -18508,6 +18667,11 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 			}
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Transaction_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "isFeeBump":
+			out.Values[i] = ec._Transaction_isFeeBump(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}

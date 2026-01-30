@@ -264,10 +264,12 @@ type Transaction struct {
 type GraphQLTransaction struct {
 	Hash            string    `json:"hash"`
 	EnvelopeXdr     *string   `json:"envelopeXdr"`
-	ResultXdr       string    `json:"resultXdr"`
+	FeeCharged      int64     `json:"feeCharged"`
+	ResultCode      string    `json:"resultCode"`
 	MetaXdr         *string   `json:"metaXdr,omitempty"`
 	LedgerNumber    uint32    `json:"ledgerNumber"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt"`
+	IsFeeBump       bool      `json:"isFeeBump"`
 	IngestedAt      time.Time `json:"ingestedAt"`
 }
 

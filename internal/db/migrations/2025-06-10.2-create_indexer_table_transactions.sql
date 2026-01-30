@@ -5,10 +5,12 @@ CREATE TABLE transactions (
     hash TEXT PRIMARY KEY,
     to_id BIGINT NOT NULL,
     envelope_xdr TEXT,
-    result_xdr TEXT,
+    fee_charged BIGINT NOT NULL,
+    result_code TEXT NOT NULL,
     meta_xdr TEXT,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
+    is_fee_bump BOOLEAN NOT NULL DEFAULT false,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

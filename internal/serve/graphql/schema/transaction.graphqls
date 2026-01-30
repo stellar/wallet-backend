@@ -3,10 +3,12 @@
 type Transaction{
   hash:            String!
   envelopeXdr:     String
-  resultXdr:       String!
+  feeCharged:      Int64!
+  resultCode:      String!
   metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
+  isFeeBump:       Boolean!
   ingestedAt:      Time!
   
   # GraphQL Relationships - these fields require resolvers
