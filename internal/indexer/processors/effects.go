@@ -229,7 +229,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 // 1. State change for the sponsoring account (with SponsoredAccountID set to effect.Address)
 // 2. State change for the sponsored account (effect.Address, with SponsorAccountID set)
 // For non-account sponsorships (trustline, data, claimable balance, signer), both state changes
-// use explicit columns for entity-specific details (token_id, data_name, claimable_balance_id, signer_account_id).
+// use explicit columns for entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id).
 func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effect EffectOutput, baseBuilder *StateChangeBuilder) ([]types.StateChange, error) {
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
@@ -328,7 +328,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 
 // createSponsorChangeForSponsoringAccount creates a state change for the sponsoring account in a sponsorship relationship.
 // This tracks when an account starts, stops, or changes its sponsorship of another account's or entity's reserves.
-// Entity-specific details (token_id, data_name, claimable_balance_id, signer_account_id) should already be set on the builder.
+// Entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id) should already be set on the builder.
 func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsoredAccountID string) types.StateChange {
 	builder = builder.
 		WithReason(reason).
@@ -341,7 +341,7 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.
 
 // createSponsorChangeForSponsoredAccount creates a state change for the sponsored account in a sponsorship relationship.
 // This tracks when an account's account or entity reserves start, stop, or change sponsorship.
-// Entity-specific details (token_id, data_name, claimable_balance_id, signer_account_id) should already be set on the builder.
+// Entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id) should already be set on the builder.
 func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsor string) types.StateChange {
 	builder = builder.
 		WithReason(reason).
@@ -351,7 +351,7 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.S
 }
 
 // applySponsorshipEntityFields applies entity-specific fields to the builder for sponsorship effects.
-// Uses explicit columns instead of keyValue: token_id (for asset), liquidity_pool_id, data_name,
+// Uses explicit columns instead of keyValue: token_id (for asset), liquidity_pool_id, sponsored_data,
 // claimable_balance_id, and signer_account_id.
 func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, details map[string]interface{}, builder *StateChangeBuilder) *StateChangeBuilder {
 	//exhaustive:ignore

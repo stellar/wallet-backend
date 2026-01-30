@@ -403,7 +403,7 @@ func (m *StateChangeModel) BatchCopy(
 			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
 			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"claimable_balance_id", "liquidity_pool_id", "data_name",
+			"claimable_balance_id", "liquidity_pool_id", "sponsored_data",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
 		},
