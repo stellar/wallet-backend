@@ -2,10 +2,8 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"hash/fnv"
-	"io"
 	"runtime"
 	"strings"
 	"time"
@@ -14,7 +12,6 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
-	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -25,7 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -93,6 +89,10 @@ func generateAdvisoryLockID(network string) int {
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
+	// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
+	// This is the shared core used by both live ingestion and loadtest.
+	// Returns the number of transactions and operations persisted.
+	PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error)
 }
 
 var _ IngestService = (*ingestService)(nil)
@@ -213,41 +213,12 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 
 // processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
-	ledgerSeq := ledgerMeta.LedgerSequence()
-	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
+	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
 	if err != nil {
-		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
-	}
-
-	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
-	if err != nil {
-		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
 	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
 	return nil
-}
-
-func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
-	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
-	if err != nil {
-		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
-	}
-	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
-
-	transactions := make([]ingest.LedgerTransaction, 0)
-	for {
-		tx, err := ledgerTxReader.Read()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("reading ledger: %w", err)
-		}
-
-		transactions = append(transactions, tx)
-	}
-
-	return transactions, nil
 }
 
 // filteredIngestionData holds the filtered transaction, operation, and state change
