@@ -26,6 +26,8 @@ const (
 		id
 		operationType
 		operationXdr
+		resultCode
+		successful
 		ledgerNumber
 		ledgerCreatedAt
 		ingestedAt

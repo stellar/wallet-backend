@@ -295,16 +295,38 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 	}, nil
 }
 
-func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, opID int64) (*types.Operation, error) {
+func ConvertOperation(
+	transaction *ingest.LedgerTransaction,
+	op *xdr.Operation,
+	opID int64,
+	opIndex uint32,
+	opResults []xdr.OperationResult,
+) (*types.Operation, error) {
 	xdrOpStr, err := xdr.MarshalBase64(op)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
+	}
+
+	// Extract result code and success status
+	var resultCode string
+	var successful bool
+	if int(opIndex) < len(opResults) {
+		resultCode, successful, err = forOperationResult(opResults[opIndex])
+		if err != nil {
+			return nil, fmt.Errorf("getting result code for operation %d: %w", opID, err)
+		}
+	} else {
+		// If no results available (shouldn't happen in normal circumstances), mark as failed
+		resultCode = "op_unknown"
+		successful = false
 	}
 
 	return &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    xdrOpStr,
+		ResultCode:      resultCode,
+		Successful:      successful,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 		TxHash:          transaction.Hash.HexString(),

@@ -192,10 +192,13 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		buffer.PushTransaction(participant, *dataTx)
 	}
 
+	// Get operation results for extracting result codes
+	opResults, _ := tx.Result.OperationResults()
+
 	// Insert operations participants
 	operationsMap := make(map[int64]*types.Operation)
 	for opID, opParticipants := range opsParticipants {
-		dataOp, opErr := processors.ConvertOperation(&tx, &opParticipants.OpWrapper.Operation, opID)
+		dataOp, opErr := processors.ConvertOperation(&tx, &opParticipants.OpWrapper.Operation, opID, opParticipants.OpWrapper.Index, opResults)
 		if opErr != nil {
 			return 0, fmt.Errorf("creating data operation: %w", opErr)
 		}

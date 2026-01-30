@@ -628,11 +628,11 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 3, $1)
+			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx1', 'payment', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 

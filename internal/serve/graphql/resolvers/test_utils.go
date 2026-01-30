@@ -73,6 +73,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				TxHash:          txn.Hash,
 				OperationType:   "payment",
 				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
+				ResultCode:      "op_success",
+				Successful:      true,
 				LedgerNumber:    1,
 				LedgerCreatedAt: time.Now(),
 			})
@@ -144,8 +146,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, op := range ops {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-				op.ID, op.TxHash, op.OperationType, op.OperationXDR, op.LedgerNumber, op.LedgerCreatedAt)
+				`INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				op.ID, op.TxHash, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,

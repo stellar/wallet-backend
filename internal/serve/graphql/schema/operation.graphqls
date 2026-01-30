@@ -4,6 +4,8 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
+  resultCode:      String!
+  successful:      Boolean!
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
