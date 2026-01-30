@@ -258,7 +258,7 @@ func stringForManageSellOfferResult(code xdr.ManageSellOfferResultCode) (string,
 	case xdr.ManageSellOfferResultCodeManageSellOfferSellNoIssuer:
 		return "op_sell_no_issuer", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferBuyNoIssuer:
-		return "buy_no_issuer", nil
+		return "op_buy_no_issuer", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferNotFound:
 		return "op_offer_not_found", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferLowReserve:
