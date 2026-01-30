@@ -115,7 +115,7 @@ func stringForInnerResult(ir xdr.OperationResultTr) (string, error) {
 	case xdr.OperationTypeInvokeHostFunction:
 		return stringForInvokeHostFunctionResult(ir.MustInvokeHostFunctionResult().Code)
 	case xdr.OperationTypeExtendFootprintTtl:
-		return stringForExtendFootprintTtlResult(ir.MustExtendFootprintTtlResult().Code)
+		return stringForExtendFootprintTTLResult(ir.MustExtendFootprintTtlResult().Code)
 	case xdr.OperationTypeRestoreFootprint:
 		return stringForRestoreFootprintResult(ir.MustRestoreFootprintResult().Code)
 	default:
@@ -631,7 +631,7 @@ func stringForInvokeHostFunctionResult(code xdr.InvokeHostFunctionResultCode) (s
 	}
 }
 
-func stringForExtendFootprintTtlResult(code xdr.ExtendFootprintTtlResultCode) (string, error) {
+func stringForExtendFootprintTTLResult(code xdr.ExtendFootprintTtlResultCode) (string, error) {
 	switch code {
 	case xdr.ExtendFootprintTtlResultCodeExtendFootprintTtlSuccess:
 		return OpSuccess, nil
