@@ -70,6 +70,11 @@ func jsonbFromSlice(s types.NullableJSON) any {
 	return []string(s)
 }
 
+// pgtypeInt2FromNullInt16 converts sql.NullInt16 to pgtype.Int2 for efficient binary COPY.
+func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
+	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}
+}
+
 // BuildPaginatedQuery constructs a paginated SQL query with cursor-based pagination
 func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) {
 	var queryBuilder strings.Builder
