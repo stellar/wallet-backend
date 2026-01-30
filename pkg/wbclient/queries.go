@@ -76,8 +76,8 @@ const (
 		... on ReservesChange {
 			sponsoredAddress
 			sponsorAddress
-			claimableBalanceID
-     		liquidityPoolID
+			claimableBalanceId
+			liquidityPoolId
 			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {

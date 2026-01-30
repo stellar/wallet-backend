@@ -1217,7 +1217,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ReservesChange.Account(childComplexity), true
 
-	case "ReservesChange.claimableBalanceID":
+	case "ReservesChange.claimableBalanceId":
 		if e.complexity.ReservesChange.ClaimableBalanceID == nil {
 			break
 		}
@@ -1252,7 +1252,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ReservesChange.LedgerNumber(childComplexity), true
 
-	case "ReservesChange.liquidityPoolID":
+	case "ReservesChange.liquidityPoolId":
 		if e.complexity.ReservesChange.LiquidityPoolID == nil {
 			break
 		}
@@ -2518,8 +2518,8 @@ type ReservesChange implements BaseStateChange{
 
   sponsoredAddress:         String @goField(forceResolver: true)
   sponsorAddress:           String @goField(forceResolver: true)
-  liquidityPoolID:          String @goField(forceResolver: true)
-  claimableBalanceID:       String @goField(forceResolver: true)
+  liquidityPoolId:          String @goField(forceResolver: true)
+  claimableBalanceId:       String @goField(forceResolver: true)
   keyValue:                 String
 }
 
@@ -8847,8 +8847,8 @@ func (ec *executionContext) fieldContext_ReservesChange_sponsorAddress(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesChange_liquidityPoolID(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesChange_liquidityPoolID(ctx, field)
+func (ec *executionContext) _ReservesChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_liquidityPoolId(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8875,7 +8875,7 @@ func (ec *executionContext) _ReservesChange_liquidityPoolID(ctx context.Context,
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesChange_liquidityPoolID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ReservesChange",
 		Field:      field,
@@ -8888,8 +8888,8 @@ func (ec *executionContext) fieldContext_ReservesChange_liquidityPoolID(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesChange_claimableBalanceID(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesChange_claimableBalanceID(ctx, field)
+func (ec *executionContext) _ReservesChange_claimableBalanceId(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_claimableBalanceId(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8916,7 +8916,7 @@ func (ec *executionContext) _ReservesChange_claimableBalanceID(ctx context.Conte
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesChange_claimableBalanceID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_claimableBalanceId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ReservesChange",
 		Field:      field,
@@ -17764,7 +17764,7 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "liquidityPoolID":
+		case "liquidityPoolId":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -17773,7 +17773,7 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesChange_liquidityPoolID(ctx, field, obj)
+				res = ec._ReservesChange_liquidityPoolId(ctx, field, obj)
 				return res
 			}
 
@@ -17797,7 +17797,7 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "claimableBalanceID":
+		case "claimableBalanceId":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -17806,7 +17806,7 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesChange_claimableBalanceID(ctx, field, obj)
+				res = ec._ReservesChange_claimableBalanceId(ctx, field, obj)
 				return res
 			}
 
