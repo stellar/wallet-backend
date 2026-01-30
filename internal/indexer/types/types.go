@@ -319,9 +319,9 @@ const (
 	FlagBitAuthorizedToMaintainLiabilites int16 = 1 << 6 // Bit 6: authorized_to_maintain_liabilities
 )
 
-// FlagNameToBit maps flag names to their bitmask values.
+// flagNameToBit maps flag names to their bitmask values.
 // Includes both correct spelling and legacy typo for backward compatibility.
-var FlagNameToBit = map[string]int16{
+var flagNameToBit = map[string]int16{
 	"authorized":                         FlagBitAuthorized,
 	"auth_required":                      FlagBitAuthRequired,
 	"auth_revocable":                     FlagBitAuthRevocable,
@@ -332,8 +332,8 @@ var FlagNameToBit = map[string]int16{
 	"authorized_to_maintain_liabilites":  FlagBitAuthorizedToMaintainLiabilites, // legacy typo support
 }
 
-// FlagBitToName maps bitmask values to flag names (for decoding)
-var FlagBitToName = map[int16]string{
+// flagBitToName maps bitmask values to flag names (for decoding)
+var flagBitToName = map[int16]string{
 	FlagBitAuthorized:                     "authorized",
 	FlagBitAuthRequired:                   "auth_required",
 	FlagBitAuthRevocable:                  "auth_revocable",
@@ -347,7 +347,7 @@ var FlagBitToName = map[int16]string{
 func EncodeFlagsToBitmask(flags []string) int16 {
 	var bitmask int16
 	for _, flag := range flags {
-		if bit, ok := FlagNameToBit[flag]; ok {
+		if bit, ok := flagNameToBit[flag]; ok {
 			bitmask |= bit
 		}
 	}
@@ -357,7 +357,7 @@ func EncodeFlagsToBitmask(flags []string) int16 {
 // DecodeBitmaskToFlags decodes a bitmask value to a slice of flag names
 func DecodeBitmaskToFlags(bitmask int16) []string {
 	var flags []string
-	for bit, name := range FlagBitToName {
+	for bit, name := range flagBitToName {
 		if bitmask&bit != 0 {
 			flags = append(flags, name)
 		}
