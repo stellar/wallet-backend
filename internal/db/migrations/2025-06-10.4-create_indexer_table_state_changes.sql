@@ -24,7 +24,7 @@ CREATE TABLE state_changes (
     funder_account_id TEXT,
     claimable_balance_id TEXT,
     liquidity_pool_id TEXT,
-    data_name TEXT,
+    sponsored_data TEXT,
     signer_weight_old SMALLINT,
     signer_weight_new SMALLINT,
     threshold_old SMALLINT,

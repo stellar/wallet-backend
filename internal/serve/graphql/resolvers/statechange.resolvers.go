@@ -195,6 +195,11 @@ func (r *reservesChangeResolver) ClaimableBalanceID(ctx context.Context, obj *ty
 	return r.resolveNullableString(obj.ClaimableBalanceID), nil
 }
 
+// SponsoredData is the resolver for the sponsoredData field.
+func (r *reservesChangeResolver) SponsoredData(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.SponsoredData), nil
+}
+
 // KeyValue is the resolver for the keyValue field.
 func (r *reservesChangeResolver) KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
 	return r.resolveJSONBField(obj.KeyValue)

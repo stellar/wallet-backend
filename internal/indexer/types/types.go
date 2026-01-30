@@ -412,7 +412,7 @@ type StateChange struct {
 	// Entity identifiers (moved from key_value JSONB):
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
 	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
-	DataName           sql.NullString `json:"dataName,omitempty" db:"data_name"`
+	SponsoredData      sql.NullString `json:"sponsoredData,omitempty" db:"sponsored_data"`
 
 	// Flattened signer weights (range 0-255, was JSONB {"old": int, "new": int}):
 	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`

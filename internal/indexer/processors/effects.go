@@ -373,7 +373,7 @@ func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, d
 
 	case EffectDataSponsorshipCreated, EffectDataSponsorshipRemoved, EffectDataSponsorshipUpdated:
 		if dataName, ok := details["data_name"].(string); ok {
-			builder = builder.WithDataName(dataName)
+			builder = builder.WithSponsoredData(dataName)
 		}
 
 	case EffectClaimableBalanceSponsorshipCreated, EffectClaimableBalanceSponsorshipRemoved, EffectClaimableBalanceSponsorshipUpdated:

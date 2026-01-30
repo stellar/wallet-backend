@@ -216,7 +216,7 @@ func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationT
 }
 
 func validateReservesSponsorshipChangeForSponsoringAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string,
-	expectedReason types.StateChangeReason, expectedSponsoredAddress string, expectedKey string, expectedValue string,
+	expectedReason types.StateChangeReason, expectedSponsoredAddress string,
 ) {
 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
@@ -224,17 +224,6 @@ func validateReservesSponsorshipChangeForSponsoringAccount(suite *DataValidation
 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
 	if expectedSponsoredAddress != "" {
 		suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
-	}
-
-	// Decode the key value
-	if expectedKey != "" && expectedValue != "" {
-		suite.Require().NotNil(rc.KeyValue, "key value should not be nil")
-		var result map[string]string
-		err := json.Unmarshal([]byte(*rc.KeyValue), &result)
-		suite.Require().NoError(err, "failed to unmarshal key value", rc.KeyValue)
-		value, ok := result[expectedKey]
-		suite.Require().True(ok, "key should exist in the result")
-		suite.Require().Equal(expectedValue, value, "value does not match in the result")
 	}
 }
 
@@ -512,7 +501,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	// 1 RESERVES/SPONSOR change for sponsoring account - sponsorship begin
 	suite.Require().Len(primaryReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
 	reserveChange = primaryReservesChanges.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount, "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount)
 
 	// 1 SIGNER/ADD change for sponsored account with default signer weight = 1
 	suite.Require().Len(sponsoredSignerChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
@@ -1062,7 +1051,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	// Validate RESERVES/UNSPONSOR for sponsor account
 	suite.Require().Len(sponsorReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor account")
 	sponsorReservesChange := sponsorReservesUnsponsorChanges.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, sponsorReservesChange, primaryAccount, types.StateChangeReasonUnsponsor, sponsoredNewAccount, "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, sponsorReservesChange, primaryAccount, types.StateChangeReasonUnsponsor, sponsoredNewAccount)
 }
 
 func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {
@@ -1281,11 +1270,11 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	suite.Require().Len(reservesSponsorForSponsor.Edges, 2, "should have exactly 2 RESERVES/SPONSOR for sponsor")
 	change := reservesSponsorForSponsor.Edges[0].Node.(*types.ReservesChange)
 	suite.Require().Equal(suite.testEnv.ClaimBalanceID, *change.ClaimableBalanceID, "claimable balance ID does not match")
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, change, primaryAccount, types.StateChangeReasonSponsor, "", "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, change, primaryAccount, types.StateChangeReasonSponsor, "")
 
 	change = reservesSponsorForSponsor.Edges[1].Node.(*types.ReservesChange)
 	suite.Require().Equal(suite.testEnv.ClawbackBalanceID, *change.ClaimableBalanceID, "claimable balance ID for clawback does not match")
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, change, primaryAccount, types.StateChangeReasonSponsor, "", "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, change, primaryAccount, types.StateChangeReasonSponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() {
@@ -1368,7 +1357,7 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	suite.Require().Len(reservesUnsponsorForSponsor.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor")
 	reservesUnsponsorForSponsorChange := reservesUnsponsorForSponsor.Edges[0].Node.(*types.ReservesChange)
 	suite.Require().Equal(suite.testEnv.ClaimBalanceID, *reservesUnsponsorForSponsorChange.ClaimableBalanceID, "claimable balance ID does not match")
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, primaryAccount, types.StateChangeReasonUnsponsor, "", "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, primaryAccount, types.StateChangeReasonUnsponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation() {
@@ -1450,7 +1439,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	suite.Require().Len(reservesUnsponsorForSponsor.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor")
 	reservesUnsponsorForSponsorChange := reservesUnsponsorForSponsor.Edges[0].Node.(*types.ReservesChange)
 	suite.Require().Equal(suite.testEnv.ClawbackBalanceID, *reservesUnsponsorForSponsorChange.ClaimableBalanceID, "claimable balance ID for clawback does not match")
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, primaryAccount, types.StateChangeReasonUnsponsor, "", "", "")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, primaryAccount, types.StateChangeReasonUnsponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClearAuthFlagsOpsDataValidation() {
@@ -1761,7 +1750,9 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 
 	// 5. RESERVES STATE CHANGES VALIDATION
 	rc := primaryReservesSponsor.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, rc, primaryAccount, types.StateChangeReasonSponsor, "", "data_name", "sponsored_data")
+	suite.Require().Equal("sponsored_data", *rc.SponsoredData, "sponsored data value does not match")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, rc, primaryAccount, types.StateChangeReasonSponsor, "")
 	rc = primaryReservesUnsponsor.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoringAccount(suite, rc, primaryAccount, types.StateChangeReasonUnsponsor, "", "data_name", "sponsored_data")
+	suite.Require().Equal("sponsored_data", *rc.SponsoredData, "sponsored data value does not match")
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, rc, primaryAccount, types.StateChangeReasonUnsponsor, "")
 }

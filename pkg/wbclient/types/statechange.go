@@ -109,6 +109,7 @@ type ReservesChange struct {
 	BaseStateChangeFields
 	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
 	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
+	SponsoredData      *string `json:"sponsoredData,omitempty"`
 	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
 	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
 	KeyValue           *string `json:"reservesKeyValue,omitempty"`

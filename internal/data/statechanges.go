@@ -192,7 +192,7 @@ func (m *StateChangeModel) BatchInsert(
 	funderAccountIDs := make([]*string, len(stateChanges))
 	claimableBalanceIDs := make([]*string, len(stateChanges))
 	liquidityPoolIDs := make([]*string, len(stateChanges))
-	dataNames := make([]*string, len(stateChanges))
+	sponsoredDataValues := make([]*string, len(stateChanges))
 	signerWeightOlds := make([]*int16, len(stateChanges))
 	signerWeightNews := make([]*int16, len(stateChanges))
 	thresholdOlds := make([]*int16, len(stateChanges))
@@ -247,8 +247,8 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.LiquidityPoolID.Valid {
 			liquidityPoolIDs[i] = &sc.LiquidityPoolID.String
 		}
-		if sc.DataName.Valid {
-			dataNames[i] = &sc.DataName.String
+		if sc.SponsoredData.Valid {
+			sponsoredDataValues[i] = &sc.SponsoredData.String
 		}
 		if sc.SignerWeightOld.Valid {
 			signerWeightOlds[i] = &sc.SignerWeightOld.Int16
@@ -353,7 +353,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(funderAccountIDs),
 		pq.Array(claimableBalanceIDs),
 		pq.Array(liquidityPoolIDs),
-		pq.Array(dataNames),
+		pq.Array(sponsoredDataValues),
 		pq.Array(signerWeightOlds),
 		pq.Array(signerWeightNews),
 		pq.Array(thresholdOlds),
@@ -429,7 +429,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.FunderAccountID),
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeTextFromNullString(sc.DataName),
+				pgtypeTextFromNullString(sc.SponsoredData),
 				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
 				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
 				pgtypeInt2FromNullInt16(sc.ThresholdOld),

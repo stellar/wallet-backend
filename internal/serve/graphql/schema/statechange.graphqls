@@ -126,6 +126,7 @@ type ReservesChange implements BaseStateChange{
   sponsorAddress:           String @goField(forceResolver: true)
   liquidityPoolId:          String @goField(forceResolver: true)
   claimableBalanceId:       String @goField(forceResolver: true)
+  sponsoredData:            String
   keyValue:                 String
 }
 

@@ -165,9 +165,9 @@ func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuil
 	return b
 }
 
-// WithDataName sets the data entry name for data sponsorship state changes
-func (b *StateChangeBuilder) WithDataName(dataName string) *StateChangeBuilder {
-	b.base.DataName = utils.SQLNullString(dataName)
+// WithSponsoredData sets the data entry name for data sponsorship state changes
+func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuilder {
+	b.base.SponsoredData = utils.SQLNullString(dataName)
 	return b
 }
 
