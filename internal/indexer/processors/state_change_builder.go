@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -43,21 +44,34 @@ func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateCh
 	return b
 }
 
-// WithThresholds sets the thresholds
-func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateChangeBuilder {
-	b.base.Thresholds = types.NullableJSONB(thresholds)
+// WithThreshold sets the threshold old and new values directly
+func (b *StateChangeBuilder) WithThreshold(oldValue, newValue *int16) *StateChangeBuilder {
+	if oldValue != nil {
+		b.base.ThresholdOld = sql.NullInt16{Int16: *oldValue, Valid: true}
+	}
+	if newValue != nil {
+		b.base.ThresholdNew = sql.NullInt16{Int16: *newValue, Valid: true}
+	}
 	return b
 }
 
-// WithTrustlineLimit sets the trustline limit
-func (b *StateChangeBuilder) WithTrustlineLimit(limit map[string]any) *StateChangeBuilder {
-	b.base.TrustlineLimit = types.NullableJSONB(limit)
+// WithTrustlineLimit sets the trustline limit old and new values directly
+func (b *StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) *StateChangeBuilder {
+	if oldValue != nil {
+		b.base.TrustlineLimitOld = utils.SQLNullString(*oldValue)
+	}
+	if newValue != nil {
+		b.base.TrustlineLimitNew = utils.SQLNullString(*newValue)
+	}
 	return b
 }
 
-// WithFlags sets the flags
+// WithFlags sets the flags as a bitmask from a slice of flag names
 func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
-	b.base.Flags = types.NullableJSON(flags)
+	if len(flags) > 0 {
+		bitmask := types.EncodeFlagsToBitmask(flags)
+		b.base.Flags = sql.NullInt16{Int16: bitmask, Valid: true}
+	}
 	return b
 }
 
@@ -67,10 +81,15 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 	return b
 }
 
-// WithSigner sets the signer and the weights
-func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *StateChangeBuilder {
+// WithSigner sets the signer account ID and the weights directly
+func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) *StateChangeBuilder {
 	b.base.SignerAccountID = utils.SQLNullString(signer)
-	b.base.SignerWeights = types.NullableJSONB(weights)
+	if oldWeight != nil {
+		b.base.SignerWeightOld = sql.NullInt16{Int16: *oldWeight, Valid: true}
+	}
+	if newWeight != nil {
+		b.base.SignerWeightNew = sql.NullInt16{Int16: *newWeight, Valid: true}
+	}
 	return b
 }
 
@@ -92,7 +111,7 @@ func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
 	return b
 }
 
-// WithKeyValue sets the key value
+// WithKeyValue sets the key value JSONB field for truly variable data (data entries, home domain)
 func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
 	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
@@ -134,6 +153,24 @@ func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuil
 	return b
 }
 
+// WithClaimableBalanceID sets the claimable balance ID for sponsorship state changes
+func (b *StateChangeBuilder) WithClaimableBalanceID(balanceID string) *StateChangeBuilder {
+	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
+	return b
+}
+
+// WithLiquidityPoolID sets the liquidity pool ID for trustline and sponsorship state changes
+func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuilder {
+	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
+	return b
+}
+
+// WithDataName sets the data entry name for data sponsorship state changes
+func (b *StateChangeBuilder) WithDataName(dataName string) *StateChangeBuilder {
+	b.base.DataName = utils.SQLNullString(dataName)
+	return b
+}
+
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
 	if b.base.OperationID != 0 {
@@ -154,25 +191,13 @@ func (b *StateChangeBuilder) generateSortKey() string {
 	}
 
 	// For JSON fields, marshal to get a canonical string
-	signerWeights, err := json.Marshal(b.base.SignerWeights)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal signer weights: %v", err))
-	}
-	thresholds, err := json.Marshal(b.base.Thresholds)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal thresholds: %v", err))
-	}
-	flags, err := json.Marshal(b.base.Flags)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal flags: %v", err))
-	}
 	keyValue, err := json.Marshal(b.base.KeyValue)
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal key value: %v", err))
 	}
 
 	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
 		b.base.ToID,
 		b.base.StateChangeCategory,
 		reason,
@@ -184,9 +209,13 @@ func (b *StateChangeBuilder) generateSortKey() string {
 		b.base.SpenderAccountID.String,
 		b.base.SponsoredAccountID.String,
 		b.base.SponsorAccountID.String,
-		string(signerWeights),
-		string(thresholds),
-		string(flags),
+		b.base.SignerWeightOld.Int16,
+		b.base.SignerWeightNew.Int16,
+		b.base.ThresholdOld.Int16,
+		b.base.ThresholdNew.Int16,
+		b.base.TrustlineLimitOld.String,
+		b.base.TrustlineLimitNew.String,
+		b.base.Flags.Int16,
 		string(keyValue),
 	)
 }
