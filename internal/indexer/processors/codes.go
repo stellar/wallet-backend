@@ -225,7 +225,7 @@ func stringForManageBuyOfferResult(code xdr.ManageBuyOfferResultCode) (string, e
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferSellNoIssuer:
 		return "op_sell_no_issuer", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferBuyNoIssuer:
-		return "buy_no_issuer", nil
+		return "op_buy_no_issuer", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferNotFound:
 		return "op_offer_not_found", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferLowReserve:
@@ -246,9 +246,9 @@ func stringForManageSellOfferResult(code xdr.ManageSellOfferResultCode) (string,
 	case xdr.ManageSellOfferResultCodeManageSellOfferBuyNoTrust:
 		return "op_buy_no_trust", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferSellNotAuthorized:
-		return "sell_not_authorized", nil
+		return "op_sell_not_authorized", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferBuyNotAuthorized:
-		return "buy_not_authorized", nil
+		return "op_buy_not_authorized", nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferLineFull:
 		return OpLineFull, nil
 	case xdr.ManageSellOfferResultCodeManageSellOfferUnderfunded:
