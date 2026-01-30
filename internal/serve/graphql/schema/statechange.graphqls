@@ -144,5 +144,4 @@ type BalanceAuthorizationChange implements BaseStateChange{
   tokenId:                    String @goField(forceResolver: true)
   liquidityPoolId:            String
   flags:                      [String!]!
-  keyValue:                   String
 }

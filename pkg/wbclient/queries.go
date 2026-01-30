@@ -86,7 +86,6 @@ const (
 			balanceAuthTokenId: tokenId
 			balanceAuthLiquidityPoolId: liquidityPoolId
 			flags
-			balanceAuthKeyValue: keyValue
 		}
 	`
 )

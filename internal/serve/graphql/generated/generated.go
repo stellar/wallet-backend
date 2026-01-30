@@ -90,7 +90,6 @@ type ComplexityRoot struct {
 		Account         func(childComplexity int) int
 		Flags           func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
-		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		LiquidityPoolID func(childComplexity int) int
@@ -371,7 +370,6 @@ type BalanceAuthorizationChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error)
 	LiquidityPoolID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error)
 	Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error)
-	KeyValue(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error)
 }
 type FlagsChangeResolver interface {
 	Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error)
@@ -639,13 +637,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.BalanceAuthorizationChange.IngestedAt(childComplexity), true
-
-	case "BalanceAuthorizationChange.keyValue":
-		if e.complexity.BalanceAuthorizationChange.KeyValue == nil {
-			break
-		}
-
-		return e.complexity.BalanceAuthorizationChange.KeyValue(childComplexity), true
 
 	case "BalanceAuthorizationChange.ledgerCreatedAt":
 		if e.complexity.BalanceAuthorizationChange.LedgerCreatedAt == nil {
@@ -2565,7 +2556,6 @@ type BalanceAuthorizationChange implements BaseStateChange{
   tokenId:                    String @goField(forceResolver: true)
   liquidityPoolId:            String
   flags:                      [String!]!
-  keyValue:                   String
 }
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
@@ -4961,47 +4951,6 @@ func (ec *executionContext) _BalanceAuthorizationChange_flags(ctx context.Contex
 }
 
 func (ec *executionContext) fieldContext_BalanceAuthorizationChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceAuthorizationChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationChange_keyValue(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationChange().KeyValue(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*string)
-	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceAuthorizationChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BalanceAuthorizationChange",
 		Field:      field,
@@ -16247,39 +16196,6 @@ func (ec *executionContext) _BalanceAuthorizationChange(ctx context.Context, sel
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "keyValue":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceAuthorizationChange_keyValue(ctx, field, obj)
 				return res
 			}
 

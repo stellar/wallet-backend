@@ -122,7 +122,6 @@ type BalanceAuthorizationChange struct {
 	TokenID         *string  `json:"balanceAuthTokenId,omitempty"`
 	LiquidityPoolID *string  `json:"balanceAuthLiquidityPoolId,omitempty"`
 	Flags           []string `json:"flags"`
-	KeyValue        *string  `json:"balanceAuthKeyValue,omitempty"`
 }
 
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses

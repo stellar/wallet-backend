@@ -86,11 +86,6 @@ func (r *balanceAuthorizationChangeResolver) Flags(ctx context.Context, obj *typ
 	return types.DecodeBitmaskToFlags(obj.Flags.Int16), nil
 }
 
-// KeyValue is the resolver for the keyValue field.
-func (r *balanceAuthorizationChangeResolver) KeyValue(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
-	return r.resolveJSONBField(obj.KeyValue)
-}
-
 // Type is the resolver for the type field.
 func (r *flagsChangeResolver) Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
