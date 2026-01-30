@@ -41,7 +41,6 @@ func generateTestStateChanges(n int, txHash string, accountID string, startToID 
 			// sql.NullString fields
 			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
 			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
-			OfferID:            sql.NullString{String: fmt.Sprintf("offer_%d", i), Valid: true},
 			SignerAccountID:    sql.NullString{String: fmt.Sprintf("GSIGNER%032d", i), Valid: true},
 			SpenderAccountID:   sql.NullString{String: fmt.Sprintf("GSPENDER%031d", i), Valid: true},
 			SponsoredAccountID: sql.NullString{String: fmt.Sprintf("GSPONSORED%028d", i), Valid: true},

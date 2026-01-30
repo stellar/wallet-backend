@@ -373,7 +373,6 @@ func DecodeBitmaskToFlags(bitmask int16) []string {
 //
 // FIELD USAGE BY CATEGORY:
 // - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Liability changes: TokenID, Amount, OfferID
 // - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, DataName
 // - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - Threshold changes: ThresholdOld, ThresholdNew
@@ -403,7 +402,6 @@ type StateChange struct {
 	// Nullable string fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`

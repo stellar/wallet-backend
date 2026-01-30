@@ -184,7 +184,6 @@ func (m *StateChangeModel) BatchInsert(
 	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
-	offerIDs := make([]*string, len(stateChanges))
 	signerAccountIDs := make([]*string, len(stateChanges))
 	spenderAccountIDs := make([]*string, len(stateChanges))
 	sponsoredAccountIDs := make([]*string, len(stateChanges))
@@ -223,9 +222,6 @@ func (m *StateChangeModel) BatchInsert(
 		}
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
-		}
-		if sc.OfferID.Valid {
-			offerIDs[i] = &sc.OfferID.String
 		}
 		if sc.SignerAccountID.Valid {
 			signerAccountIDs[i] = &sc.SignerAccountID.String
@@ -301,32 +297,31 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($15::text[]) AS sponsor_account_id,
 				UNNEST($16::text[]) AS deployer_account_id,
 				UNNEST($17::text[]) AS funder_account_id,
-				UNNEST($18::text[]) AS offer_id,
-				UNNEST($19::text[]) AS claimable_balance_id,
-				UNNEST($20::text[]) AS liquidity_pool_id,
-				UNNEST($21::text[]) AS data_name,
-				UNNEST($22::smallint[]) AS signer_weight_old,
-				UNNEST($23::smallint[]) AS signer_weight_new,
-				UNNEST($24::smallint[]) AS threshold_old,
-				UNNEST($25::smallint[]) AS threshold_new,
-				UNNEST($26::text[]) AS trustline_limit_old,
-				UNNEST($27::text[]) AS trustline_limit_new,
-				UNNEST($28::smallint[]) AS flags,
-				UNNEST($29::jsonb[]) AS key_value
+				UNNEST($18::text[]) AS claimable_balance_id,
+				UNNEST($19::text[]) AS liquidity_pool_id,
+				UNNEST($20::text[]) AS data_name,
+				UNNEST($21::smallint[]) AS signer_weight_old,
+				UNNEST($22::smallint[]) AS signer_weight_new,
+				UNNEST($23::smallint[]) AS threshold_old,
+				UNNEST($24::smallint[]) AS threshold_new,
+				UNNEST($25::text[]) AS trustline_limit_old,
+				UNNEST($26::text[]) AS trustline_limit_new,
+				UNNEST($27::smallint[]) AS flags,
+				UNNEST($28::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				signer_account_id, spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, offer_id, claimable_balance_id, liquidity_pool_id, data_name,
+				deployer_account_id, funder_account_id, claimable_balance_id, liquidity_pool_id, data_name,
 				signer_weight_old, signer_weight_new, threshold_old, threshold_new,
 				trustline_limit_old, trustline_limit_new, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
 				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
 				sc.signer_account_id, sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
-				sc.deployer_account_id, sc.funder_account_id, sc.offer_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.data_name,
+				sc.deployer_account_id, sc.funder_account_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.data_name,
 				sc.signer_weight_old, sc.signer_weight_new, sc.threshold_old, sc.threshold_new,
 				sc.trustline_limit_old, sc.trustline_limit_new, sc.flags, sc.key_value
 			FROM input_data sc
@@ -356,7 +351,6 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(sponsorAccountIDs),
 		pq.Array(deployerAccountIDs),
 		pq.Array(funderAccountIDs),
-		pq.Array(offerIDs),
 		pq.Array(claimableBalanceIDs),
 		pq.Array(liquidityPoolIDs),
 		pq.Array(dataNames),
@@ -409,7 +403,7 @@ func (m *StateChangeModel) BatchCopy(
 			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
 			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"offer_id", "claimable_balance_id", "liquidity_pool_id", "data_name",
+			"claimable_balance_id", "liquidity_pool_id", "data_name",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
 		},
@@ -433,7 +427,6 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.SponsorAccountID),
 				pgtypeTextFromNullString(sc.DeployerAccountID),
 				pgtypeTextFromNullString(sc.FunderAccountID),
-				pgtypeTextFromNullString(sc.OfferID),
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
 				pgtypeTextFromNullString(sc.DataName),

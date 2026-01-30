@@ -22,7 +22,6 @@ CREATE TABLE state_changes (
     sponsor_account_id TEXT,
     deployer_account_id TEXT,
     funder_account_id TEXT,
-    offer_id TEXT,
     claimable_balance_id TEXT,
     liquidity_pool_id TEXT,
     data_name TEXT,

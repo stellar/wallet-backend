@@ -197,14 +197,13 @@ func (b *StateChangeBuilder) generateSortKey() string {
 	}
 
 	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
 		b.base.ToID,
 		b.base.StateChangeCategory,
 		reason,
 		b.base.AccountID,
 		b.base.TokenID.String,
 		b.base.Amount.String,
-		b.base.OfferID.String,
 		b.base.SignerAccountID.String,
 		b.base.SpenderAccountID.String,
 		b.base.SponsoredAccountID.String,
