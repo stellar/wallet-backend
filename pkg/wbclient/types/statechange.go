@@ -107,11 +107,11 @@ type TrustlineChange struct {
 // ReservesChange represents a reserves state change
 type ReservesChange struct {
 	BaseStateChangeFields
-	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
+	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
+	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
 	ClaimableBalanceID *string `json:"claimableBalanceID,omitempty"`
-	LiquidityPoolID *string `json:"liquidityPoolID,omitempty"`
-	KeyValue         *string `json:"reservesKeyValue,omitempty"`
+	LiquidityPoolID    *string `json:"liquidityPoolID,omitempty"`
+	KeyValue           *string `json:"reservesKeyValue,omitempty"`
 }
 
 // BalanceAuthorizationChange represents a balance authorization state change
