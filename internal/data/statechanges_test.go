@@ -487,7 +487,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 		VALUES
 			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -549,7 +549,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		VALUES
 			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -791,7 +791,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 		VALUES
 			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -838,7 +838,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 		VALUES
 			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -1050,7 +1050,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 		VALUES
 			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 

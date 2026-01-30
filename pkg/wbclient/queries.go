@@ -13,7 +13,8 @@ const (
 	defaultTransactionFields = `
 		hash
 		envelopeXdr
-		resultXdr
+		resultCode
+		feeCharged
 		metaXdr
 		ledgerNumber
 		ledgerCreatedAt
