@@ -22,6 +22,74 @@ const (
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 )
 
+// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
+// This is the shared core used by both live ingestion and loadtest.
+// It handles: trustline assets, contract tokens, filtered data insertion, channel account unlocking,
+// token changes, and cursor update. Channel unlock is a no-op when chAccStore is nil.
+func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
+	var numTxs, numOps int
+
+	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
+		uniqueAssets := buffer.GetUniqueTrustlineAssets()
+		if len(uniqueAssets) > 0 {
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
+				return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
+
+		// 2. Insert new contract tokens (filter existing, fetch metadata for SEP-41 if available, insert)
+		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
+		if txErr != nil {
+			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
+		}
+		if len(contracts) > 0 {
+			if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
+		}
+
+		// 3. Filter participant data (if enabled) and insert transactions/operations/state_changes
+		filteredData, txErr := m.filterParticipantData(ctx, dbTx, buffer)
+		if txErr != nil {
+			return fmt.Errorf("filtering participant data for ledger %d: %w", ledgerSeq, txErr)
+		}
+		if txErr = m.insertIntoDB(ctx, dbTx, filteredData); txErr != nil {
+			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		// 4. Unlock channel accounts (no-op when chAccStore is nil, e.g., in loadtest)
+		if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
+			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		// 5. Process token changes (trustline add/remove/update, contract token add, native balance, SAC balance)
+		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
+			buffer.GetTrustlineChanges(),
+			buffer.GetContractChanges(),
+			buffer.GetAccountChanges(),
+			buffer.GetSACBalanceChanges(),
+		); txErr != nil {
+			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		// 6. Update the specified cursor
+		if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
+			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		numTxs = len(filteredData.txs)
+		numOps = len(filteredData.ops)
+		return nil
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
+	}
+
+	return numTxs, numOps, nil
+}
+
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
 // acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
@@ -132,13 +200,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// ingestProcessedDataWithRetry ingests all ledger data into the database in a single atomic transaction.
-// This includes trustline assets, contract tokens, transactions, operations, token changes, and cursor update.
-// All operations succeed or fail together, ensuring data consistency.
+// ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
 func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
-	numTransactionProcessed := 0
-	numOperationProcessed := 0
-
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -147,64 +210,9 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		default:
 		}
 
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			// 1. Insert unique trustline assets (pre-tracked in buffer)
-			uniqueAssets := buffer.GetUniqueTrustlineAssets()
-			if len(uniqueAssets) > 0 {
-				if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-					return fmt.Errorf("inserting trustline assets for ledger %d: %w", currentLedger, txErr)
-				}
-			}
-
-			// 2. Insert new contract tokens (filter existing, fetch metadata for SEP41, insert)
-			contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
-			if txErr != nil {
-				return fmt.Errorf("preparing contract tokens for ledger %d: %w", currentLedger, txErr)
-			}
-			if len(contracts) > 0 {
-				if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-					return fmt.Errorf("inserting contracts for ledger %d: %w", currentLedger, txErr)
-				}
-				log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
-			}
-
-			// 3. Filter participant data
-			filteredData, txErr := m.filterParticipantData(ctx, dbTx, buffer)
-			if txErr != nil {
-				return fmt.Errorf("filtering participant data for ledger %d: %w", currentLedger, txErr)
-			}
-
-			// 4. Insert transactions and operations
-			if txErr = m.insertIntoDB(ctx, dbTx, filteredData); txErr != nil {
-				return fmt.Errorf("inserting processed data into db for ledger %d: %w", currentLedger, txErr)
-			}
-
-			// 5. Unlock channel accounts
-			if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
-				return fmt.Errorf("unlocking channel accounts for ledger %d: %w", currentLedger, txErr)
-			}
-
-			// 6. Process token changes (trustline add/remove/update with full XDR fields, contract token add, native balance, SAC balance)
-			trustlineChanges := buffer.GetTrustlineChanges()
-			contractChanges := buffer.GetContractChanges()
-			accountChanges := buffer.GetAccountChanges()
-			sacBalanceChanges := buffer.GetSACBalanceChanges()
-			if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); txErr != nil {
-				return fmt.Errorf("processing token changes for ledger %d: %w", currentLedger, txErr)
-			}
-
-			// 7. Update cursor (all operations atomic with this)
-			if txErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); txErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, txErr)
-			}
-
-			numTransactionProcessed = len(filteredData.txs)
-			numOperationProcessed = len(filteredData.ops)
-			return nil
-		})
-
+		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, m.latestLedgerCursorName)
 		if err == nil {
-			return numTransactionProcessed, numOperationProcessed, nil
+			return numTxs, numOps, nil
 		}
 		lastErr = err
 
@@ -285,8 +293,8 @@ func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.T
 		newSep41ContractAddresses = append(newSep41ContractAddresses, address)
 	}
 
-	// Fetch metadata for new SEP-41 contracts via RPC
-	if len(newSep41ContractAddresses) > 0 {
+	// Fetch metadata for new SEP-41 contracts via RPC (skip if no metadata service)
+	if len(newSep41ContractAddresses) > 0 && m.contractMetadataService != nil {
 		sep41Contracts, fetchErr := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractAddresses)
 		if fetchErr != nil {
 			return nil, fmt.Errorf("fetching metadata for new SEP-41 contracts: %w", fetchErr)

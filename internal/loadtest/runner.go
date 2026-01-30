@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 const (
@@ -96,6 +97,20 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		models.AccountContractTokens,
 	)
 
+	// Create ingest service for shared persistence logic
+	ingestSvc, err := services.NewIngestService(services.IngestServiceConfig{
+		IngestionMode:              "loadtest",
+		Models:                     models,
+		MetricsService:             metricsService,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+		TokenIngestionService:      tokenIngestionService,
+		ChannelAccountStore:        store.NewChannelAccountModel(dbPool),
+		EnableParticipantFiltering: false,
+	})
+	if err != nil {
+		return fmt.Errorf("creating ingest service: %w", err)
+	}
+
 	// Start metrics server
 	servers := startServers(cfg, metricsService)
 	defer shutdownServers(servers)
@@ -111,7 +126,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 
 	// Run ingestion loop
-	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, models, metricsService, tokenIngestionService)
+	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, metricsService, ingestSvc)
 }
 
 // initializeCursor ensures the loadtest cursor exists with value 0.
@@ -149,9 +164,8 @@ func runIngestionLoop(
 	cfg RunConfig,
 	backend ledgerbackend.LedgerBackend,
 	ledgerIndexer *indexer.Indexer,
-	models *data.Models,
 	metricsService metrics.MetricsService,
-	tokenIngestionService services.TokenIngestionService,
+	ingestSvc services.IngestService,
 ) error {
 	// Prepare unbounded range - backend will read all ledgers from file
 	ledgerRange := ledgerbackend.UnboundedRange(cfg.StartLedger)
@@ -199,9 +213,9 @@ func runIngestionLoop(
 		}
 		metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
 
-		// Write to database
+		// Write to database using shared persistence logic
 		dbStart := time.Now()
-		numTxs, numOps, err := persistLedgerData(ctx, models, tokenIngestionService, buffer, currentLedger)
+		numTxs, numOps, err := ingestSvc.PersistLedgerData(ctx, currentLedger, buffer, loadtestLatestCursor)
 		if err != nil {
 			return fmt.Errorf("persisting ledger %d: %w", currentLedger, err)
 		}
@@ -226,75 +240,6 @@ func runIngestionLoop(
 
 	log.Info("Loadtest complete - all ledgers processed")
 	return printSummary(ledgersProcessed, txsProcessed, opsProcessed, totalStart, totalIngestionDuration)
-}
-
-// persistLedgerData writes the processed data to the database.
-func persistLedgerData(ctx context.Context, models *data.Models, tokenIngestionService services.TokenIngestionService, buffer *indexer.IndexerBuffer, ledgerSeq uint32) (int, int, error) {
-	txs := buffer.GetTransactions()
-	ops := buffer.GetOperations()
-	stateChanges := buffer.GetStateChanges()
-
-	err := db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
-		// Insert transactions
-		if len(txs) > 0 {
-			if _, err := models.Transactions.BatchCopy(ctx, dbTx, txs, buffer.GetTransactionsParticipants()); err != nil {
-				return fmt.Errorf("inserting transactions: %w", err)
-			}
-		}
-
-		// Insert operations
-		if len(ops) > 0 {
-			if _, err := models.Operations.BatchCopy(ctx, dbTx, ops, buffer.GetOperationsParticipants()); err != nil {
-				return fmt.Errorf("inserting operations: %w", err)
-			}
-		}
-
-		// Insert state changes
-		if len(stateChanges) > 0 {
-			if _, err := models.StateChanges.BatchCopy(ctx, dbTx, stateChanges); err != nil {
-				return fmt.Errorf("inserting state changes: %w", err)
-			}
-		}
-		log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
-
-		// Insert unique trustline assets (prerequisite for trustline balances FK)
-		uniqueAssets := buffer.GetUniqueTrustlineAssets()
-		if len(uniqueAssets) > 0 {
-			if err := models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
-				return fmt.Errorf("inserting trustline assets: %w", err)
-			}
-		}
-
-		// Insert SAC contracts (prerequisite for SAC balances FK)
-		sacContracts := buffer.GetSACContracts()
-		if len(sacContracts) > 0 {
-			contracts := make([]*data.Contract, 0, len(sacContracts))
-			for _, c := range sacContracts {
-				contracts = append(contracts, c)
-			}
-			if err := models.Contract.BatchInsert(ctx, dbTx, contracts); err != nil {
-				return fmt.Errorf("inserting SAC contracts: %w", err)
-			}
-		}
-
-		// Process all token changes using TokenIngestionService
-		trustlineChanges := buffer.GetTrustlineChanges()
-		contractChanges := buffer.GetContractChanges()
-		accountChanges := buffer.GetAccountChanges()
-		sacBalanceChanges := buffer.GetSACBalanceChanges()
-		if err := tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChanges, contractChanges, accountChanges, sacBalanceChanges); err != nil {
-			return fmt.Errorf("processing token changes: %w", err)
-		}
-
-		// Update cursor
-		if err := models.IngestStore.Update(ctx, dbTx, loadtestLatestCursor, ledgerSeq); err != nil {
-			return fmt.Errorf("updating cursor: %w", err)
-		}
-
-		return nil
-	})
-
-	return len(txs), len(ops), err
 }
 
 // printSummary logs final statistics and returns nil.
