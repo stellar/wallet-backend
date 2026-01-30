@@ -72,6 +72,11 @@ func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *t
 	return r.resolveNullableString(obj.TokenID), nil
 }
 
+// LiquidityPoolID is the resolver for the liquidityPoolId field.
+func (r *balanceAuthorizationChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
+}
+
 // Flags is the resolver for the flags field.
 // Decodes the bitmask value to a slice of flag name strings.
 func (r *balanceAuthorizationChangeResolver) Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error) {
@@ -193,6 +198,11 @@ func (r *reservesChangeResolver) LiquidityPoolID(ctx context.Context, obj *types
 // ClaimableBalanceID is the resolver for the claimableBalanceID field.
 func (r *reservesChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.ClaimableBalanceID), nil
+}
+
+// SponsoredTrustline is the resolver for the sponsoredTrustline field.
+func (r *reservesChangeResolver) SponsoredTrustline(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.TokenID), nil
 }
 
 // SponsoredData is the resolver for the sponsoredData field.

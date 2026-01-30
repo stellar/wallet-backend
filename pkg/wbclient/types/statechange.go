@@ -110,6 +110,7 @@ type ReservesChange struct {
 	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
 	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
 	SponsoredData      *string `json:"sponsoredData,omitempty"`
+	SponsoredTrustline *string `json:"sponsoredTrustline,omitempty"`
 	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
 	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
 	KeyValue           *string `json:"reservesKeyValue,omitempty"`
@@ -118,9 +119,10 @@ type ReservesChange struct {
 // BalanceAuthorizationChange represents a balance authorization state change
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
-	TokenID  *string  `json:"balanceAuthTokenId,omitempty"`
-	Flags    []string `json:"flags"`
-	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
+	TokenID         *string  `json:"balanceAuthTokenId,omitempty"`
+	LiquidityPoolID *string  `json:"balanceAuthLiquidityPoolId,omitempty"`
+	Flags           []string `json:"flags"`
+	KeyValue        *string  `json:"balanceAuthKeyValue,omitempty"`
 }
 
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses

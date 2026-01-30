@@ -77,12 +77,14 @@ const (
 			sponsoredAddress
 			sponsorAddress
 			sponsoredData
+			sponsoredTrustline
 			claimableBalanceId
 			liquidityPoolId
 			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId
+			balanceAuthLiquidityPoolId: liquidityPoolId
 			flags
 			balanceAuthKeyValue: keyValue
 		}

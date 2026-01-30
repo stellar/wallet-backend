@@ -265,7 +265,7 @@ func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.Trustline
 
 // validateBalanceAuthorizationChange validates a balance authorization state change
 func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string,
-	expectedReason types.StateChangeReason, expectedFlags []string, expectedTokenID, expectedKey, expectedValue string,
+	expectedReason types.StateChangeReason, expectedFlags []string, expectedTokenID string,
 ) {
 	suite.Require().NotNil(bac, "balance authorization change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryBalanceAuthorization, bac.GetType(), "should be BALANCE_AUTHORIZATION type")
@@ -277,15 +277,6 @@ func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *typ
 	}
 	if expectedTokenID != "" {
 		suite.Require().Equal(expectedTokenID, *bac.TokenID, "token ID mismatch")
-	}
-	if expectedKey != "" && expectedValue != "" {
-		suite.Require().NotNil(bac.KeyValue, "key value should not be nil")
-		var result map[string]string
-		err := json.Unmarshal([]byte(*bac.KeyValue), &result)
-		suite.Require().NoError(err, "failed to unmarshal key value", bac.KeyValue)
-		value, ok := result[expectedKey]
-		suite.Require().True(ok, "key should exist in the result")
-		suite.Require().Equal(expectedValue, value, "value does not match in the result")
 	}
 }
 
@@ -657,7 +648,7 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	// 3b. BALANCE_AUTHORIZATION Changes: Secondary should have exactly 1 (SET with authorized flag)
 	suite.Require().Len(authChanges.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET change")
 	authChange := authChanges.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authChange, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test2ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authChange, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test2ContractAddress)
 
 	// 4. SPECIFIC BALANCE CHANGE VALIDATIONS
 	// 4a. Validate MINT changes have correct token ID and account
@@ -885,16 +876,16 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 
 	// First SET change: clawback_enabled flag from trustline creation
 	authSetSecondaryClawback := balanceAuthSetSecondary.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authSetSecondaryClawback, secondaryAccount, types.StateChangeReasonSet, []string{"clawback_enabled"}, test1ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authSetSecondaryClawback, secondaryAccount, types.StateChangeReasonSet, []string{"clawback_enabled"}, test1ContractAddress)
 
 	// Second SET change: authorized flag from SetTrustLineFlags
 	authSetSecondaryAuthorized := balanceAuthSetSecondary.Edges[1].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authSetSecondaryAuthorized, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test1ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authSetSecondaryAuthorized, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test1ContractAddress)
 
 	// Secondary account: BALANCE_AUTHORIZATION/CLEAR with "authorized" flag
 	suite.Require().Len(balanceAuthClearSecondary.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/CLEAR for secondary")
 	authClearSecondary := balanceAuthClearSecondary.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authClearSecondary, secondaryAccount, types.StateChangeReasonClear, []string{"authorized"}, test1ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authClearSecondary, secondaryAccount, types.StateChangeReasonClear, []string{"authorized"}, test1ContractAddress)
 
 	// 5. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
@@ -1253,11 +1244,11 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	// - One with authorized flag (from SetTrustLineFlags operation)
 	suite.Require().Len(balanceAuthSet.Edges, 2, "should have exactly 2 BALANCE_AUTHORIZATION/SET for secondary")
 	authSetSecondary := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authSetSecondary, secondaryAccount, types.StateChangeReasonSet, []string{"clawback_enabled"}, test3ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authSetSecondary, secondaryAccount, types.StateChangeReasonSet, []string{"clawback_enabled"}, test3ContractAddress)
 
 	// Second SET change: authorized flag from SetTrustLineFlags
 	authSetSecondaryAuthorized := balanceAuthSet.Edges[1].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, authSetSecondaryAuthorized, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test3ContractAddress, "", "")
+	validateBalanceAuthorizationChange(suite, authSetSecondaryAuthorized, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"}, test3ContractAddress)
 
 	// 5. BALANCE STATE CHANGES VALIDATION - 2 claimable balances are created
 	suite.Require().Len(balanceMint.Edges, 2, "should have exactly 2 BALANCE/MINT")
@@ -1623,7 +1614,8 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags, null tokenId and pool ID in keyValue
 	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for liquidity pool")
 	balanceAuth := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateBalanceAuthorizationChange(suite, balanceAuth, primaryAccount, types.StateChangeReasonSet, []string{}, "", "liquidity_pool_id", suite.testEnv.LiquidityPoolID)
+	suite.Require().Equal(suite.testEnv.LiquidityPoolID, *balanceAuth.LiquidityPoolID, "balance auth change liquidity pool ID does not match")
+	validateBalanceAuthorizationChange(suite, balanceAuth, primaryAccount, types.StateChangeReasonSet, []string{}, "")
 
 	// 4. TRUSTLINE VALIDATION
 	// LP trustlines should have null tokenId and pool ID in keyValue
