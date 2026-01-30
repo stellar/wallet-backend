@@ -269,6 +269,7 @@ type GraphQLTransaction struct {
 	MetaXdr         *string   `json:"metaXdr,omitempty"`
 	LedgerNumber    uint32    `json:"ledgerNumber"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt"`
+	IsFeeBump       bool      `json:"isFeeBump"`
 	IngestedAt      time.Time `json:"ingestedAt"`
 }
 

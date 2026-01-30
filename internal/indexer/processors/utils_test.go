@@ -46,6 +46,7 @@ func Test_ConvertTransaction(t *testing.T) {
 		MetaXDR:              &metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		IsFeeBump:            true,
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
@@ -76,6 +77,7 @@ func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
 		MetaXDR:              &metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		IsFeeBump:            true,
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)

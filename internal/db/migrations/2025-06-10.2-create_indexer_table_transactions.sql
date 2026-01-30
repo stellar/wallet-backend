@@ -10,6 +10,7 @@ CREATE TABLE transactions (
     meta_xdr TEXT,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
+    is_fee_bump BOOLEAN NOT NULL DEFAULT false,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

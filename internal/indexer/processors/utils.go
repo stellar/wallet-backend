@@ -290,6 +290,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		ResultCode:           transaction.ResultCode(),
 		MetaXDR:              metaXDR,
 		LedgerNumber:         ledgerSequence,
+		IsFeeBump:            transaction.Envelope.IsFeeBump(),
 		InnerTransactionHash: innerTxHash,
 	}, nil
 }

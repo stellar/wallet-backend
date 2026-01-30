@@ -141,6 +141,7 @@ type Transaction struct {
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
+	IsFeeBump       bool      `json:"isFeeBump,omitempty" db:"is_fee_bump"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty"`

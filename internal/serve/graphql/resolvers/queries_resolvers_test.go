@@ -32,7 +32,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "feeCharged", "resultCode", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "feeCharged", "resultCode", "metaXdr", "ledgerNumber", "ledgerCreatedAt", "isFeeBump"})
 		tx, err := resolver.TransactionByHash(ctx, "tx1")
 
 		require.NoError(t, err)

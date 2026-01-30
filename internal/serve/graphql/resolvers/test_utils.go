@@ -62,6 +62,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
+			IsFeeBump:       false,
 		}
 		txns = append(txns, txn)
 
@@ -131,8 +132,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, txn := range txns {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.FeeCharged, txn.ResultCode, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt)
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.FeeCharged, txn.ResultCode, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,

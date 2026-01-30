@@ -18,6 +18,7 @@ const (
 		metaXdr
 		ledgerNumber
 		ledgerCreatedAt
+		isFeeBump
 		ingestedAt
 	`
 

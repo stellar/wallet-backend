@@ -8,6 +8,7 @@ type Transaction{
   metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
+  isFeeBump:       Boolean!
   ingestedAt:      Time!
   
   # GraphQL Relationships - these fields require resolvers

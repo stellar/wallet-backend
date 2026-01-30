@@ -185,6 +185,7 @@ func (m *TransactionModel) BatchInsert(
 	metaXDRs := make([]*string, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
+	isFeeBumps := make([]bool, len(txs))
 
 	for i, t := range txs {
 		hashes[i] = t.Hash
@@ -195,6 +196,7 @@ func (m *TransactionModel) BatchInsert(
 		metaXDRs[i] = t.MetaXDR
 		ledgerNumbers[i] = int(t.LedgerNumber)
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
+		isFeeBumps[i] = t.IsFeeBump
 	}
 
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices
@@ -212,9 +214,9 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions
 	inserted_transactions AS (
 		INSERT INTO transactions
-			(hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+			(hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		SELECT
-			t.hash, t.to_id, t.envelope_xdr, t.fee_charged, t.result_code, t.meta_xdr, t.ledger_number, t.ledger_created_at
+			t.hash, t.to_id, t.envelope_xdr, t.fee_charged, t.result_code, t.meta_xdr, t.ledger_number, t.ledger_created_at, t.is_fee_bump
 		FROM (
 			SELECT
 				UNNEST($1::text[]) AS hash,
@@ -224,7 +226,8 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($5::text[]) AS result_code,
 				UNNEST($6::text[]) AS meta_xdr,
 				UNNEST($7::bigint[]) AS ledger_number,
-				UNNEST($8::timestamptz[]) AS ledger_created_at
+				UNNEST($8::timestamptz[]) AS ledger_created_at,
+				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
 		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
@@ -238,8 +241,8 @@ func (m *TransactionModel) BatchInsert(
 			ta.tx_hash, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($9::text[]) AS tx_hash,
-				UNNEST($10::text[]) AS account_id
+				UNNEST($10::text[]) AS tx_hash,
+				UNNEST($11::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -259,6 +262,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(metaXDRs),
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
+		pq.Array(isFeeBumps),
 		pq.Array(txHashes),
 		pq.Array(stellarAddresses),
 	)
@@ -306,7 +310,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at"},
+		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at", "is_fee_bump"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			return []any{
@@ -318,6 +322,7 @@ func (m *TransactionModel) BatchCopy(
 				pgtypeTextFromPtr(tx.MetaXDR),
 				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
+				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
 			}, nil
 		}),
 	)
