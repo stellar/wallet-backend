@@ -56,6 +56,8 @@ func stringForOperationResultCode(code xdr.OperationResultCode) (string, error) 
 		return "op_too_many_subentries", nil
 	case xdr.OperationResultCodeOpExceededWorkLimit:
 		return "op_exceeded_work_limit", nil
+	case xdr.OperationResultCodeOpTooManySponsoring:
+		return "op_too_many_sponsoring", nil
 	default:
 		return "", fmt.Errorf("unknown operation result code: %d", code)
 	}
