@@ -12,11 +12,11 @@ import (
 
 func TestForOperationResult_OuterCodes(t *testing.T) {
 	tests := []struct {
-		name           string
-		code           xdr.OperationResultCode
-		expectedCode   string
-		expectedSucc   bool
-		expectError    bool
+		name         string
+		code         xdr.OperationResultCode
+		expectedCode string
+		expectedSucc bool
+		expectError  bool
 	}{
 		{
 			name:         "op_bad_auth",
