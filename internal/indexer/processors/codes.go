@@ -213,9 +213,9 @@ func stringForManageBuyOfferResult(code xdr.ManageBuyOfferResultCode) (string, e
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferBuyNoTrust:
 		return "op_buy_no_trust", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferSellNotAuthorized:
-		return "sell_not_authorized", nil
+		return "op_sell_not_authorized", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferBuyNotAuthorized:
-		return "buy_not_authorized", nil
+		return "op_buy_not_authorized", nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferLineFull:
 		return OpLineFull, nil
 	case xdr.ManageBuyOfferResultCodeManageBuyOfferUnderfunded:
