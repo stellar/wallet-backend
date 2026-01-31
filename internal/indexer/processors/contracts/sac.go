@@ -27,7 +27,7 @@ var (
 const (
 	setAuthorizedFunctionName              = "set_authorized"
 	AuthorizedFlagName                     = "authorized"
-	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites"
+	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilities"
 	txMetaVersionV3                        = 3
 	txMetaVersionV4                        = 4
 )

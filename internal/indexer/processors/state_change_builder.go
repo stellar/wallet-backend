@@ -129,12 +129,6 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
-// WithTrustlineAsset sets the trustline asset
-func (b *StateChangeBuilder) WithTrustlineAsset(asset string) *StateChangeBuilder {
-	b.base.TrustlineAsset = asset
-	return b
-}
-
 // WithTokenType sets the token type (SAC or CUSTOM)
 func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
 	b.base.ContractType = tokenType

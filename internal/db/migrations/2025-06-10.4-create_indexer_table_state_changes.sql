@@ -1,8 +1,6 @@
 -- +migrate Up
 
 -- Table: state_changes
--- Stores blockchain state changes with explicit typed columns instead of JSONB for predictable data.
--- Only key_value remains as JSONB for truly variable metadata (data entries, home domain).
 CREATE TABLE state_changes (
     to_id BIGINT NOT NULL,
     state_change_order BIGINT NOT NULL,

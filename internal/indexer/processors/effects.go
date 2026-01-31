@@ -418,14 +418,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 		}
-		baseBuilder = baseBuilder.WithToken(assetContractID).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer))
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 	}
 
 	var stateChange types.StateChange
 
-	// Note: XDR fields (balance, liabilities, flags) are NOT extracted here.
-	// TrustlinesProcessor handles balance tracking from ledger changes directly.
-	// This function only tracks trustline add/remove/update for state change history.
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
