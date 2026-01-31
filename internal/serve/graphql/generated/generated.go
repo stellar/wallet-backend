@@ -333,10 +333,10 @@ type ComplexityRoot struct {
 	TrustlineChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
-		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Limit           func(childComplexity int) int
+		LiquidityPoolID func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
@@ -468,7 +468,7 @@ type TrustlineChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error)
 	TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
 	Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
-	KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
+	LiquidityPoolID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
 }
 
 type executableSchema struct {
@@ -1868,13 +1868,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineChange.IngestedAt(childComplexity), true
 
-	case "TrustlineChange.keyValue":
-		if e.complexity.TrustlineChange.KeyValue == nil {
-			break
-		}
-
-		return e.complexity.TrustlineChange.KeyValue(childComplexity), true
-
 	case "TrustlineChange.ledgerCreatedAt":
 		if e.complexity.TrustlineChange.LedgerCreatedAt == nil {
 			break
@@ -1895,6 +1888,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.TrustlineChange.Limit(childComplexity), true
+
+	case "TrustlineChange.liquidityPoolId":
+		if e.complexity.TrustlineChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.complexity.TrustlineChange.LiquidityPoolID(childComplexity), true
 
 	case "TrustlineChange.operation":
 		if e.complexity.TrustlineChange.Operation == nil {
@@ -2521,7 +2521,7 @@ type TrustlineChange implements BaseStateChange {
 
   tokenId:                    String @goField(forceResolver: true)
   limit:                      String @goField(forceResolver: true)
-  keyValue:                   String
+  liquidityPoolId:            String
 }
 
 type ReservesChange implements BaseStateChange{
@@ -2538,7 +2538,7 @@ type ReservesChange implements BaseStateChange{
   sponsorAddress:           String @goField(forceResolver: true)
   liquidityPoolId:          String @goField(forceResolver: true)
   claimableBalanceId:       String @goField(forceResolver: true)
-  sponsoredTrustline:           String
+  sponsoredTrustline:       String
   sponsoredData:            String
   keyValue:                 String
 }
@@ -13106,8 +13106,8 @@ func (ec *executionContext) fieldContext_TrustlineChange_limit(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineChange_keyValue(ctx, field)
+func (ec *executionContext) _TrustlineChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_liquidityPoolId(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -13120,7 +13120,7 @@ func (ec *executionContext) _TrustlineChange_keyValue(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineChange().KeyValue(rctx, obj)
+		return ec.resolvers.TrustlineChange().LiquidityPoolID(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -13134,7 +13134,7 @@ func (ec *executionContext) _TrustlineChange_keyValue(ctx context.Context, field
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "TrustlineChange",
 		Field:      field,
@@ -19746,7 +19746,7 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "keyValue":
+		case "liquidityPoolId":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -19755,7 +19755,7 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineChange_keyValue(ctx, field, obj)
+				res = ec._TrustlineChange_liquidityPoolId(ctx, field, obj)
 				return res
 			}
 

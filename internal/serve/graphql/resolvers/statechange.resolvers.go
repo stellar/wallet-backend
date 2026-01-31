@@ -368,9 +368,9 @@ func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.Trustlin
 	return &result, nil
 }
 
-// KeyValue is the resolver for the keyValue field.
-func (r *trustlineChangeResolver) KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
-	return r.resolveJSONBField(obj.KeyValue)
+// LiquidityPoolID is the resolver for the liquidityPoolId field.
+func (r *trustlineChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
 }
 
 // AccountChange returns graphql1.AccountChangeResolver implementation.

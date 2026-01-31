@@ -109,7 +109,7 @@ type TrustlineChange implements BaseStateChange {
 
   tokenId:                    String @goField(forceResolver: true)
   limit:                      String @goField(forceResolver: true)
-  keyValue:                   String
+  liquidityPoolId:            String
 }
 
 type ReservesChange implements BaseStateChange{

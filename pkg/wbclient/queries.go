@@ -71,7 +71,7 @@ const (
 		... on TrustlineChange {
 			trustlineTokenId: tokenId
 			limit
-			trustlineKeyValue: keyValue
+			trustlineLiquidityPoolId: liquidityPoolId
 		}
 		... on ReservesChange {
 			sponsoredAddress

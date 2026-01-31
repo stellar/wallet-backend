@@ -249,13 +249,18 @@ func sumAmounts(suite *DataValidationTestSuite, sc *types.StateChangeConnection,
 }
 
 // validateTrustlineChangeDetailed validates a trustline state change with detailed checks
-func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.TrustlineChange, expectedAccount string, expectedTokenID string, expectedReason types.StateChangeReason) {
+func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.TrustlineChange, expectedAccount string, expectedTokenID string, expectedLiquidityPoolID string, expectedReason types.StateChangeReason) {
 	suite.Require().NotNil(tc, "trustline change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryTrustline, tc.GetType(), "should be TRUSTLINE type")
 	suite.Require().Equal(expectedReason, tc.GetReason(), "reason mismatch")
 	suite.Require().Equal(expectedAccount, tc.GetAccountID(), "account ID mismatch")
 	if expectedTokenID != "" {
+		suite.Require().NotNil(tc.TokenID, "token ID should not be nil")
 		suite.Require().Equal(expectedTokenID, *tc.TokenID, "token ID mismatch")
+	}
+	if expectedLiquidityPoolID != "" {
+		suite.Require().NotNil(tc.LiquidityPoolID, "liquidity pool ID should not be nil")
+		suite.Require().Equal(expectedLiquidityPoolID, *tc.LiquidityPoolID, "liquidity pool ID mismatch")
 	}
 	if expectedReason == types.StateChangeReasonAdd {
 		suite.Require().NotNil(tc.Limit, "limit should not be nil for ADD")
@@ -635,10 +640,10 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 		tc := edge.Node.(*types.TrustlineChange)
 
 		if tc.GetReason() == types.StateChangeReasonAdd {
-			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, types.StateChangeReasonAdd)
+			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, "", types.StateChangeReasonAdd)
 			foundAdd = true
 		} else if tc.GetReason() == types.StateChangeReasonRemove {
-			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, types.StateChangeReasonRemove)
+			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, "", types.StateChangeReasonRemove)
 			foundRemove = true
 		}
 	}
@@ -892,10 +897,10 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE")
 
 	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
-	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test1ContractAddress, types.StateChangeReasonAdd)
+	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test1ContractAddress, "", types.StateChangeReasonAdd)
 
 	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineChange)
-	validateTrustlineChange(suite, trustlineRemoveChange, secondaryAccount, test1ContractAddress, types.StateChangeReasonRemove)
+	validateTrustlineChange(suite, trustlineRemoveChange, secondaryAccount, test1ContractAddress, "", types.StateChangeReasonRemove)
 
 	// 6. BALANCE STATE CHANGES VALIDATION
 	// Validate counts
@@ -1236,7 +1241,7 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	// 3. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
 	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
-	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test3ContractAddress, types.StateChangeReasonAdd)
+	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test3ContractAddress, "", types.StateChangeReasonAdd)
 
 	// 4. BALANCE_AUTHORIZATION STATE CHANGES VALIDATION
 	// Secondary account should have 2 BALANCE_AUTHORIZATION/SET changes:
@@ -1611,21 +1616,21 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	suite.Require().NotNil(balanceBurn, "BALANCE/BURN should not be nil")
 
 	// 3. BALANCE_AUTHORIZATION VALIDATION
-	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags, null tokenId and pool ID in keyValue
+	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags, null tokenId and pool ID
 	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for liquidity pool")
 	balanceAuth := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
 	suite.Require().Equal(suite.testEnv.LiquidityPoolID, *balanceAuth.LiquidityPoolID, "balance auth change liquidity pool ID does not match")
 	validateBalanceAuthorizationChange(suite, balanceAuth, primaryAccount, types.StateChangeReasonSet, []string{}, "")
 
 	// 4. TRUSTLINE VALIDATION
-	// LP trustlines should have null tokenId and pool ID in keyValue
+	// LP trustlines should have null tokenId and pool ID in liquidityPoolId
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD for liquidity pool")
 	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
-	validateTrustlineChange(suite, trustlineAddChange, primaryAccount, "", types.StateChangeReasonAdd)
+	validateTrustlineChange(suite, trustlineAddChange, primaryAccount, "", suite.testEnv.LiquidityPoolID, types.StateChangeReasonAdd)
 
 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE for liquidity pool")
 	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineChange)
-	validateTrustlineChange(suite, trustlineRemoveChange, primaryAccount, "", types.StateChangeReasonRemove)
+	validateTrustlineChange(suite, trustlineRemoveChange, primaryAccount, "", suite.testEnv.LiquidityPoolID, types.StateChangeReasonRemove)
 
 	// 5. BALANCE CHANGES VALIDATION
 	// DEBIT: XLM deposited into pool (amount = 1000000000)

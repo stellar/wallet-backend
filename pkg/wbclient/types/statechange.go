@@ -99,9 +99,9 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
-	TokenID  *string `json:"trustlineTokenId,omitempty"`
-	Limit    *string `json:"limit,omitempty"`
-	KeyValue *string `json:"trustlineKeyValue,omitempty"`
+	TokenID         *string `json:"trustlineTokenId,omitempty"`
+	Limit           *string `json:"limit,omitempty"`
+	LiquidityPoolID *string `json:"trustlineLiquidityPoolId,omitempty"`
 }
 
 // ReservesChange represents a reserves state change

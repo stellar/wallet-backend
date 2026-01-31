@@ -180,6 +180,33 @@ func TestStateChangeResolver_TypedFields(t *testing.T) {
 		assert.JSONEq(t, `{"old": null, "new": "5000000"}`, *jsonStr)
 	})
 
+	t.Run("trustline liquidity pool id valid", func(t *testing.T) {
+		resolver := &trustlineChangeResolver{&Resolver{}}
+		obj := &types.TrustlineStateChangeModel{
+			StateChange: types.StateChange{
+				LiquidityPoolID: sql.NullString{String: "abc123poolid", Valid: true},
+			},
+		}
+
+		result, err := resolver.LiquidityPoolID(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "abc123poolid", *result)
+	})
+
+	t.Run("trustline liquidity pool id null when invalid", func(t *testing.T) {
+		resolver := &trustlineChangeResolver{&Resolver{}}
+		obj := &types.TrustlineStateChangeModel{
+			StateChange: types.StateChange{
+				LiquidityPoolID: sql.NullString{Valid: false},
+			},
+		}
+
+		result, err := resolver.LiquidityPoolID(ctx, obj)
+		require.NoError(t, err)
+		require.Nil(t, result)
+	})
+
 	t.Run("key value", func(t *testing.T) {
 		resolver := &metadataChangeResolver{&Resolver{}}
 		obj := &types.MetadataStateChangeModel{
