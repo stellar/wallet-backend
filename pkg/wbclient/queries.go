@@ -71,17 +71,21 @@ const (
 		... on TrustlineChange {
 			trustlineTokenId: tokenId
 			limit
-			trustlineKeyValue: keyValue
+			trustlineLiquidityPoolId: liquidityPoolId
 		}
 		... on ReservesChange {
 			sponsoredAddress
 			sponsorAddress
+			sponsoredData
+			sponsoredTrustline
+			claimableBalanceId
+			liquidityPoolId
 			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId
+			balanceAuthLiquidityPoolId: liquidityPoolId
 			flags
-			balanceAuthKeyValue: keyValue
 		}
 	`
 )

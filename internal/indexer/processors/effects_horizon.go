@@ -339,7 +339,7 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		}
 	case xdr.LedgerEntryTypeData:
 		muxedAccount = e.operation.SourceAccount()
-		details["data_name"] = data.MustData().DataName
+		details["data_name"] = string(data.MustData().DataName)
 	case xdr.LedgerEntryTypeClaimableBalance:
 		muxedAccount = e.operation.SourceAccount()
 		var err error
@@ -665,7 +665,7 @@ func setTrustLineFlagDetails(flagDetails map[string]interface{}, flags xdr.Trust
 		flagDetails["authorized_flag"] = setValue
 	}
 	if flags.IsAuthorizedToMaintainLiabilitiesFlag() {
-		flagDetails["authorized_to_maintain_liabilites"] = setValue
+		flagDetails["authorized_to_maintain_liabilities"] = setValue
 	}
 	if flags.IsClawbackEnabledFlag() {
 		flagDetails["clawback_enabled_flag"] = setValue
