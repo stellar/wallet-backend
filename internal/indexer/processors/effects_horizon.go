@@ -339,7 +339,7 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		}
 	case xdr.LedgerEntryTypeData:
 		muxedAccount = e.operation.SourceAccount()
-		details["data_name"] = data.MustData().DataName
+		details["data_name"] = string(data.MustData().DataName)
 	case xdr.LedgerEntryTypeClaimableBalance:
 		muxedAccount = e.operation.SourceAccount()
 		var err error
