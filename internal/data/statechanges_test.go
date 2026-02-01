@@ -22,7 +22,7 @@ import (
 
 // generateTestStateChanges creates n test state changes for benchmarking.
 // Populates all fields to provide an upper-bound benchmark.
-func generateTestStateChanges(n int, txHash string, accountID string, startToID int64) []types.StateChange {
+func generateTestStateChanges(n int, accountID string, startToID int64) []types.StateChange {
 	scs := make([]types.StateChange, n)
 	now := time.Now()
 	reason := types.StateChangeReasonCredit
@@ -1171,7 +1171,7 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
 				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size))
 				b.StartTimer()
 
 				_, err := m.BatchInsert(ctx, nil, scs)
@@ -1239,7 +1239,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size))
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)
