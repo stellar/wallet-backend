@@ -55,9 +55,9 @@ var (
 	}
 	// trustlineFlags defines the Stellar trustline flags we track for asset authorization states
 	trustlineFlags = []string{
-		"authorized_flag",
-		"authorized_to_maintain_liabilites",
-		"clawback_enabled_flag",
+		"authorized",
+		"authorized_to_maintain_liabilities",
+		"clawback_enabled",
 	}
 )
 
@@ -634,31 +634,11 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	var setFlags, clearFlags []string
 
 	for _, flag := range flags {
-		flagName := flag
-		// We dont want to use the "_flag" suffix for the flag names
-		if flag == "authorized_flag" {
-			flagName = AuthorizedFlagName
-		}
-		if flag == "clawback_enabled_flag" {
-			flagName = ClawbackEnabledFlagName
-		}
-		if flag == "auth_required_flag" {
-			flagName = AuthorizedRequiredFlagName
-		}
-		if flag == "auth_revocable_flag" {
-			flagName = AuthorizedRevocableFlagName
-		}
-		if flag == "auth_immutable_flag" {
-			flagName = AuthorizedImmutableFlagName
-		}
-		if flag == "auth_clawback_enabled_flag" {
-			flagName = AuthorizedClawbackEnabledFlagName
-		}
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {
-				setFlags = append(setFlags, flagName)
+				setFlags = append(setFlags, flag)
 			} else {
-				clearFlags = append(clearFlags, flagName)
+				clearFlags = append(clearFlags, flag)
 			}
 		}
 	}

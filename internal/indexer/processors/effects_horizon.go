@@ -662,27 +662,27 @@ func (e *effectsWrapper) addTrustLineFlagsEffect(
 
 func setTrustLineFlagDetails(flagDetails map[string]interface{}, flags xdr.TrustLineFlags, setValue bool) {
 	if flags.IsAuthorized() {
-		flagDetails["authorized_flag"] = setValue
+		flagDetails["authorized"] = setValue
 	}
 	if flags.IsAuthorizedToMaintainLiabilitiesFlag() {
 		flagDetails["authorized_to_maintain_liabilities"] = setValue
 	}
 	if flags.IsClawbackEnabledFlag() {
-		flagDetails["clawback_enabled_flag"] = setValue
+		flagDetails["clawback_enabled"] = setValue
 	}
 }
 
 func setAuthFlagDetails(flagDetails map[string]interface{}, flags xdr.AccountFlags, setValue bool) {
 	if flags.IsAuthRequired() {
-		flagDetails["auth_required_flag"] = setValue
+		flagDetails["auth_required"] = setValue
 	}
 	if flags.IsAuthRevocable() {
-		flagDetails["auth_revocable_flag"] = setValue
+		flagDetails["auth_revocable"] = setValue
 	}
 	if flags.IsAuthImmutable() {
-		flagDetails["auth_immutable_flag"] = setValue
+		flagDetails["auth_immutable"] = setValue
 	}
 	if flags.IsAuthClawbackEnabled() {
-		flagDetails["auth_clawback_enabled_flag"] = setValue
+		flagDetails["auth_clawback_enabled"] = setValue
 	}
 }
