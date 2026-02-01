@@ -92,14 +92,14 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		TxHash:    obj.Hash,
+		ToID:      obj.ToID,
 		Columns:   strings.Join(dbColumns, ", "),
 		Limit:     &queryLimit,
 		Cursor:    params.StateChangeCursor,
 		SortOrder: params.SortOrder,
 	}
 
-	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
+	stateChanges, err := loaders.StateChangesByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
