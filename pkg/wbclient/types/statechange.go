@@ -113,7 +113,6 @@ type ReservesChange struct {
 	SponsoredTrustline *string `json:"sponsoredTrustline,omitempty"`
 	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
 	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
-	KeyValue           *string `json:"reservesKeyValue,omitempty"`
 }
 
 // BalanceAuthorizationChange represents a balance authorization state change

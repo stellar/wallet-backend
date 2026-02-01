@@ -128,7 +128,6 @@ type ReservesChange implements BaseStateChange{
   claimableBalanceId:       String @goField(forceResolver: true)
   sponsoredTrustline:       String
   sponsoredData:            String
-  keyValue:                 String
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{

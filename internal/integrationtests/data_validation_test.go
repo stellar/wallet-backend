@@ -195,24 +195,13 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 
 // validateReservesChange validates a reserves state change
 func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string,
-	expectedReason types.StateChangeReason, expectedSponsorAddress string, expectedKey string, expectedValue string,
+	expectedReason types.StateChangeReason, expectedSponsorAddress string,
 ) {
 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
 	suite.Require().Equal(expectedReason, rc.GetReason(), "reason mismatch")
 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
 	suite.Require().Equal(expectedSponsorAddress, *rc.SponsorAddress, "sponsor address mismatch")
-
-	// Decode the key value
-	if expectedKey != "" && expectedValue != "" {
-		suite.Require().NotNil(rc.KeyValue, "key value should not be nil")
-		var result map[string]string
-		err := json.Unmarshal([]byte(*rc.KeyValue), &result)
-		suite.Require().NoError(err, "failed to unmarshal key value", rc.KeyValue)
-		value, ok := result[expectedKey]
-		suite.Require().True(ok, "key should exist in the result")
-		suite.Require().Equal(expectedValue, value, "value does not match in the result")
-	}
 }
 
 func validateReservesSponsorshipChangeForSponsoringAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string,
@@ -492,7 +481,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	// 1 RESERVES/SPONSOR change for sponsored account - sponsorship begin
 	suite.Require().Len(sponsoredReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsored account")
 	reserveChange := sponsoredReservesChanges.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonSponsor, primaryAccount, "", "")
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonSponsor, primaryAccount)
 
 	// 1 RESERVES/SPONSOR change for sponsoring account - sponsorship begin
 	suite.Require().Len(primaryReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
@@ -1032,7 +1021,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	// 5. RESERVES/UNSPONSOR STATE CHANGES VALIDATION FOR SPONSORED ACCOUNT
 	suite.Require().Len(sponsoredReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsored account")
 	sponsoredReservesChange := sponsoredReservesUnsponsorChanges.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount, "", "")
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount)
 
 	// Validate BALANCE/DEBIT change
 	suite.Require().Len(balanceDebitChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT change")
@@ -1042,7 +1031,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	// Validate RESERVES/UNSPONSOR for sponsored account
 	suite.Require().Len(sponsoredReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsored account")
 	sponsoredReservesChange = sponsoredReservesUnsponsorChanges.Edges[0].Node.(*types.ReservesChange)
-	validateReservesSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount, "", "")
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount)
 
 	// Validate RESERVES/UNSPONSOR for sponsor account
 	suite.Require().Len(sponsorReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor account")

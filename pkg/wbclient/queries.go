@@ -80,7 +80,6 @@ const (
 			sponsoredTrustline
 			claimableBalanceId
 			liquidityPoolId
-			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId
