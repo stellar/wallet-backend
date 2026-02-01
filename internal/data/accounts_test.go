@@ -390,8 +390,8 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	ctx := context.Background()
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	toID1 := int64(100)
-	toID2 := int64(200)
+	toID1 := int64(4096)
+	toID2 := int64(8192)
 	stateChangeOrder1 := int64(1)
 	stateChangeOrder2 := int64(1)
 
@@ -430,6 +430,6 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	for _, acc := range accounts {
 		addressSet[acc.StellarAddress] = acc.StateChangeID
 	}
-	assert.Equal(t, "100-1", addressSet[address1])
-	assert.Equal(t, "200-1", addressSet[address2])
+	assert.Equal(t, "4096-1", addressSet[address1])
+	assert.Equal(t, "8192-1", addressSet[address2])
 }
