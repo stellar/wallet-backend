@@ -446,7 +446,6 @@ type StateChange struct {
 
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }

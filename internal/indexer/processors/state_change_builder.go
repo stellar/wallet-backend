@@ -25,7 +25,7 @@ func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int6
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TxID:            txID,
+			ToID: txID,
 		},
 		metricsService: metricsService,
 	}
@@ -166,14 +166,6 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	// ToID always stores the transaction's to_id.
-	// For operation changes: derive from operation_id using TOID bitmasking (clear lower 12 bits)
-	// For fee changes (no operation_id): use the transaction's to_id directly
-	if b.base.OperationID != 0 {
-		b.base.ToID = b.base.OperationID &^ 0xFFF
-	} else {
-		b.base.ToID = b.base.TxID
-	}
 	b.base.SortKey = b.generateSortKey()
 
 	return b.base
