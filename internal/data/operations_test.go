@@ -431,7 +431,6 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	op1 := types.Operation{
 		ID:              999,
-		TxHash:          "tx_for_dup_test",
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "operation_xdr_dup_test",
 		LedgerNumber:    1,
@@ -579,85 +578,85 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name              string
-		toIDs             []int64
-		limit             *int32
-		sortOrder         SortOrder
-		expectedCount     int
+		name               string
+		toIDs              []int64
+		limit              *int32
+		sortOrder          SortOrder
+		expectedCount      int
 		expectedToIDCounts map[int64]int // Maps tx_to_id to expected op count
-		expectMetricCalls int
+		expectMetricCalls  int
 	}{
 		{
-			name:              "🟢 basic functionality with multiple ToIDs",
-			toIDs:             []int64{4096, 8192},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     5, // 3 ops for tx1 + 2 ops for tx2
+			name:               "🟢 basic functionality with multiple ToIDs",
+			toIDs:              []int64{4096, 8192},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      5, // 3 ops for tx1 + 2 ops for tx2
 			expectedToIDCounts: map[int64]int{4096: 3, 8192: 2},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 with limit parameter",
-			toIDs:             []int64{4096, 8192},
-			limit:             int32Ptr(2),
-			sortOrder:         ASC,
-			expectedCount:     4, // 2 ops per ToID (limited by ROW_NUMBER)
+			name:               "🟢 with limit parameter",
+			toIDs:              []int64{4096, 8192},
+			limit:              int32Ptr(2),
+			sortOrder:          ASC,
+			expectedCount:      4, // 2 ops per ToID (limited by ROW_NUMBER)
 			expectedToIDCounts: map[int64]int{4096: 2, 8192: 2},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 DESC sort order",
-			toIDs:             []int64{4096},
-			limit:             nil,
-			sortOrder:         DESC,
-			expectedCount:     3,
+			name:               "🟢 DESC sort order",
+			toIDs:              []int64{4096},
+			limit:              nil,
+			sortOrder:          DESC,
+			expectedCount:      3,
 			expectedToIDCounts: map[int64]int{4096: 3},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 single transaction",
-			toIDs:             []int64{12288},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     1,
+			name:               "🟢 single transaction",
+			toIDs:              []int64{12288},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      1,
 			expectedToIDCounts: map[int64]int{12288: 1},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 empty ToIDs array",
-			toIDs:             []int64{},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     0,
+			name:               "🟡 empty ToIDs array",
+			toIDs:              []int64{},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      0,
 			expectedToIDCounts: map[int64]int{},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 non-existent ToID",
-			toIDs:             []int64{99999},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     0,
+			name:               "🟡 non-existent ToID",
+			toIDs:              []int64{99999},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      0,
 			expectedToIDCounts: map[int64]int{},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 mixed existing and non-existent ToIDs",
-			toIDs:             []int64{4096, 99999, 8192},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     5,
+			name:               "🟡 mixed existing and non-existent ToIDs",
+			toIDs:              []int64{4096, 99999, 8192},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      5,
 			expectedToIDCounts: map[int64]int{4096: 3, 8192: 2},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 limit smaller than operations per transaction",
-			toIDs:             []int64{4096},
-			limit:             int32Ptr(1),
-			sortOrder:         ASC,
-			expectedCount:     1, // Only first operation due to ROW_NUMBER ranking
+			name:               "🟢 limit smaller than operations per transaction",
+			toIDs:              []int64{4096},
+			limit:              int32Ptr(1),
+			sortOrder:          ASC,
+			expectedCount:      1, // Only first operation due to ROW_NUMBER ranking
 			expectedToIDCounts: map[int64]int{4096: 1},
-			expectMetricCalls: 1,
+			expectMetricCalls:  1,
 		},
 	}
 
@@ -681,7 +680,7 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 			// Verify operations are for correct ToIDs by deriving tx_to_id from operation ID
 			toIDsFound := make(map[int64]int)
 			for _, op := range operations {
-				txToID := op.ID & 0xFFFFFFFFFFFFF000 // Derive tx_to_id using TOID bit masking
+				txToID := op.ID &^ 0xFFF // Derive tx_to_id using TOID bit masking
 				toIDsFound[txToID]++
 			}
 			assert.Equal(t, tc.expectedToIDCounts, toIDsFound)
@@ -690,7 +689,7 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 			if len(operations) > 0 {
 				operationsByToID := make(map[int64][]*types.OperationWithCursor)
 				for _, op := range operations {
-					txToID := op.ID & 0xFFFFFFFFFFFFF000
+					txToID := op.ID &^ 0xFFF
 					operationsByToID[txToID] = append(operationsByToID[txToID], op)
 				}
 

@@ -509,13 +509,12 @@ func createTestTransaction(hash string, toID int64) types.Transaction {
 }
 
 // createTestOperation creates an operation with required fields for testing.
-func createTestOperation(id int64, txHash string) types.Operation {
+func createTestOperation(id int64) types.Operation {
 	now := time.Now()
 	return types.Operation{
 		ID:              id,
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "test_operation_xdr",
-		TxHash:          txHash,
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,
 		IngestedAt:      now,
@@ -1144,8 +1143,8 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("flush_tx_1", 1)
 				tx2 := createTestTransaction("flush_tx_2", 2)
-				op1 := createTestOperation(200, "flush_tx_1")
-				op2 := createTestOperation(201, "flush_tx_2")
+				op1 := createTestOperation(200)
+				op2 := createTestOperation(201)
 				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "flush_tx_1", 200)
 				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "flush_tx_2", 201)
 
@@ -1356,8 +1355,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
 				tx2 := createTestTransaction("tx_hash_2", 2)
-				op1 := createTestOperation(100, "tx_hash_1")
-				op2 := createTestOperation(101, "tx_hash_2")
+				op1 := createTestOperation(100)
+				op2 := createTestOperation(101)
 				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
 				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_2", 101)
 
@@ -1380,7 +1379,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
-				op1 := createTestOperation(100, "tx_hash_1")
+				op1 := createTestOperation(100)
 				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
 
 				// Tx has 2 participants but only 1 is registered
@@ -1409,8 +1408,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1) // Has registered
 				tx2 := createTestTransaction("tx_hash_2", 2) // No registered
-				op1 := createTestOperation(100, "tx_hash_1")
-				op2 := createTestOperation(101, "tx_hash_2")
+				op1 := createTestOperation(100)
+				op2 := createTestOperation(101)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
@@ -1443,7 +1442,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
-				op1 := createTestOperation(100, "tx_hash_1")
+				op1 := createTestOperation(100)
 
 				// 3 state changes: 2 for registered accounts, 1 for unregistered
 				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)

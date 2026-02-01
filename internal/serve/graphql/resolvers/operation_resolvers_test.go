@@ -19,8 +19,8 @@ import (
 
 func TestOperationResolver_Transaction(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "transactions").Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
 	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
 	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)

@@ -110,13 +110,17 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+// Uses TOID bit masking to derive tx_to_id from operation ID (operation_id &^ 0xFFF).
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+	// Join operations to transactions using TOID encoding:
+	// An operation ID's lower 12 bits encode the operation index within the transaction.
+	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON o.tx_hash = transactions.hash 
+		ON (o.id & ~x'FFF'::bigint) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
