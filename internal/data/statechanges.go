@@ -299,7 +299,7 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($17::text[]) AS funder_account_id,
 				UNNEST($18::text[]) AS claimable_balance_id,
 				UNNEST($19::text[]) AS liquidity_pool_id,
-				UNNEST($20::text[]) AS data_name,
+				UNNEST($20::text[]) AS sponsored_data,
 				UNNEST($21::smallint[]) AS signer_weight_old,
 				UNNEST($22::smallint[]) AS signer_weight_new,
 				UNNEST($23::smallint[]) AS threshold_old,
@@ -314,14 +314,14 @@ func (m *StateChangeModel) BatchInsert(
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				signer_account_id, spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, claimable_balance_id, liquidity_pool_id, data_name,
+				deployer_account_id, funder_account_id, claimable_balance_id, liquidity_pool_id, sponsored_data,
 				signer_weight_old, signer_weight_new, threshold_old, threshold_new,
 				trustline_limit_old, trustline_limit_new, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
 				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
 				sc.signer_account_id, sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
-				sc.deployer_account_id, sc.funder_account_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.data_name,
+				sc.deployer_account_id, sc.funder_account_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.sponsored_data,
 				sc.signer_weight_old, sc.signer_weight_new, sc.threshold_old, sc.threshold_new,
 				sc.trustline_limit_old, sc.trustline_limit_new, sc.flags, sc.key_value
 			FROM input_data sc
