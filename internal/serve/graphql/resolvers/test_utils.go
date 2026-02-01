@@ -70,7 +70,6 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		for j := range 2 {
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
-				TxHash:          txn.Hash,
 				OperationType:   "PAYMENT",
 				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
 				ResultCode:      "op_success",
@@ -98,12 +97,24 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				reason = &addReason
 			}
 
+			// Derive tx_hash from operation ID using TOID parsing
+			parsed := toid.Parse(op.ID)
+			txToID := toid.New(parsed.LedgerSequence, parsed.TransactionOrder, 0).ToInt64()
+			// Find the transaction hash for this operation
+			var txHash string
+			for _, txn := range txns {
+				if txn.ToID == txToID {
+					txHash = txn.Hash
+					break
+				}
+			}
+
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
-				TxHash:              op.TxHash,
+				TxHash:              txHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
 				LedgerCreatedAt:     time.Now(),
@@ -146,8 +157,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, op := range ops {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				op.ID, op.TxHash, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
+				`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				op.ID, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,

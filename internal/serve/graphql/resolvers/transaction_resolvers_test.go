@@ -20,8 +20,8 @@ import (
 
 func TestTransactionResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
@@ -32,7 +32,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "tx1"}
+	// ToID=toid.New(1000, 1, 0) matches the test data setup in test_utils.go (testLedger=1000, i=0)
+	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -56,7 +57,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("transaction with no operations", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 999999}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 

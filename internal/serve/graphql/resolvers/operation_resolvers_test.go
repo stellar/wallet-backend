@@ -56,7 +56,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("operation with non-existent transaction", func(t *testing.T) {
-		nonExistentOperation := &types.Operation{ID: 9999, TxHash: "non-existent-tx"}
+		nonExistentOperation := &types.Operation{ID: 9999}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
