@@ -69,10 +69,10 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 	// This prevents N+1 queries when multiple transactions request their operations
 	// The loader groups multiple requests and executes them in a single database query
 	loaderKey := dataloaders.AccountColumnsKey{
-		TxHash:  obj.Hash,
+		ToID:    obj.ToID,
 		Columns: strings.Join(dbColumns, ", "),
 	}
-	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, loaderKey)
+	accounts, err := loaders.AccountsByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
