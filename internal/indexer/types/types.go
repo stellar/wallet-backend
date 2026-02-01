@@ -122,9 +122,9 @@ type Account struct {
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
 }
 
-type AccountWithTxHash struct {
+type AccountWithToID struct {
 	Account
-	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+	ToID int64 `json:"toId,omitempty" db:"tx_to_id"`
 }
 
 type AccountWithOperationID struct {
