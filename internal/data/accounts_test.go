@@ -411,10 +411,10 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, `
 		INSERT INTO state_changes (
 			to_id, state_change_order, state_change_category, ledger_created_at,
-			ledger_number, account_id, operation_id, tx_hash
+			ledger_number, account_id, operation_id
 		) VALUES
-		($1, $2, 'BALANCE', NOW(), 1, $3, 4097, 'tx1'),
-		($4, $5, 'BALANCE', NOW(), 2, $6, 8193, 'tx2')
+		($1, $2, 'BALANCE', NOW(), 1, $3, 4097),
+		($4, $5, 'BALANCE', NOW(), 2, $6, 8193)
 	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
 	require.NoError(t, err)
 
