@@ -154,23 +154,23 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	return exists, nil
 }
 
-// BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
-func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
+// BatchGetByToIDs gets the accounts that are associated with the given transaction ToIDs.
+func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string) ([]*types.AccountWithToID, error) {
 	query := `
-		SELECT account_id AS stellar_address, tx_hash
+		SELECT account_id AS stellar_address, tx_to_id
 		FROM transactions_accounts
-		WHERE tx_hash = ANY($1)`
-	var accounts []*types.AccountWithTxHash
+		WHERE tx_to_id = ANY($1)`
+	var accounts []*types.AccountWithToID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(toIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHashes", "accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByTxHashes", "accounts", len(txHashes))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "accounts", len(toIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHashes", "accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting accounts by transaction hashes: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHashes", "accounts")
+	m.MetricsService.IncDBQuery("BatchGetByToIDs", "accounts")
 	return accounts, nil
 }
 
