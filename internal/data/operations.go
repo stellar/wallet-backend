@@ -78,31 +78,34 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	return operations, nil
 }
 
-// BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+// BatchGetByToIDs gets the operations that are associated with the given transaction ToIDs.
+// Operations for a transaction are found using TOID range: (tx_to_id, tx_to_id + 4096).
+func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all operations from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// transactions, we use ROW_NUMBER() with PARTITION BY to limit results per transaction.
 	// This guarantees that each transaction gets at most 'limit' operations, providing
 	// more balanced and predictable pagination across multiple transactions.
+	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
 	query := `
 		WITH
-			inputs (tx_hash) AS (
-				SELECT * FROM UNNEST($1::text[])
+			inputs (to_id) AS (
+				SELECT * FROM UNNEST($1::bigint[])
 			),
-			
-			ranked_operations_per_tx_hash AS (
+
+			ranked_operations_per_to_id AS (
 				SELECT
 					o.*,
-					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
-				FROM 
+					i.to_id as tx_to_id,
+					ROW_NUMBER() OVER (PARTITION BY i.to_id ORDER BY o.id %s) AS rn
+				FROM
 					operations o
-				JOIN 
-					inputs i ON o.tx_hash = i.tx_hash
+				JOIN
+					inputs i ON o.id > i.to_id AND o.id < i.to_id + 4096
 			)
-		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+		SELECT %s, id as cursor FROM ranked_operations_per_to_id
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -115,25 +118,27 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(toIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHashes", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByTxHashes", "operations", len(txHashes))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "operations", len(toIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHashes", "operations", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting operations by tx hashes: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "operations", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting operations by to_ids: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHashes", "operations")
+	m.MetricsService.IncDBQuery("BatchGetByToIDs", "operations")
 	return operations, nil
 }
 
-// BatchGetByTxHash gets operations for a single transaction with pagination support.
-func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+// BatchGetByToID gets operations for a single transaction ToID with pagination support.
+// Operations for a transaction are found using TOID range: (tx_to_id, tx_to_id + 4096).
+func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
+	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
 
-	args := []interface{}{txHash}
+	args := []interface{}{toID}
 	argIndex := 2
 
 	if cursor != nil {
@@ -166,12 +171,12 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, co
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHash", "operations", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHash", "operations", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToID", "operations", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting paginated operations by to_id: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHash", "operations")
+	m.MetricsService.IncDBQuery("BatchGetByToID", "operations")
 	return operations, nil
 }
 
