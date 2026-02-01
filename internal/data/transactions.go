@@ -150,7 +150,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
 		FROM transactions
-		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
+		INNER JOIN state_changes sc ON transactions.to_id = sc.to_id
 		WHERE (sc.to_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
