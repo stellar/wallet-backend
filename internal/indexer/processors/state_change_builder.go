@@ -25,7 +25,7 @@ func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int6
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			ToID: txID,
+			ToID:            txID,
 		},
 		metricsService: metricsService,
 	}

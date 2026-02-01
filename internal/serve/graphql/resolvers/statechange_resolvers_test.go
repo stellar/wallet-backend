@@ -238,9 +238,12 @@ func TestStateChangeResolver_Account(t *testing.T) {
 			},
 		},
 	}}
+	opID := toid.New(1000, 1, 1).ToInt64()
+	txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id using TOID bitmask
 	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
-			ToID:                toid.New(1000, 1, 1).ToInt64(),
+			ToID:                txToID,
+			OperationID:         opID,
 			StateChangeOrder:    1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
@@ -268,6 +271,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
+				OperationID:         0,
 				StateChangeOrder:    1,
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
@@ -296,9 +300,12 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
+	opID := toid.New(1000, 1, 1).ToInt64()
+	txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id using TOID bitmask
 	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
-			ToID:                toid.New(1000, 1, 1).ToInt64(),
+			ToID:                txToID,
+			OperationID:         opID,
 			StateChangeOrder:    1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
@@ -326,6 +333,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
+				OperationID:         0,
 				StateChangeOrder:    1,
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},

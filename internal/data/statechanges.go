@@ -96,9 +96,11 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	query := queryBuilder.String()
 
-	// For backward pagination, wrap query to reverse the final order
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -146,8 +148,11 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 
 	query := queryBuilder.String()
 
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -490,8 +495,11 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 
 	query := queryBuilder.String()
 
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -538,8 +546,11 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	}
 	query := queryBuilder.String()
 
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -594,8 +605,11 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 
 	query := queryBuilder.String()
 
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -641,9 +655,14 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
 	}
 	query := queryBuilder.String()
+
+	// For backward pagination, wrap query to reverse the final order.
+	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, operation_id ASC, state_change_order ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
+
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
