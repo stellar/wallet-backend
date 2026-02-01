@@ -106,7 +106,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
