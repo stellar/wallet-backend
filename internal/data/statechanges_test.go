@@ -147,13 +147,13 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟢successful_insert_without_dbTx",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc2},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d", sc2.ToID, sc2.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d-%d", sc2.ToID, sc2.OperationID, sc2.StateChangeOrder)},
 		},
 		{
 			name:         "🟢successful_insert_with_dbTx",
 			useDBTx:      true,
 			stateChanges: []types.StateChange{sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
 		},
 		{
 			name:         "🟢empty_input",
@@ -165,7 +165,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟡duplicate_state_change",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
 		},
 	}
 
@@ -208,7 +208,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 
 			// Verify from DB
 			var dbInsertedIDs []string
-			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', state_change_order) FROM state_changes")
+			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes")
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tc.wantIDs, dbInsertedIDs)
 
@@ -383,7 +383,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 
 			// Verify from DB
 			var dbInsertedIDs []string
-			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
+			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
@@ -1100,12 +1100,12 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
-		cursor := &types.StateChangeCursor{ToID: 1, StateChangeOrder: 1}
+		cursor := &types.StateChangeCursor{ToID: 1, OperationID: 123, StateChangeOrder: 1}
 		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		// Should get results after cursor (to_id=1, state_change_order=1)
+		// Should get results after cursor (to_id=1, operation_id=123, state_change_order=1)
 		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
 		assert.Equal(t, int64(3), stateChanges[1].StateChangeOrder)
 	})

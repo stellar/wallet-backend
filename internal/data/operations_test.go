@@ -938,18 +938,18 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096, 8192, 12288}, []int64{1, 1, 1}, "")
+	operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096, 8192, 12288}, []int64{4097, 8193, 4097}, []int64{1, 1, 1}, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
-	// Verify operations are for correct state change IDs
+	// Verify operations are for correct state change IDs (format: to_id-operation_id-state_change_order)
 	stateChangeIDsFound := make(map[string]int64)
 	for _, op := range operations {
 		stateChangeIDsFound[op.StateChangeID] = op.ID
 	}
-	assert.Equal(t, int64(4097), stateChangeIDsFound["4096-1"])
-	assert.Equal(t, int64(8193), stateChangeIDsFound["8192-1"])
-	assert.Equal(t, int64(4097), stateChangeIDsFound["12288-1"])
+	assert.Equal(t, int64(4097), stateChangeIDsFound["4096-4097-1"])
+	assert.Equal(t, int64(8193), stateChangeIDsFound["8192-8193-1"])
+	assert.Equal(t, int64(4097), stateChangeIDsFound["12288-4097-1"])
 }
 
 func BenchmarkOperationModel_BatchInsert(b *testing.B) {

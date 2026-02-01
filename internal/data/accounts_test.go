@@ -420,16 +420,17 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 
 	// Test BatchGetByStateChangeIDs function
 	scToIDs := []int64{toID1, toID2}
+	scOpIDs := []int64{4097, 8193}
 	scOrders := []int64{stateChangeOrder1, stateChangeOrder2}
-	accounts, err := m.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, "")
+	accounts, err := m.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, "")
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 
-	// Verify accounts are returned with correct state_change_id
+	// Verify accounts are returned with correct state_change_id (format: to_id-operation_id-state_change_order)
 	addressSet := make(map[string]string)
 	for _, acc := range accounts {
 		addressSet[acc.StellarAddress] = acc.StateChangeID
 	}
-	assert.Equal(t, "4096-1", addressSet[address1])
-	assert.Equal(t, "8192-1", addressSet[address2])
+	assert.Equal(t, "4096-4097-1", addressSet[address1])
+	assert.Equal(t, "8192-8193-1", addressSet[address2])
 }

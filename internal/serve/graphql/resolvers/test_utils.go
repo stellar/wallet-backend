@@ -98,7 +98,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			}
 
 			stateChanges = append(stateChanges, &types.StateChange{
-				ToID:                op.ID,
+				ToID:                op.ID &^ 0xFFF, // Derive transaction to_id from operation_id using TOID bitmask
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
