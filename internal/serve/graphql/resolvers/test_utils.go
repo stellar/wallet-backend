@@ -97,24 +97,11 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				reason = &addReason
 			}
 
-			// Derive tx_hash from operation ID using TOID parsing
-			parsed := toid.Parse(op.ID)
-			txToID := toid.New(parsed.LedgerSequence, parsed.TransactionOrder, 0).ToInt64()
-			// Find the transaction hash for this operation
-			var txHash string
-			for _, txn := range txns {
-				if txn.ToID == txToID {
-					txHash = txn.Hash
-					break
-				}
-			}
-
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
-				TxHash:              txHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
 				LedgerCreatedAt:     time.Now(),
@@ -130,7 +117,6 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
 			LedgerNumber:        1000,
@@ -169,8 +155,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, sc := range stateChanges {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil

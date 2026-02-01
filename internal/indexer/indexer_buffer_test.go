@@ -12,13 +12,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func buildStateChange(toID int64, reason types.StateChangeReason, accountID string, txHash string, operationID int64) types.StateChange {
+func buildStateChange(toID int64, reason types.StateChangeReason, accountID string, operationID int64) types.StateChange {
 	return types.StateChange{
 		ToID:                toID,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           accountID,
-		TxHash:              txHash,
 		OperationID:         operationID,
 		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
@@ -205,12 +204,12 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		indexerBuffer.PushOperation("someone", op1, tx1)
 		indexerBuffer.PushOperation("someone", op2, tx2)
 
-		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", tx1.Hash, op1.ID)
-		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", tx2.Hash, op2.ID)
-		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", tx2.Hash, op3.ID)
+		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", op1.ID)
+		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", op2.ID)
+		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", op3.ID)
 		// These are fee state changes, so they don't have an operation ID.
-		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
-		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
+		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", 0)
+		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", 0)
 
 		indexerBuffer.PushStateChange(tx1, op1, sc1)
 		indexerBuffer.PushStateChange(tx2, op2, sc2)
