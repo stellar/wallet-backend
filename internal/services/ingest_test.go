@@ -1225,11 +1225,13 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations WHERE tx_hash = $1`, hash)
-				require.NoError(t, err)
+				// Operations are cleaned up via cascade from transactions deletion
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
+			// Also clean up any orphan operations
+			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			require.NoError(t, err)
 			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
 			require.NoError(t, err)
 
@@ -1310,8 +1312,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			if tc.wantOpCount > 0 {
 				var opCount int
 				err = dbConnectionPool.GetContext(ctx, &opCount,
-					`SELECT COUNT(*) FROM operations WHERE tx_hash = ANY($1)`,
-					pq.Array(tc.txHashes))
+					`SELECT COUNT(*) FROM operations`)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantOpCount, opCount, "operation count mismatch")
 			}
@@ -2734,11 +2735,13 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations WHERE tx_hash = $1`, hash)
-				require.NoError(t, err)
+				// Operations are cleaned up via cascade from transactions deletion
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
+			// Also clean up any orphan operations
+			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			require.NoError(t, err)
 
 			// Set up cursors
 			setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
