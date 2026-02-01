@@ -154,9 +154,9 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 func TestTransactionResolver_Accounts(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByTxHashes", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHashes", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByTxHashes", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
@@ -167,7 +167,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "tx1"}
+	parentTx := &types.Transaction{ToID: toid.New(1000, 1, 0).ToInt64(), Hash: "tx1"}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
