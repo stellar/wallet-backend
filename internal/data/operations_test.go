@@ -929,11 +929,11 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(4096, 1, 'BALANCE', $1, 1, $2, 4097, 'tx1'),
-			(8192, 1, 'BALANCE', $1, 2, $2, 8193, 'tx2'),
-			(12288, 1, 'BALANCE', $1, 3, $2, 4097, 'tx3')
+			(4096, 1, 'BALANCE', $1, 1, $2, 4097),
+			(8192, 1, 'BALANCE', $1, 2, $2, 8193),
+			(12288, 1, 'BALANCE', $1, 3, $2, 4097)
 	`, now, address)
 	require.NoError(t, err)
 
