@@ -78,11 +78,11 @@ func accountByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Accou
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
 			}
-			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Account.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
+			return models.Account.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
 		},
 		func(item *types.AccountWithStateChangeID) string {
 			return item.StateChangeID

@@ -82,11 +82,11 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Ope
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
 			}
-			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID
