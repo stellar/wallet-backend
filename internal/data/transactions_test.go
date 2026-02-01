@@ -711,13 +711,14 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Len(t, transactions, 3)
 
 	// Verify transactions are for correct state change IDs
+	// State change (to_id, order) should return transaction with matching to_id
 	stateChangeIDsFound := make(map[string]string)
 	for _, tx := range transactions {
 		stateChangeIDsFound[tx.StateChangeID] = tx.Hash
 	}
-	assert.Equal(t, "tx1", stateChangeIDsFound["1-1"])
-	assert.Equal(t, "tx2", stateChangeIDsFound["2-1"])
-	assert.Equal(t, "tx1", stateChangeIDsFound["3-1"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["1-1"]) // to_id=1 -> tx1 (to_id=1)
+	assert.Equal(t, "tx2", stateChangeIDsFound["2-1"]) // to_id=2 -> tx2 (to_id=2)
+	assert.Equal(t, "tx3", stateChangeIDsFound["3-1"]) // to_id=3 -> tx3 (to_id=3)
 }
 
 func BenchmarkTransactionModel_BatchInsert(b *testing.B) {
