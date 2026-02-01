@@ -1222,7 +1222,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs
 			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
 				require.NoError(t, err)
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
@@ -1319,7 +1319,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			if tc.wantStateChangeCount > 0 {
 				var scCount int
 				err = dbConnectionPool.GetContext(ctx, &scCount,
-					`SELECT COUNT(*) FROM state_changes WHERE tx_hash = ANY($1)`,
+					`SELECT COUNT(*) FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = ANY($1))`,
 					pq.Array(tc.txHashes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
@@ -2731,7 +2731,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs
 			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
 				require.NoError(t, err)
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)

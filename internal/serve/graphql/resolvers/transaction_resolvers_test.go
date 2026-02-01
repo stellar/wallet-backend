@@ -204,8 +204,8 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 
 func TestTransactionResolver_StateChanges(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
@@ -220,8 +220,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "tx1"}
-	nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
+	nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 0}
 
 	t.Run("success without pagination", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
