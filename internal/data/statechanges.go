@@ -35,9 +35,9 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		WHERE account_id = $1
 	`, columns))
 
-	// Add transaction hash filter if provided
+	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
 	if txHash != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND tx_hash = $%d", argIndex))
+		queryBuilder.WriteString(fmt.Sprintf(" AND to_id = (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex))
 		args = append(args, *txHash)
 		argIndex++
 	}
@@ -181,7 +181,6 @@ func (m *StateChangeModel) BatchInsert(
 	ledgerNumbers := make([]int, len(stateChanges))
 	accountIDs := make([]string, len(stateChanges))
 	operationIDs := make([]int64, len(stateChanges))
-	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
 	signerAccountIDs := make([]*string, len(stateChanges))
@@ -210,7 +209,6 @@ func (m *StateChangeModel) BatchInsert(
 		ledgerNumbers[i] = int(sc.LedgerNumber)
 		accountIDs[i] = sc.AccountID
 		operationIDs[i] = sc.OperationID
-		txHashes[i] = sc.TxHash
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {
@@ -288,38 +286,37 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($6::integer[]) AS ledger_number,
 				UNNEST($7::text[]) AS account_id,
 				UNNEST($8::bigint[]) AS operation_id,
-				UNNEST($9::text[]) AS tx_hash,
-				UNNEST($10::text[]) AS token_id,
-				UNNEST($11::text[]) AS amount,
-				UNNEST($12::text[]) AS signer_account_id,
-				UNNEST($13::text[]) AS spender_account_id,
-				UNNEST($14::text[]) AS sponsored_account_id,
-				UNNEST($15::text[]) AS sponsor_account_id,
-				UNNEST($16::text[]) AS deployer_account_id,
-				UNNEST($17::text[]) AS funder_account_id,
-				UNNEST($18::text[]) AS claimable_balance_id,
-				UNNEST($19::text[]) AS liquidity_pool_id,
-				UNNEST($20::text[]) AS sponsored_data,
-				UNNEST($21::smallint[]) AS signer_weight_old,
-				UNNEST($22::smallint[]) AS signer_weight_new,
-				UNNEST($23::smallint[]) AS threshold_old,
-				UNNEST($24::smallint[]) AS threshold_new,
-				UNNEST($25::text[]) AS trustline_limit_old,
-				UNNEST($26::text[]) AS trustline_limit_new,
-				UNNEST($27::smallint[]) AS flags,
-				UNNEST($28::jsonb[]) AS key_value
+				UNNEST($9::text[]) AS token_id,
+				UNNEST($10::text[]) AS amount,
+				UNNEST($11::text[]) AS signer_account_id,
+				UNNEST($12::text[]) AS spender_account_id,
+				UNNEST($13::text[]) AS sponsored_account_id,
+				UNNEST($14::text[]) AS sponsor_account_id,
+				UNNEST($15::text[]) AS deployer_account_id,
+				UNNEST($16::text[]) AS funder_account_id,
+				UNNEST($17::text[]) AS claimable_balance_id,
+				UNNEST($18::text[]) AS liquidity_pool_id,
+				UNNEST($19::text[]) AS sponsored_data,
+				UNNEST($20::smallint[]) AS signer_weight_old,
+				UNNEST($21::smallint[]) AS signer_weight_new,
+				UNNEST($22::smallint[]) AS threshold_old,
+				UNNEST($23::smallint[]) AS threshold_new,
+				UNNEST($24::text[]) AS trustline_limit_old,
+				UNNEST($25::text[]) AS trustline_limit_new,
+				UNNEST($26::smallint[]) AS flags,
+				UNNEST($27::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
-				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
+				ledger_number, account_id, operation_id, token_id, amount,
 				signer_account_id, spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, funder_account_id, claimable_balance_id, liquidity_pool_id, sponsored_data,
 				signer_weight_old, signer_weight_new, threshold_old, threshold_new,
 				trustline_limit_old, trustline_limit_new, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
-				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
+				sc.ledger_number, sc.account_id, sc.operation_id, sc.token_id, sc.amount,
 				sc.signer_account_id, sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
 				sc.deployer_account_id, sc.funder_account_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.sponsored_data,
 				sc.signer_weight_old, sc.signer_weight_new, sc.threshold_old, sc.threshold_new,
@@ -342,7 +339,6 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(accountIDs),
 		pq.Array(operationIDs),
-		pq.Array(txHashes),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
 		pq.Array(signerAccountIDs),
@@ -400,7 +396,7 @@ func (m *StateChangeModel) BatchCopy(
 		pgx.Identifier{"state_changes"},
 		[]string{
 			"to_id", "state_change_order", "state_change_category", "state_change_reason",
-			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
+			"ledger_created_at", "ledger_number", "account_id", "operation_id",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
 			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
 			"claimable_balance_id", "liquidity_pool_id", "sponsored_data",
@@ -418,7 +414,6 @@ func (m *StateChangeModel) BatchCopy(
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				pgtype.Text{String: sc.AccountID, Valid: true},
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				pgtype.Text{String: sc.TxHash, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
 				pgtypeTextFromNullString(sc.SignerAccountID),
