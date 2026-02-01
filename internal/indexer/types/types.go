@@ -239,6 +239,12 @@ const (
 )
 
 type Operation struct {
+	// ID is the TOID (Total Order ID) per SEP-35, encoding:
+	//   - Ledger sequence (bits 63-32)
+	//   - Transaction order within ledger (bits 31-12)
+	//   - Operation index within transaction (bits 11-0, 1-indexed)
+	//
+	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
