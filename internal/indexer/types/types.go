@@ -248,7 +248,6 @@ type Operation struct {
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
-	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
