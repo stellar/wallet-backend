@@ -522,7 +522,7 @@ func createTestOperation(id int64) types.Operation {
 }
 
 // createTestStateChange creates a state change with required fields for testing.
-func createTestStateChange(toID int64, accountID string, txHash string, opID int64) types.StateChange {
+func createTestStateChange(toID int64, accountID string, opID int64) types.StateChange {
 	now := time.Now()
 	reason := types.StateChangeReasonCredit
 	return types.StateChange{
@@ -531,7 +531,6 @@ func createTestStateChange(toID int64, accountID string, txHash string, opID int
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           accountID,
-		TxHash:              txHash,
 		OperationID:         opID,
 		LedgerNumber:        1000,
 		LedgerCreatedAt:     now,
@@ -1145,8 +1144,8 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				tx2 := createTestTransaction("flush_tx_2", 2)
 				op1 := createTestOperation(200)
 				op2 := createTestOperation(201)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "flush_tx_1", 200)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "flush_tx_2", 201)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 200)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 201)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
@@ -1358,8 +1357,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				tx2 := createTestTransaction("tx_hash_2", 2)
 				op1 := createTestOperation(100)
 				op2 := createTestOperation(101)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_2", 101)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 101)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
@@ -1381,7 +1380,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
 				op1 := createTestOperation(100)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
 
 				// Tx has 2 participants but only 1 is registered
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
@@ -1446,9 +1445,9 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				op1 := createTestOperation(100)
 
 				// 3 state changes: 2 for registered accounts, 1 for unregistered
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_1", 100)
-				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", "tx_hash_1", 100)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 100)
+				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", 100)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)

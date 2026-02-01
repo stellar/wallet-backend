@@ -385,7 +385,6 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
-				TxHash:              "non-existent-tx",
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
