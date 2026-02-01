@@ -831,8 +831,8 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, "ASC")
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, int64(1), operations[0].Operation.ID)
-	assert.Equal(t, int64(2), operations[1].Operation.ID)
+	assert.Equal(t, int64(4097), operations[0].Operation.ID)
+	assert.Equal(t, int64(8193), operations[1].Operation.ID)
 }
 
 func TestOperationModel_GetByID(t *testing.T) {
