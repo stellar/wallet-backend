@@ -252,7 +252,6 @@ func (m *OperationModel) BatchInsert(
 
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
-	txHashes := make([]string, len(operations))
 	operationTypes := make([]string, len(operations))
 	operationXDRs := make([]string, len(operations))
 	resultCodes := make([]string, len(operations))
@@ -262,7 +261,6 @@ func (m *OperationModel) BatchInsert(
 
 	for i, op := range operations {
 		ids[i] = op.ID
-		txHashes[i] = op.TxHash
 		operationTypes[i] = string(op.OperationType)
 		operationXDRs[i] = op.OperationXDR
 		resultCodes[i] = op.ResultCode
@@ -287,19 +285,18 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations
 	inserted_operations AS (
 		INSERT INTO operations
-			(id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+			(id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		SELECT
-			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.result_code, o.successful, o.ledger_number, o.ledger_created_at
+			o.id, o.operation_type, o.operation_xdr, o.result_code, o.successful, o.ledger_number, o.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::text[]) AS tx_hash,
-				UNNEST($3::text[]) AS operation_type,
-				UNNEST($4::text[]) AS operation_xdr,
-				UNNEST($5::text[]) AS result_code,
-				UNNEST($6::boolean[]) AS successful,
-				UNNEST($7::bigint[]) AS ledger_number,
-				UNNEST($8::timestamptz[]) AS ledger_created_at
+				UNNEST($2::text[]) AS operation_type,
+				UNNEST($3::text[]) AS operation_xdr,
+				UNNEST($4::text[]) AS result_code,
+				UNNEST($5::boolean[]) AS successful,
+				UNNEST($6::bigint[]) AS ledger_number,
+				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) o
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id
@@ -313,8 +310,8 @@ func (m *OperationModel) BatchInsert(
 			oa.op_id, oa.account_id
 		FROM (
 			SELECT
-				UNNEST($9::bigint[]) AS op_id,
-				UNNEST($10::text[]) AS account_id
+				UNNEST($8::bigint[]) AS op_id,
+				UNNEST($9::text[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -327,7 +324,6 @@ func (m *OperationModel) BatchInsert(
 	var insertedIDs []int64
 	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
 		pq.Array(ids),
-		pq.Array(txHashes),
 		pq.Array(operationTypes),
 		pq.Array(operationXDRs),
 		pq.Array(resultCodes),
@@ -381,12 +377,11 @@ func (m *OperationModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"operations"},
-		[]string{"id", "tx_hash", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
+		[]string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
 		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
 			op := operations[i]
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
-				pgtype.Text{String: op.TxHash, Valid: true},
 				pgtype.Text{String: string(op.OperationType), Valid: true},
 				pgtype.Text{String: op.OperationXDR, Valid: true},
 				pgtype.Text{String: op.ResultCode, Valid: true},
