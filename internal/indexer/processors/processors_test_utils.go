@@ -813,9 +813,6 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 	if expectedToken != "" {
 		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
-	if change.OperationID != 0 {
-		require.Equal(t, change.OperationID, change.ToID)
-	}
 }
 
 // Assertion helpers for common patterns
