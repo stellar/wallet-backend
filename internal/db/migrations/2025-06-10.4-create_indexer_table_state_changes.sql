@@ -2,7 +2,7 @@
 
 -- Table: state_changes
 CREATE TABLE state_changes (
-    to_id BIGINT NOT NULL,
+    to_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
     state_change_order BIGINT NOT NULL CHECK (state_change_order >= 1),
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
@@ -23,7 +23,6 @@ CREATE TABLE state_changes (
     ledger_number INTEGER NOT NULL,
     account_id TEXT NOT NULL,
     operation_id BIGINT NOT NULL,
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
     token_id TEXT,
     amount TEXT,
     signer_account_id TEXT,
@@ -48,7 +47,6 @@ CREATE TABLE state_changes (
 );
 
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_tx_hash ON state_changes(tx_hash);
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
 
