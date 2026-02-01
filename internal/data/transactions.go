@@ -120,7 +120,7 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON (o.id & ~x'FFF'::bigint) = transactions.to_id
+		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
