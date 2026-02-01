@@ -1225,7 +1225,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
 				require.NoError(t, err)
-				// Operations are cleaned up via cascade from transactions deletion
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
@@ -2735,7 +2734,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
 				require.NoError(t, err)
-				// Operations are cleaned up via cascade from transactions deletion
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
