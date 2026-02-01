@@ -415,7 +415,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	reason := types.StateChangeReasonCredit
 	sc1 := types.StateChange{
-		ToID:                999,
+		ToID:                1, // Must reference the transaction created above with to_id=1
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
@@ -555,14 +555,15 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes with different operation IDs, categories, and reasons
+	// State changes must reference valid transaction to_ids (1, 2, or 3)
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', 'DEBIT', $1, 2, $2, 456),
 			(3, 1, 'SIGNER', 'ADD', $1, 3, $2, 789),
-			(4, 1, 'BALANCE', 'DEBIT', $1, 4, $2, 123),
-			(5, 1, 'SIGNER', 'ADD', $1, 5, $2, 999)
+			(1, 2, 'BALANCE', 'DEBIT', $1, 4, $2, 124),
+			(2, 2, 'SIGNER', 'ADD', $1, 5, $2, 999)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -580,8 +581,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		txHash := "tx1"
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
-		// tx1 has to_id=1, so we get state changes where to_id=1
-		assert.Len(t, stateChanges, 1)
+		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
+		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, address, sc.AccountID)
@@ -602,7 +603,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
-		assert.Len(t, stateChanges, 2)
+		// Only 1 state change has operation_id=123 (the first one with to_id=1)
+		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, address, sc.AccountID)
