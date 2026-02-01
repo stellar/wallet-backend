@@ -28,8 +28,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 	t.Run("🟢 sequential pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("alice", tx2)
@@ -38,8 +38,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 
 		// Assert participants by transaction
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.ToID])
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
@@ -51,8 +51,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		wg := sync.WaitGroup{}
 		wg.Add(4)
@@ -76,8 +76,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 
 		// Assert participants by transaction
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.ToID])
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
@@ -88,8 +88,8 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 	t.Run("🟢 sequential pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -105,15 +105,15 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 
 		// Assert transactions were also added
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("bob", "chuck"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("bob", "chuck"), txParticipants[tx2.ToID])
 	})
 
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -223,8 +223,8 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		// Assert transaction participants
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("someone", "alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("someone", "alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), txParticipants[tx2.ToID])
 
 		// Assert operation participants
 		opParticipants := indexerBuffer.GetOperationsParticipants()
@@ -240,8 +240,8 @@ func TestIndexerBuffer_GetNumberOfTransactions(t *testing.T) {
 
 		assert.Equal(t, 0, indexerBuffer.GetNumberOfTransactions())
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		assert.Equal(t, 1, indexerBuffer.GetNumberOfTransactions())
@@ -259,8 +259,8 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 	t.Run("🟢 returns all unique transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", LedgerNumber: 100}
-		tx2 := types.Transaction{Hash: "tx_hash_2", LedgerNumber: 101}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1, LedgerNumber: 100}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2, LedgerNumber: 101}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx2)
@@ -276,16 +276,16 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 	t.Run("🟢 returns correct participants mapping", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx1)
 		indexerBuffer.PushTransaction("alice", tx2)
 
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx2.ToID])
 	})
 }
 
@@ -293,7 +293,7 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 	t.Run("🟢 returns all unique operations", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
 		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
 
@@ -311,7 +311,7 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 	t.Run("🟢 returns correct participants mapping", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
 		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
 
@@ -355,8 +355,8 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects participants from transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx2)
@@ -369,7 +369,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects participants from operations", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1"}
+		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op1 := types.Operation{ID: 1, TxHash: tx.Hash}
 		op2 := types.Operation{ID: 2, TxHash: tx.Hash}
 
@@ -419,7 +419,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 ignores empty participants", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1"}
+		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		indexerBuffer.PushTransaction("", tx) // empty participant
 		indexerBuffer.PushTransaction("alice", tx)
 
@@ -442,8 +442,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 
 		buffer1.PushTransaction("alice", tx1)
 		buffer2.PushTransaction("bob", tx2)
@@ -457,15 +457,15 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify transaction participants
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.ToID])
 	})
 
 	t.Run("🟢 merge operations only", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
 		op2 := types.Operation{ID: 2, TxHash: tx1.Hash}
 
@@ -511,8 +511,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
 
 		// Buffer1 has tx1 with alice
@@ -532,8 +532,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify tx1 has both alice and bob as participants
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("charlie"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("charlie"), txParticipants[tx2.ToID])
 
 		// Verify operation participants merged
 		opParticipants := buffer1.GetOperationsParticipants()
@@ -544,7 +544,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
 
@@ -563,7 +563,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
 		buffer1.PushTransaction("alice", tx1)
 
 		buffer1.Merge(buffer2)
@@ -576,9 +576,9 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 		buffer3 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
-		tx3 := types.Transaction{Hash: "tx_hash_3"}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx3 := types.Transaction{Hash: "tx_hash_3", ToID: 3}
 
 		buffer1.PushTransaction("alice", tx1)
 		buffer2.PushTransaction("bob", tx2)
@@ -642,8 +642,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify participants mappings
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
-		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.Hash])
+		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.ToID])
 
 		opParticipants := buffer1.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
