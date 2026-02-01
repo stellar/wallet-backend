@@ -452,17 +452,17 @@ func (m *StateChangeModel) BatchCopy(
 	return len(stateChanges), nil
 }
 
-// BatchGetByTxHash gets state changes for a single transaction with pagination support.
-func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// BatchGetByToID gets state changes for a single transaction with pagination support.
+func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE tx_hash = $1
+		FROM state_changes
+		WHERE to_id = $1
 	`, columns))
 
-	args := []interface{}{txHash}
+	args := []interface{}{toID}
 	argIndex := 2
 
 	if cursor != nil {
@@ -498,40 +498,40 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHash", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "state_changes", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHash", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting paginated state changes by tx hash: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToID", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting paginated state changes by to_id: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHash", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByToID", "state_changes")
 	return stateChanges, nil
 }
 
-// BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// BatchGetByToIDs gets the state changes that are associated with the given to_ids.
+func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// transactions, we use ROW_NUMBER() with PARTITION BY to_id to limit results per transaction.
 	// This guarantees that each transaction gets at most 'limit' state changes, providing
 	// more balanced and predictable pagination across multiple transactions.
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
-			inputs (tx_hash) AS (
-				SELECT * FROM UNNEST($1::text[])
+			inputs (to_id) AS (
+				SELECT * FROM UNNEST($1::bigint[])
 			),
-			
-			ranked_state_changes_per_tx_hash AS (
+
+			ranked_state_changes_per_to_id AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
-				FROM 
+					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM
 					state_changes sc
-				JOIN 
-					inputs i ON sc.tx_hash = i.tx_hash
+				JOIN
+					inputs i ON sc.to_id = i.to_id
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_tx_hash
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_to_id
 	`, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
@@ -544,15 +544,15 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(toIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHashes", "state_changes", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByTxHashes", "state_changes", len(txHashes))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "state_changes", len(toIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHashes", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting state changes by transaction hashes: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting state changes by to_ids: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHashes", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByToIDs", "state_changes")
 	return stateChanges, nil
 }
 
