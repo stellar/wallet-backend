@@ -48,10 +48,10 @@ var (
 	}
 	// accountFlags defines the Stellar account flags we track for authorization states
 	accountFlags = []string{
-		"auth_required_flag",
-		"auth_revocable_flag",
-		"auth_immutable_flag",
-		"auth_clawback_enabled_flag",
+		"auth_required",
+		"auth_revocable",
+		"auth_immutable",
+		"auth_clawback_enabled",
 	}
 	// trustlineFlags defines the Stellar trustline flags we track for asset authorization states
 	trustlineFlags = []string{
