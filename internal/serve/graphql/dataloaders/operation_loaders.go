@@ -25,9 +25,17 @@ type OperationColumnsKey struct {
 	SortOrder     data.SortOrder
 }
 
-// operationsByToIDLoader creates a dataloader for fetching operations by transaction ToID
-// This prevents N+1 queries when multiple transactions request their operations
-// The loader batches multiple transaction ToIDs into a single database query
+// operationsByToIDLoader creates a dataloader for fetching operations by transaction ToID.
+// This prevents N+1 queries when multiple transactions request their operations.
+// The loader batches multiple transaction ToIDs into a single database query.
+//
+// Operations belong to a transaction when: tx_to_id < operation_id < tx_to_id + 4096
+//
+// To group results back by transaction, we derive tx_to_id from each operation:
+//
+//	tx_to_id = operation.ID &^ 0xFFF
+//
+// This is the inverse of the query: given an operation, find its parent transaction.
 func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {

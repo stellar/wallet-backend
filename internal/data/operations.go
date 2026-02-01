@@ -79,7 +79,33 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 }
 
 // BatchGetByToIDs gets the operations that are associated with the given transaction ToIDs.
-// Operations for a transaction are found using TOID range: (tx_to_id, tx_to_id + 4096).
+//
+// # TOID (Total Order ID) Encoding - SEP-35
+//
+// Operations and transactions use a 64-bit ID that encodes ordering information:
+//
+//	| Ledger Sequence (32 bits) | Transaction Order (20 bits) | Operation Index (12 bits) |
+//	|---------------------------|-----------------------------|-----------------------------|
+//	| bits 63-32                | bits 31-12                  | bits 11-0                   |
+//
+// Key relationships:
+//   - Transaction's to_id has OperationIndex = 0
+//   - Operation IDs are 1-indexed within a transaction (1, 2, 3, ...)
+//   - Max 4095 operations per transaction (12 bits)
+//
+// To derive transaction to_id from operation ID:
+//
+//	tx_to_id = operation_id &^ 0xFFF  (clear lower 12 bits)
+//
+// To query operations for a transaction:
+//
+//	WHERE id > tx_to_id AND id < tx_to_id + 4096
+//
+// The range (tx_to_id, tx_to_id + 4096) captures operation indices 1-4095.
+// Using exclusive bounds avoids matching the transaction itself (index 0)
+// and the next transaction (index 4096 = 0x1000).
+//
+// See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}

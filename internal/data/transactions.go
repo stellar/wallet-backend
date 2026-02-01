@@ -110,7 +110,16 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
-// Uses TOID bit masking to derive tx_to_id from operation ID (operation_id &^ 0xFFF).
+//
+// Uses TOID bit masking to derive tx_to_id from operation ID:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// This works because TOID encodes (ledger, tx_order, op_index) where:
+//   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
+//   - Clearing these bits yields the transaction's to_id
+//
+// See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 	// Join operations to transactions using TOID encoding:
@@ -120,7 +129,7 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON (o.id & ~x'FFF'::bigint) = transactions.to_id
+		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
