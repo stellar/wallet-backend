@@ -317,11 +317,11 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 	}, nil
 }
 
-// createWalletDBContainer starts a PostgreSQL container for wallet-backend
+// createWalletDBContainer starts a TimescaleDB container for wallet-backend
 func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  walletBackendDBContainerName,
-		Image: "postgres:14-alpine",
+		Image: "timescale/timescaledb:latest-pg17",
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
