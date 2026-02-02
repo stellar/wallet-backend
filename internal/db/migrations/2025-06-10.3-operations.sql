@@ -33,8 +33,6 @@ CREATE TABLE operations (
 );
 
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
-
--- Index for id lookups (TOID-based queries)
 CREATE INDEX idx_operations_id ON operations(id);
 
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
