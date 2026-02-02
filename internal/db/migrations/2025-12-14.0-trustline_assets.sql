@@ -10,8 +10,6 @@ CREATE TABLE trustline_assets (
     UNIQUE(code, issuer)
 );
 
-CREATE INDEX idx_trustline_assets_code_issuer ON trustline_assets(code, issuer);
-
 -- +migrate Down
 
 DROP TABLE trustline_assets CASCADE;
