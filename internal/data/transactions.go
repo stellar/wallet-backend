@@ -217,10 +217,18 @@ func (m *TransactionModel) BatchInsert(
 		isFeeBumps[i] = t.IsFeeBump
 	}
 
-	// 2. Flatten the stellarAddressesByToID into parallel slices, converting to BYTEA
+	// 2. Build ToID -> LedgerCreatedAt lookup from transactions
+	ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
+	for _, tx := range txs {
+		ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
+	}
+
+	// 3. Flatten the stellarAddressesByToID into parallel slices, converting to BYTEA
 	var txToIDs []int64
 	var stellarAddressBytes [][]byte
+	var taLedgerCreatedAts []time.Time
 	for toID, addresses := range stellarAddressesByToID {
+		ledgerCreatedAt := ledgerCreatedAtByToID[toID]
 		for address := range addresses.Iter() {
 			txToIDs = append(txToIDs, toID)
 			addrBytes, err := types.AddressBytea(address).Value()
@@ -228,6 +236,7 @@ func (m *TransactionModel) BatchInsert(
 				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
 			}
 			stellarAddressBytes = append(stellarAddressBytes, addrBytes.([]byte))
+			taLedgerCreatedAts = append(taLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
 
@@ -259,13 +268,14 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_to_id, account_id)
+			(ledger_created_at, tx_to_id, account_id)
 		SELECT
-			ta.tx_to_id, ta.account_id
+			ta.ledger_created_at, ta.tx_to_id, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($10::bigint[]) AS tx_to_id,
-				UNNEST($11::bytea[]) AS account_id
+				UNNEST($10::timestamptz[]) AS ledger_created_at,
+				UNNEST($11::bigint[]) AS tx_to_id,
+				UNNEST($12::bytea[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -286,6 +296,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(isFeeBumps),
+		pq.Array(taLedgerCreatedAts),
 		pq.Array(txToIDs),
 		pq.Array(stellarAddressBytes),
 	)
@@ -369,22 +380,34 @@ func (m *TransactionModel) BatchCopy(
 
 	// COPY transactions_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByToID) > 0 {
+		// Build ToID -> LedgerCreatedAt lookup from transactions
+		ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
+		for _, tx := range txs {
+			ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
+		}
+
 		var taRows [][]any
 		for toID, addresses := range stellarAddressesByToID {
+			ledgerCreatedAt := ledgerCreatedAtByToID[toID]
+			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
 				addrBytes, err := types.AddressBytea(addr).Value()
 				if err != nil {
 					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
 				}
-				taRows = append(taRows, []any{toIDPgtype, addrBytes})
+				taRows = append(taRows, []any{
+					ledgerCreatedAtPgtype,
+					toIDPgtype,
+					addrBytes,
+				})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_to_id", "account_id"},
+			[]string{"ledger_created_at", "tx_to_id", "account_id"},
 			pgx.CopyFromRows(taRows),
 		)
 		if err != nil {
