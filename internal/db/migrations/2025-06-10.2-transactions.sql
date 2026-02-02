@@ -12,7 +12,7 @@ CREATE TABLE transactions (
     ledger_number INTEGER NOT NULL,
     is_fee_bump BOOLEAN NOT NULL DEFAULT false,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (ledger_created_at, to_id),
+    PRIMARY KEY (ledger_created_at, to_id)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
