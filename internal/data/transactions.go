@@ -252,7 +252,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($8::timestamptz[]) AS ledger_created_at,
 				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
-		ON CONFLICT (to_id) DO NOTHING
+		ON CONFLICT (ledger_created_at, to_id) DO NOTHING
 		RETURNING hash
 	),
 

@@ -333,7 +333,7 @@ func (m *OperationModel) BatchInsert(
 				UNNEST($6::bigint[]) AS ledger_number,
 				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) o
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (ledger_created_at, id) DO NOTHING
 		RETURNING id
 	),
 

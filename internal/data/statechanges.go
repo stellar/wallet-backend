@@ -342,7 +342,7 @@ func (m *StateChangeModel) BatchInsert(
 				sc.signer_weight_old, sc.signer_weight_new, sc.threshold_old, sc.threshold_new,
 				sc.trustline_limit_old, sc.trustline_limit_new, sc.flags, sc.key_value
 			FROM input_data sc
-			ON CONFLICT (to_id, operation_id, state_change_order) DO NOTHING
+			ON CONFLICT (ledger_created_at, to_id, operation_id, state_change_order) DO NOTHING
 			RETURNING to_id, operation_id, state_change_order
 		)
 		SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM inserted_state_changes;
