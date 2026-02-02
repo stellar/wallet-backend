@@ -300,13 +300,22 @@ func (m *OperationModel) BatchInsert(
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
 	}
 
-	// 2. Flatten the stellarAddressesByOpID into parallel slices
+	// 2. Build OpID -> LedgerCreatedAt lookup from operations
+	ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
+	for _, op := range operations {
+		ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
+	}
+
+	// 3. Flatten the stellarAddressesByOpID into parallel slices
 	var opIDs []int64
 	var stellarAddresses []string
+	var oaLedgerCreatedAts []time.Time
 	for opID, addresses := range stellarAddressesByOpID {
+		ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
 			stellarAddresses = append(stellarAddresses, address)
+			oaLedgerCreatedAts = append(oaLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
 
@@ -336,13 +345,14 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations_accounts links
 	inserted_operations_accounts AS (
 		INSERT INTO operations_accounts
-			(operation_id, account_id)
+			(ledger_created_at, operation_id, account_id)
 		SELECT
-			oa.op_id, oa.account_id
+			oa.ledger_created_at, oa.op_id, oa.account_id
 		FROM (
 			SELECT
-				UNNEST($8::bigint[]) AS op_id,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($8::timestamptz[]) AS ledger_created_at,
+				UNNEST($9::bigint[]) AS op_id,
+				UNNEST($10::text[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -361,6 +371,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(successfulFlags),
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
+		pq.Array(oaLedgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),
 	)
@@ -432,18 +443,30 @@ func (m *OperationModel) BatchCopy(
 
 	// COPY operations_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByOpID) > 0 {
+		// Build OpID -> LedgerCreatedAt lookup from operations
+		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
+		for _, op := range operations {
+			ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
+		}
+
 		var oaRows [][]any
 		for opID, addresses := range stellarAddressesByOpID {
+			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
+			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				oaRows = append(oaRows, []any{
+					ledgerCreatedAtPgtype,
+					opIDPgtype,
+					pgtype.Text{String: addr, Valid: true},
+				})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
-			[]string{"operation_id", "account_id"},
+			[]string{"ledger_created_at", "operation_id", "account_id"},
 			pgx.CopyFromRows(oaRows),
 		)
 		if err != nil {
