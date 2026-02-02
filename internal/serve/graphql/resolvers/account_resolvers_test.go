@@ -1,7 +1,6 @@
 package resolvers
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -278,22 +277,68 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 20)
-		// With 16 state changes ordered by ToID descending, check first few
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[3].Node).ToID, extractStateChangeIDs(stateChanges.Edges[3].Node).StateChangeOrder))
+
+		// State changes ordered by (to_id, operation_id, state_change_order)
+		tx1ToID := toid.New(1000, 1, 0).ToInt64()
+		op1ID := toid.New(1000, 1, 1).ToInt64()
+		op2ID := toid.New(1000, 1, 2).ToInt64()
+
+		// Edge 0: tx1 fee state change
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		// Edge 1: tx1 op1 first state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		// Edge 2: tx1 op1 second state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		// Edge 3: tx1 op2 first state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[3].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
 	})
 
 	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
+
+		tx1ToID := toid.New(1000, 1, 0).ToInt64()
+		tx1Op1ID := toid.New(1000, 1, 1).ToInt64()
+		tx1Op2ID := toid.New(1000, 1, 2).ToInt64()
+		tx2ToID := toid.New(1000, 2, 0).ToInt64()
+		tx2Op1ID := toid.New(1000, 2, 1).ToInt64()
+		tx2Op2ID := toid.New(1000, 2, 2).ToInt64()
+
 		first := int32(3)
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+
+		// Page 1: tx1 fee, tx1 op1 sc1, tx1 op1 sc2
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -303,10 +348,23 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
-		// Fee state change with no operation
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+
+		// Page 2: tx1 op2 sc1, tx1 op2 sc2, tx2 fee
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx2ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID) // Fee state change
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -317,35 +375,90 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 2, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 2, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[3].Node).ToID, extractStateChangeIDs(stateChanges.Edges[3].Node).StateChangeOrder))
+
+		// Page 3: tx2 op1 sc1, tx2 op1 sc2, tx2 op2 sc1, tx2 op2 sc2, ...
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx2ToID, cursor.ToID)
+		assert.Equal(t, tx2Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx2ToID, cursor.ToID)
+		assert.Equal(t, tx2Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx2ToID, cursor.ToID)
+		assert.Equal(t, tx2Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[3].Node)
+		assert.Equal(t, tx2ToID, cursor.ToID)
+		assert.Equal(t, tx2Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get state changes with last/before limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
+
+		tx1ToID := toid.New(1000, 1, 0).ToInt64()
+		tx1Op1ID := toid.New(1000, 1, 1).ToInt64()
+		tx3Op2ID := toid.New(1000, 3, 2).ToInt64()
+		tx3ToID := toid.New(1000, 3, 0).ToInt64()
+		tx4ToID := toid.New(1000, 4, 0).ToInt64()
+		tx4Op1ID := toid.New(1000, 4, 1).ToInt64()
+		tx4Op2ID := toid.New(1000, 4, 2).ToInt64()
+
 		last := int32(3)
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+
+		// Last 3: tx4 op1 sc2, tx4 op2 sc1, tx4 op2 sc2
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx4ToID, cursor.ToID)
+		assert.Equal(t, tx4Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx4ToID, cursor.ToID)
+		assert.Equal(t, tx4Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx4ToID, cursor.ToID)
+		assert.Equal(t, tx4Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 
-		// Get the next cursor
+		// Get the next cursor (going backward)
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 3, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+
+		// Previous 3: tx3 op2 sc2, tx4 fee, tx4 op1 sc1
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx3ToID, cursor.ToID)
+		assert.Equal(t, tx3Op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx4ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID) // Fee state change
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx4ToID, cursor.ToID)
+		assert.Equal(t, tx4Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -355,9 +468,23 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+
+		// First page: tx1 fee, tx1 op1 sc1, tx1 op1 sc2, ...
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, tx1Op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
@@ -402,25 +529,45 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		// Total: 1 + 2 + 2 = 5 state changes
 		require.Len(t, stateChanges.Edges, 5)
 
-		// Verify all returned state changes are from tx1
-		// First state change is from operation 0
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		// Next state changes are from operation 1
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
-		// Last state changes are from operation 2
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[3].Node).ToID, extractStateChangeIDs(stateChanges.Edges[3].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[4].Node).ToID, extractStateChangeIDs(stateChanges.Edges[4].Node).StateChangeOrder))
+		tx1ToID := toid.New(1000, 1, 0).ToInt64()
+		op1ID := toid.New(1000, 1, 1).ToInt64()
+		op2ID := toid.New(1000, 1, 2).ToInt64()
+
+		// Edge 0: Fee state change (no operation)
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		// Edge 1: Operation 1's first state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		// Edge 2: Operation 1's second state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		// Edge 3: Operation 2's first state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[3].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		// Edge 4: Operation 2's second state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[4].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
 	})
 
 	t.Run("filter by operation ID only", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
 		opID := toid.New(1000, 1, 1).ToInt64()
+		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		filter := &graphql1.AccountStateChangeFilterInput{
 			OperationID: &opID,
 		}
@@ -431,16 +578,22 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		require.Len(t, stateChanges.Edges, 2)
 
 		// Verify both state changes are from the specified operation
-		assert.Equal(t, fmt.Sprintf("%d:1", opID),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", opID),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, txToID, cursor.ToID)
+		assert.Equal(t, opID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, txToID, cursor.ToID)
+		assert.Equal(t, opID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
 	})
 
 	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
 		txHash := "tx2"
 		opID := toid.New(1000, 2, 1).ToInt64()
+		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 			OperationID:     &opID,
@@ -452,10 +605,15 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		require.Len(t, stateChanges.Edges, 2)
 
 		// Verify both state changes match both filters
-		assert.Equal(t, fmt.Sprintf("%d:1", opID),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", opID),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, txToID, cursor.ToID)
+		assert.Equal(t, opID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, txToID, cursor.ToID)
+		assert.Equal(t, opID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
 	})
 
 	t.Run("filter with no matching results", func(t *testing.T) {
@@ -479,15 +637,27 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 			TransactionHash: &txHash,
 		}
 
+		tx1ToID := toid.New(1000, 1, 0).ToInt64()
+		op1ID := toid.New(1000, 1, 1).ToInt64()
+		op2ID := toid.New(1000, 1, 2).ToInt64()
+
 		// Get first 2 state changes
 		first := int32(2)
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, &first, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+
+		// Page 1: Fee change and Op 1 first state change
+		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, int64(0), cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -497,10 +667,18 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+
+		// Page 2: Op 1 second state change and Op 2 first state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op1ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
+		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op2ID, cursor.OperationID)
+		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -510,8 +688,13 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 1)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()),
-			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+
+		// Page 3: Op 2 second state change
+		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
+		assert.Equal(t, tx1ToID, cursor.ToID)
+		assert.Equal(t, op2ID, cursor.OperationID)
+		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 	})
@@ -585,6 +768,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
 		txHash := "tx1"
 		opID := toid.New(1000, 1, 1).ToInt64()
+		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		category := "BALANCE"
 		reason := "CREDIT"
 		filter := &graphql1.AccountStateChangeFilterInput{
@@ -596,9 +780,11 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
 		require.NoError(t, err)
 
-		// Verify all returned state changes are BALANCE category and CREDIT reason
+		// Verify all returned state changes have correct IDs, category and reason
 		for _, sc := range stateChanges.Edges {
-			assert.Equal(t, opID, extractStateChangeIDs(sc.Node).ToID)
+			cursor := extractStateChangeIDs(sc.Node)
+			assert.Equal(t, txToID, cursor.ToID)
+			assert.Equal(t, opID, cursor.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
 			assert.Equal(t, types.StateChangeReasonCredit, sc.Node.GetReason())
 		}

@@ -327,8 +327,8 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 	}
 
 	parts := strings.Split(*decodedCursor, ":")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid cursor format: %s", *s)
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid cursor format: %s (expected format: to_id:operation_id:state_change_order)", *s)
 	}
 
 	toID, err := strconv.ParseInt(parts[0], 10, 64)
@@ -336,13 +336,19 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 		return nil, fmt.Errorf("parsing to_id: %w", err)
 	}
 
-	stateChangeOrder, err := strconv.ParseInt(parts[1], 10, 64)
+	operationID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing operation_id: %w", err)
+	}
+
+	stateChangeOrder, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing state_change_order: %w", err)
 	}
 
 	return &types.StateChangeCursor{
 		ToID:             toID,
+		OperationID:      operationID,
 		StateChangeOrder: stateChangeOrder,
 	}, nil
 }

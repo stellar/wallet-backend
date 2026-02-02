@@ -442,12 +442,10 @@ type StateChange struct {
 	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
 
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }
@@ -459,6 +457,7 @@ type StateChangeWithCursor struct {
 
 type StateChangeCursor struct {
 	ToID             int64 `db:"cursor_to_id"`
+	OperationID      int64 `db:"cursor_operation_id"`
 	StateChangeOrder int64 `db:"cursor_state_change_order"`
 }
 
@@ -571,6 +570,7 @@ func (sc StateChange) GetTransaction() *Transaction {
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
 		ToID:             sc.ToID,
+		OperationID:      sc.OperationID,
 		StateChangeOrder: sc.StateChangeOrder,
 	}
 }

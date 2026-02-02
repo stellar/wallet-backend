@@ -16,7 +16,7 @@ const (
 )
 
 type StateChangeColumnsKey struct {
-	TxHash      string
+	ToID        int64
 	AccountID   string
 	OperationID int64
 	Columns     string
@@ -25,17 +25,17 @@ type StateChangeColumnsKey struct {
 	SortOrder   data.SortOrder
 }
 
-// stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
+// stateChangesByToIDLoader creates a dataloader for fetching state changes by to_id
 // This prevents N+1 queries when multiple transactions request their state changes
-// The loader batches multiple transaction hashes into a single database query
-func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
+// The loader batches multiple to_ids into a single database query
+func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
-			// Add the tx_hash column since that will be used as the primary key to group the state changes
+			// Add the to_id column since that will be used as the primary key to group the state changes
 			// in the final result.
 			columns := keys[0].Columns
 			if columns != "" {
-				columns = fmt.Sprintf("%s, tx_hash", columns)
+				columns = fmt.Sprintf("%s, to_id", columns)
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
@@ -43,21 +43,21 @@ func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateCh
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
-				return models.StateChanges.BatchGetByTxHash(ctx, keys[0].TxHash, columns, limit, keys[0].Cursor, sortOrder)
+				return models.StateChanges.BatchGetByToID(ctx, keys[0].ToID, columns, limit, keys[0].Cursor, sortOrder)
 			}
 
-			txHashes := make([]string, len(keys))
+			toIDs := make([]int64, len(keys))
 			maxLimit := min(*limit, MaxStateChangesPerBatch)
 			for i, key := range keys {
-				txHashes[i] = key.TxHash
+				toIDs[i] = key.ToID
 			}
-			return models.StateChanges.BatchGetByTxHashes(ctx, txHashes, columns, &maxLimit, sortOrder)
+			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, columns, &maxLimit, sortOrder)
 		},
-		func(item *types.StateChangeWithCursor) string {
-			return item.TxHash
+		func(item *types.StateChangeWithCursor) int64 {
+			return item.ToID
 		},
-		func(key StateChangeColumnsKey) string {
-			return key.TxHash
+		func(key StateChangeColumnsKey) int64 {
+			return key.ToID
 		},
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
