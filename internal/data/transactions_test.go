@@ -596,12 +596,12 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions_accounts links (account_id is BYTEA)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions_accounts (tx_to_id, account_id)
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
 		VALUES
-			(1, $1),
-			(2, $1),
-			(3, $2)
-	`, types.AddressBytea(address1), types.AddressBytea(address2))
+			($1, 1, $2),
+			($1, 2, $2),
+			($1, 3, $3)
+	`, now, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount

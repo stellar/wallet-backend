@@ -153,8 +153,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO transactions_accounts (tx_to_id, account_id) VALUES ($1, $2)`,
-				txn.ToID, parentAccount.StellarAddress)
+				`INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES ($1, $2, $3)`,
+				txn.LedgerCreatedAt, txn.ToID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 
@@ -165,8 +165,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
-				op.ID, parentAccount.StellarAddress)
+				`INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id) VALUES ($1, $2, $3)`,
+				op.LedgerCreatedAt, op.ID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 

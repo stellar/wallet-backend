@@ -273,7 +273,7 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_to_id, account_id) VALUES ($1, $2), ($3, $4)",
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
 		toID1, types.AddressBytea(address1), toID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
@@ -333,7 +333,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links (account_id is BYTEA)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)",
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
 		operationID1, types.AddressBytea(address1), operationID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 

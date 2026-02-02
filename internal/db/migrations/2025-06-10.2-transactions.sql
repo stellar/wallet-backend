@@ -21,10 +21,7 @@ CREATE TABLE transactions (
     tsdb.orderby = 'ledger_created_at DESC'
 );
 
--- Index for hash lookups (GetByHash queries)
 CREATE INDEX idx_transactions_hash ON transactions(hash);
-
--- Index for to_id lookups (TOID-based queries)
 CREATE INDEX idx_transactions_to_id ON transactions(to_id);
 
 -- Table: transactions_accounts (TimescaleDB hypertable for automatic cleanup with retention)
