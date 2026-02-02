@@ -24,6 +24,8 @@ CREATE TABLE transactions_accounts (
     PRIMARY KEY (account_id, tx_to_id)
 );
 
+CREATE INDEX idx_transactions_accounts_tx_to_id ON transactions_accounts(tx_to_id);
+
 -- +migrate Down
 
 -- Tables
