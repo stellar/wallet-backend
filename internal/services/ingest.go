@@ -225,7 +225,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 // data ready for database insertion after participant filtering.
 type filteredIngestionData struct {
 	txs            []*types.Transaction
-	txParticipants map[string]set.Set[string]
+	txParticipants map[int64]set.Set[string]
 	ops            []*types.Operation
 	opParticipants map[int64]set.Set[string]
 	stateChanges   []types.StateChange
@@ -248,7 +248,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	txs []*types.Transaction,
-	txParticipants map[string]set.Set[string],
+	txParticipants map[int64]set.Set[string],
 	ops []*types.Operation,
 	opParticipants map[int64]set.Set[string],
 	stateChanges []types.StateChange,
@@ -264,19 +264,19 @@ func (m *ingestService) filterByRegisteredAccounts(
 	log.Ctx(ctx).Infof("filtering enabled: %d/%d participants are registered", len(existing), len(allParticipants))
 
 	// Filter transactions: include if ANY participant is registered
-	txHashesToInclude := set.NewSet[string]()
-	for txHash, participants := range txParticipants {
+	toIDsToInclude := set.NewSet[int64]()
+	for toID, participants := range txParticipants {
 		if hasRegisteredParticipant(participants, registeredAccounts) {
-			txHashesToInclude.Add(txHash)
+			toIDsToInclude.Add(toID)
 		}
 	}
 
-	filteredTxs := make([]*types.Transaction, 0, txHashesToInclude.Cardinality())
-	filteredTxParticipants := make(map[string]set.Set[string])
+	filteredTxs := make([]*types.Transaction, 0, toIDsToInclude.Cardinality())
+	filteredTxParticipants := make(map[int64]set.Set[string])
 	for _, tx := range txs {
-		if txHashesToInclude.Contains(tx.Hash) {
+		if toIDsToInclude.Contains(tx.ToID) {
 			filteredTxs = append(filteredTxs, tx)
-			filteredTxParticipants[tx.Hash] = txParticipants[tx.Hash]
+			filteredTxParticipants[tx.ToID] = txParticipants[tx.ToID]
 		}
 	}
 
@@ -363,11 +363,11 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, data *fil
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByTxHash map[string]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]set.Set[string]) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByTxHash)
+	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByToID)
 	if err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
 	}

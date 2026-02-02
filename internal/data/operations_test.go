@@ -91,9 +91,9 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	require.NoError(t, err)
 	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[string]set.Set[string]{
-		tx1.Hash: set.NewSet(kp1.Address()),
-		tx2.Hash: set.NewSet(kp2.Address()),
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
+		tx1.ToID: set.NewSet(kp1.Address()),
+		tx2.ToID: set.NewSet(kp2.Address()),
 	})
 	require.NoError(t, err)
 
@@ -278,9 +278,9 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	require.NoError(t, err)
 	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[string]set.Set[string]{
-		tx1.Hash: set.NewSet(kp1.Address()),
-		tx2.Hash: set.NewSet(kp2.Address()),
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
+		tx1.ToID: set.NewSet(kp1.Address()),
+		tx2.ToID: set.NewSet(kp2.Address()),
 	})
 	require.NoError(t, err)
 
@@ -518,9 +518,9 @@ func TestOperationModel_GetAll(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 'op_success', true, 3, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx3', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -565,12 +565,12 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 'op_success', true, 3, $1),
-			(4, 'tx1', 'manage_offer', 'xdr4', 'op_success', true, 4, $1),
-			(5, 'tx2', 'payment', 'xdr5', 'op_success', true, 5, $1),
-			(6, 'tx3', 'trust_line', 'xdr6', 'op_success', true, 6, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx1', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1),
+			(4, 'tx1', 'MANAGE_SELL_OFFER', 'xdr4', 'op_success', true, 4, $1),
+			(5, 'tx2', 'PAYMENT', 'xdr5', 'op_success', true, 5, $1),
+			(6, 'tx3', 'CHANGE_TRUST', 'xdr6', 'op_success', true, 6, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -752,9 +752,9 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 'op_success', true, 3, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx1', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -806,9 +806,9 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 'op_success', true, 3, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx3', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -853,8 +853,8 @@ func TestOperationModel_GetByID(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1)
 	`, now)
 	require.NoError(t, err)
 
@@ -917,19 +917,19 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'create_account', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx3', 'payment', 'xdr3', 'op_success', true, 3, $1)
+			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(3, 'tx3', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
-			(1, 1, 'credit', $1, 1, $2, 1, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 2, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 1, 'tx3')
+		VALUES
+			(1, 1, 'BALANCE', $1, 1, $2, 1, 'tx1'),
+			(2, 1, 'BALANCE', $1, 2, $2, 2, 'tx2'),
+			(3, 1, 'BALANCE', $1, 3, $2, 1, 'tx3')
 	`, now, address)
 	require.NoError(t, err)
 

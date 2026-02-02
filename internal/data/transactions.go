@@ -88,7 +88,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		TableName:      "transactions",
 		CursorColumn:   "to_id",
 		JoinTable:      "transactions_accounts",
-		JoinCondition:  "transactions_accounts.tx_hash = transactions.hash",
+		JoinCondition:  "transactions_accounts.tx_to_id = transactions.to_id",
 		Columns:        columns,
 		AccountAddress: accountAddress,
 		Limit:          limit,
@@ -170,7 +170,7 @@ func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
 	txs []*types.Transaction,
-	stellarAddressesByTxHash map[string]set.Set[string],
+	stellarAddressesByToID map[int64]set.Set[string],
 ) ([]string, error) {
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
@@ -199,11 +199,12 @@ func (m *TransactionModel) BatchInsert(
 		isFeeBumps[i] = t.IsFeeBump
 	}
 
-	// 2. Flatten the stellarAddressesByTxHash into parallel slices
-	var txHashes, stellarAddresses []string
-	for txHash, addresses := range stellarAddressesByTxHash {
+	// 2. Flatten the stellarAddressesByToID into parallel slices
+	var txToIDs []int64
+	var stellarAddresses []string
+	for toID, addresses := range stellarAddressesByToID {
 		for address := range addresses.Iter() {
-			txHashes = append(txHashes, txHash)
+			txToIDs = append(txToIDs, toID)
 			stellarAddresses = append(stellarAddresses, address)
 		}
 	}
@@ -229,19 +230,19 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($8::timestamptz[]) AS ledger_created_at,
 				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
-		ON CONFLICT (hash) DO NOTHING
+		ON CONFLICT (to_id) DO NOTHING
 		RETURNING hash
 	),
 
 	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_hash, account_id)
+			(tx_to_id, account_id)
 		SELECT
-			ta.tx_hash, ta.account_id
+			ta.tx_to_id, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($10::text[]) AS tx_hash,
+				UNNEST($10::bigint[]) AS tx_to_id,
 				UNNEST($11::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
@@ -263,7 +264,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(isFeeBumps),
-		pq.Array(txHashes),
+		pq.Array(txToIDs),
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
@@ -298,7 +299,7 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByTxHash map[string]set.Set[string],
+	stellarAddressesByToID map[int64]set.Set[string],
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil
@@ -335,19 +336,19 @@ func (m *TransactionModel) BatchCopy(
 	}
 
 	// COPY transactions_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByTxHash) > 0 {
+	if len(stellarAddressesByToID) > 0 {
 		var taRows [][]any
-		for txHash, addresses := range stellarAddressesByTxHash {
-			txHashPgtype := pgtype.Text{String: txHash, Valid: true}
+		for toID, addresses := range stellarAddressesByToID {
+			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txHashPgtype, pgtype.Text{String: addr, Valid: true}})
+				taRows = append(taRows, []any{toIDPgtype, pgtype.Text{String: addr, Valid: true}})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_hash", "account_id"},
+			[]string{"tx_to_id", "account_id"},
 			pgx.CopyFromRows(taRows),
 		)
 		if err != nil {
