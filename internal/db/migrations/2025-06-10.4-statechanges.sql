@@ -47,10 +47,8 @@ CREATE TABLE state_changes (
 );
 
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_to_id ON state_changes(to_id);
-CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id) WHERE operation_id > 0;
+CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
-
 
 -- +migrate Down
 
