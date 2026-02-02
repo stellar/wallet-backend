@@ -1,8 +1,9 @@
 -- +migrate Up
 
--- Table: operations
+-- Table: operations (TimescaleDB hypertable with columnstore)
 CREATE TABLE operations (
-    id BIGINT PRIMARY KEY,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    id BIGINT NOT NULL,
     operation_type TEXT NOT NULL CHECK (
         operation_type IN (
             'CREATE_ACCOUNT', 'PAYMENT', 'PATH_PAYMENT_STRICT_RECEIVE',
@@ -21,15 +22,24 @@ CREATE TABLE operations (
     result_code TEXT NOT NULL,
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (ledger_created_at, id)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.segmentby = 'operation_type',
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
--- Table: operations_accounts
+-- Index for id lookups (TOID-based queries)
+CREATE INDEX idx_operations_id ON operations(id);
+
+-- Table: operations_accounts (no FK - hypertable compound PK)
 CREATE TABLE operations_accounts (
-    operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, operation_id)

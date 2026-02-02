@@ -1,8 +1,11 @@
 -- +migrate Up
 
--- Table: state_changes
+-- Table: state_changes (TimescaleDB hypertable with columnstore)
+-- Note: FK to transactions removed (hypertable FKs not supported)
 CREATE TABLE state_changes (
-    to_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    to_id BIGINT NOT NULL,
+    operation_id BIGINT NOT NULL,
     state_change_order BIGINT NOT NULL CHECK (state_change_order >= 1),
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
@@ -19,10 +22,8 @@ CREATE TABLE state_changes (
         )
     ),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
     account_id BYTEA NOT NULL,
-    operation_id BIGINT NOT NULL,
     token_id BYTEA,
     amount TEXT,
     signer_account_id BYTEA,
@@ -42,13 +43,24 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
-
-    PRIMARY KEY (to_id, operation_id, state_change_order)
+    PRIMARY KEY (ledger_created_at, to_id, operation_id, state_change_order)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.segmentby = 'state_change_category',
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
+-- Index for account_id lookups (most common query pattern)
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
+
+-- Index for to_id lookups (transaction-based queries)
+CREATE INDEX idx_state_changes_to_id ON state_changes(to_id);
+
+-- Index for operation_id lookups
+CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id) WHERE operation_id > 0;
 
 -- +migrate Down
 
