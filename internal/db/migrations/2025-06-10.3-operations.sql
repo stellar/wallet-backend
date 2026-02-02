@@ -32,7 +32,6 @@ CREATE TABLE operations (
     tsdb.orderby = 'ledger_created_at DESC'
 );
 
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 CREATE INDEX idx_operations_id ON operations(id);
 
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
