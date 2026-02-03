@@ -1,8 +1,9 @@
 -- +migrate Up
 
--- Table: operations
+-- Table: operations (TimescaleDB hypertable with columnstore)
 CREATE TABLE operations (
-    id BIGINT PRIMARY KEY,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    id BIGINT NOT NULL,
     operation_type TEXT NOT NULL CHECK (
         operation_type IN (
             'CREATE_ACCOUNT', 'PAYMENT', 'PATH_PAYMENT_STRICT_RECEIVE',
@@ -21,21 +22,33 @@ CREATE TABLE operations (
     result_code TEXT NOT NULL,
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (ledger_created_at, id)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.segmentby = 'operation_type',
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
+CREATE INDEX idx_operations_id ON operations(id);
 
--- Table: operations_accounts
+-- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
-    operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    operation_id BIGINT NOT NULL,
     account_id TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (account_id, operation_id)
+    PRIMARY KEY (ledger_created_at, account_id, operation_id)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id);
 
 -- +migrate Down
 

@@ -455,7 +455,8 @@ func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	// BatchCopy should fail with a unique constraint violation
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgx CopyFrom transactions: ERROR: duplicate key value violates unique constraint \"transactions_pkey\"")
+	// TimescaleDB uses chunk-based constraint names like "1_1_transactions_pkey" instead of "transactions_pkey"
+	assert.Contains(t, err.Error(), "pgx CopyFrom transactions: ERROR: duplicate key value violates unique constraint")
 
 	// Rollback the failed transaction
 	require.NoError(t, pgxTx.Rollback(ctx))
@@ -583,12 +584,12 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions_accounts (tx_to_id, account_id)
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
 		VALUES
-			(1, $1),
-			(2, $1),
-			(3, $2)
-	`, address1, address2)
+			($1, 1, $2),
+			($1, 2, $2),
+			($1, 3, $3)
+	`, now, address1, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
