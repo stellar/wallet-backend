@@ -72,11 +72,12 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	argIndex := 1
 
 	// Base query with join
+	// StellarAddress implements driver.Valuer, so pq auto-converts to BYTEA
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, %s.%s as cursor
 		FROM %s
-		INNER JOIN %s 
-		ON %s 
+		INNER JOIN %s
+		ON %s
 		WHERE %s.account_id = $%d`,
 		config.Columns,
 		config.TableName,
@@ -86,7 +87,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 		config.JoinCondition,
 		config.JoinTable,
 		argIndex))
-	args = append(args, config.AccountAddress)
+	args = append(args, types.StellarAddress(config.AccountAddress))
 	argIndex++
 
 	// Add cursor condition if provided
