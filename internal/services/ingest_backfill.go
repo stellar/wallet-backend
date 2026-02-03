@@ -615,17 +615,18 @@ func (m *ingestService) processBatchChanges(
 	return nil
 }
 
-// compressBackfilledChunks compresses TimescaleDB chunks within the given time range.
-// This is called after historical backfill completes to ensure newly created chunks
-// are compressed immediately, rather than waiting for the compression policy interval.
-// Chunks are compressed in parallel using the backfill worker pool.
+// compressBackfilledChunks compresses uncompressed chunks overlapping the backfill range.
+// Skips chunks where range_end >= NOW() to avoid compressing active live ingestion chunks.
 func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
 	tables := []string{"transactions", "transactions_accounts", "operations", "operations_accounts", "state_changes"}
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for _, table := range tables {
 		rows, err := m.models.DB.PgxPool().Query(ctx,
-			`SELECT c::text FROM show_chunks($1::regclass, older_than => $2::timestamptz, newer_than => $3::timestamptz) c`,
+			`SELECT chunk_schema || '.' || chunk_name FROM timescaledb_information.chunks
+			 WHERE hypertable_name = $1 AND NOT is_compressed
+			   AND range_start < $2::timestamptz AND range_end > $3::timestamptz
+			   AND range_end < NOW()`,
 			table, endTime, startTime)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to get chunks for %s: %v", table, err)
@@ -646,10 +647,6 @@ func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime,
 		}
 		rows.Close()
 	}
-	if err := group.Wait(); err != nil {
-		log.Ctx(ctx).Warnf("Chunk compression group wait returned error: %v", err)
-	}
-
-	log.Ctx(ctx).Infof("Compressed backfilled chunks for time range [%s - %s]",
-		startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	_ = group.Wait()
+	log.Ctx(ctx).Infof("Compressed backfilled chunks for time range [%s - %s]", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 }
