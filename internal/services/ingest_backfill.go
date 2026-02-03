@@ -625,7 +625,7 @@ func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime,
 
 	for _, table := range tables {
 		rows, err := m.models.DB.PgxPool().Query(ctx,
-			`SELECT c::text FROM show_chunks($1::regclass, older_than => $2, newer_than => $3) c`,
+			`SELECT c::text FROM show_chunks($1::regclass, older_than => $2::timestamptz, newer_than => $3::timestamptz) c`,
 			table, endTime, startTime)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to get chunks for %s: %v", table, err)
