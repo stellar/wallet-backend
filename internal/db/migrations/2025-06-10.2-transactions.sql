@@ -19,7 +19,7 @@ CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_a
 -- Table: transactions_accounts
 CREATE TABLE transactions_accounts (
     tx_to_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, tx_to_id)
 );

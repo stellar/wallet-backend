@@ -38,8 +38,52 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// StellarAddress represents a Stellar address stored as 33-byte BYTEA in DB
+// (1 version byte + 32 raw key bytes) but exposed as a string (G.../C...) in Go code.
+type StellarAddress string
+
+// Scan implements sql.Scanner - converts 33-byte BYTEA to StrKey string
+func (s *StellarAddress) Scan(value any) error {
+	if value == nil {
+		*s = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 33 {
+		return fmt.Errorf("expected 33 bytes, got %d", len(bytes))
+	}
+	versionByte := strkey.VersionByte(bytes[0])
+	rawKey := bytes[1:33]
+	encoded, err := strkey.Encode(versionByte, rawKey)
+	if err != nil {
+		return fmt.Errorf("encoding stellar address: %w", err)
+	}
+	*s = StellarAddress(encoded)
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte
+func (s StellarAddress) Value() (driver.Value, error) {
+	if s == "" {
+		return nil, nil
+	}
+	versionByte, rawBytes, err := strkey.DecodeAny(string(s))
+	if err != nil {
+		return nil, fmt.Errorf("decoding stellar address %s: %w", s, err)
+	}
+	result := make([]byte, 33)
+	result[0] = byte(versionByte)
+	copy(result[1:], rawBytes)
+	return result, nil
+}
+
 
 type ContractType string
 
@@ -118,8 +162,8 @@ const (
 )
 
 type Account struct {
-	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
-	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
+	StellarAddress StellarAddress `json:"address,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time      `json:"createdAt,omitempty" db:"created_at"`
 }
 
 type AccountWithToID struct {
