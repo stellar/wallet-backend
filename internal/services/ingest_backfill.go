@@ -616,10 +616,11 @@ func (m *ingestService) processBatchChanges(
 }
 
 // compressBackfilledChunks compresses uncompressed chunks overlapping the backfill range.
+// Chunks are compressed sequentially to avoid OOM errors during large backfills.
 // Skips chunks where range_end >= NOW() to avoid compressing active live ingestion chunks.
 func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
 	tables := []string{"transactions", "transactions_accounts", "operations", "operations_accounts", "state_changes"}
-	group := m.backfillPool.NewGroupContext(ctx)
+	totalCompressed := 0
 
 	for _, table := range tables {
 		rows, err := m.models.DB.PgxPool().Query(ctx,
@@ -632,21 +633,37 @@ func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime,
 			log.Ctx(ctx).Warnf("Failed to get chunks for %s: %v", table, err)
 			continue
 		}
+
+		var chunks []string
 		for rows.Next() {
 			var chunk string
 			if err := rows.Scan(&chunk); err != nil {
 				continue
 			}
-			group.Submit(func() {
-				_, err := m.models.DB.PgxPool().Exec(ctx,
-					`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true)`, chunk)
-				if err != nil {
-					log.Ctx(ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
-				}
-			})
+			chunks = append(chunks, chunk)
 		}
 		rows.Close()
+
+		// Compress chunks sequentially to avoid OOM
+		for i, chunk := range chunks {
+			select {
+			case <-ctx.Done():
+				log.Ctx(ctx).Warnf("Compression cancelled after %d chunks", totalCompressed)
+				return
+			default:
+			}
+
+			_, err := m.models.DB.PgxPool().Exec(ctx,
+				`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true)`, chunk)
+			if err != nil {
+				log.Ctx(ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
+				continue
+			}
+			totalCompressed++
+			log.Ctx(ctx).Debugf("Compressed chunk %d/%d for %s: %s", i+1, len(chunks), table, chunk)
+		}
+		log.Ctx(ctx).Infof("Compressed %d chunks for table %s", len(chunks), table)
 	}
-	_ = group.Wait()
-	log.Ctx(ctx).Infof("Compressed backfilled chunks for time range [%s - %s]", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	log.Ctx(ctx).Infof("Compressed %d total chunks for time range [%s - %s]",
+		totalCompressed, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 }
