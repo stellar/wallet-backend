@@ -157,13 +157,12 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountID
 // eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
 func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
 	// accounts.stellar_address is BYTEA, channel_accounts.public_key is VARCHAR
+	// Use separate EXISTS checks to avoid type mismatch in UNION
 	const query = `
 		SELECT
-			EXISTS(
-				SELECT stellar_address FROM accounts WHERE stellar_address = $1
-				UNION
-				SELECT public_key FROM channel_accounts WHERE public_key = $2
-			)
+			EXISTS(SELECT 1 FROM accounts WHERE stellar_address = $1)
+			OR
+			EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $2)
 	`
 	var exists bool
 	start := time.Now()
