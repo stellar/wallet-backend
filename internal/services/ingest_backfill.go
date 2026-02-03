@@ -367,11 +367,11 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	}()
 
 	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
-	ledgersCount, batchChanges, timeRange, err := m.processLedgersInBatch(ctx, backend, batch, mode)
+	ledgersCount, batchChanges, batchStartTime, batchEndTime, err := m.processLedgersInBatch(ctx, backend, batch, mode)
 	result.LedgersCount = ledgersCount
 	result.BatchChanges = batchChanges
-	result.StartTime = timeRange.StartTime
-	result.EndTime = timeRange.EndTime
+	result.StartTime = batchStartTime
+	result.EndTime = batchEndTime
 	if err != nil {
 		result.Error = err
 		result.Duration = time.Since(start)
@@ -477,12 +477,6 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 	return lastErr
 }
 
-// BatchTimeRange captures the time range of ledgers processed in a batch.
-type BatchTimeRange struct {
-	StartTime time.Time
-	EndTime   time.Time
-}
-
 // processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
 // For historical backfill mode, the cursor is updated atomically with the final data flush.
 // For catchup mode, returns collected batch changes for post-catchup processing.
@@ -492,11 +486,11 @@ func (m *ingestService) processLedgersInBatch(
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
 	mode BackfillMode,
-) (int, *BatchChanges, BatchTimeRange, error) {
+) (int, *BatchChanges, time.Time, time.Time, error) {
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 	ledgersProcessed := 0
-	var timeRange BatchTimeRange
+	var startTime, endTime time.Time
 
 	// Initialize batch changes collector for catchup mode
 	var batchChanges *BatchChanges
@@ -514,18 +508,18 @@ func (m *ingestService) processLedgersInBatch(
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
 		if err != nil {
-			return ledgersProcessed, nil, timeRange, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}
 
 		// Track time range for compression
 		ledgerTime := ledgerMeta.ClosedAt()
-		if timeRange.StartTime.IsZero() {
-			timeRange.StartTime = ledgerTime
+		if startTime.IsZero() {
+			startTime = ledgerTime
 		}
-		timeRange.EndTime = ledgerTime
+		endTime = ledgerTime
 
 		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
-			return ledgersProcessed, nil, timeRange, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
+			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 		}
 		ledgersProcessed++
 		ledgersInBuffer++
@@ -533,7 +527,7 @@ func (m *ingestService) processLedgersInBatch(
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
 			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges); err != nil {
-				return ledgersProcessed, batchChanges, timeRange, err
+				return ledgersProcessed, batchChanges, startTime, endTime, err
 			}
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
@@ -547,17 +541,17 @@ func (m *ingestService) processLedgersInBatch(
 			cursorUpdate = &batch.StartLedger
 		}
 		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges); err != nil {
-			return ledgersProcessed, batchChanges, timeRange, err
+			return ledgersProcessed, batchChanges, startTime, endTime, err
 		}
 	} else if mode.isHistorical() {
 		// All data was flushed in intermediate batches, but we still need to update the cursor
 		// This happens when ledgersInBuffer == 0 (exact multiple of batch size)
 		if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
-			return ledgersProcessed, nil, timeRange, err
+			return ledgersProcessed, nil, startTime, endTime, err
 		}
 	}
 
-	return ledgersProcessed, batchChanges, timeRange, nil
+	return ledgersProcessed, batchChanges, startTime, endTime, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
@@ -624,22 +618,38 @@ func (m *ingestService) processBatchChanges(
 // compressBackfilledChunks compresses TimescaleDB chunks within the given time range.
 // This is called after historical backfill completes to ensure newly created chunks
 // are compressed immediately, rather than waiting for the compression policy interval.
+// Chunks are compressed in parallel using the backfill worker pool.
 func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
 	tables := []string{"transactions", "transactions_accounts", "operations", "operations_accounts", "state_changes"}
+	group := m.backfillPool.NewGroupContext(ctx)
+
 	for _, table := range tables {
-		_, err := m.models.DB.PgxPool().Exec(ctx, `
-			DO $$
-			DECLARE chunk regclass;
-			BEGIN
-				FOR chunk IN SELECT c FROM show_chunks($1::regclass, older_than => $2, newer_than => $3) c
-				LOOP
-					CALL convert_to_columnstore(chunk, if_not_columnstore => true);
-				END LOOP;
-			END$$;
-		`, table, endTime, startTime)
+		rows, err := m.models.DB.PgxPool().Query(ctx,
+			`SELECT c::text FROM show_chunks($1::regclass, older_than => $2, newer_than => $3) c`,
+			table, endTime, startTime)
 		if err != nil {
-			log.Ctx(ctx).Warnf("Failed to compress chunks for %s: %v", table, err)
+			log.Ctx(ctx).Warnf("Failed to get chunks for %s: %v", table, err)
+			continue
 		}
+		for rows.Next() {
+			var chunk string
+			if err := rows.Scan(&chunk); err != nil {
+				continue
+			}
+			group.Submit(func() {
+				_, err := m.models.DB.PgxPool().Exec(ctx,
+					`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true)`, chunk)
+				if err != nil {
+					log.Ctx(ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
+				}
+			})
+		}
+		rows.Close()
 	}
-	log.Ctx(ctx).Infof("Compressed backfilled chunks for time range [%s - %s]", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	if err := group.Wait(); err != nil {
+		log.Ctx(ctx).Warnf("Chunk compression group wait returned error: %v", err)
+	}
+
+	log.Ctx(ctx).Infof("Compressed backfilled chunks for time range [%s - %s]",
+		startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 }
