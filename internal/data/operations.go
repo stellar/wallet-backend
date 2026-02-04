@@ -221,7 +221,6 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 		Limit:          limit,
 		Cursor:         cursor,
 		OrderBy:        orderBy,
-		AccountIDBytea: false, // operations_accounts.account_id is TEXT
 	})
 
 	var operations []*types.OperationWithCursor

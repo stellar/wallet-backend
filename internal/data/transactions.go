@@ -94,7 +94,6 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		Limit:          limit,
 		Cursor:         cursor,
 		OrderBy:        orderBy,
-		AccountIDBytea: true, // transactions_accounts.account_id is BYTEA
 	})
 
 	var transactions []*types.TransactionWithCursor
