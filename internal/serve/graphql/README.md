@@ -1099,7 +1099,7 @@ Several state change fields return JSON-formatted strings containing old and new
 
 *Trustline/Balance Authorization Flags (BalanceAuthorizationChange):*
 - `authorized` - Trustline is authorized to hold assets
-- `authorized_to_maintain_liabilites` - Can maintain liabilities but not increase balance
+- `authorized_to_maintain_liabilities` - Can maintain liabilities but not increase balance
 - `clawback_enabled_flag` - Asset issuer can clawback this balance
 - `auth_revocable_flag` - Authorization can be revoked
 - `auth_immutable_flag` - Authorization flags are immutable
