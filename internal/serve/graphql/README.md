@@ -141,10 +141,12 @@ query GetTransaction {
   transactionByHash(hash: "abc123...") {
     hash
     envelopeXdr
-    resultXdr
+    feeCharged
+    resultCode
     metaXdr
     ledgerNumber
     ledgerCreatedAt
+    isFeeBump
     ingestedAt
 
     # Related data
@@ -285,6 +287,8 @@ query ListOperations {
         id
         operationType
         operationXdr
+        resultCode
+        successful
         ledgerNumber
         ledgerCreatedAt
 
@@ -332,6 +336,8 @@ query GetOperation {
     id
     operationType
     operationXdr
+    resultCode
+    successful
     ledgerNumber
     ledgerCreatedAt
 
@@ -1241,7 +1247,7 @@ query {
 
 **Best Practices:**
 
-1. **Request only needed fields** - Don't query `envelopeXdr`, `resultXdr`, `metaXdr` unless required
+1. **Request only needed fields** - Don't query `envelopeXdr`, `metaXdr` unless required
 2. **Use reasonable pagination limits** - Start with `first: 10-50` and increase if needed
 3. **Leverage DataLoaders** - Query related data in a single request rather than multiple sequential queries
 4. **Consider APQ for production** - Reduces bandwidth for frequently-executed queries
