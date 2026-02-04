@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // GetIngestCursor retrieves a cursor value from the ingest_store table.
@@ -89,7 +91,7 @@ func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAd
 			AND o.ledger_number BETWEEN $3 AND $4
 		)
 	`
-	err = db.QueryRowContext(ctx, query, accountAddr, opType, startLedger, endLedger).Scan(&exists)
+	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), opType, startLedger, endLedger).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking operation for account %s: %w", accountAddr, err)
 	}
