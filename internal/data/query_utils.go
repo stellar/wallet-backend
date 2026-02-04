@@ -65,6 +65,21 @@ func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
 	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}
 }
 
+// pgtypeBytesFromNullStringAddress converts nullable address to bytes for BYTEA insert.
+func pgtypeBytesFromNullStringAddress(ns sql.NullString) ([]byte, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	val, err := types.AddressBytea(ns.String).Value()
+	if err != nil {
+		return nil, err
+	}
+	if val == nil {
+		return nil, nil
+	}
+	return val.([]byte), nil
+}
+
 // BuildPaginatedQuery constructs a paginated SQL query with cursor-based pagination
 func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) {
 	var queryBuilder strings.Builder
