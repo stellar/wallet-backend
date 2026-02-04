@@ -99,11 +99,18 @@ func validateTransactionBase(suite *DataValidationTestSuite, ctx context.Context
 	// Verify transaction fields
 	suite.Require().Equal(txHash, tx.Hash, "transaction hash mismatch")
 	suite.Require().NotEmpty(tx.EnvelopeXdr, "envelope XDR should not be empty")
-	suite.Require().NotEmpty(tx.ResultXdr, "result XDR should not be empty")
+	suite.Require().NotZero(tx.FeeCharged, "fee charged should not be zero")
+	suite.Require().NotEmpty(tx.ResultCode, "result code should not be empty")
 	suite.Require().NotEmpty(tx.MetaXdr, "meta XDR should not be empty")
 	suite.Require().NotZero(tx.LedgerNumber, "ledger number should not be zero")
 	suite.Require().False(tx.LedgerCreatedAt.IsZero(), "ledger created at should not be zero")
 	suite.Require().False(tx.IngestedAt.IsZero(), "ingested at should not be zero")
+
+	if tx.IsFeeBump {
+		suite.Require().Equal("TransactionResultCodeTxFeeBumpInnerSuccess", tx.ResultCode, "result code does not match")
+	} else {
+		suite.Require().Equal("TransactionResultCodeTxSuccess", tx.ResultCode, "result code does not match")
+	}
 
 	return tx
 }
