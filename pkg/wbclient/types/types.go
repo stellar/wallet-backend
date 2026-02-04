@@ -285,39 +285,6 @@ type Operation struct {
 	IngestedAt      time.Time     `json:"ingestedAt"`
 }
 
-// StateChange represents a blockchain state change with all possible fields
-type StateChange struct {
-	Type            StateChangeCategory `json:"type"`
-	Reason          StateChangeReason   `json:"reason"`
-	IngestedAt      time.Time           `json:"ingestedAt"`
-	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
-	LedgerNumber    uint32              `json:"ledgerNumber"`
-
-	// Fields for balance changes
-	TokenID *string `json:"tokenId,omitempty"`
-	Amount  *string `json:"amount,omitempty"`
-
-	// Fields for signer changes
-	SignerAddress *string `json:"signerAddress,omitempty"`
-	SignerWeights *string `json:"signerWeights,omitempty"`
-
-	// Fields for threshold changes
-	Thresholds *string `json:"thresholds,omitempty"`
-
-	// Fields for metadata changes
-	KeyValue *string `json:"keyValue,omitempty"`
-
-	// Fields for flags changes
-	Flags []string `json:"flags,omitempty"`
-
-	// Fields for trustline changes
-	Limit *string `json:"limit,omitempty"`
-
-	// Fields for reserves changes
-	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
-}
-
 // PageInfo contains pagination information
 type PageInfo struct {
 	StartCursor     *string `json:"startCursor,omitempty"`

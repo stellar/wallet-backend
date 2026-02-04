@@ -2,6 +2,7 @@ package processors
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -63,22 +64,22 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				//exhaustive:ignore
 				switch *change.StateChangeReason {
 				case types.StateChangeReasonLow:
-					assert.Equal(t, "0", change.Thresholds["old"])
-					assert.Equal(t, "1", change.Thresholds["new"])
+					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
+					assert.Equal(t, int16(1), change.ThresholdNew.Int16)
 				case types.StateChangeReasonMedium:
-					assert.Equal(t, "0", change.Thresholds["old"])
-					assert.Equal(t, "2", change.Thresholds["new"])
+					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
+					assert.Equal(t, int16(2), change.ThresholdNew.Int16)
 				case types.StateChangeReasonHigh:
-					assert.Equal(t, "0", change.Thresholds["old"])
-					assert.Equal(t, "3", change.Thresholds["new"])
+					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
+					assert.Equal(t, int16(3), change.ThresholdNew.Int16)
 				}
 			case types.StateChangeCategoryFlags:
 				//exhaustive:ignore
 				switch *change.StateChangeReason {
 				case types.StateChangeReasonSet:
-					assert.Equal(t, types.NullableJSON{"auth_required"}, change.Flags)
+					assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthRequired, Valid: true}, change.Flags)
 				case types.StateChangeReasonClear:
-					assert.Equal(t, types.NullableJSON{"auth_revocable"}, change.Flags)
+					assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthRevocable, Valid: true}, change.Flags)
 				}
 			case types.StateChangeCategorySigner:
 				//exhaustive:ignore
@@ -86,11 +87,13 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				case types.StateChangeReasonUpdate:
 					assert.True(t, change.SignerAccountID.Valid)
 					assert.Equal(t, "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH", change.SignerAccountID.String)
-					assert.Equal(t, types.NullableJSONB{"new": int32(3), "old": int32(1)}, change.SignerWeights)
+					assert.Equal(t, int16(1), change.SignerWeightOld.Int16)
+					assert.Equal(t, int16(3), change.SignerWeightNew.Int16)
 				case types.StateChangeReasonAdd:
 					assert.True(t, change.SignerAccountID.Valid)
 					assert.Equal(t, "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C", change.SignerAccountID.String)
-					assert.Equal(t, types.NullableJSONB{"new": int32(2)}, change.SignerWeights)
+					assert.False(t, change.SignerWeightOld.Valid) // New signer has no old weight
+					assert.Equal(t, int16(2), change.SignerWeightNew.Int16)
 				}
 			}
 		}
@@ -118,11 +121,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSON{"authorized_to_maintain_liabilites"}, changes[0].Flags)
+		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, changes[0].Flags)
 
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
-		assert.Equal(t, types.NullableJSON{"authorized", "clawback_enabled"}, changes[1].Flags)
+		// Bitmask for authorized (1) | clawback_enabled (32) = 33
+		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized | types.FlagBitClawbackEnabled, Valid: true}, changes[1].Flags)
 	})
 
 	t.Run("ManageData - data created", func(t *testing.T) {
@@ -368,11 +372,8 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		// Should only get the trustline creation
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{
-			"limit": map[string]any{
-				"new": "922337203685.4775807",
-			},
-		}, changes[0].TrustlineLimit)
+		assert.False(t, changes[0].TrustlineLimitOld.Valid) // New trustline has no old limit
+		assert.Equal(t, "922337203685.4775807", changes[0].TrustlineLimitNew.String)
 		asset := xdr.MustNewCreditAsset("TEST", "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
@@ -414,12 +415,8 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
-		assert.Equal(t, types.NullableJSONB{
-			"limit": map[string]any{
-				"new": "100.0000000",
-				"old": "1000000000",
-			},
-		}, changes[0].TrustlineLimit)
+		assert.Equal(t, "1000000000", changes[0].TrustlineLimitOld.String)
+		assert.Equal(t, "100.0000000", changes[0].TrustlineLimitNew.String)
 	})
 	t.Run("ChangeTrust - trustline removed", func(t *testing.T) {
 		envelopeXDR := "AAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAZAARM9kAAAADAAAAAQAAAAAAAAAAAAAAAF4XMm8AAAAAAAAAAQAAAAAAAAAGAAAAAk9DSVRva2VuAAAAAAAAAABJxf/HoI4oaD9CLBvECRhG9GPMNa/65PTI9N7F37o4nwAAAAAAAAAAAAAAAAAAAAGTI3ubAAAAQMHTFPeyHA+W2EYHVDut4dQ18zvF+47SsTPaePwZUaCgw/A3tKDx7sO7R8xlI3GwKQl91Ljmm1dbvAONU9nk/AQ="
