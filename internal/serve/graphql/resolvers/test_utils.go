@@ -56,7 +56,7 @@ var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
-	parentAccount := &types.Account{StellarAddress: types.StellarAddress(sharedTestAccountAddress)}
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
 	opIdx := 1

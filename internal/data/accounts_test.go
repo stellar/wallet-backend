@@ -53,7 +53,7 @@ func TestAccountModel_BatchGetByIDs(t *testing.T) {
 	t.Run("returns existing accounts only", func(t *testing.T) {
 		// Insert some test accounts using StellarAddress for BYTEA conversion
 		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-			types.StellarAddress(account1), types.StellarAddress(account2))
+			types.AddressBytea(account1), types.AddressBytea(account2))
 		require.NoError(t, err)
 
 		// Test with mix of existing and non-existing accounts
@@ -118,8 +118,8 @@ func TestAccountModel_Insert(t *testing.T) {
 		err = m.Insert(ctx, address)
 		require.NoError(t, err)
 
-		var dbAddress types.StellarAddress
-		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", types.StellarAddress(address))
+		var dbAddress types.AddressBytea
+		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", types.AddressBytea(address))
 		require.NoError(t, err)
 
 		assert.Equal(t, address, string(dbAddress))
@@ -171,7 +171,7 @@ func TestAccountModel_Delete(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
+		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 		require.NoError(t, insertErr)
 		rowAffected, err := result.RowsAffected()
 		require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestAccountModel_Delete(t *testing.T) {
 		err = m.Delete(ctx, address)
 		require.NoError(t, err)
 
-		var dbAddress types.StellarAddress
+		var dbAddress types.AddressBytea
 		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
 		assert.ErrorIs(t, err, sql.ErrNoRows)
 	})
@@ -225,7 +225,7 @@ func TestAccountModelGet(t *testing.T) {
 	address := keypair.MustRandom().Address()
 
 	// Insert test account
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
+	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 	rowAffected, err := result.RowsAffected()
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 
 	// Insert test accounts
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.StellarAddress(address1), types.StellarAddress(address2))
+		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first
@@ -272,7 +272,7 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 
 	// Insert test transactions_accounts links
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_to_id, account_id) VALUES ($1, $2), ($3, $4)",
-		toID1, types.StellarAddress(address1), toID2, types.StellarAddress(address2))
+		toID1, types.AddressBytea(address1), toID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByToIDs function
@@ -315,7 +315,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 
 	// Insert test accounts (stellar_address is BYTEA)
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.StellarAddress(address1), types.StellarAddress(address2))
+		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first
@@ -368,7 +368,7 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, isFeeBumpEligible)
 
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
+	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 	rowAffected, err := result.RowsAffected()
 	require.NoError(t, err)
@@ -407,7 +407,7 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 
 	// Insert test accounts (stellar_address is BYTEA)
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.StellarAddress(address1), types.StellarAddress(address2))
+		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Insert test transactions first

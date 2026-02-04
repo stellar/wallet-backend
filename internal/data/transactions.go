@@ -94,6 +94,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		Limit:          limit,
 		Cursor:         cursor,
 		OrderBy:        orderBy,
+		AccountIDBytea: true, // transactions_accounts.account_id is BYTEA
 	})
 
 	var transactions []*types.TransactionWithCursor
@@ -218,7 +219,7 @@ func (m *TransactionModel) BatchInsert(
 	for toID, addresses := range stellarAddressesByToID {
 		for address := range addresses.Iter() {
 			txToIDs = append(txToIDs, toID)
-			addrBytes, err := types.StellarAddress(address).Value()
+			addrBytes, err := types.AddressBytea(address).Value()
 			if err != nil {
 				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
 			}
@@ -358,7 +359,7 @@ func (m *TransactionModel) BatchCopy(
 		for toID, addresses := range stellarAddressesByToID {
 			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				addrBytes, err := types.StellarAddress(addr).Value()
+				addrBytes, err := types.AddressBytea(addr).Value()
 				if err != nil {
 					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
 				}

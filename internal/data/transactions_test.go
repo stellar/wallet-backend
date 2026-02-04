@@ -67,7 +67,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	meta1, meta2 := "meta1", "meta2"
@@ -195,7 +195,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
 					TxToID    int64                `db:"tx_to_id"`
-					AccountID types.StellarAddress `db:"account_id"`
+					AccountID types.AddressBytea `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
 				require.NoError(t, err)
@@ -232,7 +232,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.StellarAddress(kp1.Address()), types.StellarAddress(kp2.Address()))
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	meta1, meta2 := "meta1", "meta2"
@@ -365,7 +365,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
 					TxToID    int64                `db:"tx_to_id"`
-					AccountID types.StellarAddress `db:"account_id"`
+					AccountID types.AddressBytea `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
 				require.NoError(t, err)
@@ -399,7 +399,7 @@ func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
 	// Create test account
 	kp1 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.StellarAddress(kp1.Address()))
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()))
 	require.NoError(t, err)
 
 	meta := "meta1"
@@ -569,7 +569,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.StellarAddress(address1), types.StellarAddress(address2))
+		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Create test transactions
@@ -589,7 +589,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 			(1, $1),
 			(2, $1),
 			(3, $2)
-	`, types.StellarAddress(address1), types.StellarAddress(address2))
+	`, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
@@ -683,7 +683,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.StellarAddress(address))
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
 	// Create test transactions

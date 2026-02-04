@@ -92,7 +92,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 		argIndex))
 	// Use BYTEA conversion only for tables that have BYTEA account_id column
 	if config.AccountIDBytea {
-		args = append(args, types.StellarAddress(config.AccountAddress))
+		args = append(args, types.AddressBytea(config.AccountAddress))
 	} else {
 		args = append(args, config.AccountAddress)
 	}

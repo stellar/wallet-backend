@@ -42,16 +42,17 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
-// StellarAddress represents a Stellar address. In the database it can be stored as either:
-// - BYTEA (33 bytes: 1 version byte + 32 raw key bytes) for accounts.stellar_address and transactions_accounts.account_id
-// - TEXT (string) for operations_accounts.account_id and state_changes.account_id
-// In Go code, it's always exposed as a string (G.../C...).
-type StellarAddress string
+// AddressBytea represents a Stellar address stored as BYTEA in the database.
+// Storage format: 33 bytes (1 version byte + 32 raw key bytes)
+// Go representation: StrKey string (G.../C...)
+//
+// For TEXT columns, Scan also accepts string input directly.
+type AddressBytea string
 
 // Scan implements sql.Scanner - converts BYTEA (33 bytes) or TEXT to StrKey string
-func (s *StellarAddress) Scan(value any) error {
+func (a *AddressBytea) Scan(value any) error {
 	if value == nil {
-		*s = ""
+		*a = ""
 		return nil
 	}
 	switch v := value.(type) {
@@ -66,10 +67,10 @@ func (s *StellarAddress) Scan(value any) error {
 		if err != nil {
 			return fmt.Errorf("encoding stellar address: %w", err)
 		}
-		*s = StellarAddress(encoded)
+		*a = AddressBytea(encoded)
 	case string:
 		// TEXT column: already a StrKey string
-		*s = StellarAddress(v)
+		*a = AddressBytea(v)
 	default:
 		return fmt.Errorf("expected []byte or string, got %T", value)
 	}
@@ -77,13 +78,13 @@ func (s *StellarAddress) Scan(value any) error {
 }
 
 // Value implements driver.Valuer - converts StrKey string to 33-byte []byte
-func (s StellarAddress) Value() (driver.Value, error) {
-	if s == "" {
+func (a AddressBytea) Value() (driver.Value, error) {
+	if a == "" {
 		return nil, nil
 	}
-	versionByte, rawBytes, err := strkey.DecodeAny(string(s))
+	versionByte, rawBytes, err := strkey.DecodeAny(string(a))
 	if err != nil {
-		return nil, fmt.Errorf("decoding stellar address %s: %w", s, err)
+		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
 	result := make([]byte, 33)
 	result[0] = byte(versionByte)
@@ -169,8 +170,8 @@ const (
 )
 
 type Account struct {
-	StellarAddress StellarAddress `json:"address,omitempty" db:"stellar_address"`
-	CreatedAt      time.Time      `json:"createdAt,omitempty" db:"created_at"`
+	StellarAddress AddressBytea `json:"address,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time    `json:"createdAt,omitempty" db:"created_at"`
 }
 
 type AccountWithToID struct {

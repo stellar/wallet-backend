@@ -78,7 +78,7 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 			}
 
 			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
-			return &types.Account{StellarAddress: types.StellarAddress(address)}, nil
+			return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
 		}
 		return nil, err
 	}

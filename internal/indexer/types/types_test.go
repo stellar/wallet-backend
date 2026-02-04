@@ -54,7 +54,7 @@ func TestNullableJSONB_Scan(t *testing.T) {
 	}
 }
 
-func TestStellarAddress_Scan(t *testing.T) {
+func TestAddressBytea_Scan(t *testing.T) {
 	// Generate a valid G... address for testing
 	kp := keypair.MustRandom()
 	validAddress := kp.Address()
@@ -69,7 +69,7 @@ func TestStellarAddress_Scan(t *testing.T) {
 	testCases := []struct {
 		name            string
 		input           any
-		want            StellarAddress
+		want            AddressBytea
 		wantErrContains string
 	}{
 		{
@@ -80,12 +80,17 @@ func TestStellarAddress_Scan(t *testing.T) {
 		{
 			name:  "🟢valid 33-byte address",
 			input: validBytes,
-			want:  StellarAddress(validAddress),
+			want:  AddressBytea(validAddress),
+		},
+		{
+			name:  "🟢valid string input",
+			input: validAddress,
+			want:  AddressBytea(validAddress),
 		},
 		{
 			name:            "🔴wrong type",
-			input:           "not bytes",
-			wantErrContains: "expected []byte",
+			input:           12345,
+			wantErrContains: "expected []byte or string",
 		},
 		{
 			name:            "🔴wrong length",
@@ -96,7 +101,7 @@ func TestStellarAddress_Scan(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var s StellarAddress
+			var s AddressBytea
 			err := s.Scan(tc.input)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
@@ -108,7 +113,7 @@ func TestStellarAddress_Scan(t *testing.T) {
 	}
 }
 
-func TestStellarAddress_Value(t *testing.T) {
+func TestAddressBytea_Value(t *testing.T) {
 	// Generate a valid G... address for testing
 	kp := keypair.MustRandom()
 	validAddress := kp.Address()
@@ -122,7 +127,7 @@ func TestStellarAddress_Value(t *testing.T) {
 
 	testCases := []struct {
 		name            string
-		input           StellarAddress
+		input           AddressBytea
 		want            driver.Value
 		wantErrContains string
 	}{
@@ -133,7 +138,7 @@ func TestStellarAddress_Value(t *testing.T) {
 		},
 		{
 			name:  "🟢valid address",
-			input: StellarAddress(validAddress),
+			input: AddressBytea(validAddress),
 			want:  expectedBytes,
 		},
 		{
@@ -156,17 +161,17 @@ func TestStellarAddress_Value(t *testing.T) {
 	}
 }
 
-func TestStellarAddress_Roundtrip(t *testing.T) {
+func TestAddressBytea_Roundtrip(t *testing.T) {
 	// Test that Value -> Scan produces the original address
 	kp := keypair.MustRandom()
-	original := StellarAddress(kp.Address())
+	original := AddressBytea(kp.Address())
 
 	// Convert to bytes
 	bytes, err := original.Value()
 	require.NoError(t, err)
 
 	// Convert back to address
-	var restored StellarAddress
+	var restored AddressBytea
 	err = restored.Scan(bytes)
 	require.NoError(t, err)
 
