@@ -157,7 +157,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
-				op.ID, string(parentAccount.StellarAddress))
+				op.ID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 

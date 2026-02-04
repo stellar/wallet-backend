@@ -326,8 +326,9 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'PAYMENT', 'xdr1', 'op_success', true, 1, NOW()), ($2, 'PAYMENT', 'xdr2', 'op_success', true, 2, NOW())", operationID1, operationID2)
 	require.NoError(t, err)
 
-	// Insert test operations_accounts links (account_id is TEXT)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)", operationID1, address1, operationID2, address2)
+	// Insert test operations_accounts links (account_id is BYTEA)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)",
+		operationID1, types.AddressBytea(address1), operationID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID function
