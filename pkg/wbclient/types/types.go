@@ -278,6 +278,8 @@ type Operation struct {
 	ID              int64         `json:"id"`
 	OperationType   OperationType `json:"operationType"`
 	OperationXdr    string        `json:"operationXdr"`
+	ResultCode      string        `json:"resultCode"`
+	Successful      bool          `json:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt"`
 	IngestedAt      time.Time     `json:"ingestedAt"`
