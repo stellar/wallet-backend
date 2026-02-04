@@ -83,14 +83,9 @@ func TestAddressBytea_Scan(t *testing.T) {
 			want:  AddressBytea(validAddress),
 		},
 		{
-			name:  "🟢valid string input",
-			input: validAddress,
-			want:  AddressBytea(validAddress),
-		},
-		{
 			name:            "🔴wrong type",
 			input:           12345,
-			wantErrContains: "expected []byte or string",
+			wantErrContains: "expected []byte",
 		},
 		{
 			name:            "🔴wrong length",
@@ -176,6 +171,37 @@ func TestAddressBytea_Roundtrip(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, original, restored)
+}
+
+func TestAddressBytea_String(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input AddressBytea
+		want  string
+	}{
+		{
+			name:  "🟢empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "🟢valid G address",
+			input: AddressBytea("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"),
+			want:  "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+		},
+		{
+			name:  "🟢valid C address",
+			input: AddressBytea("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
+			want:  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.input.String()
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestNullableJSONB_Value(t *testing.T) {

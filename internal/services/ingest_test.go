@@ -530,7 +530,7 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
-		AccountID:           accountID,
+		AccountID:           types.AddressBytea(accountID),
 		OperationID:         opID,
 		LedgerNumber:        1000,
 		LedgerCreatedAt:     now,

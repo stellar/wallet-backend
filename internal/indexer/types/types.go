@@ -85,6 +85,11 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	return result, nil
 }
 
+// String returns the Stellar address as a string.
+func (a AddressBytea) String() string {
+	return string(a)
+}
+
 type ContractType string
 
 const (

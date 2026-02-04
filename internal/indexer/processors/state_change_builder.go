@@ -76,7 +76,7 @@ func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
 
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
-	b.base.AccountID = accountID
+	b.base.AccountID = types.AddressBytea(accountID)
 	return b
 }
 

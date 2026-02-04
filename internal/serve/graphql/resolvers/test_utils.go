@@ -111,7 +111,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
 				OperationID:         op.ID,
-				AccountID:           string(parentAccount.StellarAddress),
+				AccountID:           parentAccount.StellarAddress,
 				LedgerCreatedAt:     time.Now(),
 				LedgerNumber:        1,
 			})
@@ -125,7 +125,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			AccountID:           string(parentAccount.StellarAddress),
+			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
 			LedgerNumber:        1000,
 		})
