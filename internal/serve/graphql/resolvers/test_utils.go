@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/require"
 
@@ -46,9 +47,16 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
+// sharedTestAccountAddress is a fixed test address used by tests that rely on setupDB.
+// It's generated once and reused to ensure test data consistency.
+var sharedTestAccountAddress = keypair.MustRandom().Address()
+
+// sharedNonExistentAccountAddress is a valid Stellar address that doesn't exist in the test DB.
+var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
+
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: types.StellarAddress(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
 	opIdx := 1
@@ -103,7 +111,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
 				OperationID:         op.ID,
-				AccountID:           parentAccount.StellarAddress,
+				AccountID:           string(parentAccount.StellarAddress),
 				LedgerCreatedAt:     time.Now(),
 				LedgerNumber:        1,
 			})
@@ -117,7 +125,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			AccountID:           parentAccount.StellarAddress,
+			AccountID:           string(parentAccount.StellarAddress),
 			LedgerCreatedAt:     time.Now(),
 			LedgerNumber:        1000,
 		})
@@ -149,7 +157,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
-				op.ID, parentAccount.StellarAddress)
+				op.ID, string(parentAccount.StellarAddress))
 			require.NoError(t, err)
 		}
 
