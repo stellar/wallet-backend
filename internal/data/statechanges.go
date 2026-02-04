@@ -26,7 +26,7 @@ type StateChangeModel struct {
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
 	var queryBuilder strings.Builder
-	args := []interface{}{accountAddress}
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	queryBuilder.WriteString(fmt.Sprintf(`
