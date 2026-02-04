@@ -194,7 +194,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			// Verify the account links
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
-					TxToID    int64                `db:"tx_to_id"`
+					TxToID    int64              `db:"tx_to_id"`
 					AccountID types.AddressBytea `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
@@ -364,7 +364,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					TxToID    int64                `db:"tx_to_id"`
+					TxToID    int64              `db:"tx_to_id"`
 					AccountID types.AddressBytea `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")

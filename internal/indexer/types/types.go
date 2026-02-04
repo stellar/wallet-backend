@@ -85,7 +85,6 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	return result, nil
 }
 
-
 type ContractType string
 
 const (
