@@ -56,8 +56,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	// Create test data
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first with specific ToIDs
@@ -243,8 +243,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first with specific ToIDs
@@ -384,8 +384,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					OperationID int64              `db:"operation_id"`
+					AccountID   types.AddressBytea `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -393,7 +393,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each expected operation has its account links
@@ -419,7 +419,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()))
 	require.NoError(t, err)
 
 	// Create a parent transaction that the operation will reference
