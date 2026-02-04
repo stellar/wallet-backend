@@ -482,7 +482,7 @@ type StateChange struct {
 	KeyValue NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 
 	// Relationships:
-	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	AccountID   AddressBytea `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
