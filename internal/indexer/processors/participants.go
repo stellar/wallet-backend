@@ -121,11 +121,8 @@ type OperationParticipants struct {
 }
 
 // GetOperationsParticipants returns a map of operation ID to its participants.
+// This function processes ALL operations regardless of transaction success.
 func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]OperationParticipants, error) {
-	if !transaction.Successful() {
-		return nil, nil
-	}
-
 	ledgerSequence := transaction.Ledger.LedgerSequence()
 	operationsParticipants := map[int64]OperationParticipants{}
 
@@ -177,6 +174,11 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 
 	// 1.1. Return early if the operation is not a Soroban operation
 	if !op.Transaction.IsSorobanTx() {
+		return participants, nil
+	}
+
+	// 1.2. Skip Soroban participants for failed transactions (they don't have ledger changes)
+	if !op.Transaction.Successful() {
 		return participants, nil
 	}
 

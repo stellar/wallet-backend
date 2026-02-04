@@ -41,10 +41,12 @@ func Test_ConvertTransaction(t *testing.T) {
 		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:                 20929375637504,
 		EnvelopeXDR:          &envelopeXDR,
-		ResultXDR:            txResultPairXDRStr,
+		FeeCharged:           4595918,
+		ResultCode:           "TransactionResultCodeTxFeeBumpInnerSuccess",
 		MetaXDR:              &metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		IsFeeBump:            true,
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
@@ -70,10 +72,12 @@ func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
 		Hash:                 "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:                 20929375637504,
 		EnvelopeXDR:          nil,
-		ResultXDR:            txResultPairXDRStr,
+		FeeCharged:           4595918,
+		ResultCode:           "TransactionResultCodeTxFeeBumpInnerSuccess",
 		MetaXDR:              &metaXDR,
 		LedgerNumber:         4873,
 		LedgerCreatedAt:      time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		IsFeeBump:            true,
 		InnerTransactionHash: "afaef8a1b657ad5d2360cc001eb31b763bfd3430cba20273d49ff44be2a2152e",
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
@@ -89,17 +93,20 @@ func Test_ConvertOperation(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	opIndex := 0
+	opIndex := uint32(0)
 	op := ingestTx.Envelope.Operations()[opIndex]
 	opID := toid.New(int32(ingestTx.Ledger.LedgerSequence()), int32(ingestTx.Index), int32(opIndex+1)).ToInt64()
+	opResults, _ := ingestTx.Result.OperationResults()
 
-	gotDataOp, err := ConvertOperation(&ingestTx, &op, opID)
+	gotDataOp, err := ConvertOperation(&ingestTx, &op, opID, opIndex, opResults)
 	require.NoError(t, err)
 
 	wantDataOp := &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    opXDRStr,
+		ResultCode:      OpSuccess,
+		Successful:      true,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		LedgerNumber:    4873,
 		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",

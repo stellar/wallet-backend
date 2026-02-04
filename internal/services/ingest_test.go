@@ -213,8 +213,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps)
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -236,8 +236,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps)
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -257,15 +257,15 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
 				for ledger := uint32(100); ledger <= 120; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
 				for ledger := uint32(150); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 'res', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -499,7 +499,8 @@ func createTestTransaction(hash string, toID int64) types.Transaction {
 		Hash:            hash,
 		ToID:            toID,
 		EnvelopeXDR:     &envelope,
-		ResultXDR:       "test_result_xdr",
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
 		MetaXDR:         &meta,
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,

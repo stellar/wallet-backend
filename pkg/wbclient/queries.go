@@ -13,10 +13,12 @@ const (
 	defaultTransactionFields = `
 		hash
 		envelopeXdr
-		resultXdr
+		resultCode
+		feeCharged
 		metaXdr
 		ledgerNumber
 		ledgerCreatedAt
+		isFeeBump
 		ingestedAt
 	`
 
@@ -24,6 +26,8 @@ const (
 		id
 		operationType
 		operationXdr
+		resultCode
+		successful
 		ledgerNumber
 		ledgerCreatedAt
 		ingestedAt

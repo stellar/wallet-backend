@@ -136,10 +136,12 @@ type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
-	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
+	FeeCharged      int64     `json:"feeCharged,omitempty" db:"fee_charged"`
+	ResultCode      string    `json:"resultCode,omitempty" db:"result_code"`
 	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
+	IsFeeBump       bool      `json:"isFeeBump,omitempty" db:"is_fee_bump"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty"`
@@ -240,6 +242,8 @@ type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	ResultCode      string        `json:"resultCode,omitempty" db:"result_code"`
+	Successful      bool          `json:"successful,omitempty" db:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`

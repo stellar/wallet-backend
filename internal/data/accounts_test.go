@@ -259,7 +259,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 1, 'env1', 'res1', 'meta1', 1, NOW()), ($2, 2, 'env2', 'res2', 'meta2', 2, NOW())", txHash1, txHash2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", txHash1, txHash2)
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
@@ -309,11 +309,11 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', 2, NOW())")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())")
 	require.NoError(t, err)
 
 	// Insert test operations first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES ($1, 'tx1', 'payment', 'xdr1', 1, NOW()), ($2, 'tx2', 'payment', 'xdr2', 2	, NOW())", operationID1, operationID2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, NOW()), ($2, 'tx2', 'payment', 'xdr2', 'op_success', true, 2, NOW())", operationID1, operationID2)
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links
@@ -400,11 +400,11 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', 2, NOW())")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())")
 	require.NoError(t, err)
 
 	// Insert test operations first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES (1, 'tx1', 'payment', 'xdr1', 1, NOW()), (2, 'tx2', 'payment', 'xdr2', 2, NOW())")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES (1, 'tx1', 'payment', 'xdr1', 'op_success', true, 1, NOW()), (2, 'tx2', 'payment', 'xdr2', 'op_success', true, 2, NOW())")
 	require.NoError(t, err)
 
 	// Insert test state changes that reference the accounts

@@ -247,10 +247,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		envelopeXDR = &envelopeXDRStr
 	}
 
-	resultXDR, err := xdr.MarshalBase64(transaction.Result)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction result: %w", err)
-	}
+	feeCharged, _ := transaction.FeeCharged()
 
 	var metaXDR *string
 	if !skipTxMeta {
@@ -289,23 +286,47 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		Hash:                 transaction.Hash.HexString(),
 		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
 		EnvelopeXDR:          envelopeXDR,
-		ResultXDR:            resultXDR,
+		FeeCharged:           feeCharged,
+		ResultCode:           transaction.ResultCode(),
 		MetaXDR:              metaXDR,
 		LedgerNumber:         ledgerSequence,
+		IsFeeBump:            transaction.Envelope.IsFeeBump(),
 		InnerTransactionHash: innerTxHash,
 	}, nil
 }
 
-func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, opID int64) (*types.Operation, error) {
+func ConvertOperation(
+	transaction *ingest.LedgerTransaction,
+	op *xdr.Operation,
+	opID int64,
+	opIndex uint32,
+	opResults []xdr.OperationResult,
+) (*types.Operation, error) {
 	xdrOpStr, err := xdr.MarshalBase64(op)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
+	}
+
+	// Extract result code and success status
+	var resultCode string
+	var successful bool
+	if int(opIndex) < len(opResults) {
+		resultCode, successful, err = forOperationResult(opResults[opIndex])
+		if err != nil {
+			return nil, fmt.Errorf("getting result code for operation %d: %w", opID, err)
+		}
+	} else {
+		// If no results available (shouldn't happen in normal circumstances), mark as failed
+		resultCode = "op_unknown"
+		successful = false
 	}
 
 	return &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    xdrOpStr,
+		ResultCode:      resultCode,
+		Successful:      successful,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 		TxHash:          transaction.Hash.HexString(),

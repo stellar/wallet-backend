@@ -32,7 +32,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "feeCharged", "resultCode", "metaXdr", "ledgerNumber", "ledgerCreatedAt", "isFeeBump"})
 		tx, err := resolver.TransactionByHash(ctx, "tx1")
 
 		require.NoError(t, err)
@@ -40,7 +40,8 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
 		require.NotNil(t, tx.EnvelopeXDR)
 		assert.Equal(t, "envelope1", *tx.EnvelopeXDR)
-		assert.Equal(t, "result1", tx.ResultXDR)
+		assert.Equal(t, int64(100), tx.FeeCharged)
+		assert.Equal(t, "TransactionResultCodeTxSuccess", tx.ResultCode)
 		require.NotNil(t, tx.MetaXDR)
 		assert.Equal(t, "meta1", *tx.MetaXDR)
 		assert.Equal(t, uint32(1), tx.LedgerNumber)
