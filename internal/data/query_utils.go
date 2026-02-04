@@ -35,10 +35,6 @@ type paginatedQueryConfig struct {
 	Limit          *int32
 	Cursor         *int64
 	OrderBy        SortOrder
-
-	// AccountIDBytea indicates whether the join table's account_id column is BYTEA.
-	// If true, AccountAddress is converted to BYTEA; if false, it's used as TEXT.
-	AccountIDBytea bool
 }
 
 // pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
@@ -90,12 +86,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 		config.JoinCondition,
 		config.JoinTable,
 		argIndex))
-	// Use BYTEA conversion only for tables that have BYTEA account_id column
-	if config.AccountIDBytea {
-		args = append(args, types.AddressBytea(config.AccountAddress))
-	} else {
-		args = append(args, config.AccountAddress)
-	}
+	args = append(args, types.AddressBytea(config.AccountAddress))
 	argIndex++
 
 	// Add cursor condition if provided
