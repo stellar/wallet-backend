@@ -80,7 +80,7 @@ The wallet-backend provides a powerful GraphQL API that enables flexible queryin
 - [Getting Started](#getting-started)
 - [Queries](#queries)
 - [Mutations](#mutations)
-- [Pagination](#pagination-1)
+- [Pagination](#pagination)
 - [State Changes](#state-changes)
 - [Error Handling](#error-handling)
 - [Performance Features](#performance-features)
