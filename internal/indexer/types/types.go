@@ -45,35 +45,28 @@ import (
 // AddressBytea represents a Stellar address stored as BYTEA in the database.
 // Storage format: 33 bytes (1 version byte + 32 raw key bytes)
 // Go representation: StrKey string (G.../C...)
-//
-// For TEXT columns, Scan also accepts string input directly.
 type AddressBytea string
 
-// Scan implements sql.Scanner - converts BYTEA (33 bytes) or TEXT to StrKey string
+// Scan implements sql.Scanner - converts BYTEA (33 bytes) to StrKey string
 func (a *AddressBytea) Scan(value any) error {
 	if value == nil {
 		*a = ""
 		return nil
 	}
-	switch v := value.(type) {
-	case []byte:
-		// BYTEA column: 33 bytes (1 version byte + 32 raw key bytes)
-		if len(v) != 33 {
-			return fmt.Errorf("expected 33 bytes, got %d", len(v))
-		}
-		versionByte := strkey.VersionByte(v[0])
-		rawKey := v[1:33]
-		encoded, err := strkey.Encode(versionByte, rawKey)
-		if err != nil {
-			return fmt.Errorf("encoding stellar address: %w", err)
-		}
-		*a = AddressBytea(encoded)
-	case string:
-		// TEXT column: already a StrKey string
-		*a = AddressBytea(v)
-	default:
-		return fmt.Errorf("expected []byte or string, got %T", value)
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
 	}
+	if len(bytes) != 33 {
+		return fmt.Errorf("expected 33 bytes, got %d", len(bytes))
+	}
+	versionByte := strkey.VersionByte(bytes[0])
+	rawKey := bytes[1:33]
+	encoded, err := strkey.Encode(versionByte, rawKey)
+	if err != nil {
+		return fmt.Errorf("encoding stellar address: %w", err)
+	}
+	*a = AddressBytea(encoded)
 	return nil
 }
 
