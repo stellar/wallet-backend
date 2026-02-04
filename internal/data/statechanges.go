@@ -424,6 +424,39 @@ func (m *StateChangeModel) BatchCopy(
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
+
+			// Convert account_id to BYTEA (required field)
+			accountBytes, err := sc.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account_id: %w", err)
+			}
+
+			// Convert nullable account_id fields to BYTEA
+			signerBytes, err := pgtypeBytesFromNullStringAddress(sc.SignerAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting signer_account_id: %w", err)
+			}
+			spenderBytes, err := pgtypeBytesFromNullStringAddress(sc.SpenderAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting spender_account_id: %w", err)
+			}
+			sponsoredBytes, err := pgtypeBytesFromNullStringAddress(sc.SponsoredAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
+			}
+			sponsorBytes, err := pgtypeBytesFromNullStringAddress(sc.SponsorAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
+			}
+			deployerBytes, err := pgtypeBytesFromNullStringAddress(sc.DeployerAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
+			}
+			funderBytes, err := pgtypeBytesFromNullStringAddress(sc.FunderAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting funder_account_id: %w", err)
+			}
+
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
@@ -431,16 +464,16 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromReasonPtr(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				pgtype.Text{String: sc.AccountID, Valid: true},
+				accountBytes,
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
-				pgtypeTextFromNullString(sc.SignerAccountID),
-				pgtypeTextFromNullString(sc.SpenderAccountID),
-				pgtypeTextFromNullString(sc.SponsoredAccountID),
-				pgtypeTextFromNullString(sc.SponsorAccountID),
-				pgtypeTextFromNullString(sc.DeployerAccountID),
-				pgtypeTextFromNullString(sc.FunderAccountID),
+				signerBytes,
+				spenderBytes,
+				sponsoredBytes,
+				sponsorBytes,
+				deployerBytes,
+				funderBytes,
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
 				pgtypeTextFromNullString(sc.SponsoredData),
