@@ -1074,7 +1074,7 @@ Several state change fields return JSON-formatted strings containing old and new
    - Format: `{"old": "10", "new": "20"}`
    - Values represent threshold weights as strings
 
-3. **trustlineLimit** (TrustlineChange):
+3. **limit** (TrustlineChange):
    - For new trustlines: `{"limit": {"new": "1000"}}`
    - For updated trustlines: `{"limit": {"old": "1000", "new": "2000"}}`
 
