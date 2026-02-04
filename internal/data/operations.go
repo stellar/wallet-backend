@@ -436,7 +436,11 @@ func (m *OperationModel) BatchCopy(
 		for opID, addresses := range stellarAddressesByOpID {
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				addrBytes, err := types.AddressBytea(addr).Value()
+				if err != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				}
+				oaRows = append(oaRows, []any{opIDPgtype, addrBytes})
 			}
 		}
 
