@@ -185,10 +185,15 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 
 			// Verify the results
 			require.NoError(t, err)
-			var dbInsertedHashes []string
+			var dbInsertedHashes []types.HashBytea
 			err = sqlExecuter.SelectContext(ctx, &dbInsertedHashes, "SELECT hash FROM transactions")
 			require.NoError(t, err)
-			assert.ElementsMatch(t, tc.wantHashes, dbInsertedHashes)
+			// Convert HashBytea to string for comparison
+			dbHashStrings := make([]string, len(dbInsertedHashes))
+			for i, h := range dbInsertedHashes {
+				dbHashStrings[i] = h.String()
+			}
+			assert.ElementsMatch(t, tc.wantHashes, dbHashStrings)
 			assert.ElementsMatch(t, tc.wantHashes, gotInsertedHashes)
 
 			// Verify the account links
@@ -356,7 +361,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
-			var dbInsertedHashes []string
+			var dbInsertedHashes []types.HashBytea
 			err = dbConnectionPool.SelectContext(ctx, &dbInsertedHashes, "SELECT hash FROM transactions ORDER BY hash")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
@@ -482,7 +487,7 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	now := time.Now()
 
 	// Create test transaction
-	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48767")
+	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES ($1, 1, 'envelope', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2, false)
@@ -519,9 +524,9 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	now := time.Now()
 
 	// Create test transactions
-	testHash1 := types.HashBytea("1076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48768")
-	testHash2 := types.HashBytea("2076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48769")
-	testHash3 := types.HashBytea("3076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876a")
+	testHash1 := types.HashBytea("1076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	testHash2 := types.HashBytea("2076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	testHash3 := types.HashBytea("3076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
@@ -576,9 +581,9 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test transactions
-	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876b")
-	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876c")
-	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876d")
+	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
@@ -630,9 +635,9 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test transactions with specific ToIDs
 	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
-	opTestHash1 := types.HashBytea("7076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876e")
-	opTestHash2 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876f")
-	opTestHash3 := types.HashBytea("9076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48770")
+	opTestHash1 := types.HashBytea("7076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	opTestHash2 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	opTestHash3 := types.HashBytea("9076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
@@ -696,9 +701,9 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test transactions
-	scTestHash1 := types.HashBytea("a176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48771")
-	scTestHash2 := types.HashBytea("b176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48772")
-	scTestHash3 := types.HashBytea("c176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48773")
+	scTestHash1 := types.HashBytea("a176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
+	scTestHash2 := types.HashBytea("b176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
+	scTestHash3 := types.HashBytea("c176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES

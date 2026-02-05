@@ -253,7 +253,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
 		ON CONFLICT (to_id) DO NOTHING
-		RETURNING encode(hash, 'hex')
+		RETURNING hash
 	),
 
 	-- Insert transactions_accounts links
@@ -271,11 +271,11 @@ func (m *TransactionModel) BatchInsert(
 	)
 
 	-- Return the hashes of successfully inserted transactions
-	SELECT encode FROM inserted_transactions;
+	SELECT hash FROM inserted_transactions;
     `
 
 	start := time.Now()
-	var insertedHashes []string
+	var insertedHashes []types.HashBytea
 	err := sqlExecuter.SelectContext(ctx, &insertedHashes, insertQuery,
 		pq.Array(hashes),
 		pq.Array(toIDs),
@@ -306,7 +306,13 @@ func (m *TransactionModel) BatchInsert(
 		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
 	}
 
-	return insertedHashes, nil
+	// Convert HashBytea to string for the return value
+	result := make([]string, len(insertedHashes))
+	for i, h := range insertedHashes {
+		result[i] = h.String()
+	}
+
+	return result, nil
 }
 
 // BatchCopy inserts transactions using pgx's binary COPY protocol.
