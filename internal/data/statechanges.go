@@ -38,7 +38,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
 	if txHash != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" AND to_id = (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex))
-		args = append(args, *txHash)
+		args = append(args, types.HashBytea(*txHash))
 		argIndex++
 	}
 
