@@ -650,13 +650,16 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	// Create test operations (IDs must be in TOID range for each transaction)
 	// opTestHash1 (to_id=4096): ops 4097, 4098
 	// opTestHash2 (to_id=8192): op 8193
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationIDs
