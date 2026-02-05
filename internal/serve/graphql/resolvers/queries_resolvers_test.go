@@ -1,6 +1,8 @@
 package resolvers
 
 import (
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -11,6 +13,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// testOpXDR returns the expected base64-encoded XDR for test operation N
+func testOpXDR(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", n)))
+}
 
 func TestQueryResolver_TransactionByHash(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
@@ -278,10 +285,10 @@ func TestQueryResolver_Operations(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
 		// Operations are ordered by ID ascending
-		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", operations.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", operations.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(1), operations.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(2), operations.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(3), operations.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(4), operations.Edges[3].Node.OperationXDR.String())
 	})
 
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
@@ -290,8 +297,8 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(2), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -302,7 +309,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr3", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(3), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -313,11 +320,11 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 5)
-		assert.Equal(t, "opxdr4", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr5", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr6", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr7", ops.Edges[3].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[4].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(4), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(5), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(6), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(7), ops.Edges[3].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(8), ops.Edges[4].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -329,8 +336,8 @@ func TestQueryResolver_Operations(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		// With backward pagination, we get the last 2 items
-		assert.Equal(t, "opxdr7", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(7), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(8), ops.Edges[1].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -341,7 +348,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr6", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(6), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -352,11 +359,11 @@ func TestQueryResolver_Operations(t *testing.T) {
 		require.NoError(t, err)
 		// There are 5 operations before (2,1): (2,2), (3,1), (3,2), (4,1), (4,2)
 		assert.Len(t, ops.Edges, 5)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", ops.Edges[3].Node.OperationXDR)
-		assert.Equal(t, "opxdr5", ops.Edges[4].Node.OperationXDR)
+		assert.Equal(t, testOpXDR(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(2), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(3), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(4), ops.Edges[3].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDR(5), ops.Edges[4].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -442,7 +449,7 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
-		assert.Equal(t, "opxdr1", op.OperationXDR)
+		assert.Equal(t, testOpXDR(1), op.OperationXDR.String())
 		assert.Equal(t, uint32(1), op.LedgerNumber)
 	})
 
