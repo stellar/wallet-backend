@@ -516,13 +516,16 @@ func TestOperationModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction: (to_id, to_id + 4096))
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(2, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(4098, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(8194, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(2, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(4098, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(8194, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Test GetAll without limit (gets all operations)
@@ -571,16 +574,22 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	// For tx1 (to_id=4096): ops 4097, 4098, 4099
 	// For tx2 (to_id=8192): ops 8193, 8194
 	// For tx3 (to_id=12288): op 12289
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
+	xdr4 := types.XDRBytea([]byte("xdr4"))
+	xdr5 := types.XDRBytea([]byte("xdr5"))
+	xdr6 := types.XDRBytea([]byte("xdr6"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1),
-			(4099, 'MANAGE_SELL_OFFER', 'xdr4', 'op_success', true, 4, $1),
-			(8194, 'PAYMENT', 'xdr5', 'op_success', true, 5, $1),
-			(12289, 'CHANGE_TRUST', 'xdr6', 'op_success', true, 6, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', $4, 'op_success', true, 3, $1),
+			(4099, 'MANAGE_SELL_OFFER', $5, 'op_success', true, 4, $1),
+			(8194, 'PAYMENT', $6, 'op_success', true, 5, $1),
+			(12289, 'CHANGE_TRUST', $7, 'op_success', true, 6, $1)
+	`, now, xdr1, xdr2, xdr3, xdr4, xdr5, xdr6)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -874,12 +883,14 @@ func TestOperationModel_GetByID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	opXdr1 := types.XDRBytea([]byte("xdr1"))
+	opXdr2 := types.XDRBytea([]byte("xdr2"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1)
+	`, now, opXdr1, opXdr2)
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -895,10 +906,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 4097, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4097), operation.ID)
-	// 'xdr1' was inserted as raw string in SQL, which becomes raw bytes in BYTEA
-	// String() returns base64 encoding of the raw bytes
-	expectedXDR := types.XDRBytea([]byte("xdr1"))
-	assert.Equal(t, expectedXDR.String(), operation.OperationXDR.String())
+	assert.Equal(t, opXdr1.String(), operation.OperationXDR.String())
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
