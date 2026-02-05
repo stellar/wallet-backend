@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -34,7 +33,7 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 		ops[i] = &types.Operation{
 			ID:              opID,
 			OperationType:   types.OperationTypePayment,
-			OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("operation_xdr_%d", i)))),
+			OperationXDR:    types.XDRBytea([]byte(fmt.Sprintf("operation_xdr_%d", i))),
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
@@ -102,13 +101,13 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation1"))),
+		OperationXDR:    types.XDRBytea([]byte("operation1")),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation2"))),
+		OperationXDR:    types.XDRBytea([]byte("operation2")),
 		LedgerCreatedAt: now,
 	}
 
@@ -289,13 +288,13 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation1"))),
+		OperationXDR:    types.XDRBytea([]byte("operation1")),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation2"))),
+		OperationXDR:    types.XDRBytea([]byte("operation2")),
 		LedgerCreatedAt: now,
 	}
 
@@ -433,7 +432,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	op1 := types.Operation{
 		ID:              999,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation_xdr_dup_test"))),
+		OperationXDR:    types.XDRBytea([]byte("operation_xdr_dup_test")),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
@@ -763,9 +762,9 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	// Create test operations - IDs must be in TOID range for each transaction
 	// For tx1 (to_id=4096): ops 4097, 4098
 	// For tx2 (to_id=8192): op 8193
-	xdr1 := types.XDRBytea("xdr1")
-	xdr2 := types.XDRBytea("xdr2")
-	xdr3 := types.XDRBytea("xdr3")
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
@@ -823,9 +822,9 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
-	xdr1 := types.XDRBytea("xdr1")
-	xdr2 := types.XDRBytea("xdr2")
-	xdr3 := types.XDRBytea("xdr3")
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
@@ -941,9 +940,9 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
-	xdr1 := types.XDRBytea("xdr1")
-	xdr2 := types.XDRBytea("xdr2")
-	xdr3 := types.XDRBytea("xdr3")
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
