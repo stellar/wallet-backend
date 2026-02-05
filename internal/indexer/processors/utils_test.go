@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -101,10 +102,14 @@ func Test_ConvertOperation(t *testing.T) {
 	gotDataOp, err := ConvertOperation(&ingestTx, &op, opID, opIndex, opResults)
 	require.NoError(t, err)
 
+	// Decode expected base64 XDR to raw bytes for comparison
+	expectedXDRBytes, err := base64.StdEncoding.DecodeString(opXDRStr)
+	require.NoError(t, err)
+
 	wantDataOp := &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    opXDRStr,
+		OperationXDR:    types.XDRBytea(expectedXDRBytes),
 		ResultCode:      OpSuccess,
 		Successful:      true,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),

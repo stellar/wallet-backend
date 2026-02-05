@@ -1,6 +1,8 @@
 package resolvers
 
 import (
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +16,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
+
+// testOpXDRAcc returns the expected base64-encoded XDR for test operation N
+func testOpXDRAcc(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", n)))
+}
 
 func TestAccountResolver_Transactions(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
@@ -166,10 +173,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
-		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", operations.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", operations.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), operations.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), operations.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(3), operations.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), operations.Edges[3].Node.OperationXDR.String())
 	})
 
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
@@ -178,8 +185,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -189,8 +196,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr3", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(3), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -200,10 +207,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
-		assert.Equal(t, "opxdr5", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr6", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr7", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(6), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(7), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(8), ops.Edges[3].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -214,8 +221,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr7", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(7), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(8), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 		assert.False(t, ops.PageInfo.HasNextPage)
 
@@ -225,8 +232,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr5", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr6", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(6), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -236,10 +243,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(3), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), ops.Edges[3].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})

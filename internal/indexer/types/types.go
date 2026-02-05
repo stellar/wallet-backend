@@ -34,6 +34,7 @@ package types
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -164,6 +165,39 @@ func (h HashBytea) Value() (driver.Value, error) {
 // String returns the hash as a hex string.
 func (h HashBytea) String() string {
 	return string(h)
+}
+
+// XDRBytea represents XDR data stored as BYTEA in the database.
+// Storage format: raw XDR bytes (variable length)
+// Go representation: raw bytes internally, base64 string via String()
+type XDRBytea []byte
+
+// Scan implements sql.Scanner - reads raw bytes from BYTEA column
+func (x *XDRBytea) Scan(value any) error {
+	if value == nil {
+		*x = nil
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	*x = make([]byte, len(bytes))
+	copy(*x, bytes)
+	return nil
+}
+
+// Value implements driver.Valuer - returns raw bytes for BYTEA storage
+func (x XDRBytea) Value() (driver.Value, error) {
+	if len(x) == 0 {
+		return nil, nil
+	}
+	return []byte(x), nil
+}
+
+// String returns the XDR as a base64 string.
+func (x XDRBytea) String() string {
+	return base64.StdEncoding.EncodeToString(x)
 }
 
 type ContractType string
@@ -372,7 +406,7 @@ type Operation struct {
 	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
-	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	OperationXDR    XDRBytea      `json:"operationXdr,omitempty" db:"operation_xdr"`
 	ResultCode      string        `json:"resultCode,omitempty" db:"result_code"`
 	Successful      bool          `json:"successful,omitempty" db:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
