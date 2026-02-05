@@ -409,7 +409,7 @@ type Operation struct {
 	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
-	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	OperationXDR    XDRBytea      `json:"operationXdr,omitempty" db:"operation_xdr"`
 	ResultCode      string        `json:"resultCode,omitempty" db:"result_code"`
 	Successful      bool          `json:"successful,omitempty" db:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
