@@ -38,8 +38,8 @@ require (
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/vektah/gqlparser/v2 v2.5.30
 	github.com/vikstrous/dataloadgen v0.0.9
-	golang.org/x/term v0.33.0
-	golang.org/x/text v0.27.0
+	golang.org/x/term v0.37.0
+	golang.org/x/text v0.31.0
 )
 
 require (
@@ -178,12 +178,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	google.golang.org/api v0.215.0 // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
