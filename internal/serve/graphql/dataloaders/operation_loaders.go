@@ -25,7 +25,7 @@ type OperationColumnsKey struct {
 	SortOrder     data.SortOrder
 }
 
-// opByTxHashLoader creates a dataloader for fetching operations by transaction hash
+// operationsByTxHashLoader creates a dataloader for fetching operations by transaction hash
 // This prevents N+1 queries when multiple transactions request their operations
 // The loader batches multiple transaction hashes into a single database query
 func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
