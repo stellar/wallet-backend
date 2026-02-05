@@ -508,7 +508,7 @@ func createTestTransaction(hash string, toID int64) types.Transaction {
 	envelope := "test_envelope_xdr"
 	meta := "test_meta_xdr"
 	return types.Transaction{
-		Hash:            hash,
+		Hash:            types.HashBytea(hash),
 		ToID:            toID,
 		EnvelopeXDR:     &envelope,
 		FeeCharged:      100,

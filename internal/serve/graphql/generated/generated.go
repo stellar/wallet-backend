@@ -453,6 +453,8 @@ type StandardBalanceChangeResolver interface {
 	Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
 }
 type TransactionResolver interface {
+	Hash(ctx context.Context, obj *types.Transaction) (string, error)
+
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -2551,7 +2553,7 @@ type BalanceAuthorizationChange implements BaseStateChange{
 	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
 # gqlgen generates Go structs from this schema definition
 type Transaction{
-  hash:            String!
+  hash:            String! @goField(forceResolver: true)
   envelopeXdr:     String
   feeCharged:      Int64!
   resultCode:      String!
@@ -11278,7 +11280,7 @@ func (ec *executionContext) _Transaction_hash(ctx context.Context, field graphql
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Hash, nil
+		return ec.resolvers.Transaction().Hash(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -11299,8 +11301,8 @@ func (ec *executionContext) fieldContext_Transaction_hash(_ context.Context, fie
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -19054,10 +19056,41 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Transaction")
 		case "hash":
-			out.Values[i] = ec._Transaction_hash(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_hash(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "envelopeXdr":
 			out.Values[i] = ec._Transaction_envelopeXdr(ctx, field, obj)
 		case "feeCharged":
