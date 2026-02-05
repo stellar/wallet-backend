@@ -61,7 +61,7 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
-	err = db.QueryRowContext(ctx, query, accountAddr, startLedger, endLedger).Scan(&count)
+	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting transactions for account %s: %w", accountAddr, err)
 	}
