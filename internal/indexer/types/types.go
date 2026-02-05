@@ -169,38 +169,34 @@ func (h HashBytea) String() string {
 
 // XDRBytea represents XDR data stored as BYTEA in the database.
 // Storage format: raw XDR bytes (variable length)
-// Go representation: base64 string
-type XDRBytea string
+// Go representation: raw bytes internally, base64 string via String()
+type XDRBytea []byte
 
-// Scan implements sql.Scanner - converts BYTEA (raw bytes) to base64 string
+// Scan implements sql.Scanner - reads raw bytes from BYTEA column
 func (x *XDRBytea) Scan(value any) error {
 	if value == nil {
-		*x = ""
+		*x = nil
 		return nil
 	}
 	bytes, ok := value.([]byte)
 	if !ok {
 		return fmt.Errorf("expected []byte, got %T", value)
 	}
-	*x = XDRBytea(base64.StdEncoding.EncodeToString(bytes))
+	*x = bytes
 	return nil
 }
 
-// Value implements driver.Valuer - converts base64 string to raw bytes
+// Value implements driver.Valuer - returns raw bytes for BYTEA storage
 func (x XDRBytea) Value() (driver.Value, error) {
-	if x == "" {
+	if len(x) == 0 {
 		return nil, nil
 	}
-	bytes, err := base64.StdEncoding.DecodeString(string(x))
-	if err != nil {
-		return nil, fmt.Errorf("decoding base64 XDR %s: %w", x, err)
-	}
-	return bytes, nil
+	return []byte(x), nil
 }
 
 // String returns the XDR as a base64 string.
 func (x XDRBytea) String() string {
-	return string(x)
+	return base64.StdEncoding.EncodeToString(x)
 }
 
 type ContractType string
