@@ -618,7 +618,8 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter with no matching results", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "non-existent-tx"
+		// Use a valid 64-char hex hash that doesn't exist in the test DB
+		txHash := "0000000000000000000000000000000000000000000000000000000000000000"
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}

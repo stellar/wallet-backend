@@ -55,11 +55,12 @@ var sharedTestAccountAddress = keypair.MustRandom().Address()
 var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
 
 // Test transaction hashes used by setupDB (64-char hex strings for BYTEA storage)
+// These must match the pattern in setupDB: fmt.Sprintf("...487%x", i) where i = 0,1,2,3
 var (
-	testTxHash1 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48770"
-	testTxHash2 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48771"
-	testTxHash3 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48772"
-	testTxHash4 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48773"
+	testTxHash1 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4870"
+	testTxHash2 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4871"
+	testTxHash3 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4872"
+	testTxHash4 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4873"
 )
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
@@ -70,7 +71,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	opIdx := 1
 	for i := range 4 {
 		txn := &types.Transaction{
-			Hash:            types.HashBytea(fmt.Sprintf("3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877%x", i)),
+			Hash:            types.HashBytea(fmt.Sprintf("3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa487%x", i)),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
 			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
 			FeeCharged:      int64(100 * (i + 1)),
