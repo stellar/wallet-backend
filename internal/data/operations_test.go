@@ -895,7 +895,10 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 4097, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4097), operation.ID)
-	assert.Equal(t, xdr1.String(), operation.OperationXDR.String())
+	// 'xdr1' was inserted as raw string in SQL, which becomes raw bytes in BYTEA
+	// String() returns base64 encoding of the raw bytes
+	expectedXDR := types.XDRBytea([]byte("xdr1"))
+	assert.Equal(t, expectedXDR.String(), operation.OperationXDR.String())
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
