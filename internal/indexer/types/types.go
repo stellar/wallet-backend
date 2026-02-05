@@ -182,7 +182,8 @@ func (x *XDRBytea) Scan(value any) error {
 	if !ok {
 		return fmt.Errorf("expected []byte, got %T", value)
 	}
-	*x = bytes
+	*x = make([]byte, len(bytes))
+	copy(*x, bytes)
 	return nil
 }
 
