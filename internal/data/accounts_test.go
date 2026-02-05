@@ -427,7 +427,7 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 		) VALUES
 		($1, $2, 'BALANCE', NOW(), 1, $3, 4097),
 		($4, $5, 'BALANCE', NOW(), 2, $6, 8193)
-	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
+	`, toID1, stateChangeOrder1, types.AddressBytea(address1), toID2, stateChangeOrder2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeIDs function
