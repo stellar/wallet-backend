@@ -17,7 +17,7 @@ CREATE TABLE operations (
             'INVOKE_HOST_FUNCTION', 'EXTEND_FOOTPRINT_TTL', 'RESTORE_FOOTPRINT'
         )
     ),
-    operation_xdr TEXT,
+    operation_xdr BYTEA,
     result_code TEXT NOT NULL,
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
