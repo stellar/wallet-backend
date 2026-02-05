@@ -54,6 +54,14 @@ var sharedTestAccountAddress = keypair.MustRandom().Address()
 // sharedNonExistentAccountAddress is a valid Stellar address that doesn't exist in the test DB.
 var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
 
+// Test transaction hashes used by setupDB (64-char hex strings for BYTEA storage)
+var (
+	testTxHash1 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48770"
+	testTxHash2 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48771"
+	testTxHash3 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48772"
+	testTxHash4 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48773"
+)
+
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}

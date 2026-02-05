@@ -502,14 +502,17 @@ func TestOperationModel_GetAll(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA, using valid 64-char hex strings)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction: (to_id, to_id + 4096))
@@ -552,13 +555,16 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	// Create test transactions first with specific ToIDs
 	// ToID encoding: operations for a tx with to_id are in range (to_id, to_id + 4096)
 	// Using to_id values: 4096, 8192, 12288 (multiples of 4096 for clarity)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations - IDs must be in TOID range for each transaction
@@ -742,13 +748,15 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first with specific ToIDs
+	// Create test transactions first with specific ToIDs (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test operations - IDs must be in TOID range for each transaction
@@ -797,14 +805,17 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
@@ -845,13 +856,15 @@ func TestOperationModel_GetByID(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
@@ -907,14 +920,17 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)

@@ -42,7 +42,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, transaction)
-		assert.Equal(t, "tx1", transaction.Hash)
+		assert.Equal(t, testTxHash1, transaction.Hash.String())
 	})
 
 	t.Run("nil operation panics", func(t *testing.T) {

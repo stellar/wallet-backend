@@ -39,10 +39,10 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
-		assert.Equal(t, "tx1", transactions.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", transactions.Edges[1].Node.Hash)
-		assert.Equal(t, "tx3", transactions.Edges[2].Node.Hash)
-		assert.Equal(t, "tx4", transactions.Edges[3].Node.Hash)
+		assert.Equal(t, testTxHash1, transactions.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, transactions.Edges[1].Node.Hash.String())
+		assert.Equal(t, testTxHash3, transactions.Edges[2].Node.Hash.String())
+		assert.Equal(t, testTxHash4, transactions.Edges[3].Node.Hash.String())
 		mockMetricsService.AssertExpectations(t)
 	})
 
@@ -52,8 +52,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, txs.Edges[1].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 
@@ -63,8 +63,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 		mockMetricsService.AssertExpectations(t)
@@ -76,8 +76,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -88,7 +88,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -98,7 +98,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 		mockMetricsService.AssertExpectations(t)
@@ -518,7 +518,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
@@ -591,7 +591,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx2"
+		txHash := testTxHash2
 		opID := toid.New(1000, 2, 1).ToInt64()
 		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		filter := &graphql1.AccountStateChangeFilterInput{
@@ -632,7 +632,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter with pagination", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
@@ -766,7 +766,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		opID := toid.New(1000, 1, 1).ToInt64()
 		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		category := "BALANCE"

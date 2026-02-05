@@ -43,6 +43,23 @@ var (
 const (
 	defaultGetLedgersLimit = 50
 
+	// Test hash constants for ingest tests (64-char hex strings for BYTEA storage)
+	flushTxHash1   = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f101"
+	flushTxHash2   = "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f202"
+	flushTxHash3   = "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f303"
+	flushTxHash4   = "f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f404"
+	flushTxHash5   = "f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f505"
+	flushTxHash6   = "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f606"
+	catchupTxHash1 = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c101"
+	catchupTxHash2 = "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c202"
+	catchupTxHash3 = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c303"
+	catchupTxHash4 = "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c404"
+	catchupTxHash5 = "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c505"
+	catchupTxHash6 = "c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c606"
+	prevTxHash     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	txHash1        = "1111111111111111111111111111111111111111111111111111111111111111"
+	txHash2        = "2222222222222222222222222222222222222222222222222222222222222222"
+
 	// Test fixtures for ledger metadata
 	ledgerMetadataWith0Tx = "AAAAAQAAAACB7Zh2o0NTFwl1nvs7xr3SJ7w8PpwnSRb8QyG9k6acEwAAABaeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLYjyoO5BI41g1PFT+iHW68giP49Koo+q3VmH8I4GdtW2AAAAAGhTTB8AAAAAAAAAAQAAAAC1XRCyu30oTtXAOkel4bWQyQ9Xg1VHHMRQe76CBNI8iwAAAEDSH4sE7cL7UJyOqUo9ZZeNqPT7pt7su8iijHjWYg4MbeFUh/gkGf6N40bZjP/dlIuGXmuEhWoEX0VTV58xOB4C3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERm+pITz+1V1m+3/v6eaEKglCnon3a5xkn02sLltJ9CSzwAAEYIN4Lazp2QAAAAAAAMtYtQzAAAAAAAAAAAAAAAMAAAAZABMS0AAAADIXukLfWC53MCmzxKd/+LBbaYxQkgxATFDLI3hWj7EqWgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLQAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9yHMAAAAAAAAAAA=="
 	ledgerMetadataWith1Tx = "AAAAAQAAAAD8G2qemHnBKFkbq90RTagxAypNnA7DXDc63Giipq9mNwAAABYLEZ5DrTv6njXTOAFEdOO0yeLtJjCRyH4ryJkgpRh7VPJvwbisrc9A0yzFxxCdkICgB3Gv7qHOi8ZdsK2CNks2AAAAAGhTTAsAAAAAAAAAAQAAAACoJM0YvJ11Bk0pmltbrKQ7w6ovMmk4FT2ML5u1y23wMwAAAEAunZtorOSbnRpgnykoDe4kzAvLwNXefncy1R/1ynBWyDv0DfdnqJ6Hcy/0AJf6DkBZlRayg775h3HjV0GKF/oPua7l8wkLlJBtSk1kRDt55qSf6btSrgcupB/8bnpJfUUgZJ76saUrj29HukYHS1bq7SyuoCAY+5F9iBYTmW1G9QAAEX4N4Lazp2QAAAAAAAMtS3veAAAAAAAAAAAAAAAMAAAAZABMS0AAAADIXukLfWC53MCmzxKd/+LBbaYxQkgxATFDLI3hWj7EqWgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAELEZ5DrTv6njXTOAFEdOO0yeLtJjCRyH4ryJkgpRh7VAAAAAIAAAAAAAAAAQAAAAAAAAABAAAAAAAAAGQAAAABAAAAAgAAAADg4mtiLKjJVgrmOpO9+Ff3XAmnycHyNUKu/v9KhHevAAAAAGQAAA7FAAAAGgAAAAAAAAAAAAAAAQAAAAAAAAABAAAAALvqzdVyRxgBMcLzbw1wNWcJYHPNPok1GdVSgmy4sjR2AAAAAVVTREMAAAAA4OJrYiyoyVYK5jqTvfhX91wJp8nB8jVCrv7/SoR3rwAAAAACVAvkAAAAAAAAAAABhHevAAAAAEDq2yIDzXUoLboBHQkbr8U2oKqLzf0gfpwXbmRPLB6Ek3G8uCEYyry1vt5Sb+LCEd81fefFQcQN0nydr1FmiXcDAAAAAAAAAAAAAAABXFSiWcxpDRa8frBs1wbEaMUw4hMe7ctFtdw3Ci73IEwAAAAAAAAAZAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAAAAAAIAAAADAAARfQAAAAAAAAAA4OJrYiyoyVYK5jqTvfhX91wJp8nB8jVCrv7/SoR3rwAAAAAukO3GPAAADsUAAAAZAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAAAABF9AAAAAGhTTAYAAAAAAAAAAQAAEX4AAAAAAAAAAODia2IsqMlWCuY6k734V/dcCafJwfI1Qq7+/0qEd68AAAAALpDtxdgAAA7FAAAAGQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAAARfQAAAABoU0wGAAAAAAAAAAMAAAAAAAAAAgAAAAMAABF+AAAAAAAAAADg4mtiLKjJVgrmOpO9+Ff3XAmnycHyNUKu/v9KhHevAAAAAC6Q7cXYAAAOxQAAABkAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAAEX0AAAAAaFNMBgAAAAAAAAABAAARfgAAAAAAAAAA4OJrYiyoyVYK5jqTvfhX91wJp8nB8jVCrv7/SoR3rwAAAAAukO3F2AAADsUAAAAaAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAAAABF+AAAAAGhTTAsAAAAAAAAAAQAAAAIAAAADAAARcwAAAAEAAAAAu+rN1XJHGAExwvNvDXA1Zwlgc80+iTUZ1VKCbLiyNHYAAAABVVNEQwAAAADg4mtiLKjJVgrmOpO9+Ff3XAmnycHyNUKu/v9KhHevAAAAAAlQL5AAf/////////8AAAABAAAAAAAAAAAAAAABAAARfgAAAAEAAAAAu+rN1XJHGAExwvNvDXA1Zwlgc80+iTUZ1VKCbLiyNHYAAAABVVNEQwAAAADg4mtiLKjJVgrmOpO9+Ff3XAmnycHyNUKu/v9KhHevAAAAAAukO3QAf/////////8AAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8RxEAAAAAAAAAAA=="
@@ -1152,8 +1169,8 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			name: "flush_with_data_inserts_to_database",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_1", 1)
-				tx2 := createTestTransaction("flush_tx_2", 2)
+				tx1 := createTestTransaction(flushTxHash1, 1)
+				tx2 := createTestTransaction(flushTxHash2, 2)
 				op1 := createTestOperation(200)
 				op2 := createTestOperation(201)
 				sc1 := createTestStateChange(1, testAddr1, 200)
@@ -1173,13 +1190,13 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          2,
 			wantOpCount:          2,
 			wantStateChangeCount: 2,
-			txHashes:             []string{"flush_tx_1", "flush_tx_2"},
+			txHashes:             []string{flushTxHash1, flushTxHash2},
 		},
 		{
 			name: "flush_with_cursor_update_to_lower_value",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_3", 3)
+				tx1 := createTestTransaction(flushTxHash3, 3)
 				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
@@ -1189,13 +1206,13 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
-			txHashes:             []string{"flush_tx_3"},
+			txHashes:             []string{flushTxHash3},
 		},
 		{
 			name: "flush_with_cursor_update_to_higher_value_keeps_existing",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_4", 4)
+				tx1 := createTestTransaction(flushTxHash4, 4)
 				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
@@ -1205,14 +1222,14 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
-			txHashes:             []string{"flush_tx_4"},
+			txHashes:             []string{flushTxHash4},
 		},
 		{
 			name: "flush_with_filtering_only_inserts_registered",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_5", 5) // Registered participant
-				tx2 := createTestTransaction("flush_tx_6", 6) // No registered participant
+				tx1 := createTestTransaction(flushTxHash5, 5) // Registered participant
+				tx2 := createTestTransaction(flushTxHash6, 6) // No registered participant
 
 				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTransaction(testAddrUnreg, tx2)
@@ -1226,17 +1243,17 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:                1, // Only tx1
 			wantOpCount:                0,
 			wantStateChangeCount:       0,
-			txHashes:                   []string{"flush_tx_5"},
+			txHashes:                   []string{flushTxHash5},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up test data from previous runs
-			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
+			// Clean up test data from previous runs (using HashBytea for BYTEA column)
+			for _, hash := range []string{flushTxHash1, flushTxHash2, flushTxHash3, flushTxHash4, flushTxHash5, flushTxHash6} {
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
@@ -1364,8 +1381,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			enableParticipantFiltering: false,
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
-				tx2 := createTestTransaction("tx_hash_2", 2)
+				tx1 := createTestTransaction(txHash1, 1)
+				tx2 := createTestTransaction(txHash2, 2)
 				op1 := createTestOperation(100)
 				op2 := createTestOperation(101)
 				sc1 := createTestStateChange(1, testAddr1, 100)
@@ -1389,7 +1406,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			registeredAccounts:         []string{testAddr1},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx1 := createTestTransaction(txHash1, 1)
 				op1 := createTestOperation(100)
 				sc1 := createTestStateChange(1, testAddr1, 100)
 
@@ -1417,8 +1434,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			registeredAccounts:         []string{testAddr1},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1) // Has registered
-				tx2 := createTestTransaction("tx_hash_2", 2) // No registered
+				tx1 := createTestTransaction(txHash1, 1) // Has registered
+				tx2 := createTestTransaction(txHash2, 2) // No registered
 				op1 := createTestOperation(100)
 				op2 := createTestOperation(101)
 
@@ -1438,7 +1455,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			registeredAccounts:         []string{},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx1 := createTestTransaction(txHash1, 1)
 				buf.PushTransaction(testAddrUnreg, tx1)
 				return buf
 			},
@@ -1452,7 +1469,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			registeredAccounts:         []string{testAddr1, testAddr2},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx1 := createTestTransaction(txHash1, 1)
 				op1 := createTestOperation(100)
 
 				// 3 state changes: 2 for registered accounts, 1 for unregistered
@@ -2650,7 +2667,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "collects_trustline_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_1", 1)
+				tx1 := createTestTransaction(catchupTxHash1, 1)
 				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    testAddr1,
@@ -2669,7 +2686,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "collects_contract_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_2", 2)
+				tx1 := createTestTransaction(catchupTxHash2, 2)
 				buf.PushTransaction(testAddr2, tx1)
 				buf.PushContractChange(types.ContractChange{
 					AccountID:    testAddr2,
@@ -2696,7 +2713,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "nil_batchChanges_does_not_collect",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_5", 5)
+				tx1 := createTestTransaction(catchupTxHash5, 5)
 				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    testAddr1,
@@ -2715,7 +2732,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "accumulates_across_multiple_flushes",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_6", 6)
+				tx1 := createTestTransaction(catchupTxHash6, 6)
 				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
 					AccountID:    testAddr1,
@@ -2741,11 +2758,11 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up test data from previous runs
-			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
+			// Clean up test data from previous runs (using HashBytea for BYTEA column)
+			for _, hash := range []string{catchupTxHash1, catchupTxHash2, catchupTxHash3, catchupTxHash4, catchupTxHash5, catchupTxHash6, prevTxHash} {
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
