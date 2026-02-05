@@ -234,27 +234,27 @@ func (m *StateChangeModel) BatchInsert(
 		}
 
 		// Convert nullable account_id fields to BYTEA
-		signerAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.SignerAccountID)
+		signerAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting signer_account_id: %w", err)
 		}
-		spenderAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.SpenderAccountID)
+		spenderAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting spender_account_id: %w", err)
 		}
-		sponsoredAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.SponsoredAccountID)
+		sponsoredAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
 		}
-		sponsorAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.SponsorAccountID)
+		sponsorAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
 		}
-		deployerAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.DeployerAccountID)
+		deployerAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting deployer_account_id: %w", err)
 		}
-		funderAccountIDBytes[i], err = pgtypeBytesFromNullStringAddress(sc.FunderAccountID)
+		funderAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
 		if err != nil {
 			return nil, fmt.Errorf("converting funder_account_id: %w", err)
 		}
@@ -432,27 +432,27 @@ func (m *StateChangeModel) BatchCopy(
 			}
 
 			// Convert nullable account_id fields to BYTEA
-			signerBytes, err := pgtypeBytesFromNullStringAddress(sc.SignerAccountID)
+			signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting signer_account_id: %w", err)
 			}
-			spenderBytes, err := pgtypeBytesFromNullStringAddress(sc.SpenderAccountID)
+			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting spender_account_id: %w", err)
 			}
-			sponsoredBytes, err := pgtypeBytesFromNullStringAddress(sc.SponsoredAccountID)
+			sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
 			}
-			sponsorBytes, err := pgtypeBytesFromNullStringAddress(sc.SponsorAccountID)
+			sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
 			}
-			deployerBytes, err := pgtypeBytesFromNullStringAddress(sc.DeployerAccountID)
+			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
 			}
-			funderBytes, err := pgtypeBytesFromNullStringAddress(sc.FunderAccountID)
+			funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting funder_account_id: %w", err)
 			}

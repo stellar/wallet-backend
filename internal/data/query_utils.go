@@ -65,14 +65,14 @@ func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
 	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}
 }
 
-// pgtypeBytesFromNullStringAddress converts nullable address to bytes for BYTEA insert.
-func pgtypeBytesFromNullStringAddress(ns sql.NullString) ([]byte, error) {
-	if !ns.Valid {
+// pgtypeBytesFromNullAddressBytea converts NullAddressBytea to bytes for BYTEA insert.
+func pgtypeBytesFromNullAddressBytea(na types.NullAddressBytea) ([]byte, error) {
+	if !na.Valid {
 		return nil, nil
 	}
-	val, err := types.AddressBytea(ns.String).Value()
+	val, err := na.Value()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("converting address to bytes: %w", err)
 	}
 	if val == nil {
 		return nil, nil

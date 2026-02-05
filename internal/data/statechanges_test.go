@@ -41,14 +41,15 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			AccountID:           types.AddressBytea(accountID),
 			OperationID:         int64(i + 1),
 			// sql.NullString fields
-			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
-			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
-			SignerAccountID:    sql.NullString{String: auxAddresses[auxIdx], Valid: true},
-			SpenderAccountID:   sql.NullString{String: auxAddresses[(auxIdx+1)%len(auxAddresses)], Valid: true},
-			SponsoredAccountID: sql.NullString{String: auxAddresses[(auxIdx+2)%len(auxAddresses)], Valid: true},
-			SponsorAccountID:   sql.NullString{String: auxAddresses[(auxIdx+3)%len(auxAddresses)], Valid: true},
-			DeployerAccountID:  sql.NullString{String: auxAddresses[(auxIdx+4)%len(auxAddresses)], Valid: true},
-			FunderAccountID:    sql.NullString{String: auxAddresses[(auxIdx+5)%len(auxAddresses)], Valid: true},
+			TokenID: sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
+			// NullAddressBytea fields
+			SignerAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
+			SpenderAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
+			SponsoredAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+2)%len(auxAddresses)]), Valid: true},
+			SponsorAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+3)%len(auxAddresses)]), Valid: true},
+			DeployerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
+			FunderAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+5)%len(auxAddresses)]), Valid: true},
 			// Typed fields (previously JSONB)
 			SignerWeightOld:   sql.NullInt16{Int16: int16(i % 256), Valid: true},
 			SignerWeightNew:   sql.NullInt16{Int16: int16((i + 1) % 256), Valid: true},

@@ -90,6 +90,39 @@ func (a AddressBytea) String() string {
 	return string(a)
 }
 
+// NullAddressBytea represents a nullable Stellar address stored as BYTEA in the database.
+// Similar to sql.NullString but handles BYTEA encoding/decoding for Stellar addresses.
+type NullAddressBytea struct {
+	AddressBytea AddressBytea // The Stellar address (G.../C...)
+	Valid        bool         // Valid is true if AddressBytea is not NULL
+}
+
+// Scan implements sql.Scanner - converts nullable BYTEA (33 bytes) to StrKey string
+func (n *NullAddressBytea) Scan(value any) error {
+	if value == nil {
+		n.AddressBytea, n.Valid = "", false
+		return nil
+	}
+	if err := n.AddressBytea.Scan(value); err != nil {
+		return err
+	}
+	n.Valid = true
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte or nil
+func (n NullAddressBytea) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return n.AddressBytea.Value()
+}
+
+// String returns the Stellar address as a string (convenience accessor).
+func (n NullAddressBytea) String() string {
+	return string(n.AddressBytea)
+}
+
 type ContractType string
 
 const (
@@ -454,14 +487,16 @@ type StateChange struct {
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 
 	// Nullable string fields:
-	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
-	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
-	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	TokenID sql.NullString `json:"tokenId,omitempty" db:"token_id"`
+	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
+
+	// Nullable address fields (stored as BYTEA in database):
+	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SpenderAccountID   NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	SponsoredAccountID NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID   NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID  NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID    NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`

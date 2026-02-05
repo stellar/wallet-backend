@@ -82,7 +82,7 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 
 // WithSigner sets the signer account ID and the weights directly
 func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) *StateChangeBuilder {
-	b.base.SignerAccountID = utils.SQLNullString(signer)
+	b.base.SignerAccountID = utils.NullAddressBytea(signer)
 	if oldWeight != nil {
 		b.base.SignerWeightOld = sql.NullInt16{Int16: *oldWeight, Valid: true}
 	}
@@ -94,19 +94,19 @@ func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int
 
 // WithDeployer sets the deployer account ID, usually associated with a contract deployment.
 func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
-	b.base.DeployerAccountID = utils.SQLNullString(deployer)
+	b.base.DeployerAccountID = utils.NullAddressBytea(deployer)
 	return b
 }
 
 // WithFunder sets the funder account ID
 func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
-	b.base.FunderAccountID = utils.SQLNullString(funder)
+	b.base.FunderAccountID = utils.NullAddressBytea(funder)
 	return b
 }
 
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
-	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	b.base.SponsorAccountID = utils.NullAddressBytea(sponsor)
 	return b
 }
 
@@ -136,7 +136,7 @@ func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateC
 
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
-	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
+	b.base.SponsoredAccountID = utils.NullAddressBytea(sponsoredAccountID)
 	return b
 }
 
@@ -192,10 +192,10 @@ func (b *StateChangeBuilder) generateSortKey() string {
 		b.base.AccountID,
 		b.base.TokenID.String,
 		b.base.Amount.String,
-		b.base.SignerAccountID.String,
-		b.base.SpenderAccountID.String,
-		b.base.SponsoredAccountID.String,
-		b.base.SponsorAccountID.String,
+		b.base.SignerAccountID.String(),
+		b.base.SpenderAccountID.String(),
+		b.base.SponsoredAccountID.String(),
+		b.base.SponsorAccountID.String(),
 		b.base.SignerWeightOld.Int16,
 		b.base.SignerWeightNew.Int16,
 		b.base.ThresholdOld.Int16,
