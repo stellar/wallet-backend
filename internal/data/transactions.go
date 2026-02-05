@@ -27,7 +27,8 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	var transaction types.Transaction
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &transaction, query, hash)
+	hashBytea := types.HashBytea(hash)
+	err := m.DB.GetContext(ctx, &transaction, query, hashBytea)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByHash", "transactions", duration)
 	if err != nil {
@@ -190,7 +191,7 @@ func (m *TransactionModel) BatchInsert(
 	}
 
 	// 1. Flatten the transactions into parallel slices
-	hashes := make([]string, len(txs))
+	hashes := make([][]byte, len(txs))
 	toIDs := make([]int64, len(txs))
 	envelopeXDRs := make([]*string, len(txs))
 	feesCharged := make([]int64, len(txs))
@@ -201,7 +202,11 @@ func (m *TransactionModel) BatchInsert(
 	isFeeBumps := make([]bool, len(txs))
 
 	for i, t := range txs {
-		hashes[i] = t.Hash
+		hashBytes, err := t.Hash.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting hash %s to bytes: %w", t.Hash, err)
+		}
+		hashes[i] = hashBytes.([]byte)
 		toIDs[i] = t.ToID
 		envelopeXDRs[i] = t.EnvelopeXDR
 		feesCharged[i] = t.FeeCharged
@@ -237,7 +242,7 @@ func (m *TransactionModel) BatchInsert(
 			t.hash, t.to_id, t.envelope_xdr, t.fee_charged, t.result_code, t.meta_xdr, t.ledger_number, t.ledger_created_at, t.is_fee_bump
 		FROM (
 			SELECT
-				UNNEST($1::text[]) AS hash,
+				UNNEST($1::bytea[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
 				UNNEST($3::text[]) AS envelope_xdr,
 				UNNEST($4::bigint[]) AS fee_charged,
@@ -248,7 +253,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
 		ON CONFLICT (to_id) DO NOTHING
-		RETURNING hash
+		RETURNING encode(hash, 'hex')
 	),
 
 	-- Insert transactions_accounts links
@@ -266,7 +271,7 @@ func (m *TransactionModel) BatchInsert(
 	)
 
 	-- Return the hashes of successfully inserted transactions
-	SELECT hash FROM inserted_transactions;
+	SELECT encode FROM inserted_transactions;
     `
 
 	start := time.Now()
@@ -331,8 +336,12 @@ func (m *TransactionModel) BatchCopy(
 		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at", "is_fee_bump"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
+			hashBytes, err := tx.Hash.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
+			}
 			return []any{
-				pgtype.Text{String: tx.Hash, Valid: true},
+				hashBytes,
 				pgtype.Int8{Int64: tx.ToID, Valid: true},
 				pgtypeTextFromPtr(tx.EnvelopeXDR),
 				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
