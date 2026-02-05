@@ -806,7 +806,7 @@ func requireEventCount(t *testing.T, changes []types.StateChange, expectedCount 
 func assertStateChangeBase(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
-	require.Equal(t, expectedAccount, change.AccountID)
+	require.Equal(t, expectedAccount, change.AccountID.String())
 	if expectedAmount != "" {
 		require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	}

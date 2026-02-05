@@ -647,19 +647,19 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		require.Len(t, stateChanges, 3, "should have 3 state changes")
 
 		// Verify first state change
-		assert.Equal(t, "alice", stateChanges[0].AccountID)
+		assert.Equal(t, "alice", stateChanges[0].AccountID.String())
 		assert.Equal(t, int64(1), stateChanges[0].ToID)
 		assert.Equal(t, int64(1), stateChanges[0].OperationID)
 		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
 
 		// Verify second state change
-		assert.Equal(t, "alice", stateChanges[1].AccountID)
+		assert.Equal(t, "alice", stateChanges[1].AccountID.String())
 		assert.Equal(t, int64(2), stateChanges[1].ToID)
 		assert.Equal(t, int64(1), stateChanges[1].OperationID)
 		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
 
 		// Verify third state change
-		assert.Equal(t, "alice", stateChanges[2].AccountID)
+		assert.Equal(t, "alice", stateChanges[2].AccountID.String())
 		assert.Equal(t, int64(3), stateChanges[2].ToID)
 		assert.Equal(t, int64(1), stateChanges[2].OperationID)
 		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
@@ -728,7 +728,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 		foundBob := false
 		foundCharlie := false
 		for _, sc := range stateChanges {
-			switch sc.AccountID {
+			switch sc.AccountID.String() {
 			case "alice":
 				assert.Equal(t, int64(1), sc.ToID)
 				assert.Equal(t, int64(1), sc.OperationID)
@@ -914,7 +914,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 
 		// Verify it's the correct state change
 		sc := stateChanges[0]
-		assert.Equal(t, "alice", sc.AccountID)
+		assert.Equal(t, "alice", sc.AccountID.String())
 		assert.Equal(t, int64(1), sc.ToID)
 		assert.Equal(t, int64(1), sc.OperationID)
 

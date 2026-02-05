@@ -36,7 +36,7 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 	const query = `SELECT * FROM accounts WHERE stellar_address = $1`
 	var account types.Account
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &account, query, address)
+	err := m.DB.GetContext(ctx, &account, query, types.AddressBytea(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Get", "accounts", duration)
 	if err != nil {
@@ -50,8 +50,8 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
 	const query = `SELECT stellar_address FROM accounts`
 	start := time.Now()
-	accounts := []string{}
-	err := m.DB.SelectContext(ctx, &accounts, query)
+	var addresses []types.AddressBytea
+	err := m.DB.SelectContext(ctx, &addresses, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "accounts", duration)
 	if err != nil {
@@ -59,13 +59,18 @@ func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("getting all accounts: %w", err)
 	}
 	m.MetricsService.IncDBQuery("GetAll", "accounts")
-	return accounts, nil
+	// Convert []AddressBytea to []string
+	result := make([]string, len(addresses))
+	for i, addr := range addresses {
+		result[i] = string(addr)
+	}
+	return result, nil
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1)`
 	start := time.Now()
-	_, err := m.DB.ExecContext(ctx, query, address)
+	_, err := m.DB.ExecContext(ctx, query, types.AddressBytea(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Insert", "accounts", duration)
 	if err != nil {
@@ -82,7 +87,7 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
 	start := time.Now()
-	result, err := m.DB.ExecContext(ctx, query, address)
+	result, err := m.DB.ExecContext(ctx, query, types.AddressBytea(address))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Delete", "accounts", duration)
 	if err != nil {
@@ -105,24 +110,52 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 }
 
 // BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
+// BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
 func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountIDs []string) ([]string, error) {
 	if len(accountIDs) == 0 {
 		return []string{}, nil
 	}
 
+	// Convert string addresses to [][]byte for BYTEA array comparison
+	byteAddresses := make([][]byte, len(accountIDs))
+	for i, addr := range accountIDs {
+		addrBytes, err := types.AddressBytea(addr).Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+		}
+		if addrBytes == nil {
+			return nil, fmt.Errorf("address %s converted to nil", addr)
+		}
+		byteAddresses[i] = addrBytes.([]byte)
+	}
+
 	const query = `SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)`
 	start := time.Now()
-	var existingAccounts []string
-	rows, err := dbTx.Query(ctx, query, accountIDs)
+	rows, err := dbTx.Query(ctx, query, byteAddresses)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("querying accounts by IDs: %w", err)
 	}
-	existingAccounts, err = pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("collecting rows: %w", err)
+	defer rows.Close()
+
+	var existingAccounts []string
+	for rows.Next() {
+		var addrBytes []byte
+		if err := rows.Scan(&addrBytes); err != nil {
+			m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
+			return nil, fmt.Errorf("scanning address: %w", err)
+		}
+		var addr types.AddressBytea
+		if err := addr.Scan(addrBytes); err != nil {
+			return nil, fmt.Errorf("converting address bytes: %w", err)
+		}
+		existingAccounts = append(existingAccounts, string(addr))
 	}
+	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("iterating rows: %w", err)
+	}
+
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByIDs", "accounts", len(accountIDs))
@@ -133,17 +166,17 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountID
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
 // eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
 func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
+	// accounts.stellar_address is BYTEA, channel_accounts.public_key is VARCHAR
+	// Use separate EXISTS checks to avoid type mismatch in UNION
 	const query = `
 		SELECT
-			EXISTS(
-				SELECT stellar_address FROM accounts WHERE stellar_address = $1
-				UNION
-				SELECT public_key FROM channel_accounts WHERE public_key = $1
-			)
+			EXISTS(SELECT 1 FROM accounts WHERE stellar_address = $1)
+			OR
+			EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $2)
 	`
 	var exists bool
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &exists, query, address)
+	err := m.DB.GetContext(ctx, &exists, query, types.AddressBytea(address), address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "accounts", duration)
 	if err != nil {

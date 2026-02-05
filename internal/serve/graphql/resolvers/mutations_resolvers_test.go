@@ -86,7 +86,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.True(t, result.Success)
 		assert.NotNil(t, result.Account)
-		assert.Equal(t, input.Address, result.Account.StellarAddress)
+		assert.Equal(t, input.Address, string(result.Account.StellarAddress))
 
 		mockService.AssertExpectations(t)
 	})

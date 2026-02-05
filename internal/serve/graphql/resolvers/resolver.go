@@ -109,6 +109,16 @@ func (r *Resolver) resolveNullableString(field sql.NullString) *string {
 	return nil
 }
 
+// resolveNullableAddress resolves nullable address fields from the database
+// Returns pointer to string if valid, nil if null
+func (r *Resolver) resolveNullableAddress(field types.NullAddressBytea) *string {
+	if field.Valid {
+		s := field.String()
+		return &s
+	}
+	return nil
+}
+
 // resolveRequiredString resolves required string fields from the database
 // Returns empty string if null to satisfy non-nullable GraphQL fields
 func (r *Resolver) resolveRequiredString(field sql.NullString) string {
