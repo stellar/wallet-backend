@@ -824,7 +824,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 			(4097, $1),
 			(8193, $1),
 			(12289, $2)
-	`, address1, address2)
+	`, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
