@@ -33,7 +33,7 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 		ops[i] = &types.Operation{
 			ID:              opID,
 			OperationType:   types.OperationTypePayment,
-			OperationXDR:    fmt.Sprintf("operation_xdr_%d", i),
+			OperationXDR:    types.XDRBytea(fmt.Sprintf("operation_xdr_%d", i)),
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
@@ -101,13 +101,13 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation1",
+		OperationXDR:    types.XDRBytea("operation1"),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "operation2",
+		OperationXDR:    types.XDRBytea("operation2"),
 		LedgerCreatedAt: now,
 	}
 
@@ -288,13 +288,13 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation1",
+		OperationXDR:    types.XDRBytea("operation1"),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "operation2",
+		OperationXDR:    types.XDRBytea("operation2"),
 		LedgerCreatedAt: now,
 	}
 
@@ -432,7 +432,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	op1 := types.Operation{
 		ID:              999,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation_xdr_dup_test",
+		OperationXDR:    types.XDRBytea("operation_xdr_dup_test"),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
@@ -762,21 +762,24 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	// Create test operations - IDs must be in TOID range for each transaction
 	// For tx1 (to_id=4096): ops 4097, 4098
 	// For tx2 (to_id=8192): op 8193
+	xdr1 := types.XDRBytea("xdr1")
+	xdr2 := types.XDRBytea("xdr2")
+	xdr3 := types.XDRBytea("xdr3")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Test BatchGetByToID
 	operations, err := m.BatchGetByToID(ctx, 4096, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, "xdr1", operations[0].OperationXDR)
-	assert.Equal(t, "xdr3", operations[1].OperationXDR)
+	assert.Equal(t, "xdr1", operations[0].OperationXDR.String())
+	assert.Equal(t, "xdr3", operations[1].OperationXDR.String())
 }
 
 func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
@@ -819,13 +822,16 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	xdr1 := types.XDRBytea("xdr1")
+	xdr2 := types.XDRBytea("xdr2")
+	xdr3 := types.XDRBytea("xdr3")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(12289, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(12289, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Create test operations_accounts links
@@ -889,7 +895,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 4097, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4097), operation.ID)
-	assert.Equal(t, "xdr1", operation.OperationXDR)
+	assert.Equal(t, "xdr1", operation.OperationXDR.String())
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
@@ -934,13 +940,16 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	xdr1 := types.XDRBytea("xdr1")
+	xdr2 := types.XDRBytea("xdr2")
+	xdr3 := types.XDRBytea("xdr3")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(12289, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(12289, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Create test state changes

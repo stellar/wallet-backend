@@ -104,7 +104,7 @@ func Test_ConvertOperation(t *testing.T) {
 	wantDataOp := &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    opXDRStr,
+		OperationXDR:    types.XDRBytea(opXDRStr),
 		ResultCode:      OpSuccess,
 		Successful:      true,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
