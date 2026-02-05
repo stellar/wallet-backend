@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 		ops[i] = &types.Operation{
 			ID:              opID,
 			OperationType:   types.OperationTypePayment,
-			OperationXDR:    types.XDRBytea(fmt.Sprintf("operation_xdr_%d", i)),
+			OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("operation_xdr_%d", i)))),
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
@@ -101,13 +102,13 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea("operation1"),
+		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation1"))),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    types.XDRBytea("operation2"),
+		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation2"))),
 		LedgerCreatedAt: now,
 	}
 
@@ -288,13 +289,13 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea("operation1"),
+		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation1"))),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    types.XDRBytea("operation2"),
+		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation2"))),
 		LedgerCreatedAt: now,
 	}
 
@@ -432,7 +433,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	op1 := types.Operation{
 		ID:              999,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    types.XDRBytea("operation_xdr_dup_test"),
+		OperationXDR:    types.XDRBytea(base64.StdEncoding.EncodeToString([]byte("operation_xdr_dup_test"))),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
@@ -778,8 +779,8 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	operations, err := m.BatchGetByToID(ctx, 4096, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, "xdr1", operations[0].OperationXDR.String())
-	assert.Equal(t, "xdr3", operations[1].OperationXDR.String())
+	assert.Equal(t, xdr1.String(), operations[0].OperationXDR.String())
+	assert.Equal(t, xdr3.String(), operations[1].OperationXDR.String())
 }
 
 func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
@@ -895,7 +896,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 4097, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4097), operation.ID)
-	assert.Equal(t, "xdr1", operation.OperationXDR.String())
+	assert.Equal(t, xdr1.String(), operation.OperationXDR.String())
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
