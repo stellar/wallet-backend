@@ -1327,10 +1327,16 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 
 			// Verify transaction count in database
 			if len(tc.txHashes) > 0 {
+				hashBytes := make([][]byte, len(tc.txHashes))
+				for i, h := range tc.txHashes {
+					val, err := types.HashBytea(h).Value()
+					require.NoError(t, err)
+					hashBytes[i] = val.([]byte)
+				}
 				var txCount int
 				err = dbConnectionPool.GetContext(ctx, &txCount,
 					`SELECT COUNT(*) FROM transactions WHERE hash = ANY($1)`,
-					pq.Array(tc.txHashes))
+					pq.Array(hashBytes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantTxCount, txCount, "transaction count mismatch")
 			}
@@ -1346,10 +1352,16 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 
 			// Verify state change count in database
 			if tc.wantStateChangeCount > 0 {
+				scHashBytes := make([][]byte, len(tc.txHashes))
+				for i, h := range tc.txHashes {
+					val, err := types.HashBytea(h).Value()
+					require.NoError(t, err)
+					scHashBytes[i] = val.([]byte)
+				}
 				var scCount int
 				err = dbConnectionPool.GetContext(ctx, &scCount,
 					`SELECT COUNT(*) FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = ANY($1))`,
-					pq.Array(tc.txHashes))
+					pq.Array(scHashBytes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
 			}
