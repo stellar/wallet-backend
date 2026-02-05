@@ -350,7 +350,7 @@ func ConvertOperation(
 	return &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    xdrOpStr,
+		OperationXDR:    types.XDRBytea(xdrOpStr),
 		ResultCode:      resultCode,
 		Successful:      successful,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
