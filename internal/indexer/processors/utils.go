@@ -328,7 +328,7 @@ func ConvertOperation(
 	opIndex uint32,
 	opResults []xdr.OperationResult,
 ) (*types.Operation, error) {
-	xdrOpStr, err := xdr.MarshalBase64(op)
+	xdrBytes, err := op.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
 	}
@@ -350,7 +350,7 @@ func ConvertOperation(
 	return &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    types.XDRBytea(xdrOpStr),
+		OperationXDR:    types.XDRBytea(xdrBytes),
 		ResultCode:      resultCode,
 		Successful:      successful,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
