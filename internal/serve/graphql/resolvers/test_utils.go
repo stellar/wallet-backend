@@ -2,7 +2,6 @@ package resolvers
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -86,12 +85,10 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		// Add 2 operations for each transaction
 		for j := range 2 {
-			// Create base64-encoded test XDR data (encoding "opxdr1", "opxdr2", etc.)
-			testXDR := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", opIdx)))
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				OperationType:   "PAYMENT",
-				OperationXDR:    types.XDRBytea(testXDR),
+				OperationXDR:    types.XDRBytea([]byte(fmt.Sprintf("opxdr%d", opIdx))),
 				ResultCode:      "op_success",
 				Successful:      true,
 				LedgerNumber:    1,
