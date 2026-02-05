@@ -309,7 +309,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 
 	return &types.Transaction{
 		ToID:                 transactionID,
-		Hash:                 transaction.Hash.HexString(),
+		Hash:                 types.HashBytea(transaction.Hash.HexString()),
 		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
 		EnvelopeXDR:          envelopeXDR,
 		FeeCharged:           feeCharged,
