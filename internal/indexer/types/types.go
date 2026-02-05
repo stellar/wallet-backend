@@ -258,7 +258,7 @@ type AccountWithOperationID struct {
 }
 
 type Transaction struct {
-	Hash            string    `json:"hash,omitempty" db:"hash"`
+	Hash            HashBytea `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	FeeCharged      int64     `json:"feeCharged,omitempty" db:"fee_charged"`
