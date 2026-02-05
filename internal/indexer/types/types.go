@@ -34,6 +34,7 @@ package types
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -164,6 +165,42 @@ func (h HashBytea) Value() (driver.Value, error) {
 // String returns the hash as a hex string.
 func (h HashBytea) String() string {
 	return string(h)
+}
+
+// XDRBytea represents XDR data stored as BYTEA in the database.
+// Storage format: raw XDR bytes (variable length)
+// Go representation: base64 string
+type XDRBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (raw bytes) to base64 string
+func (x *XDRBytea) Scan(value any) error {
+	if value == nil {
+		*x = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	*x = XDRBytea(base64.StdEncoding.EncodeToString(bytes))
+	return nil
+}
+
+// Value implements driver.Valuer - converts base64 string to raw bytes
+func (x XDRBytea) Value() (driver.Value, error) {
+	if x == "" {
+		return nil, nil
+	}
+	bytes, err := base64.StdEncoding.DecodeString(string(x))
+	if err != nil {
+		return nil, fmt.Errorf("decoding base64 XDR %s: %w", x, err)
+	}
+	return bytes, nil
+}
+
+// String returns the XDR as a base64 string.
+func (x XDRBytea) String() string {
+	return string(x)
 }
 
 type ContractType string
