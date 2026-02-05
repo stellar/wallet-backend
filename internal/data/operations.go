@@ -293,13 +293,7 @@ func (m *OperationModel) BatchInsert(
 	for i, op := range operations {
 		ids[i] = op.ID
 		operationTypes[i] = string(op.OperationType)
-		xdrBytes, err := op.OperationXDR.Value()
-		if err != nil {
-			return nil, fmt.Errorf("converting operation XDR to bytes for op %d: %w", op.ID, err)
-		}
-		if xdrBytes != nil {
-			operationXDRs[i] = xdrBytes.([]byte)
-		}
+		operationXDRs[i] = []byte(op.OperationXDR)
 		resultCodes[i] = op.ResultCode
 		successfulFlags[i] = op.Successful
 		ledgerNumbers[i] = op.LedgerNumber
@@ -421,14 +415,10 @@ func (m *OperationModel) BatchCopy(
 		[]string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
 		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
 			op := operations[i]
-			xdrBytes, xdrErr := op.OperationXDR.Value()
-			if xdrErr != nil {
-				return nil, fmt.Errorf("converting operation XDR to bytes for op %d: %w", op.ID, xdrErr)
-			}
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
 				pgtype.Text{String: string(op.OperationType), Valid: true},
-				xdrBytes,
+				[]byte(op.OperationXDR),
 				pgtype.Text{String: op.ResultCode, Valid: true},
 				pgtype.Bool{Bool: op.Successful, Valid: true},
 				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
