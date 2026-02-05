@@ -34,6 +34,7 @@ package types
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -121,6 +122,48 @@ func (n NullAddressBytea) Value() (driver.Value, error) {
 // String returns the Stellar address as a string (convenience accessor).
 func (n NullAddressBytea) String() string {
 	return string(n.AddressBytea)
+}
+
+// HashBytea represents a transaction hash stored as BYTEA in the database.
+// Storage format: 32 bytes (raw SHA-256 hash)
+// Go representation: hex string (64 characters)
+type HashBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (32 bytes) to hex string
+func (h *HashBytea) Scan(value any) error {
+	if value == nil {
+		*h = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 32 {
+		return fmt.Errorf("expected 32 bytes, got %d", len(bytes))
+	}
+	*h = HashBytea(hex.EncodeToString(bytes))
+	return nil
+}
+
+// Value implements driver.Valuer - converts hex string to 32-byte []byte
+func (h HashBytea) Value() (driver.Value, error) {
+	if h == "" {
+		return nil, nil
+	}
+	bytes, err := hex.DecodeString(string(h))
+	if err != nil {
+		return nil, fmt.Errorf("decoding hex hash %s: %w", h, err)
+	}
+	if len(bytes) != 32 {
+		return nil, fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(bytes))
+	}
+	return bytes, nil
+}
+
+// String returns the hash as a hex string.
+func (h HashBytea) String() string {
+	return string(h)
 }
 
 type ContractType string
