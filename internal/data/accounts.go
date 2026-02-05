@@ -110,6 +110,7 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 }
 
 // BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
+// BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
 func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountIDs []string) ([]string, error) {
 	if len(accountIDs) == 0 {
 		return []string{}, nil
@@ -122,6 +123,9 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountID
 		if err != nil {
 			return nil, fmt.Errorf("converting address %s to bytes: %w", addr, err)
 		}
+		if addrBytes == nil {
+			return nil, fmt.Errorf("address %s converted to nil", addr)
+		}
 		byteAddresses[i] = addrBytes.([]byte)
 	}
 
@@ -132,20 +136,26 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountID
 		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("querying accounts by IDs: %w", err)
 	}
-	// Scan as []byte and convert back to string addresses
-	byteResults, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("collecting rows: %w", err)
-	}
-	existingAccounts := make([]string, len(byteResults))
-	for i, b := range byteResults {
-		var addr types.AddressBytea
-		if err := addr.Scan(b); err != nil {
+	defer rows.Close()
+
+	var existingAccounts []string
+	for rows.Next() {
+		var addrBytes []byte
+		if err := rows.Scan(&addrBytes); err != nil {
+			m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
 			return nil, fmt.Errorf("scanning address: %w", err)
 		}
-		existingAccounts[i] = string(addr)
+		var addr types.AddressBytea
+		if err := addr.Scan(addrBytes); err != nil {
+			return nil, fmt.Errorf("converting address bytes: %w", err)
+		}
+		existingAccounts = append(existingAccounts, string(addr))
 	}
+	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("iterating rows: %w", err)
+	}
+
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByIDs", "accounts", len(accountIDs))
