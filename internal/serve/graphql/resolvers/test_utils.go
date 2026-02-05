@@ -62,7 +62,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	opIdx := 1
 	for i := range 4 {
 		txn := &types.Transaction{
-			Hash:            fmt.Sprintf("tx%d", i+1),
+			Hash:            types.HashBytea(fmt.Sprintf("3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877%x", i)),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
 			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
 			FeeCharged:      int64(100 * (i + 1)),

@@ -65,7 +65,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "d176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48774",
 		ToID:            4096,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -76,7 +76,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "e176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48775",
 		ToID:            8192,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -252,7 +252,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "d176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48774",
 		ToID:            4096,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -263,7 +263,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "e176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48775",
 		ToID:            8192,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,

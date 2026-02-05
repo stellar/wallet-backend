@@ -32,7 +32,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		},
 	}}
 	// ToID=toid.New(1000, 1, 0) matches the test data setup in test_utils.go (testLedger=1000, i=0)
-	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
+	parentTx := &types.Transaction{Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48778", ToID: toid.New(1000, 1, 0).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -56,7 +56,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("transaction with no operations", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 999999}
+		nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48779", ToID: 999999}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
@@ -167,7 +167,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{ToID: toid.New(1000, 1, 0).ToInt64(), Hash: "tx1"}
+	parentTx := &types.Transaction{ToID: toid.New(1000, 1, 0).ToInt64(), Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48778"}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -190,7 +190,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 	})
 
 	t.Run("transaction with no associated accounts", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48779"}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
@@ -219,8 +219,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
-	nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 0}
+	parentTx := &types.Transaction{Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48778", ToID: toid.New(1000, 1, 0).ToInt64()}
+	nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48779", ToID: 0}
 
 	t.Run("success without pagination", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
