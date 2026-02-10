@@ -1233,6 +1233,7 @@ func buildValidSimulationResultJSON(t *testing.T) string {
 		XDR:  scVal,
 	}
 	resultJSON, err := json.Marshal(simResult)
+	require.NoError(t, err)
 	return string(resultJSON)
 }
 
