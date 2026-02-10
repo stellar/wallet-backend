@@ -27,7 +27,8 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	var transaction types.Transaction
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &transaction, query, hash)
+	hashBytea := types.HashBytea(hash)
+	err := m.DB.GetContext(ctx, &transaction, query, hashBytea)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByHash", "transactions", duration)
 	if err != nil {
@@ -190,7 +191,7 @@ func (m *TransactionModel) BatchInsert(
 	}
 
 	// 1. Flatten the transactions into parallel slices
-	hashes := make([]string, len(txs))
+	hashes := make([][]byte, len(txs))
 	toIDs := make([]int64, len(txs))
 	envelopeXDRs := make([]*string, len(txs))
 	feesCharged := make([]int64, len(txs))
@@ -201,7 +202,11 @@ func (m *TransactionModel) BatchInsert(
 	isFeeBumps := make([]bool, len(txs))
 
 	for i, t := range txs {
-		hashes[i] = t.Hash
+		hashBytes, err := t.Hash.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting hash %s to bytes: %w", t.Hash, err)
+		}
+		hashes[i] = hashBytes.([]byte)
 		toIDs[i] = t.ToID
 		envelopeXDRs[i] = t.EnvelopeXDR
 		feesCharged[i] = t.FeeCharged
@@ -218,15 +223,19 @@ func (m *TransactionModel) BatchInsert(
 		ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
 	}
 
-	// 3. Flatten the stellarAddressesByToID into parallel slices
+	// 3. Flatten the stellarAddressesByToID into parallel slices, converting to BYTEA
 	var txToIDs []int64
-	var stellarAddresses []string
+	var stellarAddressBytes [][]byte
 	var taLedgerCreatedAts []time.Time
 	for toID, addresses := range stellarAddressesByToID {
 		ledgerCreatedAt := ledgerCreatedAtByToID[toID]
 		for address := range addresses.Iter() {
 			txToIDs = append(txToIDs, toID)
-			stellarAddresses = append(stellarAddresses, address)
+			addrBytes, err := types.AddressBytea(address).Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrBytes.([]byte))
 			taLedgerCreatedAts = append(taLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
@@ -242,7 +251,7 @@ func (m *TransactionModel) BatchInsert(
 			t.hash, t.to_id, t.envelope_xdr, t.fee_charged, t.result_code, t.meta_xdr, t.ledger_number, t.ledger_created_at, t.is_fee_bump
 		FROM (
 			SELECT
-				UNNEST($1::text[]) AS hash,
+				UNNEST($1::bytea[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
 				UNNEST($3::text[]) AS envelope_xdr,
 				UNNEST($4::bigint[]) AS fee_charged,
@@ -266,7 +275,7 @@ func (m *TransactionModel) BatchInsert(
 			SELECT
 				UNNEST($10::timestamptz[]) AS ledger_created_at,
 				UNNEST($11::bigint[]) AS tx_to_id,
-				UNNEST($12::text[]) AS account_id
+				UNNEST($12::bytea[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -276,7 +285,7 @@ func (m *TransactionModel) BatchInsert(
     `
 
 	start := time.Now()
-	var insertedHashes []string
+	var insertedHashes []types.HashBytea
 	err := sqlExecuter.SelectContext(ctx, &insertedHashes, insertQuery,
 		pq.Array(hashes),
 		pq.Array(toIDs),
@@ -289,7 +298,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(isFeeBumps),
 		pq.Array(taLedgerCreatedAts),
 		pq.Array(txToIDs),
-		pq.Array(stellarAddresses),
+		pq.Array(stellarAddressBytes),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
@@ -308,7 +317,13 @@ func (m *TransactionModel) BatchInsert(
 		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
 	}
 
-	return insertedHashes, nil
+	// Convert HashBytea to string for the return value
+	result := make([]string, len(insertedHashes))
+	for i, h := range insertedHashes {
+		result[i] = h.String()
+	}
+
+	return result, nil
 }
 
 // BatchCopy inserts transactions using pgx's binary COPY protocol.
@@ -338,8 +353,12 @@ func (m *TransactionModel) BatchCopy(
 		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at", "is_fee_bump"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
+			hashBytes, err := tx.Hash.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
+			}
 			return []any{
-				pgtype.Text{String: tx.Hash, Valid: true},
+				hashBytes,
 				pgtype.Int8{Int64: tx.ToID, Valid: true},
 				pgtypeTextFromPtr(tx.EnvelopeXDR),
 				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
@@ -373,10 +392,14 @@ func (m *TransactionModel) BatchCopy(
 			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
+				addrBytes, err := types.AddressBytea(addr).Value()
+				if err != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				}
 				taRows = append(taRows, []any{
 					ledgerCreatedAtPgtype,
 					toIDPgtype,
-					pgtype.Text{String: addr, Valid: true},
+					addrBytes,
 				})
 			}
 		}

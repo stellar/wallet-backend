@@ -284,7 +284,7 @@ func (m *OperationModel) BatchInsert(
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
 	operationTypes := make([]string, len(operations))
-	operationXDRs := make([]string, len(operations))
+	operationXDRs := make([][]byte, len(operations))
 	resultCodes := make([]string, len(operations))
 	successfulFlags := make([]bool, len(operations))
 	ledgerNumbers := make([]uint32, len(operations))
@@ -293,7 +293,7 @@ func (m *OperationModel) BatchInsert(
 	for i, op := range operations {
 		ids[i] = op.ID
 		operationTypes[i] = string(op.OperationType)
-		operationXDRs[i] = op.OperationXDR
+		operationXDRs[i] = []byte(op.OperationXDR)
 		resultCodes[i] = op.ResultCode
 		successfulFlags[i] = op.Successful
 		ledgerNumbers[i] = op.LedgerNumber
@@ -306,15 +306,19 @@ func (m *OperationModel) BatchInsert(
 		ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
 	}
 
-	// 3. Flatten the stellarAddressesByOpID into parallel slices
+	// 3. Flatten the stellarAddressesByOpID into parallel slices, converting to BYTEA
 	var opIDs []int64
-	var stellarAddresses []string
+	var stellarAddressBytes [][]byte
 	var oaLedgerCreatedAts []time.Time
 	for opID, addresses := range stellarAddressesByOpID {
 		ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
-			stellarAddresses = append(stellarAddresses, address)
+			addrBytes, err := types.AddressBytea(address).Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrBytes.([]byte))
 			oaLedgerCreatedAts = append(oaLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
@@ -332,7 +336,7 @@ func (m *OperationModel) BatchInsert(
 			SELECT
 				UNNEST($1::bigint[]) AS id,
 				UNNEST($2::text[]) AS operation_type,
-				UNNEST($3::text[]) AS operation_xdr,
+				UNNEST($3::bytea[]) AS operation_xdr,
 				UNNEST($4::text[]) AS result_code,
 				UNNEST($5::boolean[]) AS successful,
 				UNNEST($6::bigint[]) AS ledger_number,
@@ -352,7 +356,7 @@ func (m *OperationModel) BatchInsert(
 			SELECT
 				UNNEST($8::timestamptz[]) AS ledger_created_at,
 				UNNEST($9::bigint[]) AS op_id,
-				UNNEST($10::text[]) AS account_id
+				UNNEST($10::bytea[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -373,7 +377,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(oaLedgerCreatedAts),
 		pq.Array(opIDs),
-		pq.Array(stellarAddresses),
+		pq.Array(stellarAddressBytes),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"operations", "operations_accounts"} {
@@ -425,7 +429,7 @@ func (m *OperationModel) BatchCopy(
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
 				pgtype.Text{String: string(op.OperationType), Valid: true},
-				pgtype.Text{String: op.OperationXDR, Valid: true},
+				[]byte(op.OperationXDR),
 				pgtype.Text{String: op.ResultCode, Valid: true},
 				pgtype.Bool{Bool: op.Successful, Valid: true},
 				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
@@ -455,10 +459,14 @@ func (m *OperationModel) BatchCopy(
 			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
+				addrBytes, err := types.AddressBytea(addr).Value()
+				if err != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				}
 				oaRows = append(oaRows, []any{
 					ledgerCreatedAtPgtype,
 					opIDPgtype,
-					pgtype.Text{String: addr, Valid: true},
+					addrBytes,
 				})
 			}
 		}
