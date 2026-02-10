@@ -18,7 +18,7 @@ CREATE TABLE operations (
             'INVOKE_HOST_FUNCTION', 'EXTEND_FOOTPRINT_TTL', 'RESTORE_FOOTPRINT'
         )
     ),
-    operation_xdr TEXT,
+    operation_xdr BYTEA,
     result_code TEXT NOT NULL,
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
@@ -38,7 +38,7 @@ CREATE INDEX idx_operations_id ON operations(id);
 CREATE TABLE operations_accounts (
     ledger_created_at TIMESTAMPTZ NOT NULL,
     operation_id BIGINT NOT NULL,
-    account_id TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     PRIMARY KEY (ledger_created_at, account_id, operation_id)
 ) WITH (
     tsdb.hypertable,

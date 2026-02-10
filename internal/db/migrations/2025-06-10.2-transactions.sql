@@ -4,7 +4,7 @@
 CREATE TABLE transactions (
     ledger_created_at TIMESTAMPTZ NOT NULL,
     to_id BIGINT NOT NULL,
-    hash TEXT NOT NULL,
+    hash BYTEA NOT NULL,
     envelope_xdr TEXT,
     fee_charged BIGINT NOT NULL,
     result_code TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE INDEX idx_transactions_to_id ON transactions(to_id);
 CREATE TABLE transactions_accounts (
     ledger_created_at TIMESTAMPTZ NOT NULL,
     tx_to_id BIGINT NOT NULL,
-    account_id TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     PRIMARY KEY (ledger_created_at, account_id, tx_to_id)
 ) WITH (
     tsdb.hypertable,
