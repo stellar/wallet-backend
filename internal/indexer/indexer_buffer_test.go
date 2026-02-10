@@ -17,7 +17,7 @@ func buildStateChange(toID int64, reason types.StateChangeReason, accountID stri
 		ToID:                toID,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
-		AccountID:           accountID,
+		AccountID:           types.AddressBytea(accountID),
 		OperationID:         operationID,
 		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
@@ -27,8 +27,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 	t.Run("🟢 sequential pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("alice", tx2)
@@ -50,8 +50,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		wg := sync.WaitGroup{}
 		wg.Add(4)
@@ -87,8 +87,8 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 	t.Run("🟢 sequential pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -111,8 +111,8 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -147,7 +147,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 	t.Run("🟢 sequential pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
@@ -165,7 +165,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
@@ -196,8 +196,8 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 	t.Run("🟢 with operations and transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 3}
 		op2 := types.Operation{ID: 4}
 		op3 := types.Operation{ID: 5}
@@ -239,8 +239,8 @@ func TestIndexerBuffer_GetNumberOfTransactions(t *testing.T) {
 
 		assert.Equal(t, 0, indexerBuffer.GetNumberOfTransactions())
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		assert.Equal(t, 1, indexerBuffer.GetNumberOfTransactions())
@@ -258,8 +258,8 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 	t.Run("🟢 returns all unique transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1, LedgerNumber: 100}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2, LedgerNumber: 101}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1, LedgerNumber: 100}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2, LedgerNumber: 101}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx2)
@@ -275,8 +275,8 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 	t.Run("🟢 returns correct participants mapping", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx1)
@@ -292,7 +292,7 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 	t.Run("🟢 returns all unique operations", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -310,7 +310,7 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 	t.Run("🟢 returns correct participants mapping", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -328,7 +328,7 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 	t.Run("🟢 returns all state changes in order", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
@@ -354,8 +354,8 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects participants from transactions", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		indexerBuffer.PushTransaction("alice", tx1)
 		indexerBuffer.PushTransaction("bob", tx2)
@@ -368,7 +368,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects participants from operations", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -383,7 +383,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects participants from state changes", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
@@ -401,7 +401,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 collects unique participants from all sources", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op := types.Operation{ID: 1}
 		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "dave", OperationID: 1}
 
@@ -418,7 +418,7 @@ func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
 	t.Run("🟢 ignores empty participants", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		indexerBuffer.PushTransaction("", tx) // empty participant
 		indexerBuffer.PushTransaction("alice", tx)
 
@@ -441,8 +441,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		buffer1.PushTransaction("alice", tx1)
 		buffer2.PushTransaction("bob", tx2)
@@ -464,7 +464,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -488,7 +488,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
@@ -510,8 +510,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 1}
 
 		// Buffer1 has tx1 with alice
@@ -543,7 +543,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
 
@@ -562,7 +562,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		buffer1.PushTransaction("alice", tx1)
 
 		buffer1.Merge(buffer2)
@@ -575,9 +575,9 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 		buffer3 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
-		tx3 := types.Transaction{Hash: "tx_hash_3", ToID: 3}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
+		tx3 := types.Transaction{Hash: "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762", ToID: 3}
 
 		buffer1.PushTransaction("alice", tx1)
 		buffer2.PushTransaction("bob", tx2)
@@ -606,8 +606,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
@@ -653,8 +653,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
-		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
 		buffer1.PushTransaction("alice", tx1)
 		buffer1.PushTransaction("bob", tx1)

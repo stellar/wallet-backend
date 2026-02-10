@@ -255,7 +255,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 
 		account, err := resolver.Account(ctx, &parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, "test-account", account.StellarAddress)
+		assert.Equal(t, sharedTestAccountAddress, string(account.StellarAddress))
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 
 		tx, err := resolver.Transaction(ctx, &parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, "tx1", tx.Hash)
+		assert.Equal(t, testTxHash1, tx.Hash.String())
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {

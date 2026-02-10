@@ -15,6 +15,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// Hash is the resolver for the hash field.
+func (r *transactionResolver) Hash(ctx context.Context, obj *types.Transaction) (string, error) {
+	return obj.Hash.String(), nil
+}
+
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction

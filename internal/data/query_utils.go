@@ -65,6 +65,21 @@ func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
 	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}
 }
 
+// pgtypeBytesFromNullAddressBytea converts NullAddressBytea to bytes for BYTEA insert.
+func pgtypeBytesFromNullAddressBytea(na types.NullAddressBytea) ([]byte, error) {
+	if !na.Valid {
+		return nil, nil
+	}
+	val, err := na.Value()
+	if err != nil {
+		return nil, fmt.Errorf("converting address to bytes: %w", err)
+	}
+	if val == nil {
+		return nil, nil
+	}
+	return val.([]byte), nil
+}
+
 // BuildPaginatedQuery constructs a paginated SQL query with cursor-based pagination
 func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) {
 	var queryBuilder strings.Builder
@@ -75,8 +90,8 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, %s.%s as cursor
 		FROM %s
-		INNER JOIN %s 
-		ON %s 
+		INNER JOIN %s
+		ON %s
 		WHERE %s.account_id = $%d`,
 		config.Columns,
 		config.TableName,
@@ -86,7 +101,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 		config.JoinCondition,
 		config.JoinTable,
 		argIndex))
-	args = append(args, config.AccountAddress)
+	args = append(args, types.AddressBytea(config.AccountAddress))
 	argIndex++
 
 	// Add cursor condition if provided

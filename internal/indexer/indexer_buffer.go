@@ -114,7 +114,7 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 //
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash
+	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
 	}
@@ -382,10 +382,10 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
+	b.pushTransactionUnsafe(string(stateChange.AccountID), &transaction)
 	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
-		b.pushOperationUnsafe(stateChange.AccountID, &operation)
+		b.pushOperationUnsafe(string(stateChange.AccountID), &operation)
 	}
 }
 

@@ -53,7 +53,7 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 
 	// Return the account data directly since we know the address
 	account := &types.Account{
-		StellarAddress: input.Address,
+		StellarAddress: types.AddressBytea(input.Address),
 		CreatedAt:      time.Now(),
 	}
 

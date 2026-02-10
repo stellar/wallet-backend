@@ -170,11 +170,11 @@ func assertStateChangesElementsMatch(t *testing.T, want []types.StateChange, got
 
 	wantMap := make(map[string]types.StateChange)
 	for _, w := range want {
-		wantMap[fmt.Sprintf("%d-%s-%s", w.ToID, w.AccountID, w.DeployerAccountID.String)] = w
+		wantMap[fmt.Sprintf("%d-%s-%s", w.ToID, w.AccountID, w.DeployerAccountID.String())] = w
 	}
 
 	for _, g := range got {
-		key := fmt.Sprintf("%d-%s-%s", g.ToID, g.AccountID, g.DeployerAccountID.String)
+		key := fmt.Sprintf("%d-%s-%s", g.ToID, g.AccountID, g.DeployerAccountID.String())
 		if _, ok := wantMap[key]; !ok {
 			assert.Fail(t, "state change not found", "state change id: %s", key)
 		}
