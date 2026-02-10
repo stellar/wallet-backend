@@ -392,9 +392,9 @@ func (m *TransactionModel) BatchCopy(
 			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				addrBytes, err := types.AddressBytea(addr).Value()
-				if err != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				addrBytes, addrErr := types.AddressBytea(addr).Value()
+				if addrErr != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 				}
 				taRows = append(taRows, []any{
 					ledgerCreatedAtPgtype,

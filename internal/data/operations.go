@@ -459,10 +459,9 @@ func (m *OperationModel) BatchCopy(
 			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				var addrBytes any
-				addrBytes, err = types.AddressBytea(addr).Value()
-				if err != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				addrBytes, addrErr := types.AddressBytea(addr).Value()
+				if addrErr != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 				}
 				oaRows = append(oaRows, []any{
 					ledgerCreatedAtPgtype,
