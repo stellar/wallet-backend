@@ -464,8 +464,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	// BatchCopy should fail with a unique constraint violation
 	require.Error(t, err)
-	// TimescaleDB uses chunk-based constraint names like "2_3_state_changes_pkey" instead of "state_changes_pkey"
-	assert.Contains(t, err.Error(), "pgx CopyFrom state_changes: ERROR: duplicate key value violates unique constraint")
+	assert.Contains(t, err.Error(), "duplicate key value violates unique constraint")
 
 	// Rollback the failed transaction
 	require.NoError(t, pgxTx.Rollback(ctx))

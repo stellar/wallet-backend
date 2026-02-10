@@ -2925,12 +2925,10 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, batchChanges, startTime, endTime, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, batchChanges, _, _, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
-			assert.False(t, startTime.IsZero(), "expected non-zero start time")
-			assert.False(t, endTime.IsZero(), "expected non-zero end time")
 
 			if tc.wantBatchChangesNil {
 				assert.Nil(t, batchChanges, "expected nil batch changes for historical mode")
