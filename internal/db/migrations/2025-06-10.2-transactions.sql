@@ -33,7 +33,8 @@ CREATE TABLE transactions_accounts (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC',
+    tsdb.sparse_index = 'bloom(account_id)'
 );
 
 CREATE INDEX idx_transactions_accounts_tx_to_id ON transactions_accounts(tx_to_id);
