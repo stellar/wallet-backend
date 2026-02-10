@@ -1225,19 +1225,14 @@ func buildValidSimulationResultJSON(t *testing.T) string {
 			},
 		},
 	}
-	authBase64, err := xdr.MarshalBase64(authEntry)
-	require.NoError(t, err)
-
 	scVal := xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(true)}
-	scValBase64, err := xdr.MarshalBase64(scVal)
-	require.NoError(t, err)
-
-	resultJSON, err := json.Marshal(map[string]interface{}{
-		"auth": []string{authBase64},
-		"xdr":  scValBase64,
-	})
-	require.NoError(t, err)
-
+	// Use entities.RPCSimulateHostFunctionResult so we rely on its custom JSON
+	// marshalling logic rather than duplicating the wire-format encoding here.
+	simResult := entities.RPCSimulateHostFunctionResult{
+		Auth: []xdr.SorobanAuthorizationEntry{authEntry},
+		XDR:  scVal,
+	}
+	resultJSON, err := json.Marshal(simResult)
 	return string(resultJSON)
 }
 
