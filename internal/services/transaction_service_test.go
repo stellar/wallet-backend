@@ -298,6 +298,31 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.ErrorContains(t, err, "invalid operation: operation source account cannot be the channel account")
 	})
 
+	t.Run("🚨operation_source_account_cannot_be_channel_account_via_muxed_address", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once()
+
+		// Create a muxed M-address from the channel account's G-address.
+		muxedAccount, err := xdr.MuxedAccountFromAccountId(channelAccount.Address(), 12345)
+		require.NoError(t, err)
+
+		operations := []txnbuild.Operation{&txnbuild.AccountMerge{
+			Destination:   keypair.MustRandom().Address(),
+			SourceAccount: muxedAccount.Address(),
+		}}
+		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		assert.Empty(t, tx)
+		assert.ErrorContains(t, err, "invalid operation: operation source account cannot be the channel account")
+	})
+
 	t.Run("🚨operation_source_account_cannot_be_empty", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
