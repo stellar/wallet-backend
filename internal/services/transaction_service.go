@@ -125,7 +125,13 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	operations := clientTx.Operations()
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
-		if op.GetSourceAccount() == channelAccountPublicKey {
+		// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)
+		// that wrap the same underlying Ed25519 key as the channel account.
+		opSourceGAddress, resolveErr := pkgUtils.ResolveToGAddress(op.GetSourceAccount())
+		if resolveErr != nil {
+			return nil, fmt.Errorf("resolving operation source account: %w", resolveErr)
+		}
+		if opSourceGAddress == channelAccountPublicKey {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidOperationChannelAccount, channelAccountPublicKey)
 		}
 		// Prevent bad actors from using the channel account as a source account (inherited from the parent transaction).

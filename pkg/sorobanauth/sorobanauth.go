@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
+	pkgUtils "github.com/stellar/wallet-backend/pkg/utils"
 )
 
 var ErrForbiddenSigner = errors.New("the provided operation relies on a forbidden signer")
@@ -141,7 +142,13 @@ func CheckForForbiddenSigners(
 		for _, auth := range res.Auth {
 			switch auth.Credentials.Type {
 			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				if slices.Contains(append(forbiddenSigners, ""), opSourceAccount) {
+				// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)
+				// that wrap the same underlying Ed25519 key as a forbidden signer.
+				opSourceGAddress, err := pkgUtils.ResolveToGAddress(opSourceAccount)
+				if err != nil {
+					return fmt.Errorf("resolving operation source account: %w", err)
+				}
+				if slices.Contains(append(forbiddenSigners, ""), opSourceGAddress) {
 					return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
 				}
 
