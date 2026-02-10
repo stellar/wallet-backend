@@ -22,12 +22,15 @@ import (
 
 // generateTestStateChanges creates n test state changes for benchmarking.
 // Populates all fields to provide an upper-bound benchmark.
-func generateTestStateChanges(n int, accountID string, startToID int64) []types.StateChange {
+// The auxAddresses parameter provides pre-generated valid Stellar addresses for nullable account_id fields.
+func generateTestStateChanges(n int, accountID string, startToID int64, auxAddresses []string) []types.StateChange {
 	scs := make([]types.StateChange, n)
 	now := time.Now()
 	reason := types.StateChangeReasonCredit
 
 	for i := 0; i < n; i++ {
+		// Use modulo to cycle through auxiliary addresses for nullable account_id fields
+		auxIdx := i % len(auxAddresses)
 		scs[i] = types.StateChange{
 			ToID:                startToID + int64(i),
 			StateChangeOrder:    1,
@@ -35,20 +38,21 @@ func generateTestStateChanges(n int, accountID string, startToID int64) []types.
 			StateChangeReason:   &reason,
 			LedgerCreatedAt:     now,
 			LedgerNumber:        uint32(i + 1),
-			AccountID:           accountID,
+			AccountID:           types.AddressBytea(accountID),
 			OperationID:         int64(i + 1),
 			// sql.NullString fields
-			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
-			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
-			SignerAccountID:    sql.NullString{String: fmt.Sprintf("GSIGNER%032d", i), Valid: true},
-			SpenderAccountID:   sql.NullString{String: fmt.Sprintf("GSPENDER%031d", i), Valid: true},
-			SponsoredAccountID: sql.NullString{String: fmt.Sprintf("GSPONSORED%028d", i), Valid: true},
-			SponsorAccountID:   sql.NullString{String: fmt.Sprintf("GSPONSOR%030d", i), Valid: true},
-			DeployerAccountID:  sql.NullString{String: fmt.Sprintf("GDEPLOYER%029d", i), Valid: true},
-			FunderAccountID:    sql.NullString{String: fmt.Sprintf("GFUNDER%031d", i), Valid: true},
+			TokenID: sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
+			// NullAddressBytea fields
+			SignerAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
+			SpenderAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
+			SponsoredAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+2)%len(auxAddresses)]), Valid: true},
+			SponsorAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+3)%len(auxAddresses)]), Valid: true},
+			DeployerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
+			FunderAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+5)%len(auxAddresses)]), Valid: true},
 			// Typed fields (previously JSONB)
-			SignerWeightOld:   sql.NullInt16{Int16: int16(i), Valid: true},
-			SignerWeightNew:   sql.NullInt16{Int16: int16(i + 1), Valid: true},
+			SignerWeightOld:   sql.NullInt16{Int16: int16(i % 256), Valid: true},
+			SignerWeightNew:   sql.NullInt16{Int16: int16((i + 1) % 256), Valid: true},
 			ThresholdOld:      sql.NullInt16{Int16: 1, Valid: true},
 			ThresholdNew:      sql.NullInt16{Int16: 2, Valid: true},
 			TrustlineLimitOld: sql.NullString{String: fmt.Sprintf("%d", i*1000), Valid: true},
@@ -74,15 +78,15 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	// Create test data
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -93,7 +97,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "0276b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -120,7 +124,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
-		AccountID:           kp1.Address(),
+		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
 		TokenID:             sql.NullString{String: "token1", Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
@@ -132,7 +136,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
-		AccountID:           kp2.Address(),
+		AccountID:           types.AddressBytea(kp2.Address()),
 		OperationID:         456,
 	}
 
@@ -230,15 +234,15 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -249,7 +253,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "0276b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -276,7 +280,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
-		AccountID:           kp1.Address(),
+		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
 		TokenID:             sql.NullString{String: "token1", Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
@@ -288,7 +292,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
-		AccountID:           kp2.Address(),
+		AccountID:           types.AddressBytea(kp2.Address()),
 		OperationID:         456,
 	}
 	// State change with typed signer/threshold fields (uses to_id=1 to reference tx1)
@@ -299,7 +303,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		StateChangeReason:   nil,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        3,
-		AccountID:           kp1.Address(),
+		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         789,
 		SignerWeightOld:     sql.NullInt16{Int16: 0, Valid: true},
 		SignerWeightNew:     sql.NullInt16{Int16: 10, Valid: true},
@@ -403,7 +407,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 	// Create test account
 	kp1 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()))
 	require.NoError(t, err)
 
 	// Create parent transaction
@@ -421,7 +425,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
-		AccountID:           kp1.Address(),
+		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
 	}
 
@@ -460,8 +464,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	// BatchCopy should fail with a unique constraint violation
 	require.Error(t, err)
-	// TimescaleDB uses chunk-based constraint names like "2_3_state_changes_pkey" instead of "state_changes_pkey"
-	assert.Contains(t, err.Error(), "pgx CopyFrom state_changes: ERROR: duplicate key value violates unique constraint")
+	assert.Contains(t, err.Error(), "duplicate key value violates unique constraint")
 
 	// Rollback the failed transaction
 	require.NoError(t, pgxTx.Rollback(ctx))
@@ -480,17 +483,21 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
+		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -500,7 +507,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', $1, 2, $2, 456),
 			(3, 1, 'BALANCE', $1, 3, $3, 789)
-	`, now, address1, address2)
+	`, now, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -518,7 +525,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 	for _, sc := range stateChanges {
-		assert.Equal(t, address1, sc.AccountID)
+		assert.Equal(t, address1, sc.AccountID.String())
 	}
 
 	// Test BatchGetByAccount for address2
@@ -526,7 +533,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 1)
 	for _, sc := range stateChanges {
-		assert.Equal(t, address2, sc.AccountID)
+		assert.Equal(t, address2, sc.AccountID.String())
 	}
 }
 
@@ -542,17 +549,21 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions
+	// Create test transactions (hash is BYTEA)
+	testHash1 := "0000000000000000000000000000000000000000000000000000000000000001"
+	testHash2 := "0000000000000000000000000000000000000000000000000000000000000002"
+	testHash3 := "0000000000000000000000000000000000000000000000000000000000000003"
+	testHashNonExistent := "0000000000000000000000000000000000000000000000000000000000000004"
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
+	`, now, types.HashBytea(testHash1), types.HashBytea(testHash2), types.HashBytea(testHash3))
 	require.NoError(t, err)
 
 	// Create test state changes with different operation IDs, categories, and reasons
@@ -565,7 +576,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			(3, 1, 'SIGNER', 'ADD', $1, 3, $2, 789),
 			(1, 2, 'BALANCE', 'DEBIT', $1, 4, $2, 124),
 			(2, 2, 'SIGNER', 'ADD', $1, 5, $2, 999)
-	`, now, address)
+	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
@@ -579,14 +590,14 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
 		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(1), sc.ToID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -608,7 +619,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(123), sc.OperationID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -623,7 +634,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		operationID := int64(123)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
@@ -632,7 +643,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, int64(123), sc.OperationID)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -653,7 +664,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -674,7 +685,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -697,7 +708,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -712,7 +723,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		operationID := int64(123)
 		category := "BALANCE"
 		reason := "CREDIT"
@@ -724,7 +735,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
-			assert.Equal(t, address, sc.AccountID)
+			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
 
@@ -739,7 +750,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "nonexistent"
+		txHash := testHashNonExistent
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
@@ -756,7 +767,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		limit := int32(1)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
 		require.NoError(t, err)
@@ -787,17 +798,20 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -807,7 +821,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', $1, 2, $2, 456),
 			(3, 1, 'BALANCE', $1, 3, $2, 789)
-	`, now, address)
+	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	// Test GetAll without limit
@@ -834,17 +848,20 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes - multiple state changes per to_id to test ranking
@@ -857,7 +874,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 			(2, 1, 'BALANCE', $1, 4, $2, 456),
 			(2, 2, 'BALANCE', $1, 5, $2, 457),
 			(3, 1, 'BALANCE', $1, 6, $2, 789)
-	`, now, address)
+	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -990,17 +1007,20 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -1010,7 +1030,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', $1, 2, $2, 456),
 			(3, 1, 'BALANCE', $1, 3, $2, 123)
-	`, now, address)
+	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
@@ -1050,16 +1070,18 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test state changes for to_id=1 (multiple state_change_orders)
@@ -1070,7 +1092,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 			(1, 2, 'BALANCE', $1, 2, $2, 124),
 			(1, 3, 'BALANCE', $1, 3, $2, 125),
 			(2, 1, 'BALANCE', $1, 4, $2, 456)
-	`, now, address)
+	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single to_id", func(t *testing.T) {
@@ -1162,6 +1184,12 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 		b.Fatalf("failed to create parent transaction: %v", err)
 	}
 
+	// Pre-generate auxiliary addresses for nullable account_id fields
+	auxAddresses := make([]string, 10)
+	for i := range auxAddresses {
+		auxAddresses[i] = keypair.MustRandom().Address()
+	}
+
 	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
 
 	for _, size := range batchSizes {
@@ -1174,7 +1202,7 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
 				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size), auxAddresses)
 				b.StartTimer()
 
 				_, err := m.BatchInsert(ctx, nil, scs)
@@ -1227,6 +1255,12 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 		b.Fatalf("failed to create parent transaction: %v", err)
 	}
 
+	// Pre-generate auxiliary addresses for nullable account_id fields
+	auxAddresses := make([]string, 10)
+	for i := range auxAddresses {
+		auxAddresses[i] = keypair.MustRandom().Address()
+	}
+
 	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
 
 	for _, size := range batchSizes {
@@ -1242,7 +1276,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size), auxAddresses)
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)

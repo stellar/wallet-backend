@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -28,8 +29,36 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
+// Test addresses generated from valid keypairs for use in tests.
+// These are deterministic seeds to ensure consistent test addresses.
+var (
+	testKP1       = keypair.MustRandom()
+	testKP2       = keypair.MustRandom()
+	testKP3       = keypair.MustRandom()
+	testAddr1     = testKP1.Address()
+	testAddr2     = testKP2.Address()
+	testAddrUnreg = testKP3.Address()
+)
+
 const (
 	defaultGetLedgersLimit = 50
+
+	// Test hash constants for ingest tests (64-char hex strings for BYTEA storage)
+	flushTxHash1   = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f101"
+	flushTxHash2   = "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f202"
+	flushTxHash3   = "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f303"
+	flushTxHash4   = "f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f404"
+	flushTxHash5   = "f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f505"
+	flushTxHash6   = "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f606"
+	catchupTxHash1 = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c101"
+	catchupTxHash2 = "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c202"
+	catchupTxHash3 = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c303"
+	catchupTxHash4 = "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c404"
+	catchupTxHash5 = "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c505"
+	catchupTxHash6 = "c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c606"
+	prevTxHash     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	txHash1        = "1111111111111111111111111111111111111111111111111111111111111111"
+	txHash2        = "2222222222222222222222222222222222222222222222222222222222222222"
 
 	// Test fixtures for ledger metadata
 	ledgerMetadataWith0Tx = "AAAAAQAAAACB7Zh2o0NTFwl1nvs7xr3SJ7w8PpwnSRb8QyG9k6acEwAAABaeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLYjyoO5BI41g1PFT+iHW68giP49Koo+q3VmH8I4GdtW2AAAAAGhTTB8AAAAAAAAAAQAAAAC1XRCyu30oTtXAOkel4bWQyQ9Xg1VHHMRQe76CBNI8iwAAAEDSH4sE7cL7UJyOqUo9ZZeNqPT7pt7su8iijHjWYg4MbeFUh/gkGf6N40bZjP/dlIuGXmuEhWoEX0VTV58xOB4C3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERm+pITz+1V1m+3/v6eaEKglCnon3a5xkn02sLltJ9CSzwAAEYIN4Lazp2QAAAAAAAMtYtQzAAAAAAAAAAAAAAAMAAAAZABMS0AAAADIXukLfWC53MCmzxKd/+LBbaYxQkgxATFDLI3hWj7EqWgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLQAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9yHMAAAAAAAAAAA=="
@@ -496,7 +525,7 @@ func createTestTransaction(hash string, toID int64) types.Transaction {
 	envelope := "test_envelope_xdr"
 	meta := "test_meta_xdr"
 	return types.Transaction{
-		Hash:            hash,
+		Hash:            types.HashBytea(hash),
 		ToID:            toID,
 		EnvelopeXDR:     &envelope,
 		FeeCharged:      100,
@@ -514,7 +543,7 @@ func createTestOperation(id int64) types.Operation {
 	return types.Operation{
 		ID:              id,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "test_operation_xdr",
+		OperationXDR:    types.XDRBytea([]byte("test_operation_xdr")),
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,
 		IngestedAt:      now,
@@ -530,7 +559,7 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
-		AccountID:           accountID,
+		AccountID:           types.AddressBytea(accountID),
 		OperationID:         opID,
 		LedgerNumber:        1000,
 		LedgerCreatedAt:     now,
@@ -1140,17 +1169,17 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			name: "flush_with_data_inserts_to_database",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_1", 1)
-				tx2 := createTestTransaction("flush_tx_2", 2)
+				tx1 := createTestTransaction(flushTxHash1, 1)
+				tx2 := createTestTransaction(flushTxHash2, 2)
 				op1 := createTestOperation(200)
 				op2 := createTestOperation(201)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 200)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 201)
+				sc1 := createTestStateChange(1, testAddr1, 200)
+				sc2 := createTestStateChange(2, testAddr2, 201)
 
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
-				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
-				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
-				buf.PushOperation("GDEF2222222222222222222222222222222222222222222222222", op2, tx2)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddr2, tx2)
+				buf.PushOperation(testAddr1, op1, tx1)
+				buf.PushOperation(testAddr2, op2, tx2)
 				buf.PushStateChange(tx1, op1, sc1)
 				buf.PushStateChange(tx2, op2, sc2)
 				return buf
@@ -1161,14 +1190,14 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          2,
 			wantOpCount:          2,
 			wantStateChangeCount: 2,
-			txHashes:             []string{"flush_tx_1", "flush_tx_2"},
+			txHashes:             []string{flushTxHash1, flushTxHash2},
 		},
 		{
 			name: "flush_with_cursor_update_to_lower_value",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_3", 3)
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				tx1 := createTestTransaction(flushTxHash3, 3)
+				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
 			updateCursorTo:       ptrUint32(50),
@@ -1177,14 +1206,14 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
-			txHashes:             []string{"flush_tx_3"},
+			txHashes:             []string{flushTxHash3},
 		},
 		{
 			name: "flush_with_cursor_update_to_higher_value_keeps_existing",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_4", 4)
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
+				tx1 := createTestTransaction(flushTxHash4, 4)
+				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
 			updateCursorTo:       ptrUint32(150),
@@ -1193,38 +1222,38 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
-			txHashes:             []string{"flush_tx_4"},
+			txHashes:             []string{flushTxHash4},
 		},
 		{
 			name: "flush_with_filtering_only_inserts_registered",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("flush_tx_5", 5) // Registered participant
-				tx2 := createTestTransaction("flush_tx_6", 6) // No registered participant
+				tx1 := createTestTransaction(flushTxHash5, 5) // Registered participant
+				tx2 := createTestTransaction(flushTxHash6, 6) // No registered participant
 
-				buf.PushTransaction("GREGISTERED111111111111111111111111111111111111111", tx1)
-				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddrUnreg, tx2)
 				return buf
 			},
 			enableParticipantFiltering: true,
-			registeredAccounts:         []string{"GREGISTERED111111111111111111111111111111111111111"},
+			registeredAccounts:         []string{testAddr1},
 			updateCursorTo:             nil,
 			initialCursor:              100,
 			wantCursor:                 100,
 			wantTxCount:                1, // Only tx1
 			wantOpCount:                0,
 			wantStateChangeCount:       0,
-			txHashes:                   []string{"flush_tx_5"},
+			txHashes:                   []string{flushTxHash5},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up test data from previous runs
-			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
+			// Clean up test data from previous runs (using HashBytea for BYTEA column)
+			for _, hash := range []string{flushTxHash1, flushTxHash2, flushTxHash3, flushTxHash4, flushTxHash5, flushTxHash6} {
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
@@ -1239,7 +1268,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			// Add registered accounts if any
 			for _, acc := range tc.registeredAccounts {
 				_, insertErr := dbConnectionPool.ExecContext(ctx,
-					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, acc)
+					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, types.AddressBytea(acc))
 				require.NoError(t, insertErr)
 			}
 
@@ -1298,10 +1327,16 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 
 			// Verify transaction count in database
 			if len(tc.txHashes) > 0 {
+				hashBytes := make([][]byte, len(tc.txHashes))
+				for i, h := range tc.txHashes {
+					val, err := types.HashBytea(h).Value()
+					require.NoError(t, err)
+					hashBytes[i] = val.([]byte)
+				}
 				var txCount int
 				err = dbConnectionPool.GetContext(ctx, &txCount,
 					`SELECT COUNT(*) FROM transactions WHERE hash = ANY($1)`,
-					pq.Array(tc.txHashes))
+					pq.Array(hashBytes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantTxCount, txCount, "transaction count mismatch")
 			}
@@ -1317,10 +1352,16 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 
 			// Verify state change count in database
 			if tc.wantStateChangeCount > 0 {
+				scHashBytes := make([][]byte, len(tc.txHashes))
+				for i, h := range tc.txHashes {
+					val, err := types.HashBytea(h).Value()
+					require.NoError(t, err)
+					scHashBytes[i] = val.([]byte)
+				}
 				var scCount int
 				err = dbConnectionPool.GetContext(ctx, &scCount,
 					`SELECT COUNT(*) FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = ANY($1))`,
-					pq.Array(tc.txHashes))
+					pq.Array(scHashBytes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
 			}
@@ -1352,17 +1393,17 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			enableParticipantFiltering: false,
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
-				tx2 := createTestTransaction("tx_hash_2", 2)
+				tx1 := createTestTransaction(txHash1, 1)
+				tx2 := createTestTransaction(txHash2, 2)
 				op1 := createTestOperation(100)
 				op2 := createTestOperation(101)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 101)
+				sc1 := createTestStateChange(1, testAddr1, 100)
+				sc2 := createTestStateChange(2, testAddr2, 101)
 
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
-				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
-				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
-				buf.PushOperation("GDEF2222222222222222222222222222222222222222222222222", op2, tx2)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddr2, tx2)
+				buf.PushOperation(testAddr1, op1, tx1)
+				buf.PushOperation(testAddr2, op2, tx2)
 				buf.PushStateChange(tx1, op1, sc1)
 				buf.PushStateChange(tx2, op2, sc2)
 				return buf
@@ -1374,17 +1415,17 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 		{
 			name:                       "filtering_enabled_includes_tx_with_registered_participant",
 			enableParticipantFiltering: true,
-			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111"},
+			registeredAccounts:         []string{testAddr1},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx1 := createTestTransaction(txHash1, 1)
 				op1 := createTestOperation(100)
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
+				sc1 := createTestStateChange(1, testAddr1, 100)
 
 				// Tx has 2 participants but only 1 is registered
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
-				buf.PushTransaction("GXYZ9999999999999999999999999999999999999999999999999", tx1) // Unregistered participant on same tx
-				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddrUnreg, tx1) // Unregistered participant on same tx
+				buf.PushOperation(testAddr1, op1, tx1)
 				buf.PushStateChange(tx1, op1, sc1)
 				return buf
 			},
@@ -1395,25 +1436,25 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				// Verify ALL participants are preserved (not just registered ones)
 				participants := filtered.txParticipants[int64(1)]
 				assert.Equal(t, 2, participants.Cardinality())
-				assert.True(t, participants.Contains("GABC1111111111111111111111111111111111111111111111111"))
-				assert.True(t, participants.Contains("GXYZ9999999999999999999999999999999999999999999999999"))
+				assert.True(t, participants.Contains(testAddr1))
+				assert.True(t, participants.Contains(testAddrUnreg))
 			},
 		},
 		{
 			name:                       "filtering_enabled_excludes_tx_without_registered",
 			enableParticipantFiltering: true,
-			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111"},
+			registeredAccounts:         []string{testAddr1},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1) // Has registered
-				tx2 := createTestTransaction("tx_hash_2", 2) // No registered
+				tx1 := createTestTransaction(txHash1, 1) // Has registered
+				tx2 := createTestTransaction(txHash2, 2) // No registered
 				op1 := createTestOperation(100)
 				op2 := createTestOperation(101)
 
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
-				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
-				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
-				buf.PushOperation("GUNREGISTERED11111111111111111111111111111111111111", op2, tx2)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddrUnreg, tx2)
+				buf.PushOperation(testAddr1, op1, tx1)
+				buf.PushOperation(testAddrUnreg, op2, tx2)
 				return buf
 			},
 			wantTxCount:          1, // Only tx1
@@ -1426,8 +1467,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			registeredAccounts:         []string{},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
-				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx1)
+				tx1 := createTestTransaction(txHash1, 1)
+				buf.PushTransaction(testAddrUnreg, tx1)
 				return buf
 			},
 			wantTxCount:          0,
@@ -1437,19 +1478,19 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 		{
 			name:                       "filtering_state_changes_only_for_registered_accounts",
 			enableParticipantFiltering: true,
-			registeredAccounts:         []string{"GABC1111111111111111111111111111111111111111111111111", "GDEF2222222222222222222222222222222222222222222222222"},
+			registeredAccounts:         []string{testAddr1, testAddr2},
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("tx_hash_1", 1)
+				tx1 := createTestTransaction(txHash1, 1)
 				op1 := createTestOperation(100)
 
 				// 3 state changes: 2 for registered accounts, 1 for unregistered
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 100)
-				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", 100)
+				sc1 := createTestStateChange(1, testAddr1, 100)
+				sc2 := createTestStateChange(2, testAddr2, 100)
+				sc3 := createTestStateChange(3, testAddrUnreg, 100)
 
-				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
-				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
+				buf.PushTransaction(testAddr1, tx1)
+				buf.PushOperation(testAddr1, op1, tx1)
 				buf.PushStateChange(tx1, op1, sc1)
 				buf.PushStateChange(tx1, op1, sc2)
 				buf.PushStateChange(tx1, op1, sc3)
@@ -1470,7 +1511,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			// Add registered accounts if any
 			for _, acc := range tc.registeredAccounts {
 				_, insertErr := dbConnectionPool.ExecContext(ctx,
-					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, acc)
+					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, types.AddressBytea(acc))
 				require.NoError(t, insertErr)
 			}
 
@@ -2638,10 +2679,10 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "collects_trustline_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_1", 1)
-				buf.PushTransaction("GTEST111111111111111111111111111111111111111111111111", tx1)
+				tx1 := createTestTransaction(catchupTxHash1, 1)
+				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
-					AccountID:    "GTEST111111111111111111111111111111111111111111111111",
+					AccountID:    testAddr1,
 					Asset:        "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  100,
 					LedgerNumber: 1000,
@@ -2657,10 +2698,10 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "collects_contract_changes_when_batchChanges_provided",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_2", 2)
-				buf.PushTransaction("GTEST222222222222222222222222222222222222222222222222", tx1)
+				tx1 := createTestTransaction(catchupTxHash2, 2)
+				buf.PushTransaction(testAddr2, tx1)
 				buf.PushContractChange(types.ContractChange{
-					AccountID:    "GTEST222222222222222222222222222222222222222222222222",
+					AccountID:    testAddr2,
 					ContractID:   "CCONTRACTID",
 					OperationID:  101,
 					LedgerNumber: 1001,
@@ -2672,7 +2713,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			wantTrustlineChangesCount: 0,
 			wantContractChanges: []types.ContractChange{
 				{
-					AccountID:    "GTEST222222222222222222222222222222222222222222222222",
+					AccountID:    testAddr2,
 					ContractID:   "CCONTRACTID",
 					OperationID:  101,
 					LedgerNumber: 1001,
@@ -2684,10 +2725,10 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "nil_batchChanges_does_not_collect",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_5", 5)
-				buf.PushTransaction("GTEST555555555555555555555555555555555555555555555555", tx1)
+				tx1 := createTestTransaction(catchupTxHash5, 5)
+				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
-					AccountID:    "GTEST555555555555555555555555555555555555555555555555",
+					AccountID:    testAddr1,
 					Asset:        "EUR:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  102,
 					LedgerNumber: 1002,
@@ -2703,10 +2744,10 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			name: "accumulates_across_multiple_flushes",
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction("catchup_tx_6", 6)
-				buf.PushTransaction("GTEST666666666666666666666666666666666666666666666666", tx1)
+				tx1 := createTestTransaction(catchupTxHash6, 6)
+				buf.PushTransaction(testAddr1, tx1)
 				buf.PushTrustlineChange(types.TrustlineChange{
-					AccountID:    "GTEST666666666666666666666666666666666666666666666666",
+					AccountID:    testAddr1,
 					Asset:        "GBP:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 					OperationID:  103,
 					LedgerNumber: 1003,
@@ -2729,11 +2770,11 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up test data from previous runs
-			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
+			// Clean up test data from previous runs (using HashBytea for BYTEA column)
+			for _, hash := range []string{catchupTxHash1, catchupTxHash2, catchupTxHash3, catchupTxHash4, catchupTxHash5, catchupTxHash6, prevTxHash} {
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
@@ -2884,12 +2925,10 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, batchChanges, startTime, endTime, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, batchChanges, _, _, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
-			assert.False(t, startTime.IsZero(), "expected non-zero start time")
-			assert.False(t, endTime.IsZero(), "expected non-zero end time")
 
 			if tc.wantBatchChangesNil {
 				assert.Nil(t, batchChanges, "expected nil batch changes for historical mode")

@@ -33,7 +33,7 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 		ops[i] = &types.Operation{
 			ID:              opID,
 			OperationType:   types.OperationTypePayment,
-			OperationXDR:    fmt.Sprintf("operation_xdr_%d", i),
+			OperationXDR:    types.XDRBytea([]byte(fmt.Sprintf("operation_xdr_%d", i))),
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
@@ -56,8 +56,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	// Create test data
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first with specific ToIDs
@@ -65,7 +65,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "d176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            4096,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -76,7 +76,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "e176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            8192,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -101,13 +101,13 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation1",
+		OperationXDR:    types.XDRBytea([]byte("operation1")),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "operation2",
+		OperationXDR:    types.XDRBytea([]byte("operation2")),
 		LedgerCreatedAt: now,
 	}
 
@@ -206,8 +206,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			// Verify the account links
 			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					OperationID int64              `db:"operation_id"`
+					AccountID   types.AddressBytea `db:"account_id"`
 				}
 				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -215,7 +215,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids for O(1) lookups
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each operation has its expected account links
@@ -243,8 +243,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
+	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
 	require.NoError(t, err)
 
 	// Create referenced transactions first with specific ToIDs
@@ -252,7 +252,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "d176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            4096,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -263,7 +263,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "e176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            8192,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -288,13 +288,13 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	op1 := types.Operation{
 		ID:              4097, // in range (4096, 8192)
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation1",
+		OperationXDR:    types.XDRBytea([]byte("operation1")),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              8193, // in range (8192, 12288)
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "operation2",
+		OperationXDR:    types.XDRBytea([]byte("operation2")),
 		LedgerCreatedAt: now,
 	}
 
@@ -384,8 +384,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			// Verify account links if expected
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
 				var accountLinks []struct {
-					OperationID int64  `db:"operation_id"`
-					AccountID   string `db:"account_id"`
+					OperationID int64              `db:"operation_id"`
+					AccountID   types.AddressBytea `db:"account_id"`
 				}
 				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
 				require.NoError(t, err)
@@ -393,7 +393,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 				// Create a map of operation_id -> set of account_ids
 				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
 				}
 
 				// Verify each expected operation has its account links
@@ -419,7 +419,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	// Create test accounts
 	kp1 := keypair.MustRandom()
 	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address())
+	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()))
 	require.NoError(t, err)
 
 	// Create a parent transaction that the operation will reference
@@ -432,7 +432,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 	op1 := types.Operation{
 		ID:              999,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation_xdr_dup_test",
+		OperationXDR:    types.XDRBytea([]byte("operation_xdr_dup_test")),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
@@ -476,8 +476,7 @@ func Test_OperationModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	// BatchCopy should fail with a unique constraint violation
 	require.Error(t, err)
-	// TimescaleDB uses chunk-based constraint names like "2_3_operations_pkey" instead of "operations_pkey"
-	assert.Contains(t, err.Error(), "pgx CopyFrom operations: ERROR: duplicate key value violates unique constraint")
+	assert.Contains(t, err.Error(), "duplicate key value violates unique constraint")
 
 	// Rollback the failed transaction
 	require.NoError(t, pgxTx.Rollback(ctx))
@@ -503,24 +502,30 @@ func TestOperationModel_GetAll(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA, using valid 64-char hex strings)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction: (to_id, to_id + 4096))
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(2, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(4098, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(8194, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(2, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(4098, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(8194, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Test GetAll without limit (gets all operations)
@@ -553,29 +558,38 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	// Create test transactions first with specific ToIDs
 	// ToID encoding: operations for a tx with to_id are in range (to_id, to_id + 4096)
 	// Using to_id values: 4096, 8192, 12288 (multiples of 4096 for clarity)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations - IDs must be in TOID range for each transaction
 	// For tx1 (to_id=4096): ops 4097, 4098, 4099
 	// For tx2 (to_id=8192): ops 8193, 8194
 	// For tx3 (to_id=12288): op 12289
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
+	xdr4 := types.XDRBytea([]byte("xdr4"))
+	xdr5 := types.XDRBytea([]byte("xdr5"))
+	xdr6 := types.XDRBytea([]byte("xdr6"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1),
-			(4099, 'MANAGE_SELL_OFFER', 'xdr4', 'op_success', true, 4, $1),
-			(8194, 'PAYMENT', 'xdr5', 'op_success', true, 5, $1),
-			(12289, 'CHANGE_TRUST', 'xdr6', 'op_success', true, 6, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', $4, 'op_success', true, 3, $1),
+			(4099, 'MANAGE_SELL_OFFER', $5, 'op_success', true, 4, $1),
+			(8194, 'PAYMENT', $6, 'op_success', true, 5, $1),
+			(12289, 'CHANGE_TRUST', $7, 'op_success', true, 6, $1)
+	`, now, xdr1, xdr2, xdr3, xdr4, xdr5, xdr6)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -743,33 +757,38 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first with specific ToIDs
+	// Create test transactions first with specific ToIDs (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test operations - IDs must be in TOID range for each transaction
 	// For tx1 (to_id=4096): ops 4097, 4098
 	// For tx2 (to_id=8192): op 8193
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Test BatchGetByToID
 	operations, err := m.BatchGetByToID(ctx, 4096, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, "xdr1", operations[0].OperationXDR)
-	assert.Equal(t, "xdr3", operations[1].OperationXDR)
+	assert.Equal(t, xdr1.String(), operations[0].OperationXDR.String())
+	assert.Equal(t, xdr3.String(), operations[1].OperationXDR.String())
 }
 
 func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
@@ -798,34 +817,40 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(12289, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(12289, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Create test operations_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
 		VALUES
-			($1, 4097, $2),
-			($1, 8193, $2),
-			($1, 12289, $3)
-	`, now, address1, address2)
+			($3, 4097, $1),
+			($3, 8193, $1),
+			($3, 12289, $2)
+	`, types.AddressBytea(address1), types.AddressBytea(address2), now)
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
@@ -846,22 +871,26 @@ func TestOperationModel_GetByID(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	opXdr1 := types.XDRBytea([]byte("xdr1"))
+	opXdr2 := types.XDRBytea([]byte("xdr2"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1)
+	`, now, opXdr1, opXdr2)
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -877,7 +906,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 4097, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4097), operation.ID)
-	assert.Equal(t, "xdr1", operation.OperationXDR)
+	assert.Equal(t, opXdr1.String(), operation.OperationXDR.String())
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
@@ -908,24 +937,30 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test operations (IDs must be in TOID range for each transaction)
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(12289, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
-	`, now)
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
+			(12289, 'PAYMENT', $4, 'op_success', true, 3, $1)
+	`, now, xdr1, xdr2, xdr3)
 	require.NoError(t, err)
 
 	// Create test state changes

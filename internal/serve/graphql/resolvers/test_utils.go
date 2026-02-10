@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/require"
 
@@ -46,15 +47,31 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
+// sharedTestAccountAddress is a fixed test address used by tests that rely on setupDB.
+// It's generated once and reused to ensure test data consistency.
+var sharedTestAccountAddress = keypair.MustRandom().Address()
+
+// sharedNonExistentAccountAddress is a valid Stellar address that doesn't exist in the test DB.
+var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
+
+// Test transaction hashes used by setupDB (64-char hex strings for BYTEA storage)
+// These must match the pattern in setupDB: fmt.Sprintf("...487%x", i) where i = 0,1,2,3
+var (
+	testTxHash1 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4870"
+	testTxHash2 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4871"
+	testTxHash3 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4872"
+	testTxHash4 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4873"
+)
+
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
-	parentAccount := &types.Account{StellarAddress: "test-account"}
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
 	opIdx := 1
 	for i := range 4 {
 		txn := &types.Transaction{
-			Hash:            fmt.Sprintf("tx%d", i+1),
+			Hash:            types.HashBytea(fmt.Sprintf("3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa487%x", i)),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
 			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
 			FeeCharged:      int64(100 * (i + 1)),
@@ -71,7 +88,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				OperationType:   "PAYMENT",
-				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
+				OperationXDR:    types.XDRBytea([]byte(fmt.Sprintf("opxdr%d", opIdx))),
 				ResultCode:      "op_success",
 				Successful:      true,
 				LedgerNumber:    1,
