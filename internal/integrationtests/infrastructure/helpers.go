@@ -58,7 +58,7 @@ func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService,
 
 		default:
 			healthRes, err := rpcService.GetHealth()
-			if err != nil {
+			if err == nil {
 				if healthRes.Status == "healthy" {
 					return nil
 				}
