@@ -138,16 +138,17 @@ func CheckForForbiddenSigners(
 	opSourceAccount string,
 	forbiddenSigners ...string,
 ) error {
+	// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)
+	// that wrap the same underlying Ed25519 key as a forbidden signer.
+	opSourceGAddress, err := pkgUtils.ResolveToGAddress(opSourceAccount)
+	if err != nil {
+		return fmt.Errorf("resolving operation source account: %w", err)
+	}
+	
 	for _, res := range simulationResponseResults {
 		for _, auth := range res.Auth {
 			switch auth.Credentials.Type {
 			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)
-				// that wrap the same underlying Ed25519 key as a forbidden signer.
-				opSourceGAddress, err := pkgUtils.ResolveToGAddress(opSourceAccount)
-				if err != nil {
-					return fmt.Errorf("resolving operation source account: %w", err)
-				}
 				if slices.Contains(append(forbiddenSigners, ""), opSourceGAddress) {
 					return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
 				}
