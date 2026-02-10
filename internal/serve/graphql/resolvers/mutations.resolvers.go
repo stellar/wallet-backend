@@ -132,7 +132,8 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 		case errors.Is(err, services.ErrInvalidSorobanOperationCount),
 			errors.Is(err, services.ErrInvalidSorobanSimulationEmpty),
 			errors.Is(err, services.ErrInvalidSorobanSimulationFailed),
-			errors.Is(err, services.ErrInvalidSorobanOperationType):
+			errors.Is(err, services.ErrInvalidSorobanOperationType),
+			errors.Is(err, services.ErrInvalidSorobanSimulationResultsEmpty):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]any{

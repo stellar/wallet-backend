@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -1079,4 +1080,164 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		mockTransactionService.AssertExpectations(t)
 	})
+
+	t.Run("invalid soroban simulation results empty error", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txXDR, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionInput{
+			TransactionXdr: txXDR,
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), services.ErrInvalidSorobanSimulationResultsEmpty)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid Soroban transaction: simulation results cannot be empty for InvokeHostFunction")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_SOROBAN_TRANSACTION", gqlErr.Extensions["code"])
+		}
+
+		mockTransactionService.AssertExpectations(t)
+	})
+}
+
+func Test_convertSimulationResult(t *testing.T) {
+	t.Run("results_properly_converted", func(t *testing.T) {
+		// Use a pre-built valid JSON result string with base64 XDR values.
+		// The auth entry is a SourceAccount credential with a contract function invocation.
+		// The xdr value is a ScVal boolean (true).
+		resultStr := buildValidSimulationResultJSON(t)
+
+		input := &graphql.SimulationResultInput{
+			Results: []string{resultStr},
+		}
+
+		result, err := convertSimulationResult(input)
+
+		require.NoError(t, err)
+		require.Len(t, result.Results, 1)
+		require.Len(t, result.Results[0].Auth, 1)
+		assert.Equal(t, xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount, result.Results[0].Auth[0].Credentials.Type)
+		assert.Equal(t, xdr.ScValTypeScvBool, result.Results[0].XDR.Type)
+		assert.True(t, *result.Results[0].XDR.B)
+	})
+
+	t.Run("nil_results_returns_nil", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{
+			Results: nil,
+		}
+
+		result, err := convertSimulationResult(input)
+
+		require.NoError(t, err)
+		assert.Nil(t, result.Results)
+	})
+
+	t.Run("empty_results_returns_nil", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{
+			Results: []string{},
+		}
+
+		result, err := convertSimulationResult(input)
+
+		require.NoError(t, err)
+		assert.Nil(t, result.Results)
+	})
+
+	t.Run("invalid_json_returns_error", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{
+			Results: []string{"not-json"},
+		}
+
+		_, err := convertSimulationResult(input)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unmarshalling simulation result at index 0")
+	})
+
+	t.Run("invalid_base64_in_auth_returns_error", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{
+			Results: []string{`{"auth":["bad-base64"],"xdr":"bad-base64"}`},
+		}
+
+		_, err := convertSimulationResult(input)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unmarshalling simulation result at index 0")
+	})
+}
+
+// buildValidSimulationResultJSON builds a valid JSON string representing an RPCSimulateHostFunctionResult.
+// This mirrors what the Soroban RPC server returns and what a client forwards to the buildTransaction mutation.
+func buildValidSimulationResultJSON(t *testing.T) string {
+	t.Helper()
+
+	// Build a valid SourceAccount auth entry with a contract function invocation
+	signerAccountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
+	require.NoError(t, err)
+
+	authEntry := xdr.SorobanAuthorizationEntry{
+		Credentials: xdr.SorobanCredentials{
+			Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+		},
+		RootInvocation: xdr.SorobanAuthorizedInvocation{
+			Function: xdr.SorobanAuthorizedFunction{
+				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+				ContractFn: &xdr.InvokeContractArgs{
+					ContractAddress: xdr.ScAddress{
+						Type:      xdr.ScAddressTypeScAddressTypeAccount,
+						AccountId: &signerAccountID,
+					},
+					FunctionName: "test",
+				},
+			},
+		},
+	}
+	scVal := xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(true)}
+	// Use entities.RPCSimulateHostFunctionResult so we rely on its custom JSON
+	// marshalling logic rather than duplicating the wire-format encoding here.
+	simResult := entities.RPCSimulateHostFunctionResult{
+		Auth: []xdr.SorobanAuthorizationEntry{authEntry},
+		XDR:  scVal,
+	}
+	resultJSON, err := json.Marshal(simResult)
+	require.NoError(t, err)
+	return string(resultJSON)
+}
+
+// boolPtr returns a pointer to a bool value.
+func boolPtr(b bool) *bool {
+	return &b
 }
