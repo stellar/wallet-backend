@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:12-alpine
+        image: timescale/timescaledb:latest-pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
