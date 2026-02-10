@@ -92,7 +92,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          PGHOST: localhost
+          PGHOST: /var/run/postgresql
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -101,7 +101,7 @@ jobs:
         ports:
           - 5432:5432
     env:
-      PGHOST: /var/run/postgresql
+      PGHOST: localhost
       PGPORT: 5432
       PGUSER: postgres
       PGPASSWORD: postgres
