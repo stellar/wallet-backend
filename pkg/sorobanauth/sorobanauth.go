@@ -144,7 +144,7 @@ func CheckForForbiddenSigners(
 	if err != nil {
 		return fmt.Errorf("resolving operation source account: %w", err)
 	}
-	
+
 	for _, res := range simulationResponseResults {
 		for _, auth := range res.Auth {
 			switch auth.Credentials.Type {
