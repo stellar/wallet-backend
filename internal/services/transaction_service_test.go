@@ -719,6 +719,86 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "🚨reject_InvokeHostFunction_with_empty_results",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			simulationResponse: entities.RPCSimulateTransactionResult{
+				TransactionData: sorobanTxData,
+				Results:         []entities.RPCSimulateHostFunctionResult{},
+			},
+			wantErrContains: ErrInvalidSorobanSimulationResultsEmpty.Error(),
+		},
+		{
+			name:    "🚨reject_InvokeHostFunction_with_nil_results",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			simulationResponse: entities.RPCSimulateTransactionResult{
+				TransactionData: sorobanTxData,
+				Results:         nil,
+			},
+			wantErrContains: ErrInvalidSorobanSimulationResultsEmpty.Error(),
+		},
+		{
+			name:    "🟢allow_ExtendFootprintTtl_with_empty_results",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				&txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937},
+			},
+			simulationResponse: entities.RPCSimulateTransactionResult{
+				TransactionData: sorobanTxData,
+			},
+			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
+				newExtendFootprintTTLOp := &txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937}
+				var err error
+				newExtendFootprintTTLOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
+				require.NoError(t, err)
+
+				return txnbuild.TransactionParams{
+					Operations: []txnbuild.Operation{newExtendFootprintTTLOp},
+					BaseFee:    initialBuildTxParams.BaseFee,
+					SourceAccount: &txnbuild.SimpleAccount{
+						AccountID: txSourceAccount,
+						Sequence:  1,
+					},
+					Preconditions: txnbuild.Preconditions{
+						TimeBounds: txnbuild.NewTimeout(300),
+					},
+				}
+			},
+		},
+		{
+			name:    "🟢allow_RestoreFootprint_with_empty_results",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				&txnbuild.RestoreFootprint{},
+			},
+			simulationResponse: entities.RPCSimulateTransactionResult{
+				TransactionData: sorobanTxData,
+			},
+			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
+				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
+				var err error
+				newRestoreFootprintOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
+				require.NoError(t, err)
+
+				return txnbuild.TransactionParams{
+					Operations: []txnbuild.Operation{newRestoreFootprintOp},
+					BaseFee:    initialBuildTxParams.BaseFee,
+					SourceAccount: &txnbuild.SimpleAccount{
+						AccountID: txSourceAccount,
+						Sequence:  1,
+					},
+					Preconditions: txnbuild.Preconditions{
+						TimeBounds: txnbuild.NewTimeout(300),
+					},
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
