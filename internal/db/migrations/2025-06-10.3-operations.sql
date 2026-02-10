@@ -44,7 +44,8 @@ CREATE TABLE operations_accounts (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC',
+    tsdb.sparse_index = 'bloom(account_id)'
 );
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);

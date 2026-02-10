@@ -48,8 +48,8 @@ CREATE TABLE state_changes (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.segmentby = 'state_change_category',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC',
+    tsdb.sparse_index = 'bloom(account_id)'
 );
 
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
