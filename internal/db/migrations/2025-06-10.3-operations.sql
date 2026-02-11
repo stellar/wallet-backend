@@ -2,7 +2,6 @@
 
 -- Table: operations (TimescaleDB hypertable with columnstore)
 CREATE TABLE operations (
-    ledger_created_at TIMESTAMPTZ NOT NULL,
     id BIGINT NOT NULL,
     operation_type TEXT NOT NULL CHECK (
         operation_type IN (
@@ -23,7 +22,7 @@ CREATE TABLE operations (
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (ledger_created_at, id)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -36,20 +35,18 @@ CREATE INDEX idx_operations_id ON operations(id);
 
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
-    ledger_created_at TIMESTAMPTZ NOT NULL,
     operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    PRIMARY KEY (ledger_created_at, account_id, operation_id)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC',
-    tsdb.sparse_index = 'bloom(account_id)'
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
-CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id);
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC);
 
 -- +migrate Down
 
