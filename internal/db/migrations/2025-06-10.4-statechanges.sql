@@ -3,7 +3,6 @@
 -- Table: state_changes (TimescaleDB hypertable with columnstore)
 -- Note: FK to transactions removed (hypertable FKs not supported)
 CREATE TABLE state_changes (
-    ledger_created_at TIMESTAMPTZ NOT NULL,
     to_id BIGINT NOT NULL,
     operation_id BIGINT NOT NULL,
     state_change_order BIGINT NOT NULL CHECK (state_change_order >= 1),
@@ -43,16 +42,15 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
-    PRIMARY KEY (ledger_created_at, to_id, operation_id, state_change_order)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC',
-    tsdb.sparse_index = 'bloom(account_id)'
+    tsdb.orderby = 'ledger_created_at DESC'
 );
 
-CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
+CREATE INDEX idx_state_changes_account_id ON state_changes(account_id, ledger_created_at DESC);
 CREATE INDEX idx_state_changes_to_id ON state_changes(to_id);
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 
