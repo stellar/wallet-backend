@@ -16,8 +16,10 @@ CREATE TABLE transactions (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC, to_id DESC'
 );
+
+SELECT enable_chunk_skipping('transactions', 'to_id');
 
 CREATE INDEX idx_transactions_hash ON transactions(hash);
 CREATE INDEX idx_transactions_to_id ON transactions(to_id);
@@ -31,8 +33,11 @@ CREATE TABLE transactions_accounts (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC, tx_to_id DESC',
+    tsdb.segmentby = 'account_id'
 );
+
+SELECT enable_chunk_skipping('transactions_accounts', 'tx_to_id');
 
 CREATE INDEX idx_transactions_accounts_tx_to_id ON transactions_accounts(tx_to_id);
 CREATE INDEX idx_transactions_accounts_account_id ON transactions_accounts(account_id, ledger_created_at DESC);
