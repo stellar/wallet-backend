@@ -50,7 +50,7 @@ CREATE TABLE operations_accounts (
 SELECT enable_chunk_skipping('operations_accounts', 'operation_id');
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
-CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC);
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC, operation_id DESC);
 
 -- +migrate Down
 
