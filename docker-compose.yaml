@@ -8,6 +8,7 @@ services:
   db:
     container_name: db
     image: timescale/timescaledb:2.25.0-pg17
+    command: ["postgres", "-c", "timescaledb.enable_chunk_skipping=on"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d wallet-backend"]
       interval: 10s

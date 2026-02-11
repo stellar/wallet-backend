@@ -25,6 +25,12 @@ func Open(t *testing.T) *dbtest.DB {
 		t.Fatal(err)
 	}
 
+	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
+	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	migrateDirection := schema.MigrateUp
 	m := migrate.HttpFileSystemMigrationSource{FileSystem: http.FS(migrations.FS)}
 	_, err = schema.Migrate(conn.DB, m, migrateDirection, 0)
@@ -48,6 +54,12 @@ func OpenWithoutMigrations(t *testing.T) *dbtest.DB {
 		t.Fatal(err)
 	}
 
+	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
+	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	return db
 }
 
@@ -60,6 +72,12 @@ func OpenB(b *testing.B) *dbtest.DB {
 
 	// Enable TimescaleDB extension before running migrations
 	_, err := conn.Exec("CREATE EXTENSION IF NOT EXISTS timescaledb")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
+	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
 	if err != nil {
 		b.Fatal(err)
 	}
