@@ -53,176 +53,6 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 	return txs, addressesByToID
 }
 
-func Test_TransactionModel_BatchInsert(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Create test data
-	kp1 := keypair.MustRandom()
-	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
-	require.NoError(t, err)
-
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
-	tx1 := types.Transaction{
-		Hash:            "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760",
-		ToID:            1,
-		EnvelopeXDR:     &envelope1,
-		FeeCharged:      100,
-		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta1,
-		LedgerNumber:    1,
-		LedgerCreatedAt: now,
-		IsFeeBump:       false,
-	}
-	tx2 := types.Transaction{
-		Hash:            "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761",
-		ToID:            2,
-		EnvelopeXDR:     &envelope2,
-		FeeCharged:      200,
-		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta2,
-		LedgerNumber:    2,
-		LedgerCreatedAt: now,
-		IsFeeBump:       true,
-	}
-
-	testCases := []struct {
-		name                   string
-		useDBTx                bool
-		txs                    []*types.Transaction
-		stellarAddressesByToID map[int64]set.Set[string]
-		wantAccountLinks       map[int64][]string
-		wantErrContains        string
-		wantHashes             []string
-	}{
-		{
-			name:                   "🟢successful_insert_without_dbTx",
-			useDBTx:                false,
-			txs:                    []*types.Transaction{&tx1, &tx2},
-			stellarAddressesByToID: map[int64]set.Set[string]{tx1.ToID: set.NewSet(kp1.Address()), tx2.ToID: set.NewSet(kp2.Address())},
-			wantAccountLinks:       map[int64][]string{tx1.ToID: {kp1.Address()}, tx2.ToID: {kp2.Address()}},
-			wantErrContains:        "",
-			wantHashes:             []string{tx1.Hash.String(), tx2.Hash.String()},
-		},
-		{
-			name:                   "🟢successful_insert_with_dbTx",
-			useDBTx:                true,
-			txs:                    []*types.Transaction{&tx1},
-			stellarAddressesByToID: map[int64]set.Set[string]{tx1.ToID: set.NewSet(kp1.Address())},
-			wantAccountLinks:       map[int64][]string{tx1.ToID: {kp1.Address()}},
-			wantErrContains:        "",
-			wantHashes:             []string{tx1.Hash.String()},
-		},
-		{
-			name:                   "🟢empty_input",
-			useDBTx:                false,
-			txs:                    []*types.Transaction{},
-			stellarAddressesByToID: map[int64]set.Set[string]{},
-			wantAccountLinks:       map[int64][]string{},
-			wantErrContains:        "",
-			wantHashes:             nil,
-		},
-		{
-			name:                   "🟡duplicate_transaction",
-			useDBTx:                false,
-			txs:                    []*types.Transaction{&tx1, &tx1},
-			stellarAddressesByToID: map[int64]set.Set[string]{tx1.ToID: set.NewSet(kp1.Address())},
-			wantAccountLinks:       map[int64][]string{tx1.ToID: {kp1.Address()}},
-			wantErrContains:        "",
-			wantHashes:             []string{tx1.Hash.String()},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Clear the database before each test
-			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
-			require.NoError(t, err)
-
-			// Create fresh mock for each test case
-			mockMetricsService := metrics.NewMockMetricsService()
-			// The implementation always loops through both tables and calls ObserveDBQueryDuration for each
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "BatchInsert", "transactions", mock.Anything).Return().Once().
-				On("ObserveDBQueryDuration", "BatchInsert", "transactions_accounts", mock.Anything).Return().Once()
-			// ObserveDBBatchSize is only called for transactions table (not transactions_accounts)
-			mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "transactions", mock.Anything).Return().Once()
-			// IncDBQuery is called for both tables on success
-			mockMetricsService.
-				On("IncDBQuery", "BatchInsert", "transactions").Return().Once().
-				On("IncDBQuery", "BatchInsert", "transactions_accounts").Return().Once()
-			defer mockMetricsService.AssertExpectations(t)
-
-			m := &TransactionModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
-			}
-
-			var sqlExecuter db.SQLExecuter = dbConnectionPool
-			if tc.useDBTx {
-				tx, err := dbConnectionPool.BeginTxx(ctx, nil)
-				require.NoError(t, err)
-				defer tx.Rollback()
-				sqlExecuter = tx
-			}
-
-			gotInsertedHashes, err := m.BatchInsert(ctx, sqlExecuter, tc.txs, tc.stellarAddressesByToID)
-
-			if tc.wantErrContains != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErrContains)
-				return
-			}
-
-			// Verify the results
-			require.NoError(t, err)
-			var dbInsertedHashes []types.HashBytea
-			err = sqlExecuter.SelectContext(ctx, &dbInsertedHashes, "SELECT hash FROM transactions")
-			require.NoError(t, err)
-			// Convert HashBytea to string for comparison
-			dbHashStrings := make([]string, len(dbInsertedHashes))
-			for i, h := range dbInsertedHashes {
-				dbHashStrings[i] = h.String()
-			}
-			assert.ElementsMatch(t, tc.wantHashes, dbHashStrings)
-			assert.ElementsMatch(t, tc.wantHashes, gotInsertedHashes)
-
-			// Verify the account links
-			if len(tc.wantAccountLinks) > 0 {
-				var accountLinks []struct {
-					TxToID    int64              `db:"tx_to_id"`
-					AccountID types.AddressBytea `db:"account_id"`
-				}
-				err = sqlExecuter.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
-				require.NoError(t, err)
-
-				// Create a map of tx_to_id -> set of account_ids for O(1) lookups
-				accountLinksMap := make(map[int64][]string)
-				for _, link := range accountLinks {
-					accountLinksMap[link.TxToID] = append(accountLinksMap[link.TxToID], string(link.AccountID))
-				}
-
-				// Verify each transaction has its expected account links
-				require.Equal(t, len(tc.wantAccountLinks), len(accountLinksMap), "number of elements in the maps don't match")
-				for key, expectedSlice := range tc.wantAccountLinks {
-					actualSlice, exists := accountLinksMap[key]
-					require.True(t, exists, "key %d not found in actual map", key)
-					assert.ElementsMatch(t, expectedSlice, actualSlice, "slices for key %d don't match", key)
-				}
-			}
-		})
-	}
-}
-
 func Test_TransactionModel_BatchCopy(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -421,13 +251,15 @@ func Test_TransactionModel_BatchCopy_DuplicateFails(t *testing.T) {
 		IsFeeBump:       false,
 	}
 
-	// Pre-insert the transaction using BatchInsert (which uses ON CONFLICT DO NOTHING)
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	// Pre-insert the transaction using direct SQL
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, txDup.Hash, txDup.ToID, *txDup.EnvelopeXDR, txDup.FeeCharged, txDup.ResultCode, *txDup.MetaXDR, txDup.LedgerNumber, txDup.LedgerCreatedAt, txDup.IsFeeBump)
 	require.NoError(t, err)
-	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&txDup}, map[int64]set.Set[string]{
-		txDup.ToID: set.NewSet(kp1.Address()),
-	})
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES ($1, $2, $3)
+	`, txDup.LedgerCreatedAt, txDup.ToID, types.AddressBytea(kp1.Address()))
 	require.NoError(t, err)
 
 	// Verify the transaction was inserted
@@ -740,51 +572,6 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Equal(t, scTestHash1, stateChangeIDsFound["1-1-1"]) // to_id=1 -> scTestHash1 (to_id=1)
 	assert.Equal(t, scTestHash2, stateChangeIDsFound["2-2-1"]) // to_id=2 -> scTestHash2 (to_id=2)
 	assert.Equal(t, scTestHash3, stateChangeIDsFound["3-3-1"]) // to_id=3 -> scTestHash3 (to_id=3)
-}
-
-func BenchmarkTransactionModel_BatchInsert(b *testing.B) {
-	dbt := dbtest.OpenB(b)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	if err != nil {
-		b.Fatalf("failed to open db connection pool: %v", err)
-	}
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
-
-	m := &TransactionModel{
-		DB:             dbConnectionPool,
-		MetricsService: metricsService,
-	}
-
-	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
-
-	for _, size := range batchSizes {
-		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				// Clean up before each iteration
-				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
-				dbConnectionPool.ExecContext(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
-				// Generate fresh test data for each iteration
-				txs, addressesByToID := generateTestTransactions(size, int32(i*size))
-				b.StartTimer()
-
-				_, err := m.BatchInsert(ctx, nil, txs, addressesByToID)
-				if err != nil {
-					b.Fatalf("BatchInsert failed: %v", err)
-				}
-			}
-		})
-	}
 }
 
 // BenchmarkTransactionModel_BatchCopy benchmarks bulk insert using pgx's binary COPY protocol.
