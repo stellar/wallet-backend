@@ -25,7 +25,7 @@ func Open(t *testing.T) *dbtest.DB {
 		t.Fatal(err)
 	}
 
-	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
+	// Also set on the current session since ALTER DATABASE only affects new connections
 	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +54,9 @@ func OpenWithoutMigrations(t *testing.T) *dbtest.DB {
 		t.Fatal(err)
 	}
 
-	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
-	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
+	// Enable chunk skipping at the database level so all connections (including
+	// those opened by the Migrate function) inherit this setting.
+	_, err = conn.Exec("DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET timescaledb.enable_chunk_skipping = on', current_database()); END $$")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func OpenB(b *testing.B) *dbtest.DB {
 		b.Fatal(err)
 	}
 
-	// Enable chunk skipping GUC required by enable_chunk_skipping() in migrations
+	// Also set on the current session since ALTER DATABASE only affects new connections
 	_, err = conn.Exec("SET timescaledb.enable_chunk_skipping = on")
 	if err != nil {
 		b.Fatal(err)
