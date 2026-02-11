@@ -27,9 +27,10 @@ CREATE TABLE operations (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.segmentby = 'operation_type',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC, id DESC'
 );
+
+SELECT enable_chunk_skipping('operations', 'id');
 
 CREATE INDEX idx_operations_id ON operations(id);
 
@@ -42,8 +43,11 @@ CREATE TABLE operations_accounts (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC, operation_id DESC',
+    tsdb.segmentby = 'account_id'
 );
+
+SELECT enable_chunk_skipping('operations_accounts', 'operation_id');
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
 CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC);

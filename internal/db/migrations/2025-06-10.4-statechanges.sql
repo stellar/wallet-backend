@@ -47,8 +47,12 @@ CREATE TABLE state_changes (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC'
+    tsdb.orderby = 'ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC',
+    tsdb.segmentby = 'account_id'
 );
+
+SELECT enable_chunk_skipping('state_changes', 'to_id');
+SELECT enable_chunk_skipping('state_changes', 'operation_id');
 
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id, ledger_created_at DESC);
 CREATE INDEX idx_state_changes_to_id ON state_changes(to_id);
