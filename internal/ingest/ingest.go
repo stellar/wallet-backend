@@ -87,6 +87,12 @@ type Configs struct {
 	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
 	// Defaults to 100.
 	CatchupThreshold int
+	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
+	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
+	ChunkInterval string
+	// RetentionPeriod configures automatic data retention. Chunks older than this are dropped.
+	// Empty string disables retention. Uses PostgreSQL INTERVAL syntax (e.g., "30 days", "6 months").
+	RetentionPeriod string
 }
 
 func Ingest(cfg Configs) error {
@@ -133,6 +139,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
+	}
+
+	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod); err != nil {
+		return nil, fmt.Errorf("configuring hypertable settings: %w", err)
 	}
 
 	metricsService := metrics.NewMetricsService(sqlxDB)
