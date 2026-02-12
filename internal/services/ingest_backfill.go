@@ -340,7 +340,7 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode
 
 	for i, batch := range batches {
 		group.Submit(func() {
-			results[i] = m.processSingleBatch(ctx, mode, batch)
+			results[i] = m.processSingleBatch(ctx, mode, batch, i, len(batches))
 		})
 	}
 
@@ -352,7 +352,7 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode
 }
 
 // processSingleBatch processes a single backfill batch with its own ledger backend.
-func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch) BackfillResult {
+func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch, batchIndex, totalBatches int) BackfillResult {
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 
@@ -387,8 +387,8 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 	}
 
 	result.Duration = time.Since(start)
-	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
-		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
+	log.Ctx(ctx).Infof("Batch %d/%d [%d - %d] completed: %d ledgers in %v",
+		batchIndex+1, totalBatches, batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
 	return result
 }
