@@ -270,5 +270,3 @@ configs:
   postgres_init:
     content: |
       CREATE EXTENSION IF NOT EXISTS timescaledb;
-      CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;
-      CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;
