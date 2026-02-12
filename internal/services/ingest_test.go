@@ -1317,7 +1317,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			buffer := tc.setupBuffer()
 
 			// Call flushBatchBuffer
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, tc.updateCursorTo, nil)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, tc.updateCursorTo, nil, false)
 			require.NoError(t, err)
 
 			// Verify the cursor value
@@ -2820,7 +2820,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.batchChanges)
+			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.batchChanges, false)
 			require.NoError(t, err)
 
 			// Verify collected token changes match expected values
@@ -3095,10 +3095,9 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 	}
 }
 
-// Test_ingestService_processBackfillBatchesParallel_ProgressiveCompression verifies
-// that historical mode launches a background compression goroutine without deadlocks,
-// and that catchup mode skips progressive compression entirely.
-func Test_ingestService_processBackfillBatchesParallel_ProgressiveCompression(t *testing.T) {
+// Test_ingestService_processBackfillBatchesParallel_BothModes verifies
+// that both historical and catchup modes process batches successfully.
+func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -3112,11 +3111,11 @@ func Test_ingestService_processBackfillBatchesParallel_ProgressiveCompression(t 
 		mode BackfillMode
 	}{
 		{
-			name: "historical_mode_triggers_progressive_compression",
+			name: "historical_mode_processes_batches",
 			mode: BackfillModeHistorical,
 		},
 		{
-			name: "catchup_mode_skips_progressive_compression",
+			name: "catchup_mode_processes_batches",
 			mode: BackfillModeCatchup,
 		},
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,8 +28,6 @@ func (m BackfillMode) isHistorical() bool {
 func (m BackfillMode) isCatchup() bool {
 	return m == BackfillModeCatchup
 }
-
-const progressiveCompressionInterval = 30 * time.Second
 
 const (
 	// BackfillModeHistorical fills gaps within already-ingested ledger range.
@@ -335,30 +332,15 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 }
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
-// For historical mode, a background goroutine progressively compresses chunks as contiguous
-// batches complete, using a watermark to avoid interfering with in-flight writes.
+// For historical mode, direct compress handles compression during COPY; a single recompression
+// pass runs after all batches complete (in startBackfilling).
 func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode BackfillMode, batches []BackfillBatch) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
-	completed := make([]atomic.Bool, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
-
-	// Start background compression goroutine for historical mode
-	var compressionWg sync.WaitGroup
-	var done chan struct{}
-	if mode.isHistorical() && len(batches) > 0 {
-		done = make(chan struct{})
-		compressionWg.Add(1)
-		go func() {
-			defer compressionWg.Done()
-			m.runProgressiveCompression(ctx, results, completed, done)
-		}()
-	}
 
 	for i, batch := range batches {
 		group.Submit(func() {
-			result := m.processSingleBatch(ctx, mode, batch)
-			results[i] = result
-			completed[i].Store(true)
+			results[i] = m.processSingleBatch(ctx, mode, batch)
 		})
 	}
 
@@ -366,50 +348,7 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode
 		log.Ctx(ctx).Warnf("Backfill batch group wait returned error: %v", err)
 	}
 
-	// Signal compression goroutine to stop and wait for it to finish
-	if done != nil {
-		close(done)
-		compressionWg.Wait()
-	}
-
 	return results
-}
-
-// runProgressiveCompression periodically checks for contiguous completed batches
-// and compresses their chunks. Only compresses up to the highest contiguous
-// completed+successful batch index to avoid interfering with in-flight writes.
-func (m *ingestService) runProgressiveCompression(ctx context.Context, results []BackfillResult, completed []atomic.Bool, done chan struct{}) {
-	watermark := -1
-	ticker := time.NewTicker(progressiveCompressionInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-done:
-			return
-		case <-ticker.C:
-			newWatermark := watermark
-			for i := watermark + 1; i < len(completed); i++ {
-				if !completed[i].Load() {
-					break
-				}
-				if results[i].Error != nil {
-					break
-				}
-				newWatermark = i
-			}
-
-			if newWatermark > watermark {
-				endTime := results[newWatermark].EndTime
-				if !endTime.IsZero() {
-					m.compressBackfilledChunks(ctx, time.Time{}, endTime)
-				}
-				watermark = newWatermark
-			}
-		}
-	}
 }
 
 // processSingleBatch processes a single backfill batch with its own ledger backend.
@@ -472,7 +411,8 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 
 // flushBatchBufferWithRetry persists buffered data to the database within a transaction.
 // If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges) error {
+// If directCompress is true, enables TimescaleDB direct compress for COPY operations.
+func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges, directCompress bool) error {
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -482,6 +422,11 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			if directCompress {
+				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy = on"); err != nil {
+					return fmt.Errorf("enabling direct compress: %w", err)
+				}
+			}
 			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
 			if err != nil {
 				return fmt.Errorf("filtering participant data: %w", err)
@@ -590,7 +535,7 @@ func (m *ingestService) processLedgersInBatch(
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges); err != nil {
+			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges, mode.isHistorical()); err != nil {
 				return ledgersProcessed, batchChanges, startTime, endTime, err
 			}
 			batchBuffer.Clear()
@@ -604,7 +549,7 @@ func (m *ingestService) processLedgersInBatch(
 		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
-		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges); err != nil {
+		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges, mode.isHistorical()); err != nil {
 			return ledgersProcessed, batchChanges, startTime, endTime, err
 		}
 	} else if mode.isHistorical() {
@@ -679,7 +624,8 @@ func (m *ingestService) processBatchChanges(
 	return nil
 }
 
-// compressBackfilledChunks compresses uncompressed chunks overlapping the backfill range.
+// compressBackfilledChunks recompresses already-compressed chunks overlapping the backfill range.
+// Direct compress produces compressed chunks during COPY; recompression optimizes compression ratios.
 // Tables are compressed concurrently; chunks within each table stay sequential to avoid OOM.
 // Skips chunks where range_end >= NOW() to avoid compressing active live ingestion chunks.
 func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
@@ -702,16 +648,17 @@ func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime,
 	for _, count := range tableCounts {
 		totalCompressed += count
 	}
-	log.Ctx(ctx).Infof("Compressed %d total chunks for time range [%s - %s]",
+	log.Ctx(ctx).Infof("Recompressed %d total chunks for time range [%s - %s]",
 		totalCompressed, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 }
 
-// compressTableChunks compresses uncompressed chunks for a single hypertable.
-// Chunks are compressed sequentially within the table to avoid OOM errors.
+// compressTableChunks recompresses already-compressed chunks for a single hypertable.
+// Direct compress produces compressed chunks during COPY; this pass optimizes compression ratios.
+// Chunks are recompressed sequentially within the table to avoid OOM errors.
 func (m *ingestService) compressTableChunks(ctx context.Context, table string, startTime, endTime time.Time) int {
 	rows, err := m.models.DB.PgxPool().Query(ctx,
 		`SELECT chunk_schema || '.' || chunk_name FROM timescaledb_information.chunks
-		 WHERE hypertable_name = $1 AND NOT is_compressed
+		 WHERE hypertable_name = $1 AND is_compressed
 		   AND range_start < $2::timestamptz AND range_end > $3::timestamptz
 		   AND range_end < NOW()`,
 		table, endTime, startTime)
@@ -734,20 +681,20 @@ func (m *ingestService) compressTableChunks(ctx context.Context, table string, s
 	for i, chunk := range chunks {
 		select {
 		case <-ctx.Done():
-			log.Ctx(ctx).Warnf("Compression cancelled for %s after %d chunks", table, compressed)
+			log.Ctx(ctx).Warnf("Recompression cancelled for %s after %d chunks", table, compressed)
 			return compressed
 		default:
 		}
 
 		_, err := m.models.DB.PgxPool().Exec(ctx,
-			`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true)`, chunk)
+			`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true, recompress => true)`, chunk)
 		if err != nil {
-			log.Ctx(ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
+			log.Ctx(ctx).Warnf("Failed to recompress chunk %s: %v", chunk, err)
 			continue
 		}
 		compressed++
-		log.Ctx(ctx).Debugf("Compressed chunk %d/%d for %s: %s", i+1, len(chunks), table, chunk)
+		log.Ctx(ctx).Debugf("Recompressed chunk %d/%d for %s: %s", i+1, len(chunks), table, chunk)
 	}
-	log.Ctx(ctx).Infof("Compressed %d chunks for table %s", len(chunks), table)
+	log.Ctx(ctx).Infof("Recompressed %d chunks for table %s", len(chunks), table)
 	return compressed
 }
