@@ -128,7 +128,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
 			// Continue anyway - other optimizations (async commit, work_mem) still apply
 		} else {
-			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled, work_mem=256MB")
+			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
 		}
 	default:
 		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
