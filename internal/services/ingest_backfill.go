@@ -687,7 +687,7 @@ func (m *ingestService) compressTableChunks(ctx context.Context, table string, s
 		}
 
 		_, err := m.models.DB.PgxPool().Exec(ctx,
-			`CALL convert_to_columnstore($1::regclass, if_not_columnstore => true, recompress => true)`, chunk)
+			`CALL _timescaledb_functions.rebuild_columnstore($1::regclass)`, chunk)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to recompress chunk %s: %v", chunk, err)
 			continue
