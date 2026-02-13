@@ -35,7 +35,7 @@ CREATE TABLE protocols (
 **Migration Cursor Tracking** (via `ingest_store` table):
 
 Protocol migrations track their progress using the existing `ingest_store` key-value table,
-following the same pattern as `oldest_ledger_cursor` and `latest_ledger_cursor` in `ingest_backfill.go`:
+following the same pattern as the `oldest_ledger_cursor` and `latest_ledger_cursor` entries used by the ingestion service (see `internal/services/ingest.go` / `internal/ingest/ingest.go`):
 
 ```sql
 -- ingest_store table (already exists)
@@ -122,7 +122,7 @@ Both live ingestion and backfill migration need the `protocol_contracts` table p
 ## Classification
 Classification is the act of identifying new and existing contracts on the network and assigning a relationship to a known protocol.
 This has to happen in 2 stages during the migration process:
-- checkpoint population: We will use a history archive from the latest checkpoint in order to classify all contract on the network. We will rely on the latest checkpoint available at the time of the migration.
+- checkpoint population: We will use a history archive from the latest checkpoint in order to classify all contracts on the network. We will rely on the latest checkpoint available at the time of the migration.
 - live ingestion: during live ingestion, we classify new contracts by watching for contract deployments/upgrades and comparing the wasm blob to the known protocols.
 
 ```
@@ -752,7 +752,7 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
     // Cache miss: query DB (~1-5ms)
     var protocolID *string
     err := c.db.QueryRowContext(ctx, 
-        "SELECT protocol_id FROM known_wasms WHERE wasm_hash = $1", hash).Scan(&protocolID)
+        "SELECT protocol_id FROM known_wasms WHERE wasm_hash = $1", key).Scan(&protocolID)
     
     if err == sql.ErrNoRows {
         return nil, false, nil  // Not in DB at all
@@ -771,7 +771,7 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
 
 Backfill migrations build current state and/or write state changes according to the logic defined in the processor for the protocol being migrated.
 
-The `protocol-migrate` command accepts a set of protocol IDs for an explicit signal to migrate those protocols. Each protocol migration requires a specific range, which may not be exactly what other migrations need even if they are implemented at the same time. Migrations that do share a ledger range can run in once process.
+The `protocol-migrate` command accepts a set of protocol IDs for an explicit signal to migrate those protocols. Each protocol migration requires a specific range, which may not be exactly what other migrations need even if they are implemented at the same time. Migrations that do share a ledger range can run in one process.
 
 ### Migration Command
 
@@ -948,7 +948,7 @@ On restart, processing resumes from ledger 2001 - no work is lost.
 There are currently 2 classes of APIs that will include data produced by migrations, history and current state APIs.
 
 ### History
-Our history API will have access to enriched operations as a result of data migrations. Operations that are classified as belonging to a protocol will include a reference to the protocol(s) identified and may include state changes recorded as a results of the migrations state production.
+Our history API will have access to enriched operations as a result of data migrations. Operations that are classified as belonging to a protocol will include a reference to the protocol(s) identified and may include state changes recorded as a result of the migration's state production.
 
 While a migration is in progress, history may include classification and state changes for some operations and not others, this is not avoidable because any deployment that is live before a migration will already be serving history data. In this case, clients can accept the partial migration state or they can choose to not display enriched data for the migration until it has completed.
 
@@ -991,15 +991,16 @@ Current state APIs should use `protocols.migration_status` in order to reject qu
 
 Example error for in-progress migration:
 
-```{
+```json
+{
   "errors": [
     {
       "message": "BLEND protocol data is being migrated; please try again later",
       "extensions": {
         "code": "PROTOCOL_NOT_READY",
         "protocol": "BLEND",
-        "status": "migrating",
-      },
+        "migration_status": "in_progress"
+      }
     }
   ],
   "data": null
@@ -1129,7 +1130,7 @@ For current state APIs, queries should return an error if the protocol migration
       "extensions": {
         "code": "PROTOCOL_NOT_READY",
         "protocol": "BLEND",
-        "status": "migrating"
+        "migration_status": "in_progress"
       }
     }
   ],
