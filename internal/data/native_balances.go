@@ -129,23 +129,21 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 
 	start := time.Now()
 
-	rows := make([][]any, len(balances))
-	for i, nb := range balances {
-		rows[i] = []any{nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}
-	}
-
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"native_balances"},
 		[]string{"account_address", "balance", "minimum_balance", "buying_liabilities", "selling_liabilities", "last_modified_ledger"},
-		pgx.CopyFromRows(rows),
+		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
+			nb := balances[i]
+			return []any{nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}, nil
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("bulk inserting native balances via COPY: %w", err)
 	}
 
-	if int(copyCount) != len(rows) {
-		return fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
+	if int(copyCount) != len(balances) {
+		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "native_balances", time.Since(start).Seconds())
