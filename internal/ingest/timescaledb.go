@@ -22,8 +22,10 @@ var hypertables = []string{
 
 // configureHypertableSettings applies chunk interval and retention policy settings
 // to all hypertables. Chunk interval only affects future chunks. Retention policy
-// is idempotent: any existing policy is removed before re-adding.
-func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod string) error {
+// is idempotent: any existing policy is removed before re-adding. When retention
+// is enabled, a reconciliation job keeps oldest_ingest_ledger in sync with the
+// actual minimum ledger remaining after chunk drops.
+func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName string) error {
 	for _, table := range hypertables {
 		if _, err := pool.ExecContext(ctx,
 			"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
@@ -51,6 +53,43 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 			}
 			log.Ctx(ctx).Infof("Set retention policy %q on %s", retentionPeriod, table)
 		}
+
+		// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
+		// Remove any existing job first (idempotent re-registration on every restart).
+		if _, err := pool.ExecContext(ctx,
+			"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
+		); err != nil {
+			return fmt.Errorf("removing existing reconciliation job: %w", err)
+		}
+
+		// Create or replace the PL/pgSQL function that advances the cursor.
+		if _, err := pool.ExecContext(ctx, `
+			CREATE OR REPLACE FUNCTION reconcile_oldest_cursor(job_id INT, config JSONB)
+			RETURNS VOID LANGUAGE plpgsql AS $$
+			DECLARE
+				actual_min INTEGER;
+				stored    INTEGER;
+			BEGIN
+				SELECT ledger_number INTO actual_min FROM transactions
+					ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1;
+				IF actual_min IS NULL THEN RETURN; END IF;
+				SELECT value::integer INTO stored FROM ingest_store WHERE key = config->>'cursor_name';
+				IF stored IS NULL OR actual_min <= stored THEN RETURN; END IF;
+				UPDATE ingest_store SET value = actual_min::text WHERE key = config->>'cursor_name';
+				RAISE LOG 'reconcile_oldest_cursor: advanced % from % to %', config->>'cursor_name', stored, actual_min;
+			END $$;
+		`); err != nil {
+			return fmt.Errorf("creating reconcile_oldest_cursor function: %w", err)
+		}
+
+		// Schedule the reconciliation job with the same cadence as the chunk interval.
+		if _, err := pool.ExecContext(ctx,
+			"SELECT add_job('reconcile_oldest_cursor', $1::interval, config => $2::jsonb)",
+			chunkInterval, fmt.Sprintf(`{"cursor_name":"%s"}`, oldestCursorName),
+		); err != nil {
+			return fmt.Errorf("scheduling reconciliation job: %w", err)
+		}
+		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job every %s for cursor %q", chunkInterval, oldestCursorName)
 	}
 
 	return nil

@@ -23,7 +23,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "", "oldest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Verify chunk interval was updated for all hypertables
@@ -50,7 +50,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Verify retention policy was created for all hypertables
@@ -77,7 +77,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Verify no retention policies were created
@@ -101,10 +101,10 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		ctx := context.Background()
 
 		// Apply retention policy twice with different values to simulate restarts
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
 		require.NoError(t, err)
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days", "oldest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Verify exactly 1 retention policy per table (not duplicated)
@@ -122,6 +122,79 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("reconciliation_job_created", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Verify reconciliation job was created
+		var count int
+		err = dbConnectionPool.GetContext(ctx, &count,
+			`SELECT COUNT(*)
+			 FROM timescaledb_information.jobs
+			 WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job")
+	})
+
+	t.Run("reconciliation_job_idempotent", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		// Apply twice to simulate restarts
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		require.NoError(t, err)
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "90 days", "oldest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Verify exactly 1 reconciliation job (not duplicated)
+		var count int
+		err = dbConnectionPool.GetContext(ctx, &count,
+			`SELECT COUNT(*)
+			 FROM timescaledb_information.jobs
+			 WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job after re-application")
+	})
+
+	t.Run("no_reconciliation_job_without_retention", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Verify no reconciliation job was created
+		var count int
+		err = dbConnectionPool.GetContext(ctx, &count,
+			`SELECT COUNT(*)
+			 FROM timescaledb_information.jobs
+			 WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 0, count, "expected no reconciliation job when retention is disabled")
+	})
+
 	t.Run("invalid_chunk_interval", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -131,7 +204,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "not-an-interval", "")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "not-an-interval", "", "oldest_ledger_cursor")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "setting chunk interval")
 	})
@@ -145,7 +218,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "not-an-interval")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "not-an-interval", "oldest_ledger_cursor")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "adding retention policy")
 	})
