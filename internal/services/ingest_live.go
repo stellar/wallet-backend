@@ -124,6 +124,8 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
 		}
+		m.metricsService.SetLatestLedgerIngested(float64(startLedger))
+		m.metricsService.SetOldestLedgerIngested(float64(startLedger))
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
 		health, err := m.rpcService.GetHealth()
