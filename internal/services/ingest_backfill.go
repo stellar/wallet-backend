@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -193,7 +192,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			}
 		}
 		if !minTime.IsZero() {
-			m.compressBackfilledChunks(ctx, minTime, maxTime)
+			m.recompressBackfilledChunks(ctx, minTime, maxTime)
 		}
 	}
 
@@ -624,25 +623,18 @@ func (m *ingestService) processBatchChanges(
 	return nil
 }
 
-// compressBackfilledChunks recompresses already-compressed chunks overlapping the backfill range.
+// recompressBackfilledChunks recompresses already-compressed chunks overlapping the backfill range.
 // Direct compress produces compressed chunks during COPY; recompression optimizes compression ratios.
-// Tables are compressed concurrently; chunks within each table stay sequential to avoid OOM.
+// Tables are compressed sequentially to avoid CPU spikes; chunks within each table also stay sequential to avoid OOM.
 // Skips chunks where range_end >= NOW() to avoid compressing active live ingestion chunks.
-func (m *ingestService) compressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
+func (m *ingestService) recompressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
 	tables := []string{"transactions", "transactions_accounts", "operations", "operations_accounts", "state_changes"}
 
-	var wg sync.WaitGroup
 	tableCounts := make([]int, len(tables))
 
 	for i, table := range tables {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tableCounts[i] = m.compressTableChunks(ctx, table, startTime, endTime)
-		}()
+		tableCounts[i] = m.compressTableChunks(ctx, table, startTime, endTime)
 	}
-
-	wg.Wait()
 
 	totalCompressed := 0
 	for _, count := range tableCounts {
