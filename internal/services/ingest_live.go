@@ -127,6 +127,14 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.metricsService.SetLatestLedgerIngested(float64(startLedger))
 		m.metricsService.SetOldestLedgerIngested(float64(startLedger))
 	} else {
+		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
+		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
+		if oldestErr != nil {
+			return fmt.Errorf("getting oldest ledger cursor: %w", oldestErr)
+		}
+		m.metricsService.SetOldestLedgerIngested(float64(oldestIngestedLedger))
+		m.metricsService.SetLatestLedgerIngested(float64(latestIngestedLedger))
+
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
