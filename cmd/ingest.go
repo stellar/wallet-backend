@@ -164,6 +164,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "",
 			Required:    false,
 		},
+		{
+			Name:        "compression-compress-after",
+			Usage:       "How long after a chunk is closed before it becomes eligible for compression. Lower values reduce the number of uncompressed chunks. Empty skips configuration. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.CompressAfter,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
