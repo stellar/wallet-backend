@@ -5,12 +5,41 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+// TimeRange represents an optional time window for filtering queries by ledger_created_at.
+// Both fields are optional: omit both for all data, use Since alone for "from this point",
+// use Until alone for "up to this point", or both for a bounded window.
+type TimeRange struct {
+	Since *time.Time
+	Until *time.Time
+}
+
+// appendTimeRangeConditions appends ledger_created_at >= and/or <= conditions to the query builder.
+// Returns the updated args slice and next arg index. The column parameter allows specifying
+// a table-qualified column name (e.g., "ta.ledger_created_at" for CTEs).
+func appendTimeRangeConditions(qb *strings.Builder, column string, timeRange *TimeRange, args []interface{}, argIndex int) ([]interface{}, int) {
+	if timeRange == nil {
+		return args, argIndex
+	}
+	if timeRange.Since != nil {
+		qb.WriteString(fmt.Sprintf(" AND %s >= $%d", column, argIndex))
+		args = append(args, *timeRange.Since)
+		argIndex++
+	}
+	if timeRange.Until != nil {
+		qb.WriteString(fmt.Sprintf(" AND %s <= $%d", column, argIndex))
+		args = append(args, *timeRange.Until)
+		argIndex++
+	}
+	return args, argIndex
+}
 
 type SortOrder string
 
