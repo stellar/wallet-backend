@@ -71,7 +71,7 @@ func (suite *DataValidationTestSuite) fetchStateChangesInParallel(
 		query := q // capture variable
 		group.Submit(func() {
 			sc, err := suite.testEnv.WBClient.GetAccountStateChanges(
-				ctx, query.account, query.txHash, nil, query.category, query.reason, first, nil, nil, nil)
+				ctx, query.account, query.txHash, nil, query.category, query.reason, nil, nil, first, nil, nil, nil)
 			if err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", query.name, err))

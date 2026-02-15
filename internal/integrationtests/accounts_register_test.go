@@ -37,7 +37,7 @@ func (suite *AccountRegisterTestSuite) TestParticipantFiltering() {
 
 	// 3. Verify operations are NOT stored for unregistered account
 	limit := int32(10)
-	ops, err := client.GetAccountOperations(ctx, unregisteredKP.Address(), &limit, nil, nil, nil)
+	ops, err := client.GetAccountOperations(ctx, unregisteredKP.Address(), nil, nil, &limit, nil, nil, nil)
 	suite.Require().NoError(err)
 	suite.Require().Empty(ops.Edges, "Expected no operations for unregistered account")
 
@@ -55,7 +55,7 @@ func (suite *AccountRegisterTestSuite) TestParticipantFiltering() {
 	suite.testEnv.WaitForLedgers(ctx, 2)
 
 	// 6. Verify operations ARE stored now for the registered account
-	ops, err = client.GetAccountOperations(ctx, unregisteredKP.Address(), &limit, nil, nil, nil)
+	ops, err = client.GetAccountOperations(ctx, unregisteredKP.Address(), nil, nil, &limit, nil, nil, nil)
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(ops.Edges, "Expected operations for registered account")
 
