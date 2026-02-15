@@ -29,12 +29,12 @@ func appendTimeRangeConditions(qb *strings.Builder, column string, timeRange *Ti
 		return args, argIndex
 	}
 	if timeRange.Since != nil {
-		qb.WriteString(fmt.Sprintf(" AND %s >= $%d", column, argIndex))
+		fmt.Fprintf(qb, " AND %s >= $%d", column, argIndex)
 		args = append(args, *timeRange.Since)
 		argIndex++
 	}
 	if timeRange.Until != nil {
-		qb.WriteString(fmt.Sprintf(" AND %s <= $%d", column, argIndex))
+		fmt.Fprintf(qb, " AND %s <= $%d", column, argIndex)
 		args = append(args, *timeRange.Until)
 		argIndex++
 	}
