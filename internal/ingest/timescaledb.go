@@ -20,12 +20,14 @@ var hypertables = []string{
 	"state_changes",
 }
 
-// configureHypertableSettings applies chunk interval and retention policy settings
-// to all hypertables. Chunk interval only affects future chunks. Retention policy
-// is idempotent: any existing policy is removed before re-adding. When retention
-// is enabled, a reconciliation job keeps oldest_ingest_ledger in sync with the
-// actual minimum ledger remaining after chunk drops.
-func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName string) error {
+// configureHypertableSettings applies chunk interval, retention policy, and
+// compression schedule settings to all hypertables. Chunk interval only affects
+// future chunks. Retention policy is idempotent: any existing policy is removed
+// before re-adding. When retention is enabled, a reconciliation job keeps
+// oldest_ingest_ledger in sync with the actual minimum ledger remaining after
+// chunk drops. Compression schedule interval updates how frequently existing
+// compression policy jobs run (does not create new policies).
+func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval string) error {
 	for _, table := range hypertables {
 		if _, err := pool.ExecContext(ctx,
 			"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
@@ -90,6 +92,30 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 			return fmt.Errorf("scheduling reconciliation job: %w", err)
 		}
 		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job every %s for cursor %q", chunkInterval, oldestCursorName)
+	}
+
+	if compressionScheduleInterval != "" {
+		for _, table := range hypertables {
+			var jobID int
+			err := pool.GetContext(ctx, &jobID,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_compression'
+				   AND hypertable_name = $1`,
+				table,
+			)
+			if err != nil {
+				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping schedule update", table)
+				continue
+			}
+
+			if _, err := pool.ExecContext(ctx,
+				"SELECT alter_job($1, schedule_interval => $2::interval)",
+				jobID, compressionScheduleInterval,
+			); err != nil {
+				return fmt.Errorf("updating compression schedule interval on %s (job %d): %w", table, jobID, err)
+			}
+			log.Ctx(ctx).Infof("Set compression schedule interval %q on %s (job %d)", compressionScheduleInterval, table, jobID)
+		}
 	}
 
 	return nil
