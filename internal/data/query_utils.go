@@ -97,7 +97,7 @@ type CursorColumn struct {
 	Value interface{}
 }
 
-// BuildDecomposedCursorCondition decomposes a ROW() tuple comparison into an equivalent
+// buildDecomposedCursorCondition decomposes a ROW() tuple comparison into an equivalent
 // OR clause that TimescaleDB's ColumnarScan can push into vectorized filters.
 //
 // For example, (a, b, c) < ($1, $2, $3) becomes:
