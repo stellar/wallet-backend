@@ -287,7 +287,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address1
-	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, nil, nil, nil, nil, "", nil, nil, ASC)
+	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, nil, nil, nil, nil, "", nil, nil, ASC, nil)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 	for _, sc := range stateChanges {
@@ -295,7 +295,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address2
-	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, nil, nil, nil, nil, "", nil, nil, ASC)
+	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, nil, nil, nil, nil, "", nil, nil, ASC, nil)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 1)
 	for _, sc := range stateChanges {
@@ -357,7 +357,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		txHash := testHash1
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
 		assert.Len(t, stateChanges, 2)
@@ -379,7 +379,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		operationID := int64(123)
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		// Only 1 state change has operation_id=123 (the first one with to_id=1)
 		assert.Len(t, stateChanges, 1)
@@ -402,7 +402,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 		txHash := testHash1
 		operationID := int64(123)
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		// Should get only state changes that match BOTH filters (to_id=1 from tx1 hash, operation_id=123)
 		assert.Len(t, stateChanges, 1)
@@ -425,7 +425,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		category := "BALANCE"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, nil, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, nil, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 		for _, sc := range stateChanges {
@@ -446,7 +446,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, &reason, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
@@ -468,7 +468,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 		category := "SIGNER"
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, &reason, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
@@ -493,7 +493,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		category := "BALANCE"
 		reason := "CREDIT"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
@@ -517,7 +517,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		txHash := testHashNonExistent
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
@@ -535,7 +535,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 		txHash := testHash1
 		limit := int32(1)
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		assert.Equal(t, int64(1), stateChanges[0].ToID)
@@ -862,7 +862,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
@@ -879,7 +879,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
 		limit := int32(2)
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
@@ -911,7 +911,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	})
 
 	t.Run("no state changes for non-existent to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})

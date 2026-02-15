@@ -23,7 +23,7 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
-func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
@@ -34,6 +34,9 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		FROM state_changes
 		WHERE account_id = $1
 	`, columns))
+
+	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
 	if txHash != nil {

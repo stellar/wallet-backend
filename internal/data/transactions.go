@@ -91,7 +91,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
-func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id")
 
 	var queryBuilder strings.Builder
@@ -105,6 +105,9 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 			SELECT tx_to_id, ledger_created_at
 			FROM transactions_accounts
 			WHERE account_id = $1`)
+
+	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.

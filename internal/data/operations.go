@@ -217,7 +217,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the operations_accounts hypertable by ordering on ledger_created_at first.
-func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 
 	var queryBuilder strings.Builder
@@ -231,6 +231,9 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 			SELECT operation_id, ledger_created_at
 			FROM operations_accounts
 			WHERE account_id = $1`)
+
+	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
