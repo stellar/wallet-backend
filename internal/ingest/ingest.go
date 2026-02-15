@@ -96,6 +96,9 @@ type Configs struct {
 	// CompressionScheduleInterval controls how frequently the compression policy job runs.
 	// Uses PostgreSQL INTERVAL syntax (e.g., "4 hours", "12 hours"). Empty string skips configuration.
 	CompressionScheduleInterval string
+	// CompressAfter controls how long after a chunk is closed before it becomes eligible for compression.
+	// Uses PostgreSQL INTERVAL syntax (e.g., "1 hour", "12 hours"). Empty string skips configuration.
+	CompressAfter string
 }
 
 func Ingest(cfg Configs) error {
@@ -144,7 +147,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
 
-	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval); err != nil {
+	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter); err != nil {
 		return nil, fmt.Errorf("configuring hypertable settings: %w", err)
 	}
 
