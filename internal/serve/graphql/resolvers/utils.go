@@ -413,6 +413,19 @@ func parseCompositeCursor(s *string) (*types.CompositeCursor, error) {
 	}, nil
 }
 
+// buildTimeRange constructs a *data.TimeRange from optional since/until params.
+// Returns an error if both are provided and until is before since.
+// Returns nil if both are nil (no time range filtering).
+func buildTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error) {
+	if since == nil && until == nil {
+		return nil, nil
+	}
+	if since != nil && until != nil && until.Before(*since) {
+		return nil, fmt.Errorf("until must not be before since")
+	}
+	return &data.TimeRange{Since: since, Until: until}, nil
+}
+
 func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
 	if first != nil && last != nil {
 		return fmt.Errorf("first and last cannot be used together")

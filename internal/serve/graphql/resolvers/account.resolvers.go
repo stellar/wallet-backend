@@ -30,8 +30,13 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
 	}
@@ -63,8 +68,13 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, si
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
+	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db for account %s: %w", obj.StellarAddress, err)
 	}
@@ -115,8 +125,13 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 		}
 	}
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), txHash, operationID, category, reason, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), txHash, operationID, category, reason, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
