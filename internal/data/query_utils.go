@@ -62,6 +62,61 @@ func pgtypeBytesFromNullAddressBytea(na types.NullAddressBytea) ([]byte, error) 
 	return val.([]byte), nil
 }
 
+// CursorColumn represents a column name and its cursor value for decomposed pagination.
+type CursorColumn struct {
+	Name  string
+	Value interface{}
+}
+
+// BuildDecomposedCursorCondition decomposes a ROW() tuple comparison into an equivalent
+// OR clause that TimescaleDB's ColumnarScan can push into vectorized filters.
+//
+// For example, (a, b, c) < ($1, $2, $3) becomes:
+//
+//	(a < $1 OR (a = $1 AND b < $2) OR (a = $1 AND b = $2 AND c < $3))
+//
+// DESC uses "<", ASC uses ">". Returns the clause string, args slice, and next arg index.
+func buildDecomposedCursorCondition(columns []CursorColumn, sortOrder SortOrder, startArgIndex int) (string, []interface{}, int) {
+	if len(columns) == 0 {
+		return "", nil, startArgIndex
+	}
+
+	op := "<"
+	if sortOrder == ASC {
+		op = ">"
+	}
+
+	argIdx := startArgIndex
+	var args []interface{}
+	var orParts []string
+
+	for i := range columns {
+		var parts []string
+		// Add equality conditions for all preceding columns
+		for j := 0; j < i; j++ {
+			parts = append(parts, fmt.Sprintf("%s = $%d", columns[j].Name, argIdx))
+			args = append(args, columns[j].Value)
+			argIdx++
+		}
+		// Add the comparison condition for the current column
+		parts = append(parts, fmt.Sprintf("%s %s $%d", columns[i].Name, op, argIdx))
+		args = append(args, columns[i].Value)
+		argIdx++
+
+		orParts = append(orParts, strings.Join(parts, " AND "))
+	}
+
+	// Wrap each OR branch in parens if it has multiple conditions
+	for i, part := range orParts {
+		if i > 0 {
+			orParts[i] = "(" + part + ")"
+		}
+	}
+
+	clause := "(" + strings.Join(orParts, " OR ") + ")"
+	return clause, args, argIdx
+}
+
 func getDBColumns(model any) set.Set[string] {
 	modelType := reflect.TypeOf(model)
 	dbColumns := set.NewSet[string]()

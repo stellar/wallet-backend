@@ -41,14 +41,21 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
+	var args []interface{}
+	argIndex := 1
+
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM operations`, columns))
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(` WHERE (ledger_created_at, id) < ('%s', %d)`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ID))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(` WHERE (ledger_created_at, id) > ('%s', %d)`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ID))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "id", Value: cursor.ID},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" WHERE " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
@@ -58,7 +65,8 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
 	}
 	query := queryBuilder.String()
 	if sortOrder == DESC {
@@ -67,7 +75,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query)
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "operations", duration)
 	if err != nil {
@@ -224,17 +232,16 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 			FROM operations_accounts
 			WHERE account_id = $1`)
 
-	// Add cursor-based pagination on the CTE
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if orderBy == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (ledger_created_at, operation_id) < ($%d, $%d)`, argIndex, argIndex+1))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (ledger_created_at, operation_id) > ($%d, $%d)`, argIndex, argIndex+1))
-		}
-		args = append(args, cursor.LedgerCreatedAt, cursor.ID)
-		argIndex += 2
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "operation_id", Value: cursor.ID},
+		}, orderBy, argIndex)
+		queryBuilder.WriteString("\n\t\t\tAND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if orderBy == DESC {
@@ -248,7 +255,6 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
 		args = append(args, *limit)
-		argIndex++
 	}
 
 	// Close CTE and LATERAL join to fetch full operation rows

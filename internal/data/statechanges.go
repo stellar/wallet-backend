@@ -63,22 +63,18 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		argIndex++
 	}
 
-	// Add cursor-based pagination using 4-column comparison with ledger_created_at as the
-	// leading column. This enables TimescaleDB ChunkAppend optimization on hypertables.
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (ledger_created_at, to_id, operation_id, state_change_order) < ($%d, $%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2, argIndex+3))
-			args = append(args, cursor.LedgerCreatedAt, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 4
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (ledger_created_at, to_id, operation_id, state_change_order) > ($%d, $%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2, argIndex+3))
-			args = append(args, cursor.LedgerCreatedAt, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 4
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	// Add ordering with ledger_created_at as leading column for TimescaleDB ChunkAppend
@@ -119,21 +115,26 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
 	var queryBuilder strings.Builder
+	var args []interface{}
+	argIndex := 1
+
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 	`, columns))
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (ledger_created_at, to_id, operation_id, state_change_order) < ('%s', %d, %d, %d)
-			`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (ledger_created_at, to_id, operation_id, state_change_order) > ('%s', %d, %d, %d)
-			`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" WHERE " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	// Order with ledger_created_at as leading column for TimescaleDB ChunkAppend
@@ -144,7 +145,8 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
 	}
 
 	query := queryBuilder.String()
@@ -158,7 +160,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query)
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
@@ -295,16 +297,17 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	args := []interface{}{toID}
 	argIndex := 2
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
@@ -405,16 +408,17 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	args := []interface{}{operationID}
 	argIndex := 2
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
