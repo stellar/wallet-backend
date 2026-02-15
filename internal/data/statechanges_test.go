@@ -862,7 +862,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
@@ -879,7 +879,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
 		limit := int32(2)
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
@@ -911,7 +911,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	})
 
 	t.Run("no state changes for non-existent to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})

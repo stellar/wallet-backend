@@ -15,6 +15,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+
+	"time"
 )
 
 // testOpXDRAcc returns the expected base64-encoded XDR for test operation N
@@ -42,7 +44,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 	t.Run("get all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil)
+		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
@@ -56,7 +58,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		first := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, &first, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
@@ -67,7 +69,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		// Get the next cursor
 		nextCursor := txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
@@ -80,7 +82,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		last := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &last, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
@@ -92,7 +94,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		last = int32(1)
 		nextCursor := txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
 		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
@@ -102,7 +104,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		nextCursor = txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
-		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
 		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
@@ -114,7 +116,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("account with no transactions", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedNonExistentAccountAddress)}
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil)
+		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, transactions.Edges)
@@ -127,24 +129,24 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		last := int32(1)
 		after := encodeCursor(int64(4))
 		before := encodeCursor(int64(1))
-		_, err := resolver.Transactions(ctx, parentAccount, &first, &after, nil, nil)
+		_, err := resolver.Transactions(ctx, parentAccount, nil, nil, &first, &after, nil, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
 
 		first = int32(1)
-		_, err = resolver.Transactions(ctx, parentAccount, &first, nil, &last, nil)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, &last, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, nil, &after, nil, &before)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &after, nil, &before)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, &first, nil, nil, &before)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, nil, &before)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, nil, &after, &last, nil)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &after, &last, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
 	})
@@ -169,7 +171,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 
 	t.Run("get all operations", func(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"operation_xdr"})
-		operations, err := resolver.Operations(ctx, parentAccount, nil, nil, nil, nil)
+		operations, err := resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
@@ -182,7 +184,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(2)
-		ops, err := resolver.Operations(ctx, parentAccount, &first, nil, nil, nil)
+		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
@@ -193,7 +195,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		// Get the next cursor
 		nextCursor := ops.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
+		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		assert.Equal(t, testOpXDRAcc(3), ops.Edges[0].Node.OperationXDR.String())
@@ -204,7 +206,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		first = int32(10)
 		nextCursor = ops.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
+		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
 		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
@@ -218,7 +220,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 	t.Run("get operations with last/before limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(2)
-		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &last, nil)
+		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		assert.Equal(t, testOpXDRAcc(7), ops.Edges[0].Node.OperationXDR.String())
@@ -229,7 +231,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		// Get the next cursor
 		nextCursor := ops.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
@@ -240,7 +242,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		nextCursor = ops.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
-		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
 		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
@@ -254,7 +256,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 	t.Run("account with no operations", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedNonExistentAccountAddress)}
 		ctx := getTestCtx("operations", []string{"id"})
-		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil, nil, nil)
+		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, operations.Edges)
@@ -280,7 +282,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 
 	t.Run("get all state changes", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 20)
@@ -326,7 +328,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		tx2Op2ID := toid.New(1000, 2, 2).ToInt64()
 
 		first := int32(3)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, &first, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 
@@ -352,7 +354,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		// Get the next cursor
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 
@@ -379,7 +381,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		first = int32(100)
 		nextCursor = stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
 
@@ -420,7 +422,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		tx4Op2ID := toid.New(1000, 4, 2).ToInt64()
 
 		last := int32(3)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 
@@ -446,7 +448,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		// Get the next cursor (going backward)
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 
@@ -472,7 +474,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		nextCursor = stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(100)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
 
@@ -499,7 +501,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("account with no state changes", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedNonExistentAccountAddress)}
 		ctx := getTestCtx("state_changes", []string{"to_id", "state_change_order"})
-		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges.Edges)
@@ -529,7 +531,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		// tx1 has 3 operations (0, 1, 2), each operation has 2 state changes except op 0 (1 state change)
@@ -578,7 +580,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			OperationID: &opID,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		// Operation 1 has 2 state changes
@@ -605,7 +607,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 			TransactionHash: &txHash,
 			OperationID:     &opID,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		// Only state changes that match both filters
@@ -630,7 +632,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Empty(t, stateChanges.Edges)
@@ -651,7 +653,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 		// Get first 2 state changes
 		first := int32(2)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, &first, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
 
@@ -672,7 +674,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		// Get next page
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
 
@@ -693,7 +695,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		// Get final page
 		nextCursor = stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 1)
 
@@ -731,7 +733,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		// Verify all returned state changes are BALANCE category
 		for _, sc := range stateChanges.Edges {
@@ -745,7 +747,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Reason: &reason,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 
 		// Verify all returned state changes are CREDIT reason
@@ -762,7 +764,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 			Category: &category,
 			Reason:   &reason,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 
 		// Verify all returned state changes are SIGNER category and ADD reason
@@ -785,7 +787,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 			Category:        &category,
 			Reason:          &reason,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 
 		// Verify all returned state changes have correct IDs, category and reason
@@ -807,7 +809,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 		// Get first 2 state changes
 		first := int32(2)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, &first, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
@@ -819,7 +821,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		// Get next page
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(stateChanges.Edges), 2)
 		for _, sc := range stateChanges.Edges {
@@ -833,11 +835,178 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 		}
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Empty(t, stateChanges.Edges)
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+}
+
+func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "transactions", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			Transactions: &data.TransactionModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	t.Run("since in the past returns all transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 4)
+	})
+
+	t.Run("since in the future returns no transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		futureTime := time.Now().Add(24 * time.Hour)
+		txs, err := resolver.Transactions(ctx, parentAccount, &futureTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, txs.Edges)
+	})
+
+	t.Run("until in the past returns no transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, &pastTime, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, txs.Edges)
+	})
+
+	t.Run("until in the future returns all transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		futureTime := time.Now().Add(24 * time.Hour)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, &futureTime, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 4)
+	})
+
+	t.Run("until before since returns error", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		since := time.Now()
+		until := since.Add(-1 * time.Hour)
+		_, err := resolver.Transactions(ctx, parentAccount, &since, &until, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "until must not be before since")
+	})
+
+	t.Run("time range combined with pagination", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		first := int32(2)
+		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.True(t, txs.PageInfo.HasNextPage)
+	})
+}
+
+func TestAccountResolver_Operations_WithTimeRange(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "operations", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			Operations: &data.OperationModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	t.Run("since in the past returns all operations", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		ops, err := resolver.Operations(ctx, parentAccount, &pastTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 8)
+	})
+
+	t.Run("since in the future returns no operations", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		futureTime := time.Now().Add(24 * time.Hour)
+		ops, err := resolver.Operations(ctx, parentAccount, &futureTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, ops.Edges)
+	})
+
+	t.Run("until before since returns error", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		since := time.Now()
+		until := since.Add(-1 * time.Hour)
+		_, err := resolver.Operations(ctx, parentAccount, &since, &until, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "until must not be before since")
+	})
+}
+
+func TestAccountResolver_StateChanges_WithTimeRange(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	t.Run("since in the past returns all state changes", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		sc, err := resolver.StateChanges(ctx, parentAccount, nil, &pastTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, sc.Edges, 20)
+	})
+
+	t.Run("since in the future returns no state changes", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		futureTime := time.Now().Add(24 * time.Hour)
+		sc, err := resolver.StateChanges(ctx, parentAccount, nil, &futureTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, sc.Edges)
+	})
+
+	t.Run("until before since returns error", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		since := time.Now()
+		until := since.Add(-1 * time.Hour)
+		_, err := resolver.StateChanges(ctx, parentAccount, nil, &since, &until, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "until must not be before since")
+	})
+
+	t.Run("time range combined with filter", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		pastTime := time.Now().Add(-24 * time.Hour)
+		txHash := testTxHash1
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+		}
+		sc, err := resolver.StateChanges(ctx, parentAccount, filter, &pastTime, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, sc.Edges, 5)
 	})
 }
