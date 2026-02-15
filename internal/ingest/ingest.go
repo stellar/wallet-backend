@@ -93,6 +93,9 @@ type Configs struct {
 	// RetentionPeriod configures automatic data retention. Chunks older than this are dropped.
 	// Empty string disables retention. Uses PostgreSQL INTERVAL syntax (e.g., "30 days", "6 months").
 	RetentionPeriod string
+	// CompressionScheduleInterval controls how frequently the compression policy job runs.
+	// Uses PostgreSQL INTERVAL syntax (e.g., "4 hours", "12 hours"). Empty string skips configuration.
+	CompressionScheduleInterval string
 }
 
 func Ingest(cfg Configs) error {
@@ -141,7 +144,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
 
-	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName); err != nil {
+	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval); err != nil {
 		return nil, fmt.Errorf("configuring hypertable settings: %w", err)
 	}
 
