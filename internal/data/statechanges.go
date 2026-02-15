@@ -30,7 +30,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	argIndex := 2
 
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 		WHERE account_id = $1
 	`, columns))
@@ -63,29 +63,29 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		argIndex++
 	}
 
-	// Add cursor-based pagination using 3-column comparison (to_id, operation_id, state_change_order)
+	// Add cursor-based pagination using 4-column comparison with ledger_created_at as the
+	// leading column. This enables TimescaleDB ChunkAppend optimization on hypertables.
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < ($%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2))
-			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 3
+				AND (ledger_created_at, to_id, operation_id, state_change_order) < ($%d, $%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2, argIndex+3))
+			args = append(args, cursor.LedgerCreatedAt, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 4
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > ($%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2))
-			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 3
+				AND (ledger_created_at, to_id, operation_id, state_change_order) > ($%d, $%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2, argIndex+3))
+			args = append(args, cursor.LedgerCreatedAt, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 4
 		}
 	}
 
-	// TODO: Extract the ordering code to separate function in utils and use everywhere
-	// Add ordering
+	// Add ordering with ledger_created_at as leading column for TimescaleDB ChunkAppend
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	// Add limit using parameterized query
@@ -97,10 +97,10 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -120,26 +120,27 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 	`, columns))
 
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				WHERE (ledger_created_at, to_id, operation_id, state_change_order) < ('%s', %d, %d, %d)
+			`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				WHERE (ledger_created_at, to_id, operation_id, state_change_order) > ('%s', %d, %d, %d)
+			`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
 		}
 	}
 
+	// Order with ledger_created_at as leading column for TimescaleDB ChunkAppend
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
@@ -149,10 +150,10 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor

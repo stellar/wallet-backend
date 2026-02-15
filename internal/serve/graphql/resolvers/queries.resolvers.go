@@ -34,20 +34,20 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
 
-	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) int64 {
-		return t.Cursor
+	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) string {
+		return fmt.Sprintf("%d:%d", t.Cursor.LedgerCreatedAt.UnixNano(), t.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
@@ -88,20 +88,20 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}
 
-	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
-		return o.Cursor
+	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) string {
+		return fmt.Sprintf("%d:%d", o.Cursor.LedgerCreatedAt.UnixNano(), o.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
@@ -126,7 +126,7 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, true)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -140,7 +140,7 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))

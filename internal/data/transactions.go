@@ -39,23 +39,23 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_id" FROM transactions`, columns))
 
 	if cursor != nil {
 		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id < %d", *cursor))
+			queryBuilder.WriteString(fmt.Sprintf(` WHERE (ledger_created_at, to_id) < ('%s', %d)`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ID))
 		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id > %d", *cursor))
+			queryBuilder.WriteString(fmt.Sprintf(` WHERE (ledger_created_at, to_id) > ('%s', %d)`, cursor.LedgerCreatedAt.Format(time.RFC3339Nano), cursor.ID))
 		}
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC")
 	}
 
 	if limit != nil {
@@ -64,7 +64,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY cursor ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
 	}
 
 	var transactions []*types.TransactionWithCursor
@@ -81,21 +81,71 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 }
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
-func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+// Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
+// on the transactions_accounts hypertable by ordering on ledger_created_at first.
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id")
 
-	// Build paginated query using shared utility
-	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
-		TableName:      "transactions",
-		CursorColumn:   "to_id",
-		JoinTable:      "transactions_accounts",
-		JoinCondition:  "transactions_accounts.tx_to_id = transactions.to_id",
-		Columns:        columns,
-		AccountAddress: accountAddress,
-		Limit:          limit,
-		Cursor:         cursor,
-		OrderBy:        orderBy,
-	})
+	var queryBuilder strings.Builder
+	args := []interface{}{types.AddressBytea(accountAddress)}
+	argIndex := 2
+
+	// MATERIALIZED CTE scans transactions_accounts with ledger_created_at leading the ORDER BY,
+	// enabling TimescaleDB ChunkAppend on the hypertable.
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH account_txns AS MATERIALIZED (
+			SELECT tx_to_id, ledger_created_at
+			FROM transactions_accounts
+			WHERE account_id = $1`))
+
+	// Add cursor-based pagination on the CTE
+	if cursor != nil {
+		if orderBy == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (ledger_created_at, tx_to_id) < ($%d, $%d)`, argIndex, argIndex+1))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (ledger_created_at, tx_to_id) > ($%d, $%d)`, argIndex, argIndex+1))
+		}
+		args = append(args, cursor.LedgerCreatedAt, cursor.ID)
+		argIndex += 2
+	}
+
+	if orderBy == DESC {
+		queryBuilder.WriteString(`
+			ORDER BY ledger_created_at DESC, tx_to_id DESC`)
+	} else {
+		queryBuilder.WriteString(`
+			ORDER BY ledger_created_at ASC, tx_to_id ASC`)
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
+		args = append(args, *limit)
+		argIndex++
+	}
+
+	// Close CTE and LATERAL join to fetch full transaction rows
+	queryBuilder.WriteString(fmt.Sprintf(`
+		)
+		SELECT %s, t.ledger_created_at as "cursor.cursor_ledger_created_at", t.to_id as "cursor.cursor_id"
+		FROM account_txns ta,
+		LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t`, columns))
+
+	if orderBy == DESC {
+		queryBuilder.WriteString(`
+		ORDER BY t.ledger_created_at DESC, t.to_id DESC`)
+	} else {
+		queryBuilder.WriteString(`
+		ORDER BY t.ledger_created_at ASC, t.to_id ASC`)
+	}
+
+	query := queryBuilder.String()
+
+	// For backward pagination, wrap query to reverse the final order
+	if orderBy == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
+	}
 
 	var transactions []*types.TransactionWithCursor
 	start := time.Now()

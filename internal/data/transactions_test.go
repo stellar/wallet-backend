@@ -295,17 +295,17 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
-	assert.Equal(t, int64(1), transactions[0].Cursor)
-	assert.Equal(t, int64(2), transactions[1].Cursor)
-	assert.Equal(t, int64(3), transactions[2].Cursor)
+	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
+	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
+	assert.Equal(t, int64(3), transactions[2].Cursor.ID)
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
 	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
-	assert.Equal(t, int64(1), transactions[0].Cursor)
-	assert.Equal(t, int64(2), transactions[1].Cursor)
+	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
+	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
 }
 
 func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
@@ -359,12 +359,12 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, "ASC")
+	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 
-	assert.Equal(t, int64(1), transactions[0].Cursor)
-	assert.Equal(t, int64(2), transactions[1].Cursor)
+	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
+	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
 }
 
 func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
