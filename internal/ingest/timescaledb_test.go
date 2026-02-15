@@ -23,7 +23,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify chunk interval was updated for all hypertables
@@ -50,7 +50,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify retention policy was created for all hypertables
@@ -77,7 +77,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify no retention policies were created
@@ -101,10 +101,10 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		ctx := context.Background()
 
 		// Apply retention policy twice with different values to simulate restarts
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify exactly 1 retention policy per table (not duplicated)
@@ -131,7 +131,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify reconciliation job was created
@@ -155,10 +155,10 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		ctx := context.Background()
 
 		// Apply twice to simulate restarts
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "90 days", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "7 days", "90 days", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify exactly 1 reconciliation job (not duplicated)
@@ -181,7 +181,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "")
 		require.NoError(t, err)
 
 		// Verify no reconciliation job was created
@@ -204,7 +204,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "not-an-interval", "", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "not-an-interval", "", "oldest_ledger_cursor", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "setting chunk interval")
 	})
@@ -218,8 +218,82 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		ctx := context.Background()
 
-		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "not-an-interval", "oldest_ledger_cursor")
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "not-an-interval", "oldest_ledger_cursor", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "adding retention policy")
+	})
+
+	t.Run("compression_schedule_interval", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		// Compression policies already exist from columnstore hypertable creation.
+		// Configure with a 4-hour compression schedule interval.
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "4 hours")
+		require.NoError(t, err)
+
+		// Verify schedule_interval was updated for all compression policy jobs
+		for _, table := range hypertables {
+			var intervalSecs float64
+			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+				 FROM timescaledb_information.jobs j
+				 WHERE j.proc_name = 'policy_compression'
+				   AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying compression schedule for %s", table)
+			// 4 hours in seconds = 4 * 60 * 60
+			assert.Equal(t, float64(4*60*60), intervalSecs, "compression schedule interval for %s", table)
+		}
+	})
+
+	t.Run("no_compression_schedule_when_empty", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		// Compression policies already exist from columnstore hypertable creation.
+		// Record the default schedule interval before calling configureHypertableSettings.
+		defaultIntervals := make(map[string]float64)
+		for _, table := range hypertables {
+			var intervalSecs float64
+			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+				 FROM timescaledb_information.jobs j
+				 WHERE j.proc_name = 'policy_compression'
+				   AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying default compression schedule for %s", table)
+			defaultIntervals[table] = intervalSecs
+		}
+
+		// Configure with empty compression schedule interval (should skip)
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "")
+		require.NoError(t, err)
+
+		// Verify schedule_interval was NOT changed
+		for _, table := range hypertables {
+			var intervalSecs float64
+			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+				 FROM timescaledb_information.jobs j
+				 WHERE j.proc_name = 'policy_compression'
+				   AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying compression schedule for %s", table)
+			assert.Equal(t, defaultIntervals[table], intervalSecs, "compression schedule interval should remain unchanged for %s", table)
+		}
 	})
 }

@@ -156,6 +156,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "",
 			Required:    false,
 		},
+		{
+			Name:        "compression-schedule-interval",
+			Usage:       "How frequently the TimescaleDB compression policy job checks for chunks to compress. Does not change which chunks are eligible (that's controlled by compress_after). Empty skips configuration. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.CompressionScheduleInterval,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
