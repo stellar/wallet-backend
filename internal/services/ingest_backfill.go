@@ -425,6 +425,9 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy = on"); err != nil {
 					return fmt.Errorf("enabling direct compress: %w", err)
 				}
+				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy_client_sorted = on"); err != nil {
+					return fmt.Errorf("enabling direct compress client sorted: %w", err)
+				}
 			}
 			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
 			if err != nil {
