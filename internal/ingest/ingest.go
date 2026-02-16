@@ -147,8 +147,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
 
-	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter); err != nil {
-		return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+	if cfg.IngestionMode == services.IngestionModeLive {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter); err != nil {
+			return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+		}
 	}
 
 	metricsService := metrics.NewMetricsService(sqlxDB)
