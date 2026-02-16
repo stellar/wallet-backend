@@ -144,22 +144,15 @@ func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) 
 // Shared resolver functions for BaseStateChange interface
 // These functions provide common logic that all state change types can use
 
-// resolveStateChangeAccount resolves the account field for any state change type
-// Since state changes have a direct account_id reference, we can fetch the account directly
-func (r *Resolver) resolveStateChangeAccount(ctx context.Context, toID int64, operationID int64, stateChangeOrder int64) (*types.Account, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
-
-	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeOrder)
-	loaderKey := dataloaders.AccountColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
+// resolveStateChangeAccount resolves the account field for any state change type.
+// Uses the already-populated AccountID from the state change row to avoid a re-query.
+func (r *Resolver) resolveStateChangeAccount(accountID types.AddressBytea) (*types.Account, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("state change has no account_id")
 	}
-	account, err := loaders.AccountByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, fmt.Errorf("loading account for state change %s: %w", stateChangeID, err)
-	}
-	return account, nil
+	return &types.Account{
+		StellarAddress: accountID,
+	}, nil
 }
 
 // resolveStateChangeOperation resolves the operation field for any state change type

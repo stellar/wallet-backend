@@ -436,11 +436,6 @@ type OperationWithStateChangeID struct {
 	StateChangeID string `db:"state_change_id"`
 }
 
-type AccountWithStateChangeID struct {
-	Account
-	StateChangeID string `db:"state_change_id"`
-}
-
 type StateChangeCategory string
 
 const (

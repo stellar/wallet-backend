@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,34 +224,4 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "accounts")
 	return accounts, nil
-}
-
-// BatchGetByStateChangeIDs gets the accounts that are associated with the given state change IDs.
-func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.AccountWithStateChangeID, error) {
-	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_order) is the primary key of state_changes,
-	// it will be faster to search on this tuple.
-	tuples := make([]string, len(scOrders))
-	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
-	}
-
-	query := fmt.Sprintf(`
-		SELECT account_id AS stellar_address, CONCAT(to_id, '-', operation_id, '-', state_change_order) AS state_change_id
-		FROM state_changes
-		WHERE (to_id, operation_id, state_change_order) IN (%s)
-		ORDER BY ledger_created_at DESC
-	`, strings.Join(tuples, ", "))
-
-	var accountsWithStateChanges []*types.AccountWithStateChangeID
-	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accountsWithStateChanges, query)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "accounts", len(scOrders))
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting accounts by state change IDs: %w", err)
-	}
-	m.MetricsService.IncDBQuery("BatchGetByStateChangeIDs", "accounts")
-	return accountsWithStateChanges, nil
 }
