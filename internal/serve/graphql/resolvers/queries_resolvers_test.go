@@ -144,9 +144,9 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
-		// Get the next cursor
+		// Get the next cursor (going backward, use StartCursor per Relay spec)
 		last = int32(1)
-		nextCursor := txs.PageInfo.EndCursor
+		nextCursor := txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
-		nextCursor = txs.PageInfo.EndCursor
+		nextCursor = txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
 		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
@@ -341,9 +341,9 @@ func TestQueryResolver_Operations(t *testing.T) {
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
-		// Get the previous page
+		// Get the previous page (use StartCursor per Relay spec)
 		last = int32(1)
-		prevCursor := ops.PageInfo.EndCursor
+		prevCursor := ops.PageInfo.StartCursor
 		assert.NotNil(t, prevCursor)
 		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
@@ -352,7 +352,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
-		prevCursor = ops.PageInfo.EndCursor
+		prevCursor = ops.PageInfo.StartCursor
 		assert.NotNil(t, prevCursor)
 		last = int32(10)
 		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
@@ -622,8 +622,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
-		// Get the previous page
-		prevCursor := stateChanges.PageInfo.EndCursor
+		// Get the previous page (use StartCursor per Relay spec)
+		prevCursor := stateChanges.PageInfo.StartCursor
 		assert.NotNil(t, prevCursor)
 		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
@@ -643,8 +643,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
-		// Get more previous items
-		prevCursor = stateChanges.PageInfo.EndCursor
+		// Get more previous items (use StartCursor per Relay spec)
+		prevCursor = stateChanges.PageInfo.StartCursor
 		assert.NotNil(t, prevCursor)
 		last = int32(20)
 		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)

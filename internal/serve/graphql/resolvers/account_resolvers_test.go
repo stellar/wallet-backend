@@ -89,9 +89,9 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
-		// Get the next cursor
+		// Get the next cursor (going backward, use StartCursor per Relay spec)
 		last = int32(1)
-		nextCursor := txs.PageInfo.EndCursor
+		nextCursor := txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
-		nextCursor = txs.PageInfo.EndCursor
+		nextCursor = txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
@@ -227,8 +227,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 		assert.False(t, ops.PageInfo.HasNextPage)
 
-		// Get the next cursor
-		nextCursor := ops.PageInfo.EndCursor
+		// Get the next cursor (going backward, use StartCursor per Relay spec)
+		nextCursor := ops.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
@@ -238,7 +238,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
-		nextCursor = ops.PageInfo.EndCursor
+		nextCursor = ops.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
@@ -444,8 +444,8 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 
-		// Get the next cursor (going backward)
-		nextCursor := stateChanges.PageInfo.EndCursor
+		// Get the next cursor (going backward, use StartCursor per Relay spec)
+		nextCursor := stateChanges.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
-		nextCursor = stateChanges.PageInfo.EndCursor
+		nextCursor = stateChanges.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(100)
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)

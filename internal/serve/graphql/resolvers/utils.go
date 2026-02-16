@@ -91,11 +91,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	var startCursor, endCursor *string
 	if len(edges) > 0 {
 		startCursor = &edges[0].Cursor
-		if params.ForwardPagination {
-			endCursor = &edges[len(edges)-1].Cursor
-		} else {
-			endCursor = &edges[0].Cursor
-		}
+		endCursor = &edges[len(edges)-1].Cursor
 	}
 
 	pageInfo := &generated.PageInfo{
