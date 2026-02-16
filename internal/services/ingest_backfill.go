@@ -425,6 +425,9 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy = on"); err != nil {
 					return fmt.Errorf("enabling direct compress: %w", err)
 				}
+				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy_client_sorted = on"); err != nil {
+					return fmt.Errorf("enabling direct compress client sorted: %w", err)
+				}
 			}
 			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
 			if err != nil {
@@ -651,7 +654,7 @@ func (m *ingestService) compressTableChunks(ctx context.Context, table string, s
 	rows, err := m.models.DB.PgxPool().Query(ctx,
 		`SELECT chunk_schema || '.' || chunk_name FROM timescaledb_information.chunks
 		 WHERE hypertable_name = $1 AND is_compressed
-		   AND range_start < $2::timestamptz AND range_end > $3::timestamptz
+		   AND range_start <= $2::timestamptz AND range_end >= $3::timestamptz
 		   AND range_end < NOW()`,
 		table, endTime, startTime)
 	if err != nil {
