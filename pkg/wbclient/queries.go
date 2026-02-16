@@ -45,9 +45,7 @@ const (
 		ingestedAt
 		ledgerCreatedAt
 		ledgerNumber
-		account {
-			address
-		}
+		
 		... on StandardBalanceChange {
 			standardBalanceTokenId: tokenId
 			amount
