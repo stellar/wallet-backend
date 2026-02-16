@@ -24,7 +24,7 @@ type StateChangeModel struct {
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
@@ -116,7 +116,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	var args []interface{}
 	argIndex := 1
@@ -289,7 +289,7 @@ func (m *StateChangeModel) BatchCopy(
 
 // BatchGetByToID gets state changes for a single transaction with pagination support.
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
@@ -348,7 +348,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 
 // BatchGetByToIDs gets the state changes that are associated with the given to_ids.
 func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
@@ -400,7 +400,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
@@ -459,7 +459,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-operation pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
