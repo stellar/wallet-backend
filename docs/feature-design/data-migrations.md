@@ -1014,7 +1014,7 @@ type OperationProtocol {
 
 type Protocol {
   id: String!
-  displayName: String!
+  migrationStatus: String!
 }
 ```
 
@@ -1022,25 +1022,9 @@ type Protocol {
 Some migrations will write to new tables that will represent the current state produced by a protocol in relation to accounts.
 An example of this is SEP-50 Collectibles, where we will track collectible mints/transfers in order to maintain a table of collectibles owned by accounts.
 
-Current state APIs should use `protocols.migration_status` in order to reject queries before the migration for that data type has completed. Some protocols require a complete view of the protocols history in order to correctly represent current state.
+The API exposes `Protocol.migrationStatus` so clients can check whether a protocol's migration is complete before querying current state data. This pushes the responsibility to clients, keeping queries cleaner and faster.
 
-Example error for in-progress migration:
-
-```json
-{
-  "errors": [
-    {
-      "message": "BLEND protocol data is being migrated; please try again later",
-      "extensions": {
-        "code": "PROTOCOL_NOT_READY",
-        "protocol": "BLEND",
-        "migration_status": "backfilling_in_progress"
-      }
-    }
-  ],
-  "data": null
-}
-```
+**Client responsibility**: Clients should check `migrationStatus = 'backfilling_success'` before relying on current state data. Clients that query current state during an in-progress migration may receive incomplete data.
 
 The `Operation.protocols` field exposes which protocols were involved in an operation.
 The query path uses existing tables without requiring a dedicated mapping table:
@@ -1056,7 +1040,7 @@ GraphQL Query:
 │   operation(id: "12345") {                                               │
 │     id                                                                   │
 │     protocols {                                                          │
-│       protocol { id, displayName }                                       │
+│       protocol { id, migrationStatus }                                   │
 │       contractId                                                         │
 │     }                                                                    │
 │   }                                                                      │
@@ -1150,25 +1134,24 @@ QUERY COST BREAKDOWN (per operation):
 
 ### Client Handling of Migration Status
 
-During migration, historical data may be partially enriched. Clients can:
+The API exposes `Protocol.migrationStatus` to allow clients to handle in-progress migrations appropriately.
+
+**For historical data** (partially enriched during migration):
 
 1. **Accept partial data**: Display enriched data where available
-2. **Wait for completion**: Check `protocols.migration_status` and defer display until `'backfilling_success'`
+2. **Wait for completion**: Check `Protocol.migrationStatus` and defer display until `'backfilling_success'`
 
-For current state APIs, queries should return an error if the protocol migration is not complete:
+**For current state data**:
 
-```json
-{
-  "errors": [
-    {
-      "message": "BLEND protocol data is being migrated; please try again later",
-      "extensions": {
-        "code": "PROTOCOL_NOT_READY",
-        "protocol": "BLEND",
-        "migration_status": "backfilling_in_progress"
-      }
-    }
-  ],
-  "data": null
+Clients should check `Protocol.migrationStatus = 'backfilling_success'` before relying on current state queries. Current state may be incomplete or inaccurate while migration is in progress.
+
+Example query to check migration status:
+
+```graphql
+query {
+  protocols {
+    id
+    migrationStatus
+  }
 }
 ```
