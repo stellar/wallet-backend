@@ -194,7 +194,7 @@ This has to happen in 2 stages during the migration process:
 Contracts are grouped by WASM hash before validation. This means we validate each unique WASM blob once, then apply the result to all contracts using that same code.
 Once a WASM hash is classified, it is stored in the `known_wasms` table to avoid re-classification of future contracts using the same code.
 
-During live ingestion, new contracts are classified when they appear in ledger changes. The key difference from checkpoint population is that live ingestion watches for contract deployments/upgrades and compares the WASM blob to known protocols.
+During live ingestion, classification happens in two parts: (1) new WASM uploads are validated against protocol specs and stored in `known_wasms`, and (2) contract deployments/upgrades are mapped to protocols via their WASM hash lookup in `known_wasms`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -209,62 +209,52 @@ During live ingestion, new contracts are classified when they appear in ledger c
                                   ▼
                    ┌──────────────────────────────┐
                    │ ProcessLedger()              │
-                   │ (iterate transaction changes)│
+                   │ (iterate ledger entry changes│
                    └──────────────┬───────────────┘
                                   │
-                                  ▼
-                   ┌──────────────────────────────┐
-                   │ Watch for:                   │
-                   │ - Contract deployments       │
-                   │ - Contract upgrades          │
-                   └──────────────┬───────────────┘
-                                  │
-                                  ▼
-                   ┌──────────────────────────────┐
-                   │ Extract WASM bytecode        │
-                   │ from deployment/upgrade      │
-                   └──────────────┬───────────────┘
-                                  │
-                                  ▼
-                   ┌──────────────────────────────┐
-                   │ Check known_wasms table:     │
-                   │ Is this WASM hash known?     │
-                   └──────────────┬───────────────┘
-                                  │
-                  ┌───────────────┴───────────────┐
-                  │                               │
-                  ▼                               ▼
-         ┌──────────────┐                ┌──────────────────┐
-         │ WASM hash    │                │ WASM hash        │
-         │ already known│                │ NOT known        │
-         │              │                │                  │
-         │ Use cached   │                │ Compare WASM to  │
-         │classification│                │ protocol specs   │
-         └──────┬───────┘                └────────┬─────────┘
-                │                                  │
-                │                         ┌───────┴───────┐
-                │                         │               │
-                │                       MATCH         NO MATCH
-                │                         │               │
-                │                         ▼               ▼
-                │                 ┌──────────────┐  ┌──────────────┐
-                │                 │ Insert to    │  │ Mark as      │
-                │                 │ known_wasms  │  │ unknown in   │
-                │                 │ + protocol_  │  │ known_wasms  │
-                │                 │ contracts    │  │              │
-                │                 └──────┬───────┘  └──────────────┘
-                │                        │
-                └────────────────────────┘
-                                  │
-                                  ▼
-                   ┌──────────────────────────────┐
-                   │ Insert contract mapping to   │
-                   │ protocol_contracts table     │
-                   └──────────────────────────────┘
+              ┌───────────────────┴───────────────────┐
+              │                                       │
+              ▼                                       ▼
+   ┌─────────────────────┐             ┌──────────────────────────┐
+   │ ContractCode        │             │ ContractData Instance    │
+   │ (new WASM upload)   │             │ (deployment or upgrade)  │
+   └──────────┬──────────┘             └────────────┬─────────────┘
+              │                                     │
+              ▼                                     ▼
+   ┌─────────────────────┐             ┌──────────────────────────┐
+   │ Extract WASM        │             │ Extract WASM hash        │
+   │ bytecode + hash     │             │ from instance wasm_ref   │
+   └──────────┬──────────┘             └────────────┬─────────────┘
+              │                                     │
+              ▼                                     ▼
+   ┌─────────────────────┐             ┌──────────────────────────┐
+   │ Validate against    │             │ Lookup hash in           │
+   │ protocol validators │             │ known_wasms              │
+   └──────────┬──────────┘             └────────────┬─────────────┘
+              │                                     │
+         ┌────┴────┐                    ┌───────────┴───────────┐
+         │         │                    │                       │
+       MATCH    NO MATCH              FOUND                 NOT FOUND
+         │         │                    │                       │
+         ▼         ▼                    ▼                       ▼
+   ┌──────────┐ ┌──────────┐    ┌──────────────┐     ┌──────────────────┐
+   │Store in  │ │Store in  │    │ Map contract │     │ Fetch WASM via   │
+   │known_    │ │known_    │    │ to protocol  │     │ RPC, validate,   │
+   │wasms with│ │wasms with│    │ from cached  │     │ then map contract│
+   │protocol  │ │NULL      │    │ classification    │ (rare edge case) │
+   └──────────┘ └──────────┘    └──────────────┘     └──────────────────┘
+                                        │                       │
+                                        └───────────┬───────────┘
+                                                    │
+                                                    ▼
+                                    ┌──────────────────────────┐
+                                    │ Insert contract mapping  │
+                                    │ to protocol_contracts    │
+                                    └──────────────────────────┘
 ```
 
-The classifier compares the WASM blob from new deployments/upgrades against known protocol specifications. 
-This comparison uses the same validation logic as checkpoint population:
+The classifier validates WASM bytecode from ContractCode entries against protocol specifications.
+This validation uses the same logic as checkpoint population:
 
 1. Compile WASM with wazero runtime
 2. Extract `contractspecv0` custom section
