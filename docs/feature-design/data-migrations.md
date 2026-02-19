@@ -146,50 +146,47 @@ This has to happen in 2 stages during the migration process:
                     │ (iterates all ledger entries) │
                     └───────────────┬───────────────┘
                                     │
-           ┌────────────────────────┼────────────────────────┐
-           │                        │                        │
-           ▼                        ▼                        ▼
-┌──────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐
-│ LedgerEntryType  │   │ LedgerEntryType  │   │ LedgerEntryType          │
-│ ContractCode     │   │ ContractData     │   │ ContractData             │
-│                  │   │ (Instance)       │   │ (Balance)                │
-└────────┬─────────┘   └────────┬─────────┘   └────────────┬─────────────┘
-         │                      │                          │
-         ▼                      ▼                          ▼
-┌──────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐
-│ Extract WASM     │   │ Check SAC?       │   │ Extract holder address   │
-│ bytecode + hash  │   │ (AssetFromData)  │   │ from Balance key         │
-└────────┬─────────┘   └────────┬─────────┘   └────────────┬─────────────┘
-         │                      │                          │
-         ▼                      │                          ▼
-┌──────────────────┐            │             ┌──────────────────────────┐
-│ Group contracts  │    ┌───────┴───────┐     │ Track in                 │
-│ by WASM hash     │    │               │     │ contractTokensByHolder   │
-│                  │    ▼               ▼     │ Address map              │
-└────────┬─────────┘   YES             NO     └──────────────────────────┘
-         │              │               │
-         ▼              ▼               ▼
-┌──────────────────┐ ┌────────┐  ┌──────────────┐
-│ Validate WASM    │ │SAC     │  │Compare WASM  │
-│ against protocol │ │contract│  │to known      │
-│ spec             │ │        │  │protocol spec │
-└────────┬─────────┘ └────────┘  └──────────────┘
-         │
-    ┌────┴────┐
-    │         │
-  MATCH    NO MATCH
-    │         │
-    ▼         ▼
-┌────────┐ ┌──────────┐
-│Insert  │ │Skip      │
-│to      │ │(unknown) │
-│protocol│ │          │
-│_contracts└──────────┘
-└────────┘
+                       ┌────────────┴────────────┐
+                       │                         │
+                       ▼                         ▼
+            ┌──────────────────┐      ┌──────────────────┐
+            │ LedgerEntryType  │      │ LedgerEntryType  │
+            │ ContractCode     │      │ ContractData     │
+            │                  │      │ (Instance)       │
+            └────────┬─────────┘      └────────┬─────────┘
+                     │                         │
+                     ▼                         ▼
+            ┌──────────────────┐      ┌──────────────────┐
+            │ Extract WASM     │      │ Check SAC?       │
+            │ bytecode + hash  │      │ (AssetFromData)  │
+            └────────┬─────────┘      └────────┬─────────┘
+                     │                         │
+                     ▼                 ┌───────┴───────┐
+            ┌──────────────────┐       │               │
+            │ Validate WASM    │       ▼               ▼
+            │ against protocol │      YES             NO
+            │ validators       │       │               │
+            └────────┬─────────┘       ▼               ▼
+                     │          ┌────────┐      ┌──────────────────┐
+                ┌────┴────┐     │SAC     │      │ Extract wasm_ref │
+                │         │     │contract│      │ (hash) from      │
+              MATCH    NO MATCH └────────┘      │ instance data    │
+                │         │                     └────────┬─────────┘
+                ▼         ▼                              │
+            ┌────────┐ ┌──────────┐                      ▼
+            │Store   │ │Store     │              ┌──────────────────┐
+            │hash in │ │hash in   │              │ Map contract ID  │
+            │known_  │ │known_    │              │ to WASM hash     │
+            │wasms   │ │wasms     │              │ (for later lookup│
+            │with    │ │with NULL │              │ in known_wasms)  │
+            │protocol│ │protocol  │              └──────────────────┘
+            └────────┘ └──────────┘
 
                     ┌───────────────────────────────┐
                     │ Post-Processing:              │
                     │ 1. Store in protocol_contracts│
+                    │    (contract → protocol via   │
+                    │     wasm hash → known_wasms)  │
                     │ 2. Cache in known_wasms       │
                     └───────────────────────────────┘
 ```
