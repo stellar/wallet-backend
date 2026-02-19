@@ -503,11 +503,7 @@ When checkpoint population runs for a newly registered protocol, it validates co
 2. **In known_wasms with `protocol_id IS NULL`** (previously unknown)
 
 #### When Checkpoint Classification Runs
-Both backfill migrations and live ingestion will rely on checkpoint population being complete before they can produce state changes for a new protocol. 
-
-If checkpoint population does not run before live ingestion is processing a new protocol, live ingestion will potentially experience more pressure from the additional classification it has to do due to the missing seed of `protocol_contracts`.
-
-If checkpoint population does not run before a backfill migration is started for a new protocol, backfill migration will fail and exit since it does not classify protocols and cannot produce state without any classification being available.
+Backfill migrations rely on checkpoint population being complete before they can produce state changes for a new protocol. If checkpoint population does not run before a backfill migration is started for a new protocol, backfill migration will fail and exit since it does not classify protocols and cannot produce state without any classification being available.
 
 ### Command
 
