@@ -17,18 +17,18 @@ and live ingestion processes.
 ```sql
 CREATE TABLE protocols (
     id TEXT PRIMARY KEY,                              -- "BLEND", "SEP50", etc.
-    enabled BOOLEAN DEFAULT true,
-    migration_status TEXT DEFAULT 'pending',
+    migration_status TEXT DEFAULT 'not_started',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- migration_status values:
--- 'pending'              - Pre-registration, initial state
--- 'classification_ready' - Checkpoint population is done
--- 'in_progress'          - Migration in progress
--- 'ready'                - Migration complete, data is complete
--- 'failed'               - Migration failed
+-- 'not_started'               - Initial state after registration
+-- 'classification_in_progress' - Checkpoint classification running
+-- 'classification_success'    - Checkpoint classification complete
+-- 'backfilling_in_progress'   - Historical state migration running
+-- 'backfilling_success'       - Migration complete, data is complete
+-- 'failed'                    - Migration failed
 ```
 
 **Migration Cursor Tracking** (via `ingest_store` table):
@@ -112,9 +112,9 @@ Adding a new protocol requires three coordinated processes:
 
 | Step | Requires | Produces |
 |------|----------|----------|
-| **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `known_wasms`, `protocol_contracts`, status = `classification_ready` |
-| **2. ingest (live)** | Status = `classification_ready`, processor registered | State from `restart_ledger` onward |
-| **3. protocol-migrate** | `protocol_contracts` populated, status = `classification_ready` | Historical state from `first_block` to `restart_ledger - 1` |
+| **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `known_wasms`, `protocol_contracts`, status = `classification_success` |
+| **2. ingest (live)** | Status = `classification_success`, processor registered | State from `restart_ledger` onward |
+| **3. protocol-migrate** | `protocol_contracts` populated, status = `classification_success` | Historical state from `first_block` to `restart_ledger - 1` |
 
 Both live ingestion and backfill migration need the `protocol_contracts` table populated to know which contracts to process. The `protocol-setup` command ensures this data exists before either process runs.
 
@@ -525,20 +525,21 @@ If checkpoint population does not run before a backfill migration is started for
 ### Command
 
 ```bash
-./wallet-backend protocol-setup
+./wallet-backend protocol-setup --protocol-id SEP50 --protocol-id BLEND
 ```
 
 ### What It Does
 
-1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table
-2. **Reads the latest checkpoint** from the history archive
-3. **Extracts all WASM code** from contract entries in the checkpoint
-4. **Queries existing unclassified entries** from `known_wasms WHERE protocol_id IS NULL`
-5. **Validates each WASM** against all newly registered protocols' validators
-6. **Populates tables**:
+1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table with status `not_started`
+2. **Sets status** to `classification_in_progress` for specified protocols
+3. **Reads the latest checkpoint** from the history archive
+4. **Extracts all WASM code** from contract entries in the checkpoint
+5. **Queries existing unclassified entries** from `known_wasms WHERE protocol_id IS NULL`
+6. **Validates each WASM** against all specified protocols' validators
+7. **Populates tables**:
    - `known_wasms`: Maps WASM hashes to protocol IDs
    - `protocol_contracts`: Maps contract IDs to protocols
-7. **Updates status** to `classification_ready` for all processed protocols
+8. **Updates status** to `classification_success` for all processed protocols
 
 ### Protocol Migration Files
 
@@ -553,14 +554,14 @@ internal/data/migrations/protocols/
 
 These migrations are tracked separately from the main schema migrations, allowing `protocol-setup` to run them independently.
 
-### Implicit Protocol Selection
+### Explicit Protocol Selection
 
-The command **automatically discovers** which protocols to set up by finding all protocols where `migration_status = 'pending'` in the database.
+The command requires an explicit list of protocols to set up via the `--protocol-id` flag. Only specified protocols will be processed.
 
 **Benefits:**
-- Single checkpoint read handles all pending protocols
-- No need to run separate commands for each protocol
-- Reduces operator error (can't forget a protocol)
+- Opt-in protocol support - operators control which protocols are enabled
+- Clear operator intent - no accidental protocol enablement
+- Consistent with `protocol-migrate` command interface
 
 ## State Production
 State produced by new protocols is done through dual processes in order to cover historical state and new state production during live ingestion.
@@ -591,7 +592,8 @@ The migration runner processes historical ledgers to enrich operations with prot
                     ┌────────────────────────────┐
                     │ Start()                    │
                     │ - Validate protocol exists │
-                    │ - Set status = in_progress │
+                    │ - Set status = backfilling │
+                    │   _in_progress             │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
@@ -612,7 +614,8 @@ The migration runner processes historical ledgers to enrich operations with prot
                                   ▼
                     ┌────────────────────────────┐
                     │ Complete()                 │
-                    │ - Set status = ready       │
+                    │ - Set status =             │
+                    │   backfilling_success      │
                     └────────────────────────────┘
 
 
@@ -794,8 +797,8 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 │ 1. VALIDATE                                                                │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ - Verify protocol(s) exists in registry                                    │                                     
-│ - Verify migration_status = 'classification_ready'                         │
-│ - Set migration_status = 'in_progress'                                     │
+│ - Verify migration_status = 'classification_success'                       │
+│ - Set migration_status = 'backfilling_in_progress'                         │
 └────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -812,7 +815,7 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 3. COMPLETE                                                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ - Set migration_status = 'ready'                                           │
+│ - Set migration_status = 'backfilling_success'                             │
 │ - Current state APIs now serve this protocol's data                        │
 └────────────────────────────────────────────────────────────────────────────┘
 
@@ -998,7 +1001,7 @@ Example error for in-progress migration:
       "extensions": {
         "code": "PROTOCOL_NOT_READY",
         "protocol": "BLEND",
-        "migration_status": "in_progress"
+        "migration_status": "backfilling_in_progress"
       }
     }
   ],
@@ -1050,8 +1053,8 @@ WHERE o.id = $1;
 │            │     │ accounts         │     │ contracts         │     │           │
 ├────────────┤     ├──────────────────┤     ├───────────────────┤     ├───────────┤
 │ id         │     │ operation_id (FK)│     │ contract_id (PK)  │     │ id (PK)   │
-│ ...        │     │ account_id       │     │ protocol_id (FK)  │     │ enabled   │
-│            │     │                  │     │ name              │     │ ...       │
+│ ...        │     │ account_id       │     │ protocol_id (FK)  │     │ migration │
+│            │     │                  │     │ name              │     │ _status   │
 └────────────┘     └──────────────────┘     └───────────────────┘     └───────────┘
        │                    │                        │                      │
        │                    │                        │                      │
@@ -1088,7 +1091,7 @@ INDEXES REQUIRED:
 │                                                                            │
 │  protocols:                                                                │
 │    PRIMARY KEY (id)                        -- fast lookup by id            │
-│    INDEX on (enabled) WHERE enabled = true -- filter optimization          │
+│    INDEX on (migration_status)             -- filter by status             │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
 
@@ -1117,7 +1120,7 @@ QUERY COST BREAKDOWN (per operation):
 During migration, historical data may be partially enriched. Clients can:
 
 1. **Accept partial data**: Display enriched data where available
-2. **Wait for completion**: Check `protocols.migration_status` and defer display until `'ready'`
+2. **Wait for completion**: Check `protocols.migration_status` and defer display until `'backfilling_success'`
 
 For current state APIs, queries should return an error if the protocol migration is not complete:
 
@@ -1129,7 +1132,7 @@ For current state APIs, queries should return an error if the protocol migration
       "extensions": {
         "code": "PROTOCOL_NOT_READY",
         "protocol": "BLEND",
-        "migration_status": "in_progress"
+        "migration_status": "backfilling_in_progress"
       }
     }
   ],
