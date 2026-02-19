@@ -122,7 +122,7 @@ Both live ingestion and backfill migration need the `protocol_contracts` table p
 Classification is the act of identifying new and existing contracts on the network and assigning a relationship to a known protocol.
 This has to happen in 2 stages during the migration process:
 - checkpoint population: We will use a history archive from the latest checkpoint in order to classify all contracts on the network. We will rely on the latest checkpoint available at the time of the migration.
-- live ingestion: during live ingestion, we classify new contracts by watching for contract deployments/upgrades and comparing the wasm blob to the known protocols.
+- live ingestion: during live ingestion, we classify new WASM uploads by validating the bytecode against protocol specs, and map contract deployments/upgrades to protocols by looking up their WASM hash in `known_wasms`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -553,6 +553,9 @@ State produced by new protocols is done through dual processes in order to cover
 
 ### Backfill Migration
 The migration runner processes historical ledgers to enrich operations with protocol state and produce state changes/current state.
+
+**Retention-Aware Processing**: The migration reads the retention window start from `ingest_store` (`oldest_ledger_cursor`). State changes are only persisted for ledgers within the retention window, but all ledgers in the range are processed to build accurate current state.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        BACKFILL MIGRATION FLOW                              │
@@ -562,8 +565,8 @@ The migration runner processes historical ledgers to enrich operations with prot
                     │ ./wallet-backend           │
                     │ protocol-migrate           │
                     │ --protocol-id SEP50 ...    │
-                    │ --start-ledger 1           │
-                    │ --end-ledger 5             │
+                    │ --start-ledger 1000        │
+                    │ --end-ledger 5000          │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
@@ -577,6 +580,8 @@ The migration runner processes historical ledgers to enrich operations with prot
                     │ - Validate protocol exists │
                     │ - Set status = backfilling │
                     │   _in_progress             │
+                    │ - Read oldest_ledger_cursor│
+                    │   from ingest_store        │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
@@ -590,13 +595,28 @@ The migration runner processes historical ledgers to enrich operations with prot
                     │ Use processor to:          │
                     │ - Find operations involving│
                     │   protocol contracts       │
-                    │ - Produce state            │
+                    │ - Generate state changes   │
+                    │ - Update current state     │
+                    │   running totals           │
+                    └─────────────┬──────────────┘
+                                  │
+                                  ▼
+                    ┌────────────────────────────┐
+                    │ If ledger >= retention     │
+                    │ window start:              │
+                    │ - Persist state changes    │
                     │ - Enrich historical data   │
+                    │                            │
+                    │ Otherwise:                 │
+                    │ - Discard state changes    │
+                    │   (already applied to      │
+                    │    current state totals)   │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
                     ┌────────────────────────────┐
                     │ Complete()                 │
+                    │ - Write final current state│
                     │ - Set status =             │
                     │   backfilling_success      │
                     └────────────────────────────┘
@@ -612,6 +632,29 @@ MIGRATION DEPENDENCIES:
 │ 4. Live ingestion continues from its start point onward                    │
 │                                                                            │
 │ This ensures no ledger gap between backfill and live ingestion.            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+RETENTION WINDOW HANDLING:
+┌────────────────────────────────────────────────────────────────────────────┐
+│ The migration decouples the processing range from the retention window:    │
+│                                                                            │
+│ Example: Protocol deployed at ledger 1000, retention starts at 4000        │
+│                                                                            │
+│   Ledger 1000 ──────────────────────────────────────── Ledger 5000         │
+│   [start-ledger]           [retention start]          [end-ledger]         │
+│        │                         │                          │              │
+│        ├─────────────────────────┤                          │              │
+│        │  Process but DISCARD    │                          │              │
+│        │  state changes          │                          │              │
+│        │  (update current state  │                          │              │
+│        │   running totals only)  │                          │              │
+│        │                         ├──────────────────────────┤              │
+│        │                         │  Process AND PERSIST     │              │
+│        │                         │  state changes           │              │
+│        │                         │  (within retention)      │              │
+│                                                                            │
+│ This allows accurate current state even when protocol history extends      │
+│ beyond the retention window.                                               │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -637,19 +680,19 @@ During live ingestion, two related but distinct processes run:
 ┌─────────────────────────────────────┐   ┌─────────────────────────────────────┐
 │         1. CLASSIFICATION           │   │        2. STATE PRODUCTION          │
 │                                     │   │                                     │
-│  Watch for contract deployments/    │   │  Run protocol processors on         │
-│  upgrades in ledger changes         │   │  transactions in ledger             │
+│  Watch for ContractCode uploads     │   │  Run protocol processors on         │
+│  and ContractData Instance changes  │   │  transactions in ledger             │
 └─────────────────┬───────────────────┘   └─────────────────┬───────────────────┘
                   │                                         │
                   ▼                                         ▼
 ┌─────────────────────────────────────┐   ┌─────────────────────────────────────┐
-│  For each new contract:             │   │  For each protocol processor:       │
+│  For each ledger entry change:      │   │  For each protocol processor:       │
 │  ┌───────────────────────────────┐  │   │  ┌───────────────────────────────┐  │
-│  │ 1. Check known_wasms cache    │  │   │  │ Processor.Process(ledger)     │  │
-│  │ 2. If not known → validate    │  │   │  │                               │  │
-│  │    WASM against protocol specs│  │   │  │ - Examines transactions       │  │
-│  │ 3. Update known_wasms +       │  │   │  │ - Produces protocol-specific  │  │
-│  │    protocol_contracts         │  │   │  │   state changes               │  │
+│  │ ContractCode: validate WASM,  │  │   │  │ Processor.Process(ledger)     │  │
+│  │   store in known_wasms        │  │   │  │                               │  │
+│  │ ContractData Instance: lookup │  │   │  │ - Examines transactions       │  │
+│  │   hash in known_wasms, map    │  │   │  │ - Produces protocol-specific  │  │
+│  │   to protocol_contracts       │  │   │  │   state changes               │  │
 │  └───────────────────────────────┘  │   │  └───────────────────────────────┘  │
 └─────────────────┬───────────────────┘   └─────────────────┬───────────────────┘
                   │                                         │
@@ -754,7 +797,7 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
 
 ## Backfill Migrations
 
-Backfill migrations build current state and/or write state changes according to the logic defined in the processor for the protocol being migrated.
+Backfill migrations process historical ledgers to build current state and generate state changes. State changes are only persisted for ledgers within the retention window, but all ledgers in the specified range are processed to produce accurate current state.
 
 The `protocol-migrate` command accepts a set of protocol IDs for an explicit signal to migrate those protocols. Each protocol migration requires a specific range, which may not be exactly what other migrations need even if they are implemented at the same time. Migrations that do share a ledger range can run in one process.
 
@@ -766,7 +809,7 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 
 **Parameters**:
 - `--protocol-id`: The protocol(s) to migrate (must exist in `protocols` table)
-- `--start-ledger`: First ledger to process
+- `--start-ledger`: First ledger to process (set based on protocol deployment/data needs)
 - `--end-ledger`: Last ledger to process (should be the ledger before live ingestion started)
 
 ### Migration Workflow
@@ -782,6 +825,7 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 │ - Verify protocol(s) exists in registry                                    │                                     
 │ - Verify migration_status = 'classification_success'                       │
 │ - Set migration_status = 'backfilling_in_progress'                         │
+│ - Read oldest_ledger_cursor from ingest_store (retention window start)     │
 └────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -791,13 +835,16 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 │ For ledger = start-ledger to end-ledger:                                   │
 │   - Fetch ledger data (from archive or RPC)                                │
 │   - Run processor to find protocol operations                              │
-│   - Produce state changes / current state                                  │
+│   - Generate state changes, update current state running totals            │
+│   - If ledger >= retention window start: persist state changes             │
+│   - Otherwise: discard state changes (totals already updated)              │
 └────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 3. COMPLETE                                                                │
 ├────────────────────────────────────────────────────────────────────────────┤
+│ - Write final current state                                                │
 │ - Set migration_status = 'backfilling_success'                             │
 │ - Current state APIs now serve this protocol's data                        │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -875,7 +922,9 @@ The solution uses a **streaming ordered commit** pattern:
 │  1. Creates isolated LedgerBackend                                      │
 │  2. Creates isolated BatchBuffer                                        │
 │  3. Processes ledgers sequentially within batch                         │
-│  4. Sends BatchResult to results channel                                │
+│  4. Generates state changes, updates current state running totals       │
+│  5. Filters state changes based on retention window                     │
+│  6. Sends BatchResult to results channel                                │
 └─────────────────────────────────────────────────────────────────────────┘
          │              │            │            │              │
          ▼              ▼            ▼            ▼              ▼
