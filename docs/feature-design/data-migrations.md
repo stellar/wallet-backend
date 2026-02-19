@@ -660,9 +660,9 @@ RETENTION WINDOW HANDLING:
 
 ### Live State Production
 
-During live ingestion, two related but distinct processes run:
+During live ingestion, two related but distinct processes run sequentially:
 1. **Classification** - Identifies and classifies new contracts as they are deployed
-2. **State Production** - Produces protocol-specific state using registered processors
+2. **State Production** - Produces protocol-specific state using registered processors (depends on classification)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -674,31 +674,32 @@ During live ingestion, two related but distinct processes run:
                               │ (from RPC)       │
                               └────────┬─────────┘
                                        │
-                  ┌────────────────────┴────────────────────┐
-                  │                                         │
-                  ▼                                         ▼
-┌─────────────────────────────────────┐   ┌─────────────────────────────────────┐
-│         1. CLASSIFICATION           │   │        2. STATE PRODUCTION          │
-│                                     │   │                                     │
-│  Watch for ContractCode uploads     │   │  Run protocol processors on         │
-│  and ContractData Instance changes  │   │  transactions in ledger             │
-└─────────────────┬───────────────────┘   └─────────────────┬───────────────────┘
-                  │                                         │
-                  ▼                                         ▼
-┌─────────────────────────────────────┐   ┌─────────────────────────────────────┐
-│  For each ledger entry change:      │   │  For each protocol processor:       │
-│  ┌───────────────────────────────┐  │   │  ┌───────────────────────────────┐  │
-│  │ ContractCode: validate WASM,  │  │   │  │ Processor.Process(ledger)     │  │
-│  │   store in known_wasms        │  │   │  │                               │  │
-│  │ ContractData Instance: lookup │  │   │  │ - Examines transactions       │  │
-│  │   hash in known_wasms, map    │  │   │  │ - Produces protocol-specific  │  │
-│  │   to protocol_contracts       │  │   │  │   state changes               │  │
-│  └───────────────────────────────┘  │   │  └───────────────────────────────┘  │
-└─────────────────┬───────────────────┘   └─────────────────┬───────────────────┘
-                  │                                         │
-                  └────────────────────┬────────────────────┘
-                                       │
                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          1. CLASSIFICATION                                  │
+│                                                                             │
+│  Process ledger entry changes to classify contracts:                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ ContractCode entries: validate WASM, store in known_wasms           │   │
+│  │ ContractData Instance entries: lookup hash in known_wasms,          │   │
+│  │   map contract to protocol_contracts                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          2. STATE PRODUCTION                                │
+│                                                                             │
+│  Run protocol processors on transactions (using updated classifications):   │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ For each protocol processor:                                         │   │
+│  │   Processor.Process(ledger)                                          │   │
+│  │   - Examines transactions involving protocol contracts               │   │
+│  │   - Produces protocol-specific state changes                         │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
                         ┌──────────────────────────┐
                         │ PersistLedgerData()      │
                         │ (single DB transaction)  │
