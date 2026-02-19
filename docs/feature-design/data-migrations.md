@@ -17,7 +17,6 @@ and live ingestion processes.
 ```sql
 CREATE TABLE protocols (
     id TEXT PRIMARY KEY,                              -- "BLEND", "SEP50", etc.
-    display_name TEXT NOT NULL,
     enabled BOOLEAN DEFAULT true,
     migration_status TEXT DEFAULT 'pending',
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1033,7 +1032,7 @@ GraphQL Query:
 │                           DATABASE QUERY                                  │
 └──────────────────────────────────────────────────────────────────────────┘
 
-SELECT DISTINCT p.id, p.display_name, pc.contract_id
+SELECT DISTINCT p.id, pc.contract_id
 FROM operations o
 JOIN operations_accounts oa ON oa.operation_id = o.id
 JOIN protocol_contracts pc ON pc.contract_id = oa.account_id
@@ -1051,8 +1050,8 @@ WHERE o.id = $1;
 │            │     │ accounts         │     │ contracts         │     │           │
 ├────────────┤     ├──────────────────┤     ├───────────────────┤     ├───────────┤
 │ id         │     │ operation_id (FK)│     │ contract_id (PK)  │     │ id (PK)   │
-│ ...        │     │ account_id       │     │ protocol_id (FK)  │     │ display_  │
-│            │     │                  │     │ name              │     │ name      │
+│ ...        │     │ account_id       │     │ protocol_id (FK)  │     │ enabled   │
+│            │     │                  │     │ name              │     │ ...       │
 └────────────┘     └──────────────────┘     └───────────────────┘     └───────────┘
        │                    │                        │                      │
        │                    │                        │                      │
