@@ -32,7 +32,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		},
 	}}
 	// ToID=toid.New(1000, 1, 0) matches the test data setup in test_utils.go (testLedger=1000, i=0)
-	parentTx := &types.Transaction{Hash: testTxHash1, ToID: toid.New(1000, 1, 0).ToInt64()}
+	parentTx := &types.Transaction{Hash: types.HashBytea(testTxHash1), ToID: toid.New(1000, 1, 0).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
