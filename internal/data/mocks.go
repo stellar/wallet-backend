@@ -300,18 +300,28 @@ func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.T
 	return args.Error(0)
 }
 
-func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
-	args := m.Called(ctx, protocolID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]ProtocolContracts), args.Error(1)
+// KnownWasmModelMock is a mock implementation of KnownWasmModelInterface.
+type KnownWasmModelMock struct {
+	mock.Mock
 }
 
-func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
-	args := m.Called(ctx, protocolIDs)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
+var _ KnownWasmModelInterface = (*KnownWasmModelMock)(nil)
+
+// NewKnownWasmModelMock creates a new instance of KnownWasmModelMock.
+func NewKnownWasmModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *KnownWasmModelMock {
+	mockModel := &KnownWasmModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *KnownWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []KnownWasm) error {
+	args := m.Called(ctx, dbTx, wasms)
+	return args.Error(0)
 }
