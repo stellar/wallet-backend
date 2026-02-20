@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
@@ -130,9 +131,9 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
-	args := m.Called(ctx, checkpointLedger, initializeCursors)
-	return args.Error(0)
+func (m *TokenIngestionServiceMock) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32) TokenProcessor {
+	args := m.Called(dbTx, checkpointLedger)
+	return args.Get(0).(TokenProcessor)
 }
 
 func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
@@ -147,6 +148,109 @@ func NewTokenIngestionServiceMock(t interface {
 },
 ) *TokenIngestionServiceMock {
 	mock := &TokenIngestionServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// TokenProcessorMock is a mock implementation of the TokenProcessor interface
+type TokenProcessorMock struct {
+	mock.Mock
+}
+
+var _ TokenProcessor = (*TokenProcessorMock)(nil)
+
+func (m *TokenProcessorMock) ProcessEntry(ctx context.Context, change ingest.Change) error {
+	args := m.Called(ctx, change)
+	return args.Error(0)
+}
+
+func (m *TokenProcessorMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
+	args := m.Called(ctx, wasmHash, wasmCode)
+	return args.Error(0)
+}
+
+func (m *TokenProcessorMock) FlushBatchIfNeeded(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *TokenProcessorMock) FlushRemainingBatch(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *TokenProcessorMock) Finalize(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+// NewTokenProcessorMock creates a new instance of TokenProcessorMock.
+func NewTokenProcessorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TokenProcessorMock {
+	mock := &TokenProcessorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// CheckpointServiceMock is a mock implementation of the CheckpointService interface
+type CheckpointServiceMock struct {
+	mock.Mock
+}
+
+var _ CheckpointService = (*CheckpointServiceMock)(nil)
+
+func (m *CheckpointServiceMock) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := m.Called(ctx, checkpointLedger, initializeCursors)
+	return args.Error(0)
+}
+
+// NewCheckpointServiceMock creates a new instance of CheckpointServiceMock.
+func NewCheckpointServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *CheckpointServiceMock {
+	mock := &CheckpointServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// WasmIngestionServiceMock is a mock implementation of the WasmIngestionService interface
+type WasmIngestionServiceMock struct {
+	mock.Mock
+}
+
+var _ WasmIngestionService = (*WasmIngestionServiceMock)(nil)
+
+func (m *WasmIngestionServiceMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
+	args := m.Called(ctx, wasmHash, wasmCode)
+	return args.Error(0)
+}
+
+func (m *WasmIngestionServiceMock) PersistKnownWasms(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+// NewWasmIngestionServiceMock creates a new instance of WasmIngestionServiceMock.
+func NewWasmIngestionServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *WasmIngestionServiceMock {
+	mock := &WasmIngestionServiceMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })
@@ -259,6 +363,99 @@ func (m *HistoryArchiveMock) GetCheckpointManager() historyarchive.CheckpointMan
 func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	args := m.Called()
 	return args.Get(0).([]historyarchive.ArchiveStats)
+}
+
+// ContractValidatorMock is a mock implementation of the ContractValidator interface
+type ContractValidatorMock struct {
+	mock.Mock
+}
+
+var _ ContractValidator = (*ContractValidatorMock)(nil)
+
+func (m *ContractValidatorMock) ValidateFromContractCode(ctx context.Context, wasmCode []byte) (types.ContractType, error) {
+	args := m.Called(ctx, wasmCode)
+	return args.Get(0).(types.ContractType), args.Error(1)
+}
+
+func (m *ContractValidatorMock) Close(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+// NewContractValidatorMock creates a new instance of ContractValidatorMock.
+func NewContractValidatorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ContractValidatorMock {
+	mock := &ContractValidatorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// ProtocolValidatorMock is a mock implementation of the ProtocolValidator interface
+type ProtocolValidatorMock struct {
+	mock.Mock
+}
+
+var _ ProtocolValidator = (*ProtocolValidatorMock)(nil)
+
+func (m *ProtocolValidatorMock) ProtocolID() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *ProtocolValidatorMock) Validate(ctx context.Context, wasmCode []byte) (bool, error) {
+	args := m.Called(ctx, wasmCode)
+	return args.Bool(0), args.Error(1)
+}
+
+// NewProtocolValidatorMock creates a new instance of ProtocolValidatorMock.
+func NewProtocolValidatorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolValidatorMock {
+	mock := &ProtocolValidatorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// ChangeReaderMock is a mock implementation of the ChangeReader interface
+type ChangeReaderMock struct {
+	mock.Mock
+}
+
+var _ ingest.ChangeReader = (*ChangeReaderMock)(nil)
+
+func (m *ChangeReaderMock) Read() (ingest.Change, error) {
+	args := m.Called()
+	return args.Get(0).(ingest.Change), args.Error(1)
+}
+
+func (m *ChangeReaderMock) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+// NewChangeReaderMock creates a new instance of ChangeReaderMock.
+func NewChangeReaderMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ChangeReaderMock {
+	mock := &ChangeReaderMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
 }
 
 // ContractMetadataServiceMock is a mock implementation of ContractMetadataService
