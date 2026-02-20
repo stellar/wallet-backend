@@ -184,17 +184,22 @@ func (m *StateChangeModel) BatchInsert(
 	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
-	offerIDs := make([]*string, len(stateChanges))
 	signerAccountIDs := make([]*string, len(stateChanges))
 	spenderAccountIDs := make([]*string, len(stateChanges))
 	sponsoredAccountIDs := make([]*string, len(stateChanges))
 	sponsorAccountIDs := make([]*string, len(stateChanges))
 	deployerAccountIDs := make([]*string, len(stateChanges))
 	funderAccountIDs := make([]*string, len(stateChanges))
-	signerWeights := make([]*types.NullableJSONB, len(stateChanges))
-	thresholds := make([]*types.NullableJSONB, len(stateChanges))
-	trustlineLimits := make([]*types.NullableJSONB, len(stateChanges))
-	flags := make([]*types.NullableJSON, len(stateChanges))
+	claimableBalanceIDs := make([]*string, len(stateChanges))
+	liquidityPoolIDs := make([]*string, len(stateChanges))
+	sponsoredDataValues := make([]*string, len(stateChanges))
+	signerWeightOlds := make([]*int16, len(stateChanges))
+	signerWeightNews := make([]*int16, len(stateChanges))
+	thresholdOlds := make([]*int16, len(stateChanges))
+	thresholdNews := make([]*int16, len(stateChanges))
+	trustlineLimitOlds := make([]*string, len(stateChanges))
+	trustlineLimitNews := make([]*string, len(stateChanges))
+	flags := make([]*int16, len(stateChanges))
 	keyValues := make([]*types.NullableJSONB, len(stateChanges))
 
 	for i, sc := range stateChanges {
@@ -218,9 +223,6 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
 		}
-		if sc.OfferID.Valid {
-			offerIDs[i] = &sc.OfferID.String
-		}
 		if sc.SignerAccountID.Valid {
 			signerAccountIDs[i] = &sc.SignerAccountID.String
 		}
@@ -239,17 +241,35 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.FunderAccountID.Valid {
 			funderAccountIDs[i] = &sc.FunderAccountID.String
 		}
-		if sc.SignerWeights != nil {
-			signerWeights[i] = &sc.SignerWeights
+		if sc.ClaimableBalanceID.Valid {
+			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
 		}
-		if sc.Thresholds != nil {
-			thresholds[i] = &sc.Thresholds
+		if sc.LiquidityPoolID.Valid {
+			liquidityPoolIDs[i] = &sc.LiquidityPoolID.String
 		}
-		if sc.TrustlineLimit != nil {
-			trustlineLimits[i] = &sc.TrustlineLimit
+		if sc.SponsoredData.Valid {
+			sponsoredDataValues[i] = &sc.SponsoredData.String
 		}
-		if sc.Flags != nil {
-			flags[i] = &sc.Flags
+		if sc.SignerWeightOld.Valid {
+			signerWeightOlds[i] = &sc.SignerWeightOld.Int16
+		}
+		if sc.SignerWeightNew.Valid {
+			signerWeightNews[i] = &sc.SignerWeightNew.Int16
+		}
+		if sc.ThresholdOld.Valid {
+			thresholdOlds[i] = &sc.ThresholdOld.Int16
+		}
+		if sc.ThresholdNew.Valid {
+			thresholdNews[i] = &sc.ThresholdNew.Int16
+		}
+		if sc.TrustlineLimitOld.Valid {
+			trustlineLimitOlds[i] = &sc.TrustlineLimitOld.String
+		}
+		if sc.TrustlineLimitNew.Valid {
+			trustlineLimitNews[i] = &sc.TrustlineLimitNew.String
+		}
+		if sc.Flags.Valid {
+			flags[i] = &sc.Flags.Int16
 		}
 		if sc.KeyValue != nil {
 			keyValues[i] = &sc.KeyValue
@@ -271,32 +291,39 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($9::text[]) AS tx_hash,
 				UNNEST($10::text[]) AS token_id,
 				UNNEST($11::text[]) AS amount,
-				UNNEST($12::text[]) AS offer_id,
-				UNNEST($13::text[]) AS signer_account_id,
-				UNNEST($14::text[]) AS spender_account_id,
-				UNNEST($15::text[]) AS sponsored_account_id,
-				UNNEST($16::text[]) AS sponsor_account_id,
-				UNNEST($17::text[]) AS deployer_account_id,
-				UNNEST($18::text[]) AS funder_account_id,
-				UNNEST($19::jsonb[]) AS signer_weights,
-				UNNEST($20::jsonb[]) AS thresholds,
-				UNNEST($21::jsonb[]) AS trustline_limit,
-				UNNEST($22::jsonb[]) AS flags,
-				UNNEST($23::jsonb[]) AS key_value
+				UNNEST($12::text[]) AS signer_account_id,
+				UNNEST($13::text[]) AS spender_account_id,
+				UNNEST($14::text[]) AS sponsored_account_id,
+				UNNEST($15::text[]) AS sponsor_account_id,
+				UNNEST($16::text[]) AS deployer_account_id,
+				UNNEST($17::text[]) AS funder_account_id,
+				UNNEST($18::text[]) AS claimable_balance_id,
+				UNNEST($19::text[]) AS liquidity_pool_id,
+				UNNEST($20::text[]) AS sponsored_data,
+				UNNEST($21::smallint[]) AS signer_weight_old,
+				UNNEST($22::smallint[]) AS signer_weight_new,
+				UNNEST($23::smallint[]) AS threshold_old,
+				UNNEST($24::smallint[]) AS threshold_new,
+				UNNEST($25::text[]) AS trustline_limit_old,
+				UNNEST($26::text[]) AS trustline_limit_new,
+				UNNEST($27::smallint[]) AS flags,
+				UNNEST($28::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				offer_id, signer_account_id,
-				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, signer_weights, thresholds, trustline_limit, flags, key_value)
+				signer_account_id, spender_account_id, sponsored_account_id, sponsor_account_id,
+				deployer_account_id, funder_account_id, claimable_balance_id, liquidity_pool_id, sponsored_data,
+				signer_weight_old, signer_weight_new, threshold_old, threshold_new,
+				trustline_limit_old, trustline_limit_new, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
 				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
-				sc.offer_id, sc.signer_account_id,
-				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
-				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
+				sc.signer_account_id, sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
+				sc.deployer_account_id, sc.funder_account_id, sc.claimable_balance_id, sc.liquidity_pool_id, sc.sponsored_data,
+				sc.signer_weight_old, sc.signer_weight_new, sc.threshold_old, sc.threshold_new,
+				sc.trustline_limit_old, sc.trustline_limit_new, sc.flags, sc.key_value
 			FROM input_data sc
 			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
@@ -318,16 +345,21 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(txHashes),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
-		pq.Array(offerIDs),
 		pq.Array(signerAccountIDs),
 		pq.Array(spenderAccountIDs),
 		pq.Array(sponsoredAccountIDs),
 		pq.Array(sponsorAccountIDs),
 		pq.Array(deployerAccountIDs),
 		pq.Array(funderAccountIDs),
-		pq.Array(signerWeights),
-		pq.Array(thresholds),
-		pq.Array(trustlineLimits),
+		pq.Array(claimableBalanceIDs),
+		pq.Array(liquidityPoolIDs),
+		pq.Array(sponsoredDataValues),
+		pq.Array(signerWeightOlds),
+		pq.Array(signerWeightNews),
+		pq.Array(thresholdOlds),
+		pq.Array(thresholdNews),
+		pq.Array(trustlineLimitOlds),
+		pq.Array(trustlineLimitNews),
 		pq.Array(flags),
 		pq.Array(keyValues),
 	)
@@ -369,9 +401,11 @@ func (m *StateChangeModel) BatchCopy(
 		[]string{
 			"to_id", "state_change_order", "state_change_category", "state_change_reason",
 			"ledger_created_at", "ledger_number", "account_id", "operation_id", "tx_hash",
-			"token_id", "amount", "offer_id", "signer_account_id", "spender_account_id",
+			"token_id", "amount", "signer_account_id", "spender_account_id",
 			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"signer_weights", "thresholds", "trustline_limit", "flags", "key_value",
+			"claimable_balance_id", "liquidity_pool_id", "sponsored_data",
+			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
+			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
@@ -387,17 +421,22 @@ func (m *StateChangeModel) BatchCopy(
 				pgtype.Text{String: sc.TxHash, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
-				pgtypeTextFromNullString(sc.OfferID),
 				pgtypeTextFromNullString(sc.SignerAccountID),
 				pgtypeTextFromNullString(sc.SpenderAccountID),
 				pgtypeTextFromNullString(sc.SponsoredAccountID),
 				pgtypeTextFromNullString(sc.SponsorAccountID),
 				pgtypeTextFromNullString(sc.DeployerAccountID),
 				pgtypeTextFromNullString(sc.FunderAccountID),
-				jsonbFromMap(sc.SignerWeights),
-				jsonbFromMap(sc.Thresholds),
-				jsonbFromMap(sc.TrustlineLimit),
-				jsonbFromSlice(sc.Flags),
+				pgtypeTextFromNullString(sc.ClaimableBalanceID),
+				pgtypeTextFromNullString(sc.LiquidityPoolID),
+				pgtypeTextFromNullString(sc.SponsoredData),
+				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
+				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
+				pgtypeInt2FromNullInt16(sc.ThresholdOld),
+				pgtypeInt2FromNullInt16(sc.ThresholdNew),
+				pgtypeTextFromNullString(sc.TrustlineLimitOld),
+				pgtypeTextFromNullString(sc.TrustlineLimitNew),
+				pgtypeInt2FromNullInt16(sc.Flags),
 				jsonbFromMap(sc.KeyValue),
 			}, nil
 		}),
