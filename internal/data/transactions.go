@@ -212,13 +212,24 @@ func (m *TransactionModel) BatchInsert(
 		isFeeBumps[i] = t.IsFeeBump
 	}
 
-	// 2. Flatten the stellarAddressesByToID into parallel slices
+	// 2. Flatten the stellarAddressesByToID into parallel slices, converting to BYTEA
 	var txToIDs []int64
-	var stellarAddresses []string
+	var stellarAddressBytes [][]byte
 	for toID, addresses := range stellarAddressesByToID {
 		for address := range addresses.Iter() {
 			txToIDs = append(txToIDs, toID)
-			stellarAddresses = append(stellarAddresses, address)
+			addrBytes, err := types.AddressBytea(address).Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
+			}
+			if addrBytes == nil {
+				return nil, fmt.Errorf("converting address %s to bytes: got nil value", address)
+			}
+			addrByteSlice, ok := addrBytes.([]byte)
+			if !ok {
+				return nil, fmt.Errorf("converting address %s to bytes: unexpected type %T", address, addrBytes)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrByteSlice)
 		}
 	}
 
@@ -256,7 +267,7 @@ func (m *TransactionModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($10::bigint[]) AS tx_to_id,
-				UNNEST($11::text[]) AS account_id
+				UNNEST($11::bytea[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -278,7 +289,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(isFeeBumps),
 		pq.Array(txToIDs),
-		pq.Array(stellarAddresses),
+		pq.Array(stellarAddressBytes),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
@@ -354,7 +365,11 @@ func (m *TransactionModel) BatchCopy(
 		for toID, addresses := range stellarAddressesByToID {
 			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{toIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				addrBytes, err := types.AddressBytea(addr).Value()
+				if err != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				}
+				taRows = append(taRows, []any{toIDPgtype, addrBytes})
 			}
 		}
 

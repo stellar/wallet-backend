@@ -30,7 +30,7 @@ CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, operation_id)
 );
