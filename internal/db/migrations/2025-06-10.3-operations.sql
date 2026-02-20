@@ -26,7 +26,6 @@ CREATE TABLE operations (
 );
 
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
-CREATE INDEX idx_operations_operation_type ON operations(operation_type);
 
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
@@ -35,6 +34,8 @@ CREATE TABLE operations_accounts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, operation_id)
 );
+
+CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
 
 -- +migrate Down
 
