@@ -372,7 +372,7 @@ func DecodeBitmaskToFlags(bitmask int16) []string {
 //
 // FIELD USAGE BY CATEGORY:
 // - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, DataName
+// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, SponsoredData
 // - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - Threshold changes: ThresholdOld, ThresholdNew
 // - Flag changes: Flags (bitmask)
