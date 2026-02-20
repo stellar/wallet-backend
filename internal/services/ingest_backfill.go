@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -172,28 +174,29 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	}
 
 	backfillBatches := m.splitGapsIntoBatches(gaps)
+
+	// Create progressive recompressor for historical mode.
+	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
+	var recompressor *progressiveRecompressor
+	if mode.isHistorical() {
+		tables := []string{
+			"transactions", "transactions_accounts", "operations",
+			"operations_accounts", "state_changes",
+		}
+		recompressor = newProgressiveRecompressor(ctx, m.models.DB.PgxPool(), tables, len(backfillBatches))
+	}
+
 	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, mode, backfillBatches)
+	results := m.processBackfillBatchesParallel(ctx, mode, backfillBatches, recompressor)
 	duration := time.Since(startTime)
 
 	numFailedBatches := analyzeBatchResults(ctx, results)
 
-	// Compress backfilled chunks for historical mode (no batches failed)
-	if mode.isHistorical() && numFailedBatches == 0 {
-		var minTime, maxTime time.Time
-		for _, result := range results {
-			if result.Error == nil {
-				if minTime.IsZero() || result.StartTime.Before(minTime) {
-					minTime = result.StartTime
-				}
-				if result.EndTime.After(maxTime) {
-					maxTime = result.EndTime
-				}
-			}
-		}
-		if !minTime.IsZero() {
-			m.recompressBackfilledChunks(ctx, minTime, maxTime)
-		}
+	// Wait for progressive compression to finish (historical mode only).
+	// Compression proceeds even if some batches failed — already-compressed
+	// chunks contain valid data and compress_chunk is idempotent.
+	if recompressor != nil {
+		recompressor.Wait()
 	}
 
 	// Update latest ledger cursor and process catchup data for catchup mode
@@ -331,15 +334,18 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 }
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
-// For historical mode, direct compress handles compression during COPY; a single recompression
-// pass runs after all batches complete (in startBackfilling).
-func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode BackfillMode, batches []BackfillBatch) []BackfillResult {
+// For historical mode, data is inserted uncompressed; the optional progressive compressor
+// compresses chunks via compress_chunk() as contiguous batches complete.
+func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode BackfillMode, batches []BackfillBatch, recompressor *progressiveRecompressor) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
 		group.Submit(func() {
 			results[i] = m.processSingleBatch(ctx, mode, batch, i, len(batches))
+			if recompressor != nil && results[i].Error == nil {
+				recompressor.MarkDone(i, results[i].StartTime, results[i].EndTime)
+			}
 		})
 	}
 
@@ -410,8 +416,7 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 
 // flushBatchBufferWithRetry persists buffered data to the database within a transaction.
 // If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-// If directCompress is true, enables TimescaleDB direct compress for COPY operations.
-func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges, directCompress bool) error {
+func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges) error {
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -421,17 +426,6 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			if directCompress {
-				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy = on"); err != nil {
-					return fmt.Errorf("enabling direct compress: %w", err)
-				}
-				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy_sort_batches = off"); err != nil {
-					return fmt.Errorf("disabling direct compress sort batches")
-				}
-				if _, err := dbTx.Exec(ctx, "SET LOCAL timescaledb.enable_direct_compress_copy_client_sorted = on"); err != nil {
-					return fmt.Errorf("enabling direct compress client sorted: %w", err)
-				}
-			}
 			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
 			if err != nil {
 				return fmt.Errorf("filtering participant data: %w", err)
@@ -540,7 +534,7 @@ func (m *ingestService) processLedgersInBatch(
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges, mode.isHistorical()); err != nil {
+			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges); err != nil {
 				return ledgersProcessed, batchChanges, startTime, endTime, err
 			}
 			batchBuffer.Clear()
@@ -554,7 +548,7 @@ func (m *ingestService) processLedgersInBatch(
 		if mode.isHistorical() {
 			cursorUpdate = &batch.StartLedger
 		}
-		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges, mode.isHistorical()); err != nil {
+		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges); err != nil {
 			return ledgersProcessed, batchChanges, startTime, endTime, err
 		}
 	} else if mode.isHistorical() {
@@ -629,39 +623,116 @@ func (m *ingestService) processBatchChanges(
 	return nil
 }
 
-// recompressBackfilledChunks recompresses already-compressed chunks overlapping the backfill range.
-// Direct compress produces compressed chunks during COPY; recompression optimizes compression ratios.
-// Tables are compressed sequentially to avoid CPU spikes; chunks within each table also stay sequential to avoid OOM.
-// Skips chunks where range_end >= NOW() to avoid compressing active live ingestion chunks.
-func (m *ingestService) recompressBackfilledChunks(ctx context.Context, startTime, endTime time.Time) {
-	tables := []string{"transactions", "transactions_accounts", "operations", "operations_accounts", "state_changes"}
+// progressiveRecompressor compresses uncompressed TimescaleDB chunks as they become safe during backfill.
+// Tracks batch completion via a watermark to determine when chunks are fully written.
+type progressiveRecompressor struct {
+	pool   *pgxpool.Pool
+	tables []string
+	ctx    context.Context
 
-	tableCounts := make([]int, len(tables))
+	mu           sync.Mutex
+	completed    []bool
+	endTimes     []time.Time
+	watermarkIdx int       // index of highest contiguous completed batch (-1 = none)
+	globalStart  time.Time // lower bound for chunk queries (batch 0's StartTime)
+	globalEnd    time.Time // upper bound for verification (max EndTime across completed batches)
 
-	for i, table := range tables {
-		tableCounts[i] = m.compressTableChunks(ctx, table, startTime, endTime)
-	}
-
-	totalCompressed := 0
-	for _, count := range tableCounts {
-		totalCompressed += count
-	}
-	log.Ctx(ctx).Infof("Recompressed %d total chunks for time range [%s - %s]",
-		totalCompressed, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	triggerCh chan time.Time // safeEnd for recompression window
+	done      chan struct{}
 }
 
-// compressTableChunks recompresses already-compressed chunks for a single hypertable.
-// Direct compress produces compressed chunks during COPY; this pass optimizes compression ratios.
-// Chunks are recompressed sequentially within the table to avoid OOM errors.
-func (m *ingestService) compressTableChunks(ctx context.Context, table string, startTime, endTime time.Time) int {
-	rows, err := m.models.DB.PgxPool().Query(ctx,
-		`SELECT chunk_schema || '.' || chunk_name FROM timescaledb_information.chunks
-		 WHERE hypertable_name = $1 AND is_compressed
-		   AND range_start <= $2::timestamptz AND range_end >= $3::timestamptz
-		   AND range_end < NOW()`,
-		table, endTime, startTime)
+// newProgressiveRecompressor creates a compressor that progressively compresses uncompressed chunks
+// as contiguous batches complete. Starts a background goroutine for compression work.
+func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables []string, totalBatches int) *progressiveRecompressor {
+	r := &progressiveRecompressor{
+		pool:         pool,
+		tables:       tables,
+		ctx:          ctx,
+		completed:    make([]bool, totalBatches),
+		endTimes:     make([]time.Time, totalBatches),
+		watermarkIdx: -1,
+		triggerCh:    make(chan time.Time, totalBatches),
+		done:         make(chan struct{}),
+	}
+	go r.runCompression()
+	return r
+}
+
+// MarkDone records a batch as complete and advances the watermark if possible.
+// If the watermark advances, triggers recompression of chunks in the safe window.
+func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.completed[batchIdx] = true
+	r.endTimes[batchIdx] = endTime
+
+	// Record global start from batch 0 (earliest time boundary for queries)
+	if batchIdx == 0 {
+		r.globalStart = startTime
+	}
+
+	// Track the maximum EndTime across all completed batches for verification scope
+	if endTime.After(r.globalEnd) {
+		r.globalEnd = endTime
+	}
+
+	// Advance watermark past contiguous completed batches
+	oldWatermark := r.watermarkIdx
+	for r.watermarkIdx+1 < len(r.completed) && r.completed[r.watermarkIdx+1] {
+		r.watermarkIdx++
+	}
+
+	// Trigger recompression if watermark advanced
+	if r.watermarkIdx > oldWatermark {
+		r.triggerCh <- r.endTimes[r.watermarkIdx]
+	}
+}
+
+// Wait closes the trigger channel and waits for background compression to finish.
+func (r *progressiveRecompressor) Wait() {
+	close(r.triggerCh)
+	<-r.done
+}
+
+// runCompression processes compression triggers in the background.
+// For each safe window, queries and compresses uncompressed chunks per table.
+// After all windows, runs verification to catch any missed chunks (including
+// trailing boundary chunks) scoped to [globalStart, globalEnd] to avoid
+// touching chunks compressed by TimescaleDB policy from live ingestion.
+func (r *progressiveRecompressor) runCompression() {
+	defer close(r.done)
+
+	totalCompressed := 0
+	for safeEnd := range r.triggerCh {
+		for _, table := range r.tables {
+			count := r.compressTableChunks(table, safeEnd)
+			totalCompressed += count
+		}
+	}
+
+	// Final verification: overlap query catches trailing boundary chunk + any missed chunks.
+	// Scoped to [globalStart, globalEnd] — the actual backfill range — to avoid touching
+	// chunks compressed by TimescaleDB policy from live ingestion.
+	totalCompressed += r.verifyAllChunksCompressed()
+
+	log.Ctx(r.ctx).Infof("Progressive compression complete: %d total chunks compressed", totalCompressed)
+}
+
+// compressTableChunks compresses uncompressed chunks for a single table within the safe window.
+// Queries chunks where range_end falls within (globalStart, safeEnd] to catch the leading
+// boundary chunk that overlaps globalStart.
+func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time.Time) int {
+	rows, err := r.pool.Query(r.ctx,
+		`SELECT c.chunk_schema || '.' || c.chunk_name
+		 FROM timescaledb_information.chunks c
+		 WHERE c.hypertable_name = $1
+		   AND NOT c.is_compressed
+		   AND c.range_end <= $2::timestamptz
+		   AND c.range_end > $3::timestamptz`,
+		table, safeEnd, r.globalStart)
 	if err != nil {
-		log.Ctx(ctx).Warnf("Failed to get chunks for %s: %v", table, err)
+		log.Ctx(r.ctx).Warnf("Failed to get chunks for %s: %v", table, err)
 		return 0
 	}
 
@@ -676,23 +747,88 @@ func (m *ingestService) compressTableChunks(ctx context.Context, table string, s
 	rows.Close()
 
 	compressed := 0
-	for i, chunk := range chunks {
+	for _, chunk := range chunks {
 		select {
-		case <-ctx.Done():
-			log.Ctx(ctx).Warnf("Recompression cancelled for %s after %d chunks", table, compressed)
+		case <-r.ctx.Done():
+			log.Ctx(r.ctx).Warnf("Compression cancelled for %s after %d chunks", table, compressed)
 			return compressed
 		default:
 		}
 
-		_, err := m.models.DB.PgxPool().Exec(ctx,
-			`CALL _timescaledb_functions.rebuild_columnstore($1::regclass)`, chunk)
+		_, err := r.pool.Exec(r.ctx, `SELECT compress_chunk($1::regclass)`, chunk)
 		if err != nil {
-			log.Ctx(ctx).Warnf("Failed to recompress chunk %s: %v", chunk, err)
+			log.Ctx(r.ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
 			continue
 		}
 		compressed++
-		log.Ctx(ctx).Debugf("Recompressed chunk %d/%d for %s: %s", i+1, len(chunks), table, chunk)
+		log.Ctx(r.ctx).Debugf("Compressed chunk for %s: %s", table, chunk)
 	}
-	log.Ctx(ctx).Infof("Recompressed %d chunks for table %s", len(chunks), table)
+
+	if compressed > 0 {
+		log.Ctx(r.ctx).Infof("Compressed %d chunks for table %s (window end: %s)",
+			compressed, table, safeEnd.Format(time.RFC3339))
+	}
+
 	return compressed
+}
+
+// verifyAllChunksCompressed catches any chunks missed by progressive windows.
+// Uses overlap logic (range_end > globalStart AND range_start < globalEnd) to find
+// uncompressed chunks in the backfill range, including trailing boundary chunks.
+func (r *progressiveRecompressor) verifyAllChunksCompressed() int {
+	r.mu.Lock()
+	globalStart := r.globalStart
+	globalEnd := r.globalEnd
+	r.mu.Unlock()
+
+	if globalStart.IsZero() || globalEnd.IsZero() {
+		return 0
+	}
+
+	totalMissed := 0
+	for _, table := range r.tables {
+		rows, err := r.pool.Query(r.ctx,
+			`SELECT c.chunk_schema || '.' || c.chunk_name
+			 FROM timescaledb_information.chunks c
+			 WHERE c.hypertable_name = $1
+			   AND NOT c.is_compressed
+			   AND c.range_end > $2::timestamptz
+			   AND c.range_start < $3::timestamptz`,
+			table, globalStart, globalEnd)
+		if err != nil {
+			log.Ctx(r.ctx).Warnf("Verification query failed for %s: %v", table, err)
+			continue
+		}
+
+		var chunks []string
+		for rows.Next() {
+			var chunk string
+			if err := rows.Scan(&chunk); err != nil {
+				continue
+			}
+			chunks = append(chunks, chunk)
+		}
+		rows.Close()
+
+		for _, chunk := range chunks {
+			select {
+			case <-r.ctx.Done():
+				return totalMissed
+			default:
+			}
+
+			log.Ctx(r.ctx).Warnf("Verification found missed chunk %s for table %s", chunk, table)
+			_, err := r.pool.Exec(r.ctx, `SELECT compress_chunk($1::regclass)`, chunk)
+			if err != nil {
+				log.Ctx(r.ctx).Warnf("Failed to compress missed chunk %s: %v", chunk, err)
+				continue
+			}
+			totalMissed++
+		}
+	}
+
+	if totalMissed > 0 {
+		log.Ctx(r.ctx).Infof("Verification compressed %d missed chunks", totalMissed)
+	}
+	return totalMissed
 }
