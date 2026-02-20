@@ -286,9 +286,21 @@ func (r *signerThresholdsChangeResolver) Transaction(ctx context.Context, obj *t
 // Thresholds is the resolver for the thresholds field.
 // Formats the old/new threshold values as a JSON object for backward compatibility.
 func (r *signerThresholdsChangeResolver) Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error) {
-	// Format as {"old": "X", "new": "Y"} for backward compatibility with JSONB format
-	// Values are stored as ints but returned as quoted strings in JSON (0-255 range)
-	return fmt.Sprintf(`{"old": "%d", "new": "%d"}`, obj.ThresholdOld.Int16, obj.ThresholdNew.Int16), nil
+	// Format as {"old": "X", "new": "Y"} for backward compatibility with JSONB format.
+	// Values are stored as ints but returned as quoted strings in JSON (0-255 range).
+	// When a threshold is not set (invalid), return JSON null to avoid treating it as "0".
+	var oldVal, newVal string
+	if obj.ThresholdOld.Valid {
+		oldVal = fmt.Sprintf(`"%d"`, obj.ThresholdOld.Int16)
+	} else {
+		oldVal = "null"
+	}
+	if obj.ThresholdNew.Valid {
+		newVal = fmt.Sprintf(`"%d"`, obj.ThresholdNew.Int16)
+	} else {
+		newVal = "null"
+	}
+	return fmt.Sprintf(`{"old": %s, "new": %s}`, oldVal, newVal), nil
 }
 
 // Type is the resolver for the type field.
