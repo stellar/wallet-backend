@@ -163,7 +163,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		// TxHash removed - lookup via to_id instead
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
@@ -203,7 +202,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		// TxHash removed - lookup via to_id instead
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{
@@ -248,7 +246,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		// TxHash removed - lookup via to_id instead
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
@@ -292,7 +289,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
 		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
-		// TxHash removed - lookup via to_id instead
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[1].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)
