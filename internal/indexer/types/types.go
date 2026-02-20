@@ -320,7 +320,6 @@ const (
 )
 
 // flagNameToBit maps flag names to their bitmask values.
-// Includes both correct spelling and legacy typo for backward compatibility.
 var flagNameToBit = map[string]int16{
 	"authorized":                         FlagBitAuthorized,
 	"auth_required":                      FlagBitAuthRequired,
