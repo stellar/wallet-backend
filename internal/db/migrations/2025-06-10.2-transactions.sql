@@ -16,7 +16,8 @@ CREATE TABLE transactions (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC, to_id DESC'
+    tsdb.orderby = 'ledger_created_at DESC, to_id DESC',
+    tsdb.sparse_index = 'bloom(hash)'
 );
 
 SELECT enable_chunk_skipping('transactions', 'to_id');
