@@ -237,21 +237,21 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
-	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
 	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
+		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.operation_id, '-', state_changes.state_change_order) AS state_change_id
 		FROM operations
 		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
+		WHERE (state_changes.to_id, state_changes.operation_id, state_changes.state_change_order) IN (%s)
 		ORDER BY operations.ledger_created_at DESC
 	`, columns, strings.Join(tuples, ", "))
 

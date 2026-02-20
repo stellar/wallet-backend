@@ -111,7 +111,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	}
 
 	var stateChanges []types.StateChange
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
