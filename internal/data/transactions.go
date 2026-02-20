@@ -222,7 +222,14 @@ func (m *TransactionModel) BatchInsert(
 			if err != nil {
 				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
 			}
-			stellarAddressBytes = append(stellarAddressBytes, addrBytes.([]byte))
+			if addrBytes == nil {
+				return nil, fmt.Errorf("converting address %s to bytes: got nil value", address)
+			}
+			addrByteSlice, ok := addrBytes.([]byte)
+			if !ok {
+				return nil, fmt.Errorf("converting address %s to bytes: unexpected type %T", address, addrBytes)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrByteSlice)
 		}
 	}
 
