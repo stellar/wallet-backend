@@ -110,7 +110,6 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 }
 
 // BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
-// BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
 func (m *AccountModel) BatchGetByIDs(ctx context.Context, dbTx pgx.Tx, accountIDs []string) ([]string, error) {
 	if len(accountIDs) == 0 {
 		return []string{}, nil
