@@ -241,8 +241,20 @@ func (r *signerChangeResolver) SignerWeights(ctx context.Context, obj *types.Sig
 	if !obj.SignerWeightOld.Valid && !obj.SignerWeightNew.Valid {
 		return nil, nil
 	}
-	// Format as {"old": X, "new": Y} for backward compatibility with JSONB format
-	result := fmt.Sprintf(`{"old": %d, "new": %d}`, obj.SignerWeightOld.Int16, obj.SignerWeightNew.Int16)
+	// Format as {"old": X|null, "new": Y|null} for backward compatibility with JSONB format,
+	// while preserving null for invalid values to avoid confusing them with a valid weight of 0.
+	var oldStr, newStr string
+	if obj.SignerWeightOld.Valid {
+		oldStr = fmt.Sprintf("%d", obj.SignerWeightOld.Int16)
+	} else {
+		oldStr = "null"
+	}
+	if obj.SignerWeightNew.Valid {
+		newStr = fmt.Sprintf("%d", obj.SignerWeightNew.Int16)
+	} else {
+		newStr = "null"
+	}
+	result := fmt.Sprintf(`{"old": %s, "new": %s}`, oldStr, newStr)
 	return &result, nil
 }
 
