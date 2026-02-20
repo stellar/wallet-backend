@@ -1395,7 +1395,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			wantStateChangeCount: 1,
 			verifyParticipants: func(t *testing.T, filtered *filteredIngestionData) {
 				// Verify ALL participants are preserved (not just registered ones)
-				participants := filtered.txParticipants["tx_hash_1"]
+				participants := filtered.txParticipants[int64(1)]
 				assert.Equal(t, 2, participants.Cardinality())
 				assert.True(t, participants.Contains("GABC1111111111111111111111111111111111111111111111111"))
 				assert.True(t, participants.Contains("GXYZ9999999999999999999999999999999999999999999999999"))

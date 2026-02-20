@@ -55,7 +55,7 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 	query := `
 		SELECT COUNT(DISTINCT t.hash)
 		FROM transactions t
-		INNER JOIN transactions_accounts ta ON t.hash = ta.tx_hash
+		INNER JOIN transactions_accounts ta ON t.to_id = ta.tx_to_id
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
@@ -113,7 +113,7 @@ func (s *SharedContainers) GetTransactionAccountLinkCount(ctx context.Context, a
 	query := `
 		SELECT COUNT(*)
 		FROM transactions_accounts ta
-		INNER JOIN transactions t ON ta.tx_hash = t.hash
+		INNER JOIN transactions t ON ta.tx_to_id = t.to_id
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`

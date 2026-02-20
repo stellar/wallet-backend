@@ -71,7 +71,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				TxHash:          txn.Hash,
-				OperationType:   "payment",
+				OperationType:   "PAYMENT",
 				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
 				ResultCode:      "op_success",
 				Successful:      true,
@@ -139,8 +139,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO transactions_accounts (tx_hash, account_id) VALUES ($1, $2)`,
-				txn.Hash, parentAccount.StellarAddress)
+				`INSERT INTO transactions_accounts (tx_to_id, account_id) VALUES ($1, $2)`,
+				txn.ToID, parentAccount.StellarAddress)
 			require.NoError(t, err)
 		}
 
