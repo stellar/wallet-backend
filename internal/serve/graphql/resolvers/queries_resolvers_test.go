@@ -32,10 +32,10 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "feeCharged", "resultCode", "metaXdr", "ledgerNumber", "ledgerCreatedAt", "isFeeBump"})
-		tx, err := resolver.TransactionByHash(ctx, "tx1")
+		tx, err := resolver.TransactionByHash(ctx, testTxHash1)
 
 		require.NoError(t, err)
-		assert.Equal(t, "tx1", tx.Hash)
+		assert.Equal(t, testTxHash1, tx.Hash.String())
 		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
 		require.NotNil(t, tx.EnvelopeXDR)
 		assert.Equal(t, "envelope1", *tx.EnvelopeXDR)
@@ -86,10 +86,10 @@ func TestQueryResolver_Transactions(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
-		assert.Equal(t, "tx1", transactions.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", transactions.Edges[1].Node.Hash)
-		assert.Equal(t, "tx3", transactions.Edges[2].Node.Hash)
-		assert.Equal(t, "tx4", transactions.Edges[3].Node.Hash)
+		assert.Equal(t, testTxHash1, transactions.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, transactions.Edges[1].Node.Hash.String())
+		assert.Equal(t, testTxHash3, transactions.Edges[2].Node.Hash.String())
+		assert.Equal(t, testTxHash4, transactions.Edges[3].Node.Hash.String())
 	})
 
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
@@ -98,8 +98,8 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, txs.Edges[1].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 
@@ -110,7 +110,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -121,7 +121,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash4, txs.Edges[0].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 	})
@@ -132,8 +132,8 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -144,7 +144,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -154,7 +154,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 	})

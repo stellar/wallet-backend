@@ -114,7 +114,7 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 //
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash
+	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
 	}
