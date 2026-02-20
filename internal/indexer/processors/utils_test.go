@@ -109,7 +109,6 @@ func Test_ConvertOperation(t *testing.T) {
 		Successful:      true,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		LedgerNumber:    4873,
-		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 	}
 	assert.Equal(t, wantDataOp, gotDataOp)
 }

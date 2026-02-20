@@ -621,28 +621,31 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test transactions
+	// Create test transactions with specific ToIDs
+	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+			('tx1', 4096, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			('tx2', 8192, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			('tx3', 12288, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
 	`, now)
 	require.NoError(t, err)
 
-	// Create test operations
+	// Create test operations (IDs must be in TOID range for each transaction)
+	// tx1 (to_id=4096): ops 4097, 4098
+	// tx2 (to_id=8192): op 8193
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
-			(1, 'tx1', 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
-			(2, 'tx2', 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
-			(3, 'tx1', 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
+			(4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, $1),
+			(8193, 'CREATE_ACCOUNT', 'xdr2', 'op_success', true, 2, $1),
+			(4098, 'PAYMENT', 'xdr3', 'op_success', true, 3, $1)
 	`, now)
 	require.NoError(t, err)
 
-	// Test BatchGetByOperationID
-	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{1, 2, 3}, "")
+	// Test BatchGetByOperationIDs
+	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193, 4098}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -651,9 +654,9 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	for _, tx := range transactions {
 		operationIDsFound[tx.OperationID] = tx.Hash
 	}
-	assert.Equal(t, "tx1", operationIDsFound[1])
-	assert.Equal(t, "tx2", operationIDsFound[2])
-	assert.Equal(t, "tx1", operationIDsFound[3])
+	assert.Equal(t, "tx1", operationIDsFound[4097])
+	assert.Equal(t, "tx2", operationIDsFound[8193])
+	assert.Equal(t, "tx1", operationIDsFound[4098])
 }
 
 func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {

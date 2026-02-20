@@ -28,14 +28,14 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		TxHash:    obj.Hash,
+		ToID:      obj.ToID,
 		Columns:   strings.Join(dbColumns, ", "),
 		Limit:     &queryLimit,
 		Cursor:    params.Cursor,
 		SortOrder: params.SortOrder,
 	}
 
-	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
+	operations, err := loaders.OperationsByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
