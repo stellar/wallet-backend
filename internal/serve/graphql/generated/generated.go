@@ -164,7 +164,7 @@ type ComplexityRoot struct {
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		OperationType   func(childComplexity int) int
-		OperationXDR    func(childComplexity int) int
+		OperationXdr    func(childComplexity int) int
 		ResultCode      func(childComplexity int) int
 		StateChanges    func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		Successful      func(childComplexity int) int
@@ -395,6 +395,8 @@ type MutationResolver interface {
 	CreateFeeBumpTransaction(ctx context.Context, input CreateFeeBumpTransactionInput) (*CreateFeeBumpTransactionPayload, error)
 }
 type OperationResolver interface {
+	OperationXdr(ctx context.Context, obj *types.Operation) (string, error)
+
 	Transaction(ctx context.Context, obj *types.Operation) (*types.Transaction, error)
 	Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -1009,11 +1011,11 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		return e.complexity.Operation.OperationType(childComplexity), true
 
 	case "Operation.operationXdr":
-		if e.complexity.Operation.OperationXDR == nil {
+		if e.complexity.Operation.OperationXdr == nil {
 			break
 		}
 
-		return e.complexity.Operation.OperationXDR(childComplexity), true
+		return e.complexity.Operation.OperationXdr(childComplexity), true
 
 	case "Operation.resultCode":
 		if e.complexity.Operation.ResultCode == nil {
@@ -2316,7 +2318,7 @@ type CreateFeeBumpTransactionPayload {
 type Operation{
   id:              Int64!
   operationType:   OperationType!
-  operationXdr:    String!
+  operationXdr:    String! @goField(forceResolver: true)
   resultCode:      String!
   successful:      Boolean!
   ledgerNumber:    UInt32!
@@ -6822,7 +6824,7 @@ func (ec *executionContext) _Operation_operationXdr(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.OperationXDR, nil
+		return ec.resolvers.Operation().OperationXdr(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -6843,8 +6845,8 @@ func (ec *executionContext) fieldContext_Operation_operationXdr(_ context.Contex
 	fc = &graphql.FieldContext{
 		Object:     "Operation",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -17012,10 +17014,41 @@ func (ec *executionContext) _Operation(ctx context.Context, sel ast.SelectionSet
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "operationXdr":
-			out.Values[i] = ec._Operation_operationXdr(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Operation_operationXdr(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "resultCode":
 			out.Values[i] = ec._Operation_resultCode(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

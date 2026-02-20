@@ -15,6 +15,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// OperationXdr is the resolver for the operationXdr field.
+// Returns the operation XDR as a base64-encoded string.
+func (r *operationResolver) OperationXdr(ctx context.Context, obj *types.Operation) (string, error) {
+	return obj.OperationXDR.String(), nil
+}
+
 // Transaction is the resolver for the transaction field.
 // This is a field resolver - it resolves the "transaction" field on an Operation object
 // gqlgen calls this when a GraphQL query requests the transaction field on an Operation

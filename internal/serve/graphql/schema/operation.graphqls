@@ -3,7 +3,7 @@
 type Operation{
   id:              Int64!
   operationType:   OperationType!
-  operationXdr:    String!
+  operationXdr:    String! @goField(forceResolver: true)
   resultCode:      String!
   successful:      Boolean!
   ledgerNumber:    UInt32!
