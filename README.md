@@ -1385,7 +1385,6 @@ The following are **operator-configured internal dependencies**, not attack surf
 
 - **Stellar RPC node** — trusted backend connection configured by the operator
 - **PostgreSQL database** — trusted data store on the operator's infrastructure
-- **Redis** — trusted cache on the operator's infrastructure
 
 Wallet-backend's threat model **trusts its configured infrastructure**. Vulnerabilities that require an attacker to first compromise, intercept, or impersonate a trusted internal dependency (via MITM, DNS hijacking, server compromise, or similar) are **infrastructure compromise findings, not wallet-backend findings**. The prerequisite compromise is a more severe vulnerability than any downstream effect — report the infrastructure compromise to the appropriate project, not the downstream behavior to us.
 
@@ -1530,10 +1529,6 @@ We use multiple techniques — both automated and manual — to identify reports
 - **We reproduce every PoC.** If your exploit doesn't work when we run it, the report is invalid regardless of how well-written the narrative is.
 - **We validate every evidence artifact.** Response bodies are checked against our actual API schema. Transaction hashes are looked up. Terminal output is cross-referenced. Fabricated evidence is immediately identifiable.
 - **We read the source code too.** If your report's "analysis" misunderstands how a component actually works — a common hallmark of AI-generated reports — that will be apparent to us immediately.
-
-**We read every report.** Reports that show no evidence of manual analysis or dynamic testing will be closed immediately and will result in reduced reputation on the HackerOne platform.
-
-Security research is skilled, valuable work. Running a static analysis tool against a pre-production repository and submitting the output — regardless of how it is formatted or reworded — is not security research.
 
 ### Before You Submit
 
