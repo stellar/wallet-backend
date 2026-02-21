@@ -565,7 +565,7 @@ type StateChange struct {
 
 	// Nullable address fields (stored as BYTEA in database):
 	TokenID NullAddressBytea `json:"tokenId,omitempty" db:"token_id"`
-	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
+	Amount  sql.NullString   `json:"amount,omitempty" db:"amount"`
 
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
