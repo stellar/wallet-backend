@@ -239,6 +239,10 @@ func (m *StateChangeModel) BatchCopy(
 			if err != nil {
 				return nil, fmt.Errorf("converting funder_account_id: %w", err)
 			}
+			tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+			if err != nil {
+				return nil, fmt.Errorf("converting token_id: %w", err)
+			}
 
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
@@ -249,7 +253,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				accountBytes,
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				pgtypeTextFromNullString(sc.TokenID),
+				tokenBytes,
 				pgtypeTextFromNullString(sc.Amount),
 				signerBytes,
 				spenderBytes,
