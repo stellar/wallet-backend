@@ -563,8 +563,8 @@ type StateChange struct {
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 
-	// Nullable string fields:
-	TokenID sql.NullString `json:"tokenId,omitempty" db:"token_id"`
+	// Nullable address fields (stored as BYTEA in database):
+	TokenID NullAddressBytea `json:"tokenId,omitempty" db:"token_id"`
 	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
 
 	// Nullable address fields (stored as BYTEA in database):
