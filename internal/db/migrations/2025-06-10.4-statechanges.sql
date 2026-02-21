@@ -23,7 +23,7 @@ CREATE TABLE state_changes (
     ledger_number INTEGER NOT NULL,
     account_id BYTEA NOT NULL,
     operation_id BIGINT NOT NULL,
-    token_id TEXT,
+    token_id BYTEA,
     amount TEXT,
     signer_account_id BYTEA,
     spender_account_id BYTEA,

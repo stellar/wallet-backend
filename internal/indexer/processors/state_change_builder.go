@@ -124,7 +124,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 
 // WithToken sets the token ID using the contract address
 func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
-	b.base.TokenID = utils.SQLNullString(contractAddress)
+	b.base.TokenID = utils.NullAddressBytea(contractAddress)
 	return b
 }
 
@@ -190,7 +190,7 @@ func (b *StateChangeBuilder) generateSortKey() string {
 		b.base.StateChangeCategory,
 		reason,
 		b.base.AccountID,
-		b.base.TokenID.String,
+		b.base.TokenID.String(),
 		b.base.Amount.String,
 		b.base.SignerAccountID.String(),
 		b.base.SpenderAccountID.String(),

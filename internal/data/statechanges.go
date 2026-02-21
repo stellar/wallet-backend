@@ -186,7 +186,7 @@ func (m *StateChangeModel) BatchInsert(
 	ledgerNumbers := make([]int, len(stateChanges))
 	accountIDBytes := make([][]byte, len(stateChanges))
 	operationIDs := make([]int64, len(stateChanges))
-	tokenIDs := make([]*string, len(stateChanges))
+	tokenIDBytes := make([][]byte, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
 	signerAccountIDBytes := make([][]byte, len(stateChanges))
 	spenderAccountIDBytes := make([][]byte, len(stateChanges))
@@ -226,8 +226,9 @@ func (m *StateChangeModel) BatchInsert(
 			reason := string(*sc.StateChangeReason)
 			reasons[i] = &reason
 		}
-		if sc.TokenID.Valid {
-			tokenIDs[i] = &sc.TokenID.String
+		tokenIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.TokenID)
+		if err != nil {
+			return nil, fmt.Errorf("converting token_id: %w", err)
 		}
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
@@ -305,7 +306,7 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($6::integer[]) AS ledger_number,
 				UNNEST($7::bytea[]) AS account_id,
 				UNNEST($8::bigint[]) AS operation_id,
-				UNNEST($9::text[]) AS token_id,
+				UNNEST($9::bytea[]) AS token_id,
 				UNNEST($10::text[]) AS amount,
 				UNNEST($11::bytea[]) AS signer_account_id,
 				UNNEST($12::bytea[]) AS spender_account_id,
@@ -358,7 +359,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(accountIDBytes),
 		pq.Array(operationIDs),
-		pq.Array(tokenIDs),
+		pq.Array(tokenIDBytes),
 		pq.Array(amounts),
 		pq.Array(signerAccountIDBytes),
 		pq.Array(spenderAccountIDBytes),
@@ -456,6 +457,10 @@ func (m *StateChangeModel) BatchCopy(
 			if err != nil {
 				return nil, fmt.Errorf("converting funder_account_id: %w", err)
 			}
+			tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+			if err != nil {
+				return nil, fmt.Errorf("converting token_id: %w", err)
+			}
 
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
@@ -466,7 +471,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				accountBytes,
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				pgtypeTextFromNullString(sc.TokenID),
+				tokenBytes,
 				pgtypeTextFromNullString(sc.Amount),
 				signerBytes,
 				spenderBytes,
