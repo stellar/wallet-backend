@@ -7,6 +7,9 @@
 The wallet-backend serves as a backend service for Stellar wallet applications, providing transaction submission,
 account management, and payment tracking capabilities.
 
+> [!IMPORTANT]
+> **This software is in active pre-production development.** It has not been formally released and is not yet deployed to production. If you are a security researcher, please read the [Security](#security) section before submitting any vulnerability reports.
+
 ## Table of Contents
 
 - [Wallet-Backend](#wallet-backend)
@@ -18,6 +21,7 @@ account management, and payment tracking capabilities.
   - [Architecture](#architecture)
   - [Integration Tests Setup](#integration-tests-setup)
   - [Deployment](#deployment)
+  - [Security](#security)
 
 ## Overview
 
@@ -1356,3 +1360,195 @@ When a new release is published on GitHub, the workflow generates and uploads a 
 #### Pre-release
 
 When a pre-release is published on GitHub, the workflow generates and uploads a Docker image with the pre-release tag preceded by `rc-`, e.g. `rc-x.y.z`
+
+## Security
+
+This project participates in the [Stellar Bug Bounty Program](https://hackerone.com/stellar). We value the security research community and welcome responsible disclosure of **genuine security vulnerabilities**.
+
+However, please read the following carefully before submitting a report.
+
+### Policy Authority
+
+This security policy is the **authoritative eligibility and evaluation criteria** for all vulnerability reports against wallet-backend, operating within the framework of the [Stellar Bug Bounty Program](https://hackerone.com/stellar). The SDF program terms define the overall bounty structure; this document defines what constitutes a valid vulnerability in this specific project given its development status, architecture, and threat model. **Where this policy sets a higher bar than the general program terms (e.g., mandatory evidence requirements, pre-production status considerations), this policy governs.** Reports that cite general program terms to circumvent project-specific requirements will be evaluated under this policy.
+
+### Development Status
+
+Wallet-backend is **pre-production software under active development**. It has not been formally released, is not deployed to production environments serving real users, and its API surface, authentication mechanisms, and data handling are actively evolving.
+
+We are aware the codebase contains areas that are incomplete, in-progress, or not yet hardened. **These are not security vulnerabilities — they are items on our engineering roadmap.** Filing them as critical security findings does not make them critical security findings.
+
+### Threat Model and Attack Surface
+
+The wallet-backend's **external attack surface** consists of its HTTP API and GraphQL endpoints — these are the interfaces exposed to clients. Vulnerabilities must be exploitable through this external attack surface to qualify.
+
+The following are **operator-configured internal dependencies**, not attack surface:
+
+- **Stellar RPC node** — trusted backend connection configured by the operator
+- **PostgreSQL database** — trusted data store on the operator's infrastructure
+
+Wallet-backend's threat model **trusts its configured infrastructure**. Vulnerabilities that require an attacker to first compromise, intercept, or impersonate a trusted internal dependency (via MITM, DNS hijacking, server compromise, or similar) are **infrastructure compromise findings, not wallet-backend findings**. The prerequisite compromise is a more severe vulnerability than any downstream effect — report the infrastructure compromise to the appropriate project, not the downstream behavior to us.
+
+**This does not mean internal code is exempt from review.** If a flaw in how wallet-backend *uses* a trusted dependency (e.g., SQL injection in a query sent to PostgreSQL) allows an external attacker to exploit the dependency *through* wallet-backend's attack surface, that is a valid finding. The distinction is: does the attacker need to compromise infrastructure first, or can they exploit the vulnerability from the client side?
+
+### Mandatory Submission Requirements
+
+Every vulnerability report **must** include the following. Reports missing any of these will be closed without review, regardless of how the vulnerability is described.
+
+| # | Requirement | What We Need | Why |
+|---|---|---|---|
+| 1 | **Running instance** | Evidence that you deployed and tested **the specific vulnerability** against a running instance of wallet-backend (local Docker setup, etc.) — not just read the source code. Include the Git commit hash or Docker image tag you tested against. **The tested version must be current — specifically, `main` branch HEAD or a commit no older than 30 days at the time of submission. Reports against outdated versions for issues already fixed on `main` are not valid findings.** **Deploying the service and attaching the commit hash is not sufficient on its own — your PoC (Requirement #2) must execute against this running instance, and your request/response evidence (Requirement #3) must originate from it.** Instance evidence (commit hash, health check output) must correspond to the specific vulnerability test — identical instance artifacts reused verbatim across multiple unrelated reports without per-vulnerability testing evidence indicate a single deployment session, not per-vulnerability verification, and each report must stand on its own evidence. The instance must be configured using the **documented default or example configuration** (e.g., `.env.example`), with infrastructure dependencies running as described in the project's setup documentation. Instances deliberately misconfigured to make a vulnerability trivially exploitable (e.g., pointing internal service connections at attacker-controlled endpoints) demonstrate a misconfiguration, not a vulnerability. | Source code analysis alone cannot demonstrate exploitability. Static analysis findings are engineering work items, not vulnerability reports. |
+| 2 | **Working proof-of-concept** | Actual exploit code, scripts, or commands that reproduce the vulnerability **by interacting with the wallet-backend's external attack surface** (HTTP API, GraphQL endpoints) on a running instance. "This *could* allow an attacker to..." is not a PoC. Your PoC must use real values — submissions with placeholder URLs (e.g., `<wallet-backend>`), placeholder addresses (e.g., `GABC...`), or template variables will be treated as not having a PoC. **Proof-of-concepts that import internal packages directly, call unexported functions, mock internal dependencies, or reproduce a code pattern in isolation outside the application are demonstrations of language/library behavior, not application-level exploits.** If your PoC does not send requests to the wallet-backend service and receive responses from it, it is not a PoC against wallet-backend. **The PoC output must directly demonstrate the specific security impact claimed in the report** — a PoC that triggers an error response or unexpected behavior does not demonstrate fund loss, data breach, or authorization bypass unless the output itself evidences that impact. | If you cannot exploit it through the application's external interfaces, it is not yet a vulnerability in the application — it is a theoretical observation about a code pattern. |
+| 3 | **Real request/response evidence** | Actual HTTP requests and responses (with headers), transaction hashes, on-chain evidence, or terminal output from your testing. Responses must be complete and unedited — do not paraphrase, summarize, or truncate API responses. We validate response structures against the actual API schema. Screenshots or recordings of your terminal session are strongly encouraged. | This evidence can only come from dynamic testing. It cannot be generated from reading source code alone. |
+| 4 | **Impact on Stellar network or users** | A concrete explanation of how this vulnerability could cause fund loss, data breach, or network disruption — not a generic CWE impact description. | We need to understand the real-world impact specific to the Stellar ecosystem, not a textbook definition of the vulnerability class. |
+| 5 | **Verified impact, not assumed impact** | If you claim fund loss, show which account holds the funds and prove it. If you claim authorization bypass, demonstrate what the attacker can *actually do* with that authorization — not what they *could theoretically do* if the architecture were different. **If you claim denial of service, demonstrate that an external attacker (whether authenticated or unauthenticated) can trigger the condition through the application's external attack surface using a single or small number of requests — not by sending high volumes of traffic (which is a load/capacity concern, not a vulnerability), not by compromising upstream infrastructure, performing MITM attacks, or requiring prerequisite access that constitutes a more severe vulnerability than the DoS itself.** | Severity ratings based on unverified assumptions about what components hold or do will be downgraded. Read the [architectural context](#severity-must-reflect-actual-impact-not-assumed-impact) below. |
+
+**Reports that consist entirely of source code references, static analysis output, or theoretical narrative without the above artifacts will be closed immediately.**
+
+**Reports where severity is based on assumed rather than verified impact will be downgraded regardless of CVSS score.**
+
+### Report Deduplication
+
+Multiple reports stemming from the same root cause, code pattern, or vulnerability class will be treated as a single finding. The first report receives credit; subsequent reports for the same underlying issue — from any reporter — will be closed as duplicates regardless of which specific endpoint or parameter is affected.
+
+### Evidence Authenticity
+
+We verify evidence artifacts. Specifically:
+
+- **Response bodies are validated** against the actual API schema. Fabricated or hallucinated responses — including structurally plausible but incorrect field names, missing fields, or wrong data types — will be identified.
+- **Instance-specific details are required.** Include the Git commit hash or Docker image tag of the wallet-backend version you tested and the Stellar RPC health check output (`/health`) showing the network passphrase and latest ledger sequence. These details anchor your evidence to a real, running instance.
+- **Full unedited output is expected.** Provide complete terminal sessions, full HTTP response bodies (including headers), and unedited logs. Curated snippets that omit context are insufficient — real testing produces messy, complete output.
+- **We attempt to reproduce every finding.** Your reproduction steps must work when our team follows them. If your PoC only works in the abstract, it does not demonstrate a vulnerability.
+- **All evidence types are validated**, not just API responses. Memory profiling output, runtime statistics, system logs, and monitoring screenshots are cross-referenced against the behavior of the actual application under the described conditions. Evidence must be traceable to the running instance identified in Requirement #1 — generic demonstrations of standard library or runtime behavior (e.g., "Go's `io.ReadAll` allocates memory proportional to input size") are documentation of language behavior, not vulnerability evidence.
+
+**Fabricated evidence** — including AI-generated terminal output, invented API responses, or fictitious transaction hashes — will result in the report being closed immediately.
+
+### Severity Must Reflect Actual Impact, Not Assumed Impact
+
+A recurring issue with reports against this project is **severity inflation through assumed impact**: a reporter identifies a real code-level bug, then *assumes* what the affected component holds, does, or has access to, and classifies severity based on that assumption rather than verified fact.
+
+**Finding a bug is step one. Understanding what it actually lets you do is step two. We will downgrade reports where step two is based on assumptions rather than evidence.**
+
+This applies across the entire codebase. Before claiming Critical or High severity, you must verify:
+
+- **What does the affected component actually hold?** — Does the account, service, or key you're targeting actually hold funds, tokens, or sensitive data? Or are you assuming it does because it *sounds* important?
+- **What can the attacker actually do after exploitation?** — Not what they could theoretically do if the architecture were different, but what they can do given how the system is actually built.
+- **What is the blast radius?** — Does the vulnerability cross a real trust boundary, or does it affect an isolated, sandboxed, or ephemeral component?
+- **Is the check you bypassed the primary security boundary, or defense-in-depth?** — Some security checks in this codebase are secondary protections where the primary defense is an architectural constraint. **In pre-production software, the absence or incompleteness of defense-in-depth measures is an engineering work item, not a security vulnerability.** Severity is determined by what an attacker can actually achieve given the primary constraints that remain intact, not by the theoretical importance of a secondary check. **The existence of a security control in one code path does not make its absence in another code path a vulnerability — each code path has its own threat model and trust boundaries.** "Inconsistent application of security controls" is a code quality observation suitable for a [GitHub Issue](https://github.com/stellar/wallet-backend/issues), not a vulnerability report.
+
+**Example — Channel Accounts:** Channel accounts are a commonly misunderstood component. They are **ephemeral transaction multiplexers** created with 0 XLM (reserves are paid by the distribution account via Stellar's sponsorship mechanism), hold no tokens, have no trustlines, no contract roles, and are routinely created and destroyed. They exist solely to provide unique sequence numbers for parallel transaction submission. A report claiming "fund loss via channel account compromise" without verifying that channel accounts hold zero funds would be downgraded — the bug may be real, but the impact claim is not.
+
+This is one example among many. Each component in this system has its own security model, trust boundaries, and architectural constraints. **We deliberately do not enumerate all of them here** — it is the reporter's responsibility to investigate the components they claim are affected. If your report's impact assessment is based on assumptions about what a component holds or does, rather than verified analysis of the actual code and configuration, the severity will be downgraded regardless of how the report is presented.
+
+### What Qualifies as a Valid Security Report
+
+A valid security vulnerability report for this project demonstrates:
+
+All reports must also satisfy every item in [Mandatory Submission Requirements](#mandatory-submission-requirements). The categories below define the *types* of findings that are in scope — they do not exempt reports from evidence requirements. **All categories below are subject to the development-status and deployment-practices considerations described in this policy.** A finding that would not persist into a production deployment, or that would be mitigated by standard deployment practices (TLS termination, network segmentation, firewall rules, load balancer configuration, container resource limits), does not qualify under any category.
+
+- A **specific, exploitable attack** against the Stellar network or its users that would persist into a production deployment **and would not be mitigated by standard deployment practices** (TLS termination, network segmentation, firewall rules, load balancer configuration, container resource limits, or other infrastructure-layer controls that any reasonable production deployment would implement)
+- A flaw in **cryptographic operations, transaction signing, or key management** that leads to **demonstrated** fund loss
+- A **protocol-level vulnerability** in how the service interacts with Stellar Core, RPC, or the network **that results in demonstrable security impact** (e.g., transaction manipulation, unauthorized state changes, network disruption) — not protocol non-conformance or behavioral deviations without security consequences
+- An **authentication or authorization bypass** where the reporter has **verified what the bypassed protection actually guards** and demonstrated material impact
+- A vulnerability in a **dependency** with a working proof-of-concept exploit against *this* application specifically
+
+### What Does NOT Qualify
+
+The following will be closed as **Not Applicable** without further review:
+
+| Report Pattern | Why It's Not Valid |
+|---|---|
+| "Missing rate limiting on endpoint X" | Pre-production. Rate limiting is a deployment-time concern, not a code vulnerability. |
+| "No HTTPS / TLS not enforced" | Local development defaults. TLS termination is handled at the infrastructure layer. |
+| "Missing security headers (HSTS, CSP, X-Frame-Options)" | This is a backend API service. These headers are browser-security mechanisms irrelevant to API-only services. |
+| "Debug/verbose error messages expose internal details" | Pre-production. Intentional for development. Will be hardened before release. |
+| "Dependency X has known CVE-YYYY-NNNNN" | Unless you have a **working exploit** against this application, this is a dependency update ticket. |
+| "Input validation missing on field Y" | Unless you can demonstrate an actual exploit (SQLi, RCE, etc.), this is a code quality item. |
+| "CORS misconfiguration" | Intentional for development. |
+| "Sensitive data in logs" | Pre-production logging configuration. |
+| "No account lockout / brute force protection" | Deployment-level concern, not in scope for pre-production. |
+| Generic "Improper Access Control" with CWE-XXX citations | If your report reads like a CWE encyclopedia entry with the project name substituted in, it is not a vulnerability report. |
+| Vulnerabilities requiring prerequisite compromise of operator-controlled infrastructure (MITM on internal connections, compromised database/RPC/Redis, DNS hijacking of configured endpoints) | The prerequisite compromise is a more severe vulnerability than the downstream effect. Wallet-backend's threat model trusts its configured infrastructure. Report the infrastructure compromise to the appropriate project. See [Threat Model and Attack Surface](#threat-model-and-attack-surface). |
+| "Security control X is used at location A but not at location B" (inconsistent security pattern application) | Different code paths have different threat models. A security control applied to untrusted client input does not need to be applied identically to responses from trusted operator-configured infrastructure. Pattern-matching for the absence of a security function across a codebase is static analysis, not security research. Submit these observations as [GitHub Issues](https://github.com/stellar/wallet-backend/issues). |
+| "GraphQL introspection enabled" | Introspection is intentionally enabled for development. It exposes the API schema, which is public information for any API service. |
+| "GraphQL query depth/complexity/batch abuse" | Query complexity limits are a deployment-time concern (API gateway, WAF). These are DoS variants addressed at the infrastructure layer. |
+| "Application-level resource exhaustion via high request volume" (on any endpoint, authenticated or unauthenticated) | Demonstrating that sending many requests causes resource exhaustion is a load/capacity test, not a vulnerability. This applies to all endpoints (REST and GraphQL). A valid DoS finding must show that a single or small number of requests causes disproportionate resource consumption — not that sufficient traffic eventually overwhelms any service. |
+| Findings in test files, example configurations, CI/CD workflows, or documentation | Test fixtures, `.env.example`, CI/CD pipelines, and documentation contain intentional placeholder values and development-only configurations. These are not production code. |
+| "Secret keys stored as environment variables / plaintext configuration" | Environment variable-based secret management is the documented configuration method. Production secrets management (vaults, KMS, sealed secrets) is an operator responsibility at the infrastructure layer. |
+| "Theoretical timing or side-channel attacks" | Timing attacks over network connections are not practically exploitable due to network jitter. Reports must demonstrate actual secret extraction or authentication bypass through the external API, not theoretical timing differences measured locally. |
+| Vulnerabilities in unreachable code paths | If a code path is not reachable from the external attack surface (dead code, disabled features, unreferenced functions), it is not exploitable. Speculation about future code paths is not a current vulnerability. |
+| Intentional design decisions reported as "business logic vulnerabilities" (e.g., no KYC enforcement, no transaction amount caps, permissive account registration) | These are product design decisions, not security vulnerabilities. If the application behaves as designed and documented, the behavior is intentional. Disagreements with design choices are feature requests, not vulnerability reports — submit them as [GitHub Issues](https://github.com/stellar/wallet-backend/issues). |
+| Multi-step "attack chains" where intermediate steps are theoretical | If your finding requires chaining multiple steps, each step must be independently demonstrated with evidence against a running instance. A chain where one or more links are "an attacker could theoretically..." is a theoretical narrative, not a demonstrated exploit. The overall severity of a chain is limited by the weakest (least-demonstrated) link. |
+
+**This list is illustrative, not exhaustive.** We evaluate the substance of findings, not their presentation. Reports that avoid the specific wording of these exclusions while describing the same underlying non-issue will be treated identically to reports that match the wording exactly. Rephrasing "missing rate limiting" as "insufficient request throttling on the GraphQL endpoint" does not transform a deployment concern into a code vulnerability.
+
+**Resubmission of previously closed findings** — whether reworded, reframed, submitted under a different vulnerability class, or supplemented with additional evidence — will be closed without review. New evidence for a previously closed finding must be submitted as a comment on the original report thread, not as a new report. If you believe a closure was in error, respond on the original report thread rather than opening a new report.
+
+### HackerOne Core Ineligible Findings
+
+In addition to the above, the following are **ineligible per [HackerOne's own platform standards](https://docs.hackerone.com/en/articles/8494488-core-ineligible-findings)** and will be closed immediately:
+
+**Theoretical vulnerabilities requiring unlikely interaction or circumstances:**
+- Vulnerabilities only affecting users of unsupported or end-of-life browsers/OS
+- Broken link hijacking
+- Tabnabbing
+- Content spoofing and text injection issues
+- Attacks requiring physical access to a device
+- Self-exploitation (self-XSS, self-DoS) unless usable to attack a different account
+
+**Theoretical vulnerabilities with no real-world security impact:**
+- Clickjacking on pages with no sensitive actions
+- CSRF on forms with no sensitive actions (e.g., logout)
+- Permissive CORS configurations without demonstrated security impact
+- Software version disclosure / banner identification / descriptive error messages or headers (stack traces, application or server errors)
+- CSV injection
+- Open redirects without demonstrated additional security impact
+
+**Optional security hardening / missing best practices:**
+- SSL/TLS configuration opinions
+- Lack of SSL pinning
+- Lack of jailbreak detection in mobile apps
+- Cookie handling (missing HttpOnly/Secure flags)
+- Content-Security-Policy configuration opinions
+- Optional email security features (SPF/DKIM/DMARC)
+- Most issues related to rate limiting
+
+**Hazardous testing (never attempt without explicit authorization):**
+- Issues relating to excessive traffic/requests (DoS, DDoS)
+- Any issues where testing may affect availability of systems
+- Social engineering attacks (phishing, support request manipulation)
+- Attacks that are noisy to users or admins (spamming notifications or forms)
+
+### A Note on AI-Generated Reports
+
+We have observed a significant increase in reports generated by feeding this repository into automated scanning tools or AI assistants and submitting the output with minimal human review.
+
+**We want to be direct:** we evaluate reports based on demonstrated evidence, not narrative quality. A well-written report with no proof-of-concept is worth less than a poorly-written report with a working exploit. No amount of eloquent vulnerability description substitutes for the mandatory evidence artifacts listed in [Mandatory Submission Requirements](#mandatory-submission-requirements).
+
+We use multiple techniques — both automated and manual — to identify reports generated by AI tools, static analysis scanners, or LLM assistants. We will not enumerate our detection methods here. What we will say:
+
+- **We reproduce every PoC.** If your exploit doesn't work when we run it, the report is invalid regardless of how well-written the narrative is.
+- **We validate every evidence artifact.** Response bodies are checked against our actual API schema. Transaction hashes are looked up. Terminal output is cross-referenced. Fabricated evidence is immediately identifiable.
+- **We read the source code too.** If your report's "analysis" misunderstands how a component actually works — a common hallmark of AI-generated reports — that will be apparent to us immediately.
+
+### Before You Submit
+
+Ask yourself:
+
+1. **"Did I test this against a running instance?"** — If your entire report is based on reading source code, it does not meet our submission requirements.
+2. **"Can I actually exploit this through wallet-backend's API?"** — Not by importing internal packages, not by calling functions directly, not by standing up a mock server. Do you have a working proof-of-concept that sends requests to a running wallet-backend instance and demonstrates the vulnerability through its external interfaces?
+3. **"Did I verify my impact claims?"** — If you claim fund loss, did you check that the affected account actually holds funds? If you claim authorization bypass, did you verify what the attacker can *actually do* with that authorization? Assumed impact is not demonstrated impact.
+4. **"Would this survive to production, even with standard deployment practices?"** — Or would TLS termination, network segmentation, container resource limits, or other standard infrastructure controls mitigate this? A code pattern that is only exploitable in the absence of standard operational practices is a deployment hardening item, not a code vulnerability.
+5. **"Does this affect the Stellar network or its users?"** — A missing HTTP header on a pre-production API serving zero real users is not a network threat. An authorization bypass on an account holding zero tokens is not fund loss.
+
+If any answer gives you pause, please reconsider. Your time is valuable — and so is ours.
+
+### How to Report a Genuine Vulnerability
+
+If your finding meets all mandatory requirements above, we genuinely want to hear from you:
+
+1. Submit via [HackerOne](https://hackerone.com/stellar/reports/new)
+2. Include all **mandatory evidence artifacts** (running instance proof, PoC, request/response evidence, Stellar-specific impact)
+3. Provide clear reproduction steps that our team can follow
+4. Allow up to 90 days for the team to implement a fix before any public disclosure
+
+For general bugs, feature requests, and code quality improvements (which we welcome!), please use [GitHub Issues](https://github.com/stellar/wallet-backend/issues).
