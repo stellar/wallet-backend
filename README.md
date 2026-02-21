@@ -1379,15 +1379,26 @@ Every vulnerability report **must** include the following. Reports missing any o
 
 | # | Requirement | What We Need | Why |
 |---|---|---|---|
-| 1 | **Running instance** | Evidence that you deployed and tested against a running instance of wallet-backend (local Docker setup, etc.) — not just read the source code. | Source code analysis alone cannot demonstrate exploitability. Static analysis findings are engineering work items, not vulnerability reports. |
-| 2 | **Working proof-of-concept** | Actual exploit code, scripts, or commands that reproduce the vulnerability. "This *could* allow an attacker to..." is not a PoC. | If you cannot exploit it, it is not yet a vulnerability — it is a theoretical observation. |
-| 3 | **Real request/response evidence** | Actual HTTP requests and responses, transaction hashes, on-chain evidence, or terminal output from your testing. Screenshots or recordings are encouraged. | This evidence can only come from dynamic testing. It cannot be generated from reading source code alone. |
+| 1 | **Running instance** | Evidence that you deployed and tested against a running instance of wallet-backend (local Docker setup, etc.) — not just read the source code. Include the Git commit hash or Docker image tag you tested against. | Source code analysis alone cannot demonstrate exploitability. Static analysis findings are engineering work items, not vulnerability reports. |
+| 2 | **Working proof-of-concept** | Actual exploit code, scripts, or commands that reproduce the vulnerability. "This *could* allow an attacker to..." is not a PoC. Your PoC must use real values — submissions with placeholder URLs (e.g., `<wallet-backend>`), placeholder addresses (e.g., `GABC...`), or template variables will be treated as not having a PoC. | If you cannot exploit it, it is not yet a vulnerability — it is a theoretical observation. |
+| 3 | **Real request/response evidence** | Actual HTTP requests and responses (with headers), transaction hashes, on-chain evidence, or terminal output from your testing. Responses must be complete and unedited — do not paraphrase, summarize, or truncate API responses. We validate response structures against the actual API schema. Screenshots or recordings of your terminal session are strongly encouraged. | This evidence can only come from dynamic testing. It cannot be generated from reading source code alone. |
 | 4 | **Impact on Stellar network or users** | A concrete explanation of how this vulnerability could cause fund loss, data breach, or network disruption — not a generic CWE impact description. | We need to understand the real-world impact specific to the Stellar ecosystem, not a textbook definition of the vulnerability class. |
 | 5 | **Verified impact, not assumed impact** | If you claim fund loss, show which account holds the funds and prove it. If you claim authorization bypass, demonstrate what the attacker can *actually do* with that authorization — not what they *could theoretically do* if the architecture were different. | Severity ratings based on unverified assumptions about what components hold or do will be downgraded. Read the [architectural context](#severity-must-reflect-actual-impact-not-assumed-impact) below. |
 
 **Reports that consist entirely of source code references, static analysis output, or theoretical narrative without the above artifacts will be closed immediately.**
 
 **Reports where severity is based on assumed rather than verified impact will be downgraded regardless of CVSS score.**
+
+### Evidence Authenticity
+
+We verify evidence artifacts. Specifically:
+
+- **Response bodies are validated** against the actual API schema. Fabricated or hallucinated responses — including structurally plausible but incorrect field names, missing fields, or wrong data types — will be identified.
+- **Instance-specific details are required.** Include the Git commit hash or Docker image tag of the wallet-backend version you tested and the Stellar RPC health check output (`/health`) showing the network passphrase and latest ledger sequence. These details anchor your evidence to a real, running instance.
+- **Full unedited output is expected.** Provide complete terminal sessions, full HTTP response bodies (including headers), and unedited logs. Curated snippets that omit context are insufficient — real testing produces messy, complete output.
+- **We attempt to reproduce every finding.** Your reproduction steps must work when our team follows them. If your PoC only works in the abstract, it does not demonstrate a vulnerability.
+
+**Fabricated evidence** — including AI-generated terminal output, invented API responses, or fictitious transaction hashes — will result in the report being closed immediately.
 
 ### Severity Must Reflect Actual Impact, Not Assumed Impact
 
@@ -1404,7 +1415,7 @@ This applies across the entire codebase. Before claiming Critical or High severi
 
 **Example — Channel Accounts:** Channel accounts are a commonly misunderstood component. They are **ephemeral transaction multiplexers** created with 0 XLM (reserves are paid by the distribution account via Stellar's sponsorship mechanism), hold no tokens, have no trustlines, no contract roles, and are routinely created and destroyed. They exist solely to provide unique sequence numbers for parallel transaction submission. A report claiming "fund loss via channel account compromise" without verifying that channel accounts hold zero funds would be downgraded — the bug may be real, but the impact claim is not.
 
-This is one example, but the principle applies everywhere: **verify your impact claims against the actual architecture before assigning severity.** The code is open source — read it.
+This is one example among many. Each component in this system has its own security model, trust boundaries, and architectural constraints. **We deliberately do not enumerate all of them here** — it is the reporter's responsibility to investigate the components they claim are affected. If your report's impact assessment is based on assumptions about what a component holds or does, rather than verified analysis of the actual code and configuration, the severity will be downgraded regardless of how the report is presented.
 
 ### What Qualifies as a Valid Security Report
 
@@ -1433,7 +1444,7 @@ The following will be closed as **Not Applicable** without further review:
 | "No account lockout / brute force protection" | Deployment-level concern, not in scope for pre-production. |
 | Generic "Improper Access Control" with CWE-XXX citations | If your report reads like a CWE encyclopedia entry with the project name substituted in, it is not a vulnerability report. |
 
-**This list is illustrative, not exhaustive.** Reports are evaluated based on whether they demonstrate a genuine, exploitable security vulnerability with real-world impact — not based on whether they avoid the specific patterns listed above. Rewording an excluded finding to bypass this list does not make it a valid finding.
+**This list is illustrative, not exhaustive.** We evaluate the substance of findings, not their presentation. Reports that avoid the specific wording of these exclusions while describing the same underlying non-issue will be treated identically to reports that match the wording exactly. Rephrasing "missing rate limiting" as "insufficient request throttling on the GraphQL endpoint" does not transform a deployment concern into a code vulnerability.
 
 ### HackerOne Core Ineligible Findings
 
@@ -1476,13 +1487,11 @@ We have observed a significant increase in reports generated by feeding this rep
 
 **We want to be direct:** we evaluate reports based on demonstrated evidence, not narrative quality. A well-written report with no proof-of-concept is worth less than a poorly-written report with a working exploit. No amount of eloquent vulnerability description substitutes for the mandatory evidence artifacts listed in [Mandatory Submission Requirements](#mandatory-submission-requirements).
 
-Specifically, reports will be flagged and closed if they:
+We use multiple techniques — both automated and manual — to identify reports generated by AI tools, static analysis scanners, or LLM assistants. We will not enumerate our detection methods here. What we will say:
 
-- Contain no evidence of dynamic testing (no HTTP requests/responses, no transaction hashes, no terminal output from a running instance)
-- Consist primarily of source code references with theoretical impact analysis
-- Cite generic CWE/OWASP references without a concrete, application-specific exploit path
-- Flag development-time defaults (debug logging, permissive CORS, verbose errors) as production vulnerabilities
-- Are structurally identical to other submissions from the same reporter across different projects
+- **We reproduce every PoC.** If your exploit doesn't work when we run it, the report is invalid regardless of how well-written the narrative is.
+- **We validate every evidence artifact.** Response bodies are checked against our actual API schema. Transaction hashes are looked up. Terminal output is cross-referenced. Fabricated evidence is immediately identifiable.
+- **We read the source code too.** If your report's "analysis" misunderstands how a component actually works — a common hallmark of AI-generated reports — that will be apparent to us immediately.
 
 **We read every report.** Reports that show no evidence of manual analysis or dynamic testing will be closed immediately and may result in reduced reputation on the HackerOne platform.
 
