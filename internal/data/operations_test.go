@@ -263,17 +263,17 @@ func TestOperationModel_GetAll(t *testing.T) {
 	operations, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
-	assert.Equal(t, int64(2), operations[0].Cursor)
-	assert.Equal(t, int64(4098), operations[1].Cursor)
-	assert.Equal(t, int64(8194), operations[2].Cursor)
+	assert.Equal(t, int64(2), operations[0].Cursor.ID)
+	assert.Equal(t, int64(4098), operations[1].Cursor.ID)
+	assert.Equal(t, int64(8194), operations[2].Cursor.ID)
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
 	operations, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, int64(2), operations[0].Cursor)
-	assert.Equal(t, int64(4098), operations[1].Cursor)
+	assert.Equal(t, int64(2), operations[0].Cursor.ID)
+	assert.Equal(t, int64(4098), operations[1].Cursor.ID)
 }
 
 func TestOperationModel_BatchGetByToIDs(t *testing.T) {
@@ -582,7 +582,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, "ASC")
+	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
 	assert.Equal(t, int64(4097), operations[0].Operation.ID)

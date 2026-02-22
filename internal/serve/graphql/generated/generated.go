@@ -63,9 +63,9 @@ type DirectiveRoot struct {
 type ComplexityRoot struct {
 	Account struct {
 		Address      func(childComplexity int) int
-		Operations   func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		StateChanges func(childComplexity int, filter *AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) int
-		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		Operations   func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		StateChanges func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		Transactions func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 	}
 
 	AccountBalances struct {
@@ -334,9 +334,9 @@ type ComplexityRoot struct {
 
 type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
-	Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
-	Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
-	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
+	Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
+	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
+	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
@@ -495,7 +495,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Account.Operations(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.complexity.Account.Operations(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Account.stateChanges":
 		if e.complexity.Account.StateChanges == nil {
@@ -507,7 +507,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Account.StateChanges(childComplexity, args["filter"].(*AccountStateChangeFilterInput), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.complexity.Account.StateChanges(childComplexity, args["filter"].(*AccountStateChangeFilterInput), args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Account.transactions":
 		if e.complexity.Account.Transactions == nil {
@@ -519,7 +519,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Account.Transactions(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.complexity.Account.Transactions(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "AccountBalances.address":
 		if e.complexity.AccountBalances.Address == nil {
@@ -1976,18 +1976,22 @@ type Account{
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested
-  
+
   # All transactions associated with this account
-  transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
-  
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  transactions(since: Time, until: Time, first: Int, after: String, last: Int, before: String):   TransactionConnection
+
   # All operations associated with this account
-  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
-  
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String):     OperationConnection
+
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
   # Optional filter parameter allows filtering by transaction hash and/or operation ID
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
   stateChanges(
     filter: AccountStateChangeFilterInput
+    since: Time, until: Time
     first: Int, after: String, last: Int, before: String
   ):   StateChangeConnection
 }
@@ -2495,28 +2499,64 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 func (ec *executionContext) field_Account_operations_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Account_operations_argsFirst(ctx, rawArgs)
+	arg0, err := ec.field_Account_operations_argsSince(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := ec.field_Account_operations_argsAfter(ctx, rawArgs)
+	args["since"] = arg0
+	arg1, err := ec.field_Account_operations_argsUntil(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := ec.field_Account_operations_argsLast(ctx, rawArgs)
+	args["until"] = arg1
+	arg2, err := ec.field_Account_operations_argsFirst(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := ec.field_Account_operations_argsBefore(ctx, rawArgs)
+	args["first"] = arg2
+	arg3, err := ec.field_Account_operations_argsAfter(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["after"] = arg3
+	arg4, err := ec.field_Account_operations_argsLast(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg4
+	arg5, err := ec.field_Account_operations_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg5
 	return args, nil
 }
+func (ec *executionContext) field_Account_operations_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_operations_argsUntil(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("until"))
+	if tmp, ok := rawArgs["until"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Account_operations_argsFirst(
 	ctx context.Context,
 	rawArgs map[string]any,
@@ -2577,26 +2617,36 @@ func (ec *executionContext) field_Account_stateChanges_args(ctx context.Context,
 		return nil, err
 	}
 	args["filter"] = arg0
-	arg1, err := ec.field_Account_stateChanges_argsFirst(ctx, rawArgs)
+	arg1, err := ec.field_Account_stateChanges_argsSince(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg1
-	arg2, err := ec.field_Account_stateChanges_argsAfter(ctx, rawArgs)
+	args["since"] = arg1
+	arg2, err := ec.field_Account_stateChanges_argsUntil(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg2
-	arg3, err := ec.field_Account_stateChanges_argsLast(ctx, rawArgs)
+	args["until"] = arg2
+	arg3, err := ec.field_Account_stateChanges_argsFirst(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg3
-	arg4, err := ec.field_Account_stateChanges_argsBefore(ctx, rawArgs)
+	args["first"] = arg3
+	arg4, err := ec.field_Account_stateChanges_argsAfter(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg4
+	args["after"] = arg4
+	arg5, err := ec.field_Account_stateChanges_argsLast(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg5
+	arg6, err := ec.field_Account_stateChanges_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg6
 	return args, nil
 }
 func (ec *executionContext) field_Account_stateChanges_argsFilter(
@@ -2609,6 +2659,32 @@ func (ec *executionContext) field_Account_stateChanges_argsFilter(
 	}
 
 	var zeroVal *AccountStateChangeFilterInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_argsUntil(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("until"))
+	if tmp, ok := rawArgs["until"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
 	return zeroVal, nil
 }
 
@@ -2667,28 +2743,64 @@ func (ec *executionContext) field_Account_stateChanges_argsBefore(
 func (ec *executionContext) field_Account_transactions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Account_transactions_argsFirst(ctx, rawArgs)
+	arg0, err := ec.field_Account_transactions_argsSince(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := ec.field_Account_transactions_argsAfter(ctx, rawArgs)
+	args["since"] = arg0
+	arg1, err := ec.field_Account_transactions_argsUntil(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := ec.field_Account_transactions_argsLast(ctx, rawArgs)
+	args["until"] = arg1
+	arg2, err := ec.field_Account_transactions_argsFirst(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := ec.field_Account_transactions_argsBefore(ctx, rawArgs)
+	args["first"] = arg2
+	arg3, err := ec.field_Account_transactions_argsAfter(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["after"] = arg3
+	arg4, err := ec.field_Account_transactions_argsLast(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg4
+	arg5, err := ec.field_Account_transactions_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg5
 	return args, nil
 }
+func (ec *executionContext) field_Account_transactions_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_transactions_argsUntil(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("until"))
+	if tmp, ok := rawArgs["until"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Account_transactions_argsFirst(
 	ctx context.Context,
 	rawArgs map[string]any,
@@ -3545,7 +3657,7 @@ func (ec *executionContext) _Account_transactions(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().Transactions(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+		return ec.resolvers.Account().Transactions(rctx, obj, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3603,7 +3715,7 @@ func (ec *executionContext) _Account_operations(ctx context.Context, field graph
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().Operations(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+		return ec.resolvers.Account().Operations(rctx, obj, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3661,7 +3773,7 @@ func (ec *executionContext) _Account_stateChanges(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().StateChanges(rctx, obj, fc.Args["filter"].(*AccountStateChangeFilterInput), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+		return ec.resolvers.Account().StateChanges(rctx, obj, fc.Args["filter"].(*AccountStateChangeFilterInput), fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -20489,6 +20601,24 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalString(*v)
+	return res
+}
+
+func (ec *executionContext) unmarshalOTime2ᚖtimeᚐTime(ctx context.Context, v any) (*time.Time, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalTime(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOTime2ᚖtimeᚐTime(ctx context.Context, sel ast.SelectionSet, v *time.Time) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalTime(*v)
 	return res
 }
 

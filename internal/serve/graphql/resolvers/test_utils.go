@@ -65,6 +65,7 @@ var (
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
+	now := time.Now()
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
@@ -78,7 +79,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			ResultCode:      "TransactionResultCodeTxSuccess",
 			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
-			LedgerCreatedAt: time.Now(),
+			LedgerCreatedAt: now,
 			IsFeeBump:       false,
 		}
 		txns = append(txns, txn)
@@ -92,7 +93,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				ResultCode:      "op_success",
 				Successful:      true,
 				LedgerNumber:    1,
-				LedgerCreatedAt: time.Now(),
+				LedgerCreatedAt: now,
 			})
 			opIdx++
 		}
@@ -121,7 +122,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				StateChangeReason:   reason,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
-				LedgerCreatedAt:     time.Now(),
+				LedgerCreatedAt:     now,
 				LedgerNumber:        1,
 			})
 		}
@@ -135,7 +136,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
 			AccountID:           parentAccount.StellarAddress,
-			LedgerCreatedAt:     time.Now(),
+			LedgerCreatedAt:     now,
 			LedgerNumber:        1000,
 		})
 	}
