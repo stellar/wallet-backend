@@ -29,12 +29,12 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	start := time.Now()
 	err := m.DB.GetContext(ctx, &exists, query, address)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "accounts", duration)
+	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "channel_accounts", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("IsAccountFeeBumpEligible", "accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("IsAccountFeeBumpEligible", "channel_accounts", utils.GetDBErrorType(err))
 		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
-	m.MetricsService.IncDBQuery("IsAccountFeeBumpEligible", "accounts")
+	m.MetricsService.IncDBQuery("IsAccountFeeBumpEligible", "channel_accounts")
 	return exists, nil
 }
 
@@ -48,13 +48,13 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(toIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "accounts", len(toIDs))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByToIDs", "accounts")
+	m.MetricsService.IncDBQuery("BatchGetByToIDs", "transactions_accounts")
 	return accounts, nil
 }
 
@@ -68,13 +68,13 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "accounts", len(operationIDs))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "accounts")
+	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "operations_accounts")
 	return accounts, nil
 }
 
@@ -98,12 +98,12 @@ func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []i
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accountsWithStateChanges, query)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "accounts", len(scOrders))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "state_changes", len(scOrders))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by state change IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByStateChangeIDs", "accounts")
+	m.MetricsService.IncDBQuery("BatchGetByStateChangeIDs", "state_changes")
 	return accountsWithStateChanges, nil
 }
