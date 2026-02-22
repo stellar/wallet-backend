@@ -23,17 +23,20 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
-func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 		WHERE account_id = $1
 	`, columns))
+
+	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
 	if txHash != nil {
@@ -63,29 +66,25 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		argIndex++
 	}
 
-	// Add cursor-based pagination using 3-column comparison (to_id, operation_id, state_change_order)
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < ($%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2))
-			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 3
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > ($%d, $%d, $%d)
-			`, argIndex, argIndex+1, argIndex+2))
-			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
-			argIndex += 3
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
-	// TODO: Extract the ordering code to separate function in utils and use everywhere
-	// Add ordering
+	// Add ordering with ledger_created_at as leading column for TimescaleDB ChunkAppend
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	// Add limit using parameterized query
@@ -97,10 +96,10 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -117,47 +116,54 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
+	var args []interface{}
+	argIndex := 1
+
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 	`, columns))
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				WHERE (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" WHERE " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
+	// Order with ledger_created_at as leading column for TimescaleDB ChunkAppend
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
 	}
 
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query)
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
@@ -287,7 +293,7 @@ func (m *StateChangeModel) BatchCopy(
 
 // BatchGetByToID gets state changes for a single transaction with pagination support.
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
@@ -298,16 +304,17 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	args := []interface{}{toID}
 	argIndex := 2
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
@@ -345,7 +352,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 
 // BatchGetByToIDs gets the state changes that are associated with the given to_ids.
 func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few
@@ -397,7 +404,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
@@ -408,16 +415,17 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	args := []interface{}{operationID}
 	argIndex := 2
 
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "to_id", Value: cursor.ToID},
+			{Name: "operation_id", Value: cursor.OperationID},
+			{Name: "state_change_order", Value: cursor.StateChangeOrder},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" AND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
@@ -455,7 +463,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	// This CTE query implements per-operation pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all state changes from just a few

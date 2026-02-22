@@ -73,7 +73,7 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	params, err := parsePaginationParams(first, after, last, before, true)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -95,7 +95,7 @@ func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operati
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))

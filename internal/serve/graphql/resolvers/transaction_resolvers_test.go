@@ -106,8 +106,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
-		// Get the previous page using cursor
-		prevCursor := ops.PageInfo.EndCursor
+		// Get the previous page using cursor (use StartCursor per Relay spec)
+		prevCursor := ops.PageInfo.StartCursor
 		assert.NotNil(t, prevCursor)
 		ops, err = resolver.Operations(ctx, parentTx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
