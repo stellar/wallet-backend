@@ -42,7 +42,7 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
-    ledger_created_at TIMESTAMPTZ NOT NULL
+    ledger_created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (to_id, operation_id, state_change_order, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
