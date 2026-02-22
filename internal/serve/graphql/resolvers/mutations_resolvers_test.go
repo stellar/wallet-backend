@@ -19,20 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-type mockAccountService struct {
-	mock.Mock
-}
-
-func (m *mockAccountService) RegisterAccount(ctx context.Context, address string) error {
-	args := m.Called(ctx, address)
-	return args.Error(0)
-}
-
-func (m *mockAccountService) DeregisterAccount(ctx context.Context, address string) error {
-	args := m.Called(ctx, address)
-	return args.Error(0)
-}
-
 type mockTransactionService struct {
 	mock.Mock
 }
@@ -59,241 +45,6 @@ func (m *mockFeeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.T
 func (m *mockFeeBumpService) GetMaximumBaseFee() int64 {
 	args := m.Called()
 	return args.Get(0).(int64)
-}
-
-func TestMutationResolver_RegisterAccount(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("success", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("RegisterAccount", ctx, input.Address).Return(nil)
-
-		result, err := resolver.RegisterAccount(ctx, input)
-
-		require.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.True(t, result.Success)
-		assert.NotNil(t, result.Account)
-		assert.Equal(t, input.Address, string(result.Account.StellarAddress))
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("registration fails", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{}, // empty models for error case
-			},
-		}
-
-		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("RegisterAccount", ctx, input.Address).Return(errors.New("registration failed"))
-
-		result, err := resolver.RegisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to register account: registration failed")
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("duplicate registration fails", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.RegisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("RegisterAccount", ctx, input.Address).Return(data.ErrAccountAlreadyExists)
-
-		result, err := resolver.RegisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, ErrMsgAccountAlreadyExists)
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("empty address", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.RegisterAccountInput{
-			Address: "",
-		}
-
-		mockService.On("RegisterAccount", ctx, "").Return(errors.New("invalid address"))
-
-		result, err := resolver.RegisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to register account: invalid address")
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("invalid address format", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.RegisterAccountInput{
-			Address: "invalid-stellar-address",
-		}
-
-		mockService.On("RegisterAccount", ctx, input.Address).Return(services.ErrInvalidAddress)
-
-		result, err := resolver.RegisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, ErrMsgInvalidAddress)
-
-		mockService.AssertExpectations(t)
-	})
-}
-
-func TestMutationResolver_DeregisterAccount(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("success", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.DeregisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("DeregisterAccount", ctx, input.Address).Return(nil)
-
-		result, err := resolver.DeregisterAccount(ctx, input)
-
-		require.NoError(t, err)
-		assert.True(t, result.Success)
-		assert.Equal(t, ErrMsgAccountDeregisteredSuccess, *result.Message)
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("deregistration fails", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.DeregisterAccountInput{
-			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("DeregisterAccount", ctx, input.Address).Return(errors.New("deregistration failed"))
-
-		result, err := resolver.DeregisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to deregister account: deregistration failed")
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("empty address", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.DeregisterAccountInput{
-			Address: "",
-		}
-
-		mockService.On("DeregisterAccount", ctx, "").Return(errors.New("invalid address"))
-
-		result, err := resolver.DeregisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to deregister account: invalid address")
-
-		mockService.AssertExpectations(t)
-	})
-
-	t.Run("account not found", func(t *testing.T) {
-		mockService := &mockAccountService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				accountService: mockService,
-				models:         &data.Models{},
-			},
-		}
-
-		input := graphql.DeregisterAccountInput{
-			Address: "GNONEXISTENTACCOUNTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-		}
-
-		mockService.On("DeregisterAccount", ctx, input.Address).Return(data.ErrAccountNotFound)
-
-		result, err := resolver.DeregisterAccount(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, ErrMsgAccountNotFound)
-
-		mockService.AssertExpectations(t)
-	})
 }
 
 func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
@@ -639,12 +390,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -688,12 +437,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("invalid transaction XDR", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -711,12 +458,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("transaction service error", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -759,12 +504,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("with simulation result", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -835,12 +578,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("with valid transaction data", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -921,12 +662,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("invalid transaction data", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -975,12 +714,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("invalid operation structure error", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},
@@ -1028,12 +765,10 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 	})
 
 	t.Run("invalid soroban transaction error", func(t *testing.T) {
-		mockAccountService := &mockAccountService{}
 		mockTransactionService := &mockTransactionService{}
 
 		resolver := &mutationResolver{
 			&Resolver{
-				accountService:     mockAccountService,
 				transactionService: mockTransactionService,
 				models:             &data.Models{},
 			},

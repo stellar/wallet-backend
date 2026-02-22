@@ -72,9 +72,6 @@ type Configs struct {
 	SkipTxMeta bool
 	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
 	SkipTxEnvelope bool
-	// EnableParticipantFiltering controls whether to filter ingested data by pre-registered accounts.
-	// When false (default), all data is stored. When true, only data for pre-registered accounts is stored.
-	EnableParticipantFiltering bool
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
@@ -203,29 +200,28 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:              cfg.IngestionMode,
-		Models:                     models,
-		LatestLedgerCursorName:     cfg.LatestLedgerCursorName,
-		OldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		AppTracker:                 cfg.AppTracker,
-		RPCService:                 rpcService,
-		LedgerBackend:              ledgerBackend,
-		LedgerBackendFactory:       ledgerBackendFactory,
-		ChannelAccountStore:        chAccStore,
-		TokenIngestionService:      tokenIngestionService,
-		ContractMetadataService:    contractMetadataService,
-		MetricsService:             metricsService,
-		GetLedgersLimit:            cfg.GetLedgersLimit,
-		Network:                    cfg.Network,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
-		Archive:                    archive,
-		SkipTxMeta:                 cfg.SkipTxMeta,
-		SkipTxEnvelope:             cfg.SkipTxEnvelope,
-		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
-		BackfillWorkers:            cfg.BackfillWorkers,
-		BackfillBatchSize:          cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize:  cfg.BackfillDBInsertBatchSize,
-		CatchupThreshold:           cfg.CatchupThreshold,
+		IngestionMode:             cfg.IngestionMode,
+		Models:                    models,
+		LatestLedgerCursorName:    cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		AppTracker:                cfg.AppTracker,
+		RPCService:                rpcService,
+		LedgerBackend:             ledgerBackend,
+		LedgerBackendFactory:      ledgerBackendFactory,
+		ChannelAccountStore:       chAccStore,
+		TokenIngestionService:     tokenIngestionService,
+		ContractMetadataService:   contractMetadataService,
+		MetricsService:            metricsService,
+		GetLedgersLimit:           cfg.GetLedgersLimit,
+		Network:                   cfg.Network,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
+		Archive:                   archive,
+		SkipTxMeta:                cfg.SkipTxMeta,
+		SkipTxEnvelope:            cfg.SkipTxEnvelope,
+		BackfillWorkers:           cfg.BackfillWorkers,
+		BackfillBatchSize:         cfg.BackfillBatchSize,
+		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		CatchupThreshold:          cfg.CatchupThreshold,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

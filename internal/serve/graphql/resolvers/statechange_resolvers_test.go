@@ -225,9 +225,9 @@ func TestStateChangeResolver_TypedFields(t *testing.T) {
 
 func TestStateChangeResolver_Account(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{

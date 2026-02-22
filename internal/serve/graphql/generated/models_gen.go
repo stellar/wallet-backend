@@ -73,15 +73,6 @@ type CreateFeeBumpTransactionPayload struct {
 	NetworkPassphrase string `json:"networkPassphrase"`
 }
 
-type DeregisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-type DeregisterAccountPayload struct {
-	Success bool    `json:"success"`
-	Message *string `json:"message,omitempty"`
-}
-
 type Mutation struct {
 }
 
@@ -118,15 +109,6 @@ type PageInfo struct {
 }
 
 type Query struct {
-}
-
-type RegisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-type RegisterAccountPayload struct {
-	Success bool           `json:"success"`
-	Account *types.Account `json:"account,omitempty"`
 }
 
 type SACBalance struct {

@@ -63,12 +63,8 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
-	require.NoError(t, err)
 
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
@@ -328,12 +324,8 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.AddressBytea(address1), types.AddressBytea(address2))
-	require.NoError(t, err)
 
 	// Create test transactions
 	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
@@ -453,10 +445,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions
 	scTestHash1 := types.HashBytea("a176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
