@@ -565,7 +565,6 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
 	})
-
 }
 
 func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {

@@ -10,13 +10,14 @@ import (
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/vektah/gqlparser/v2/gqlerror"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // BuildTransaction is the resolver for the buildTransaction field.

@@ -69,15 +69,15 @@ type Configs struct {
 }
 
 type handlerDeps struct {
-	Models                     *data.Models
-	Port                       int
-	DatabaseURL                string
-	RequestAuthVerifier        auth.HTTPRequestVerifier
-	SupportedAssets            []entities.Asset
-	NetworkPassphrase string
+	Models              *data.Models
+	Port                int
+	DatabaseURL         string
+	RequestAuthVerifier auth.HTTPRequestVerifier
+	SupportedAssets     []entities.Asset
+	NetworkPassphrase   string
 
 	// Services
-	FeeBumpService services.FeeBumpService
+	FeeBumpService             services.FeeBumpService
 	MetricsService             metrics.MetricsService
 	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
@@ -192,10 +192,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:              models,
-		RequestAuthVerifier: requestAuthVerifier,
-		SupportedAssets:     cfg.SupportedAssets,
-		FeeBumpService:      feeBumpService,
+		Models:                      models,
+		RequestAuthVerifier:         requestAuthVerifier,
+		SupportedAssets:             cfg.SupportedAssets,
+		FeeBumpService:              feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,

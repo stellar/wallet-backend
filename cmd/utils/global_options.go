@@ -268,4 +268,3 @@ func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) 
 	opts = append(opts, AWSOptions(&scOpts.AWSRegion, &scOpts.KMSKeyARN, false)...)
 	return opts
 }
-

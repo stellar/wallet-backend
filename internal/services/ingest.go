@@ -97,28 +97,28 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode              string
-	models                     *data.Models
-	latestLedgerCursorName     string
-	oldestLedgerCursorName     string
-	advisoryLockID             int
-	appTracker                 apptracker.AppTracker
-	rpcService                 RPCService
-	ledgerBackend              ledgerbackend.LedgerBackend
-	ledgerBackendFactory       LedgerBackendFactory
-	chAccStore                 store.ChannelAccountStore
-	tokenIngestionService      TokenIngestionService
-	contractMetadataService    ContractMetadataService
-	metricsService             metrics.MetricsService
-	networkPassphrase          string
-	getLedgersLimit            int
-	ledgerIndexer              *indexer.Indexer
-	archive                    historyarchive.ArchiveInterface
-	backfillPool pond.Pool
-	backfillBatchSize          uint32
-	backfillDBInsertBatchSize  uint32
-	catchupThreshold           uint32
-	knownContractIDs           set.Set[string]
+	ingestionMode             string
+	models                    *data.Models
+	latestLedgerCursorName    string
+	oldestLedgerCursorName    string
+	advisoryLockID            int
+	appTracker                apptracker.AppTracker
+	rpcService                RPCService
+	ledgerBackend             ledgerbackend.LedgerBackend
+	ledgerBackendFactory      LedgerBackendFactory
+	chAccStore                store.ChannelAccountStore
+	tokenIngestionService     TokenIngestionService
+	contractMetadataService   ContractMetadataService
+	metricsService            metrics.MetricsService
+	networkPassphrase         string
+	getLedgersLimit           int
+	ledgerIndexer             *indexer.Indexer
+	archive                   historyarchive.ArchiveInterface
+	backfillPool              pond.Pool
+	backfillBatchSize         uint32
+	backfillDBInsertBatchSize uint32
+	catchupThreshold          uint32
+	knownContractIDs          set.Set[string]
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -136,28 +136,28 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
-		ingestionMode:              cfg.IngestionMode,
-		models:                     cfg.Models,
-		latestLedgerCursorName:     cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
-		appTracker:                 cfg.AppTracker,
-		rpcService:                 cfg.RPCService,
-		ledgerBackend:              cfg.LedgerBackend,
-		ledgerBackendFactory:       cfg.LedgerBackendFactory,
-		chAccStore:                 cfg.ChannelAccountStore,
-		tokenIngestionService:      cfg.TokenIngestionService,
-		contractMetadataService:    cfg.ContractMetadataService,
-		metricsService:             cfg.MetricsService,
-		networkPassphrase:          cfg.NetworkPassphrase,
-		getLedgersLimit:            cfg.GetLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
-		archive:                    cfg.Archive,
-		backfillPool: backfillPool,
-		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:           uint32(cfg.CatchupThreshold),
-		knownContractIDs:           set.NewSet[string](),
+		ingestionMode:             cfg.IngestionMode,
+		models:                    cfg.Models,
+		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
+		appTracker:                cfg.AppTracker,
+		rpcService:                cfg.RPCService,
+		ledgerBackend:             cfg.LedgerBackend,
+		ledgerBackendFactory:      cfg.LedgerBackendFactory,
+		chAccStore:                cfg.ChannelAccountStore,
+		tokenIngestionService:     cfg.TokenIngestionService,
+		contractMetadataService:   cfg.ContractMetadataService,
+		metricsService:            cfg.MetricsService,
+		networkPassphrase:         cfg.NetworkPassphrase,
+		getLedgersLimit:           cfg.GetLedgersLimit,
+		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		archive:                   cfg.Archive,
+		backfillPool:              backfillPool,
+		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:          uint32(cfg.CatchupThreshold),
+		knownContractIDs:          set.NewSet[string](),
 	}, nil
 }
 

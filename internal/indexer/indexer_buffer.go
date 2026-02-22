@@ -66,8 +66,8 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	contractChanges                []types.ContractChange
 	accountChangesByAccountID      map[string]types.AccountChange
-	sacBalanceChangesByKey        map[SACBalanceChangeKey]types.SACBalanceChange
-	uniqueTrustlineAssets         map[uuid.UUID]data.TrustlineAsset
+	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
+	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueSEP41ContractTokensByID  map[string]types.ContractType // contractID → type (SEP-41 only)
 	sacContractsByID               map[string]*data.Contract     // SAC contract metadata extracted from instance entries
 }
@@ -84,8 +84,8 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		contractChanges:                make([]types.ContractChange, 0),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
-		sacBalanceChangesByKey:        make(map[SACBalanceChangeKey]types.SACBalanceChange),
-		uniqueTrustlineAssets:         make(map[uuid.UUID]data.TrustlineAsset),
+		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
+		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
 		sacContractsByID:               make(map[string]*data.Contract),
 	}
