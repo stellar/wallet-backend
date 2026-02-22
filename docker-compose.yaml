@@ -7,7 +7,8 @@ services:
 
   db:
     container_name: db
-    image: postgres:14-alpine
+    image: timescale/timescaledb:2.25.0-pg17
+    command: ["postgres", "-c", "timescaledb.enable_chunk_skipping=on", "-c", "timescaledb.enable_sparse_index_bloom=on"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d wallet-backend"]
       interval: 10s
@@ -268,5 +269,4 @@ volumes:
 configs:
   postgres_init:
     content: |
-      CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;
-      CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;
+      CREATE EXTENSION IF NOT EXISTS timescaledb;
