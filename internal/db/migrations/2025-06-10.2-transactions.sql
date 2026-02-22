@@ -24,7 +24,6 @@ CREATE TABLE transactions (
 SELECT enable_chunk_skipping('transactions', 'to_id');
 
 CREATE INDEX idx_transactions_hash ON transactions(hash);
-CREATE INDEX idx_transactions_to_id ON transactions(to_id);
 
 -- Table: transactions_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE transactions_accounts (

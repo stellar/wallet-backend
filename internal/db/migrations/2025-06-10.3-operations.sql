@@ -34,8 +34,6 @@ CREATE TABLE operations (
 
 SELECT enable_chunk_skipping('operations', 'id');
 
-CREATE INDEX idx_operations_id ON operations(id);
-
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL,
