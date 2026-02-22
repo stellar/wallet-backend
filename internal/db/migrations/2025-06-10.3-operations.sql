@@ -23,6 +23,7 @@ CREATE TABLE operations (
     ledger_number INTEGER NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL
+    PRIMARY KEY (id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',

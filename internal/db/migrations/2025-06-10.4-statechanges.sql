@@ -43,6 +43,7 @@ CREATE TABLE state_changes (
     flags SMALLINT,
     key_value JSONB,
     ledger_created_at TIMESTAMPTZ NOT NULL
+    PRIMARY KEY (to_id, operation_id, state_change_order, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
