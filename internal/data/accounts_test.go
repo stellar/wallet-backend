@@ -23,9 +23,9 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "transactions_accounts").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -72,9 +72,9 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "operations_accounts").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -127,8 +127,8 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -160,9 +160,9 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "state_changes").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
