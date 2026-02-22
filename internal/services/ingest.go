@@ -67,10 +67,9 @@ type IngestServiceConfig struct {
 	ContractMetadataService ContractMetadataService
 
 	// === Processing Options ===
-	GetLedgersLimit            int
-	SkipTxMeta                 bool
-	SkipTxEnvelope             bool
-	EnableParticipantFiltering bool
+	GetLedgersLimit int
+	SkipTxMeta      bool
+	SkipTxEnvelope  bool
 
 	// === Backfill Tuning ===
 	BackfillWorkers           int
@@ -115,8 +114,7 @@ type ingestService struct {
 	getLedgersLimit            int
 	ledgerIndexer              *indexer.Indexer
 	archive                    historyarchive.ArchiveInterface
-	enableParticipantFiltering bool
-	backfillPool               pond.Pool
+	backfillPool pond.Pool
 	backfillBatchSize          uint32
 	backfillDBInsertBatchSize  uint32
 	catchupThreshold           uint32
@@ -155,8 +153,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		getLedgersLimit:            cfg.GetLedgersLimit,
 		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
 		archive:                    cfg.Archive,
-		enableParticipantFiltering: cfg.EnableParticipantFiltering,
-		backfillPool:               backfillPool,
+		backfillPool: backfillPool,
 		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:           uint32(cfg.CatchupThreshold),
@@ -221,145 +218,25 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	return nil
 }
 
-// filteredIngestionData holds the filtered transaction, operation, and state change
-// data ready for database insertion after participant filtering.
-type filteredIngestionData struct {
-	txs            []*types.Transaction
-	txParticipants map[int64]set.Set[string]
-	ops            []*types.Operation
-	opParticipants map[int64]set.Set[string]
-	stateChanges   []types.StateChange
-}
+// insertIntoDB persists the processed data from the buffer to the database.
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
+	txs := buffer.GetTransactions()
+	txParticipants := buffer.GetTransactionsParticipants()
+	ops := buffer.GetOperations()
+	opParticipants := buffer.GetOperationsParticipants()
+	stateChanges := buffer.GetStateChanges()
 
-// hasRegisteredParticipant checks if any participant in the set is registered.
-func hasRegisteredParticipant(participants set.Set[string], registered set.Set[string]) bool {
-	for p := range participants.Iter() {
-		if registered.Contains(p) {
-			return true
-		}
+	if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
+		return 0, 0, err
 	}
-	return false
-}
-
-// filterByRegisteredAccounts filters ingestion data to only include items
-// where at least one participant is a registered account.
-// If a transaction/operation has ANY registered participant, it is included with ALL its participants.
-func (m *ingestService) filterByRegisteredAccounts(
-	ctx context.Context,
-	dbTx pgx.Tx,
-	txs []*types.Transaction,
-	txParticipants map[int64]set.Set[string],
-	ops []*types.Operation,
-	opParticipants map[int64]set.Set[string],
-	stateChanges []types.StateChange,
-	allParticipants []string,
-) (*filteredIngestionData, error) {
-	// Get registered accounts from DB
-	existing, err := m.models.Account.BatchGetByIDs(ctx, dbTx, allParticipants)
-	if err != nil {
-		return nil, fmt.Errorf("getting registered accounts: %w", err)
+	if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
+		return 0, 0, err
 	}
-	registeredAccounts := set.NewSet(existing...)
-
-	log.Ctx(ctx).Infof("filtering enabled: %d/%d participants are registered", len(existing), len(allParticipants))
-
-	// Filter transactions: include if ANY participant is registered
-	toIDsToInclude := set.NewSet[int64]()
-	for toID, participants := range txParticipants {
-		if hasRegisteredParticipant(participants, registeredAccounts) {
-			toIDsToInclude.Add(toID)
-		}
+	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
+		return 0, 0, err
 	}
-
-	filteredTxs := make([]*types.Transaction, 0, toIDsToInclude.Cardinality())
-	filteredTxParticipants := make(map[int64]set.Set[string])
-	for _, tx := range txs {
-		if toIDsToInclude.Contains(tx.ToID) {
-			filteredTxs = append(filteredTxs, tx)
-			filteredTxParticipants[tx.ToID] = txParticipants[tx.ToID]
-		}
-	}
-
-	// Filter operations: include if ANY participant is registered
-	opIDsToInclude := set.NewSet[int64]()
-	for opID, participants := range opParticipants {
-		if hasRegisteredParticipant(participants, registeredAccounts) {
-			opIDsToInclude.Add(opID)
-		}
-	}
-
-	filteredOps := make([]*types.Operation, 0, opIDsToInclude.Cardinality())
-	filteredOpParticipants := make(map[int64]set.Set[string])
-	for _, op := range ops {
-		if opIDsToInclude.Contains(op.ID) {
-			filteredOps = append(filteredOps, op)
-			filteredOpParticipants[op.ID] = opParticipants[op.ID]
-		}
-	}
-
-	// Filter state changes: include if account is registered
-	filteredSC := make([]types.StateChange, 0)
-	for _, sc := range stateChanges {
-		if registeredAccounts.Contains(string(sc.AccountID)) {
-			filteredSC = append(filteredSC, sc)
-		}
-	}
-
-	log.Ctx(ctx).Infof("after filtering: %d txs, %d ops, %d state_changes",
-		len(filteredTxs), len(filteredOps), len(filteredSC))
-
-	return &filteredIngestionData{
-		txs:            filteredTxs,
-		txParticipants: filteredTxParticipants,
-		ops:            filteredOps,
-		opParticipants: filteredOpParticipants,
-		stateChanges:   filteredSC,
-	}, nil
-}
-
-// filterParticipantData filters the data to only include participants that are registered
-func (m *ingestService) filterParticipantData(ctx context.Context, dbTx pgx.Tx, indexerBuffer indexer.IndexerBufferInterface) (*filteredIngestionData, error) {
-	// Get data from indexer buffer
-	txs := indexerBuffer.GetTransactions()
-	txParticipants := indexerBuffer.GetTransactionsParticipants()
-	ops := indexerBuffer.GetOperations()
-	opParticipants := indexerBuffer.GetOperationsParticipants()
-	stateChanges := indexerBuffer.GetStateChanges()
-
-	// When filtering is enabled, only store data for registered accounts
-	if m.enableParticipantFiltering {
-		filtered, err := m.filterByRegisteredAccounts(
-			ctx, dbTx, txs, txParticipants, ops, opParticipants, stateChanges,
-			indexerBuffer.GetAllParticipants(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("filtering by registered accounts: %w", err)
-		}
-		return filtered, nil
-	}
-
-	return &filteredIngestionData{
-		txs:            txs,
-		txParticipants: txParticipants,
-		ops:            ops,
-		opParticipants: opParticipants,
-		stateChanges:   stateChanges,
-	}, nil
-}
-
-// insertIntoDB persists the processed data to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, data *filteredIngestionData) error {
-	if err := m.insertTransactions(ctx, dbTx, data.txs, data.txParticipants); err != nil {
-		return err
-	}
-	if err := m.insertOperations(ctx, dbTx, data.ops, data.opParticipants); err != nil {
-		return err
-	}
-	if err := m.insertStateChanges(ctx, dbTx, data.stateChanges); err != nil {
-		return err
-	}
-	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(data.txs), len(data.ops), len(data.stateChanges))
-	return nil
+	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
+	return len(txs), len(ops), nil
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.

@@ -51,12 +51,10 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 		}
 
-		// 3. Filter participant data (if enabled) and insert transactions/operations/state_changes
-		filteredData, txErr := m.filterParticipantData(ctx, dbTx, buffer)
+		// 3. Insert transactions/operations/state_changes
+		var txErr error
+		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
 		if txErr != nil {
-			return fmt.Errorf("filtering participant data for ledger %d: %w", ledgerSeq, txErr)
-		}
-		if txErr = m.insertIntoDB(ctx, dbTx, filteredData); txErr != nil {
 			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
 		}
 
@@ -80,8 +78,6 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		numTxs = len(filteredData.txs)
-		numOps = len(filteredData.ops)
 		return nil
 	})
 	if err != nil {

@@ -104,8 +104,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		MetricsService:             metricsService,
 		NetworkPassphrase:          cfg.NetworkPassphrase,
 		TokenIngestionService:      tokenIngestionService,
-		ChannelAccountStore:        store.NewChannelAccountModel(dbPool),
-		EnableParticipantFiltering: false,
+		ChannelAccountStore: store.NewChannelAccountModel(dbPool),
 	})
 	if err != nil {
 		return fmt.Errorf("creating ingest service: %w", err)
