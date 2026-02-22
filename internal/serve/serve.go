@@ -48,8 +48,6 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
-	EnableParticipantFiltering  bool
-
 	// Horizon
 	SupportedAssets                    []entities.Asset
 	NetworkPassphrase                  string
@@ -76,12 +74,10 @@ type handlerDeps struct {
 	DatabaseURL                string
 	RequestAuthVerifier        auth.HTTPRequestVerifier
 	SupportedAssets            []entities.Asset
-	NetworkPassphrase          string
-	EnableParticipantFiltering bool
+	NetworkPassphrase string
 
 	// Services
-	AccountService             services.AccountService
-	FeeBumpService             services.FeeBumpService
+	FeeBumpService services.FeeBumpService
 	MetricsService             metrics.MetricsService
 	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
@@ -151,11 +147,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	accountService, err := services.NewAccountService(models, metricsService)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
-	}
-
 	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		BaseFee:                            int64(cfg.BaseFee),
@@ -201,11 +192,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:                      models,
-		RequestAuthVerifier:         requestAuthVerifier,
-		SupportedAssets:             cfg.SupportedAssets,
-		AccountService:              accountService,
-		FeeBumpService:              feeBumpService,
+		Models:              models,
+		RequestAuthVerifier: requestAuthVerifier,
+		SupportedAssets:     cfg.SupportedAssets,
+		FeeBumpService:      feeBumpService,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
@@ -260,7 +250,6 @@ func handler(deps handlerDeps) http.Handler {
 
 			resolver := resolvers.NewResolver(
 				deps.Models,
-				deps.AccountService,
 				deps.TransactionService,
 				deps.FeeBumpService,
 				deps.RPCService,
@@ -271,7 +260,6 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
 					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
-					EnableParticipantFiltering:  deps.EnableParticipantFiltering,
 				},
 			)
 

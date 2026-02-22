@@ -16,8 +16,6 @@ type MetricsService interface {
 	SetLatestLedgerIngested(value float64)
 	SetOldestLedgerIngested(value float64)
 	ObserveIngestionDuration(duration float64)
-	IncActiveAccount()
-	DecActiveAccount()
 	IncRPCRequests(endpoint string)
 	ObserveRPCRequestDuration(endpoint string, duration float64)
 	IncRPCEndpointFailure(endpoint string)
@@ -63,9 +61,6 @@ type metricsService struct {
 	latestLedgerIngested prometheus.Gauge
 	oldestLedgerIngested prometheus.Gauge
 	ingestionDuration    *prometheus.HistogramVec
-
-	// Account Metrics
-	activeAccounts prometheus.Gauge
 
 	// RPC Service Metrics (transport-level)
 	rpcRequestsTotal     *prometheus.CounterVec
@@ -141,14 +136,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Buckets: []float64{0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 10},
 		},
 		[]string{},
-	)
-
-	// Account Metrics
-	m.activeAccounts = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "active_accounts",
-			Help: "Number of currently registered active accounts",
-		},
 	)
 
 	// RPC Service Metrics
@@ -393,7 +380,6 @@ func (m *metricsService) registerMetrics() {
 		m.latestLedgerIngested,
 		m.oldestLedgerIngested,
 		m.ingestionDuration,
-		m.activeAccounts,
 		m.rpcRequestsTotal,
 		m.rpcRequestsDuration,
 		m.rpcEndpointFailures,
@@ -513,15 +499,6 @@ func (m *metricsService) SetOldestLedgerIngested(value float64) {
 
 func (m *metricsService) ObserveIngestionDuration(duration float64) {
 	m.ingestionDuration.WithLabelValues().Observe(duration)
-}
-
-// Account Service Metrics
-func (m *metricsService) IncActiveAccount() {
-	m.activeAccounts.Inc()
-}
-
-func (m *metricsService) DecActiveAccount() {
-	m.activeAccounts.Dec()
 }
 
 // RPC Service Metrics

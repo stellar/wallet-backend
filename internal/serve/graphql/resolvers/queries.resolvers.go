@@ -6,20 +6,17 @@ package resolvers
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // TransactionByHash is the resolver for the transactionByHash field.
@@ -69,20 +66,7 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 	if address == "" {
 		return nil, fmt.Errorf("address cannot be empty")
 	}
-	acc, err := r.models.Account.Get(ctx, address)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			// If the participant filtering has been enabled and this account is not registered, we return an error.
-			if r.config.EnableParticipantFiltering {
-				return nil, fmt.Errorf("account not found")
-			}
-
-			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
-			return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
-		}
-		return nil, err
-	}
-	return acc, nil
+	return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
 }
 
 // Operations is the resolver for the operations field.

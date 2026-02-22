@@ -52,14 +52,6 @@ type CreateFeeBumpTransactionData struct {
 	CreateFeeBumpTransaction CreateFeeBumpTransactionPayload `json:"createFeeBumpTransaction"`
 }
 
-type RegisterAccountData struct {
-	RegisterAccount types.RegisterAccountPayload `json:"registerAccount"`
-}
-
-type DeregisterAccountData struct {
-	DeregisterAccount types.DeregisterAccountPayload `json:"deregisterAccount"`
-}
-
 type TransactionByHashData struct {
 	TransactionByHash *types.GraphQLTransaction `json:"transactionByHash"`
 }
@@ -349,36 +341,6 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 		Transaction:       data.CreateFeeBumpTransaction.Transaction,
 		NetworkPassphrase: data.CreateFeeBumpTransaction.NetworkPassphrase,
 	}, nil
-}
-
-func (c *Client) RegisterAccount(ctx context.Context, address string) (*types.RegisterAccountPayload, error) {
-	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"address": address,
-		},
-	}
-
-	data, err := executeGraphQL[RegisterAccountData](c, ctx, registerAccountQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data.RegisterAccount, nil
-}
-
-func (c *Client) DeregisterAccount(ctx context.Context, address string) (*types.DeregisterAccountPayload, error) {
-	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"address": address,
-		},
-	}
-
-	data, err := executeGraphQL[DeregisterAccountData](c, ctx, deregisterAccountQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data.DeregisterAccount, nil
 }
 
 func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...*QueryOptions) (*types.GraphQLTransaction, error) {

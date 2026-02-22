@@ -52,7 +52,6 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		}
 
 		// 3. Insert transactions/operations/state_changes
-		var txErr error
 		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
 		if txErr != nil {
 			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)

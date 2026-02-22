@@ -114,32 +114,6 @@ func createFeeBumpTransactionQuery() string {
 	`
 }
 
-// registerAccountQuery builds the GraphQL mutation for registering an account
-func registerAccountQuery() string {
-	return `
-		mutation RegisterAccount($input: RegisterAccountInput!) {
-			registerAccount(input: $input) {
-				success
-				account {
-					address
-				}
-			}
-		}
-	`
-}
-
-// deregisterAccountQuery builds the GraphQL mutation for deregistering an account
-func deregisterAccountQuery() string {
-	return `
-		mutation DeregisterAccount($input: DeregisterAccountInput!) {
-			deregisterAccount(input: $input) {
-				success
-				message
-			}
-		}
-	`
-}
-
 // buildTransactionByHashQuery builds the GraphQL query for fetching a transaction by hash
 func buildTransactionByHashQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultTransactionFields)

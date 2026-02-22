@@ -33,14 +33,6 @@ func (m *MockMetricsService) ObserveIngestionDuration(duration float64) {
 	m.Called(duration)
 }
 
-func (m *MockMetricsService) IncActiveAccount() {
-	m.Called()
-}
-
-func (m *MockMetricsService) DecActiveAccount() {
-	m.Called()
-}
-
 func (m *MockMetricsService) IncRPCRequests(endpoint string) {
 	m.Called(endpoint)
 }
