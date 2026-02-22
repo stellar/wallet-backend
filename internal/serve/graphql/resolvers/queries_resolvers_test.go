@@ -224,22 +224,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 }
 
 func TestQueryResolver_Account(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "Get", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "Get", "accounts").Return()
-	mockMetricsService.On("IncDBQueryError", "Get", "accounts", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
-
-	resolver := &queryResolver{
-		&Resolver{
-			models: &data.Models{
-				Account: &data.AccountModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
-				},
-			},
-		},
-	}
+	resolver := &queryResolver{&Resolver{}}
 
 	t.Run("success", func(t *testing.T) {
 		acc, err := resolver.AccountByAddress(testCtx, sharedTestAccountAddress)
@@ -247,7 +232,7 @@ func TestQueryResolver_Account(t *testing.T) {
 		assert.Equal(t, sharedTestAccountAddress, string(acc.StellarAddress))
 	})
 
-	t.Run("non-existent account", func(t *testing.T) {
+	t.Run("any valid address returns account", func(t *testing.T) {
 		acc, err := resolver.AccountByAddress(testCtx, sharedNonExistentAccountAddress)
 		require.NoError(t, err)
 		assert.NotNil(t, acc)

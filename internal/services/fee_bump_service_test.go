@@ -75,13 +75,12 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		// Insert into channel_accounts to make account fee-bump eligible
+		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -111,13 +110,12 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		// Insert into channel_accounts to make account fee-bump eligible
+		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -148,13 +146,12 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		distributionAccount := keypair.MustRandom()
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		// Insert into channel_accounts to make account fee-bump eligible
+		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		destinationAccount := keypair.MustRandom().Address()

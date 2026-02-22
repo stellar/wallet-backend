@@ -141,13 +141,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	}
 
 	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO accounts (stellar_address) VALUES ($1)`,
-			parentAccount.StellarAddress)
-		require.NoError(t, err)
-
 		for _, txn := range txns {
-			_, err = tx.ExecContext(ctx,
+			_, err := tx.ExecContext(ctx,
 				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.FeeCharged, txn.ResultCode, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
 			require.NoError(t, err)
@@ -159,7 +154,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		}
 
 		for _, op := range ops {
-			_, err = tx.ExecContext(ctx,
+			_, err := tx.ExecContext(ctx,
 				`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				op.ID, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
 			require.NoError(t, err)
@@ -171,7 +166,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		}
 
 		for _, sc := range stateChanges {
-			_, err = tx.ExecContext(ctx,
+			_, err := tx.ExecContext(ctx,
 				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
@@ -187,8 +182,6 @@ func cleanUpDB(ctx context.Context, t *testing.T, dbConnectionPool db.Connection
 	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
 	require.NoError(t, err)
 	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
-	require.NoError(t, err)
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
 	require.NoError(t, err)
 }
 
