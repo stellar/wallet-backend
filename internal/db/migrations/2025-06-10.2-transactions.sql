@@ -11,7 +11,8 @@ CREATE TABLE transactions (
     ledger_number INTEGER NOT NULL,
     is_fee_bump BOOLEAN NOT NULL DEFAULT false,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ledger_created_at TIMESTAMPTZ NOT NULL
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (to_id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -23,13 +24,13 @@ CREATE TABLE transactions (
 SELECT enable_chunk_skipping('transactions', 'to_id');
 
 CREATE INDEX idx_transactions_hash ON transactions(hash);
-CREATE INDEX idx_transactions_to_id ON transactions(to_id);
 
 -- Table: transactions_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE transactions_accounts (
     tx_to_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (account_id, tx_to_id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
