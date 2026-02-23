@@ -10,3 +10,19 @@ __debug_bin*
 CLAUDE.md
 .claude/
 .serena
+
+# Knowledge system: per-developer operational state
+docs/knowledge/self/goals.md
+docs/knowledge/self/identity.md
+docs/knowledge/self/methodology.md
+docs/knowledge/self/memory/
+docs/knowledge/captures/
+docs/knowledge/archive/
+docs/knowledge/ops/sessions/
+docs/knowledge/ops/tasks.md
+docs/knowledge/ops/reminders.md
+docs/knowledge/ops/next-log.md
+docs/knowledge/ops/observations/
+docs/knowledge/ops/tensions/
+docs/knowledge/ops/queue/
+ops/sessions/
