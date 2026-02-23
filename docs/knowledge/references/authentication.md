@@ -1,3 +1,12 @@
+---
+description: JWT/Ed25519 auth flow, client library usage, and Soroban contract invocation auth
+type: reference
+subsystem: auth
+areas: [auth, jwt, ed25519, soroban]
+status: partial
+vault: docs/knowledge
+---
+
 # Authentication Architecture
 
 ## Auth Flow
@@ -34,3 +43,8 @@
      - How contract invocation authorization works
      - The auth entry creation flow
      - Integration with the signing providers -->
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/authentication]]

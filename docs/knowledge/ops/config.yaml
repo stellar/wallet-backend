@@ -1,0 +1,82 @@
+# Ars Contexta Knowledge System Configuration
+# wallet-backend — generated 2026-02-23
+# Edit this file to adjust system behavior.
+
+vault:
+  root: docs/knowledge
+  marker: docs/knowledge/.arscontexta
+  repo: wallet-backend
+
+dimensions:
+  granularity: moderate          # atomic | moderate | coarse
+  organization: flat             # flat | hierarchical | domain-clustered
+  linking: explicit              # explicit | implicit | explicit+implicit
+  processing: heavy              # light | moderate | heavy
+  navigation: three-tier         # flat | two-tier | three-tier
+  maintenance: condition-based   # scheduled | condition-based | manual
+  schema: moderate-dense         # sparse | moderate | moderate-dense | dense
+  automation: full               # none | partial | full
+
+personality:
+  tone: neutral-helpful
+  style: professional, task-focused
+
+vocabulary:
+  note: entry
+  inbox: captures
+  archive: archive
+  moc: knowledge map
+  reduce: document
+  reflect: connect
+  reweave: revisit
+  verify: verify
+  rethink: retrospect
+  description: context
+  topics: areas
+
+entry_types:
+  - decision
+  - insight
+  - pattern
+  - gotcha
+  - reference
+
+subsystems:
+  - ingestion
+  - graphql
+  - data-layer
+  - signing
+  - services
+  - auth
+
+extraction_categories:
+  - Architecture decisions
+  - Debugging insights
+  - Code patterns
+  - Gotchas
+  - API/service knowledge
+  - Performance learnings
+
+automation:
+  hooks:
+    session_start: bash .claude/hooks/session-orient.sh
+    post_write: bash .claude/hooks/validate-note.sh
+    post_write_async: bash .claude/hooks/auto-commit.sh
+    post_edit_async: bash .claude/hooks/track-code-changes.sh
+    stop: bash .claude/hooks/session-capture.sh
+
+schema:
+  required_fields:
+    - description
+    - type
+    - status
+    - subsystem
+    - areas
+  optional_fields:
+    - confidence
+    - superseded_by
+  enums:
+    type: [decision, insight, pattern, gotcha, reference]
+    status: [current, superseded, experimental]
+    confidence: [proven, likely, experimental]
+    subsystem: [ingestion, graphql, data-layer, signing, services, auth]

@@ -1,3 +1,12 @@
+---
+description: GraphQL API request flow, schema organization, resolvers, dataloaders, mutations, and middleware
+type: reference
+subsystem: graphql
+areas: [graphql, resolvers, dataloaders, gqlgen]
+status: current
+vault: docs/knowledge
+---
+
 # GraphQL API Architecture
 
 ## Request Flow
@@ -400,3 +409,8 @@ flowchart TD
 | `DefaultRetryCount` | 6 | `signing/channel_account_db_signature_client.go` | Retries when no idle channel account is available |
 | `DefaultRetryInterval` | 1s | `signing/channel_account_db_signature_client.go` | Delay between channel account acquisition retries |
 | `DefaultLimit` | 50 | `resolvers/utils.go` | Default page size for paginated connection queries |
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/graphql-api]]

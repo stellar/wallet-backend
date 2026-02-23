@@ -1,3 +1,12 @@
+---
+description: Signing providers (ENV/KMS), channel account lifecycle, encryption, and transaction signing
+type: reference
+subsystem: signing
+areas: [signing, channel-accounts, kms, encryption]
+status: partial
+vault: docs/knowledge
+---
+
 # Signing & Channel Accounts Architecture
 
 ## SignatureClient Interface
@@ -43,3 +52,8 @@
      - How CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE is used
      - Key derivation (if any)
      - The encrypt/decrypt flow for channel account private keys -->
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/signing]]

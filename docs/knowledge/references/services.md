@@ -1,3 +1,12 @@
+---
+description: Service pattern (Options struct + ValidateOptions), service inventory, and dependency graph
+type: reference
+subsystem: services
+areas: [services, dependency-injection, options-pattern]
+status: partial
+vault: docs/knowledge
+---
+
 # Services Architecture
 
 ## Service Pattern
@@ -54,3 +63,8 @@ All services follow a consistent construction pattern:
      ... etc.
 
      Read internal/serve/serve.go:initHandlerDeps for the full wiring. -->
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/services]]

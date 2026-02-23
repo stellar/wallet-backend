@@ -1,3 +1,12 @@
+---
+description: High-level system architecture, directory structure, dependency wiring, and key architectural patterns
+type: reference
+subsystem: services
+areas: [architecture, overview, dependency-injection]
+status: partial
+vault: docs/knowledge
+---
+
 # Architecture Overview
 
 ## High-Level Data Flow
@@ -57,3 +66,8 @@ pkg/                           Public packages: client library, auth utilities, 
 - **Dependency injection via Options structs**: Services are constructed with an Options struct that has a `ValidateOptions()` method. All dependencies (DB, signing clients, other services) are injected through these structs.
 - **Interface-based data models**: Each data model implements an interface to support mocking in tests. All models are aggregated in `data.Models`.
 - **Schema-first GraphQL**: Schema files are the source of truth. Code is generated from them.
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/index]]

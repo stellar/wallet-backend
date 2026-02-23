@@ -1,0 +1,24 @@
+# Builds a CNPG-compliant PostgreSQL image with TimescaleDB.
+# To upgrade TimescaleDB, update TIMESCALE_VERSION and rebuild.
+FROM ghcr.io/cloudnative-pg/postgresql:17.7-standard-bookworm
+
+ARG TIMESCALE_VERSION=2.25.0
+
+USER root
+
+RUN set -xe; \
+    . /etc/os-release; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl; \
+    echo "deb https://packagecloud.io/timescale/timescaledb/debian/ ${VERSION_CODENAME} main" \
+      > /etc/apt/sources.list.d/timescaledb.list; \
+    curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey \
+      | gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      "timescaledb-2-${TIMESCALE_VERSION}-postgresql-17"; \
+    apt-get remove -y curl; \
+    apt-get autoremove -y; \
+    rm -rf /var/lib/apt/lists/* /tmp/*
+
+USER 26

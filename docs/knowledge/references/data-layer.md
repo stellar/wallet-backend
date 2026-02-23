@@ -1,3 +1,12 @@
+---
+description: TimescaleDB hypertables, model interfaces, migrations, connection pool, and balance tables
+type: reference
+subsystem: data-layer
+areas: [timescaledb, hypertables, migrations, data-models]
+status: current
+vault: docs/knowledge
+---
+
 # Data Layer Architecture
 
 ## TimescaleDB Setup
@@ -510,3 +519,8 @@ Errors are always wrapped with `fmt.Errorf("context: %w", err)` per the `wrapche
 - `internal/db/migrate.go` — `Migrate()` function
 - `internal/db/dbtest/dbtest.go` — `Open(t)` test database helper
 - `internal/ingest/timescaledb.go` — `configureHypertableSettings()` runtime configuration
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/data-layer]]

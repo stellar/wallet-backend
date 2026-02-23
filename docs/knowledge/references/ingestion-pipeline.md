@@ -1,3 +1,12 @@
+---
+description: Live and backfill ingestion flow, indexer processors, retry logic, and ledger event processing
+type: reference
+subsystem: ingestion
+areas: [ingestion, indexer, timescaledb, stellar-rpc]
+status: current
+vault: docs/knowledge
+---
+
 # Ingestion Pipeline Architecture
 
 ## High-Level Overview
@@ -484,3 +493,8 @@ flowchart LR
 | **Datastore** (`datastore`) | `DatastoreConfigPath` (TOML file) | Backfill from cloud storage (S3/GCS pre-exported ledgers) |
 
 **Thread-safety constraint**: `LedgerBackend` instances are NOT thread-safe. Live ingestion uses a single instance for sequential processing. Backfill creates a new instance per batch via `LedgerBackendFactory`, which calls `NewLedgerBackend()` for each batch. This is why the factory pattern exists — it allows each goroutine in the `pond.Pool` to have its own isolated backend.
+
+
+---
+
+**Topics:** [[entries/index]] | [[entries/ingestion]]
