@@ -15,6 +15,13 @@ This knowledge map indexes the vault's own methodology documentation.
 - [[self/goals]] — Active goals and improvement threads
 - [[ops/methodology/derivation-rationale]] — Why each configuration dimension was chosen
 
+## Pipeline & Processing
+
+- [[ops/methodology/pipeline-methodology]] — Four-phase pipeline, quality gates, research provenance, skill invocation rules
+- [[ops/methodology/task-management]] — Task queue format, per-entry task files, orchestration, processing depth config
+- [[ops/methodology/maintenance-methodology]] — Health checks, revisiting, condition-based maintenance, consequence-speed priority
+- [[ops/methodology/self-extension]] — Module adoption, observation protocol, complexity monitoring, self-building loop
+
 ## Configuration
 
 - [[ops/derivation]] — Complete derivation state
