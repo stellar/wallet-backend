@@ -12,9 +12,11 @@ The ingestion pipeline reads Stellar ledger data via the Stellar RPC node and pe
 
 **Key code:** `internal/ingest/`, `internal/services/ingest*.go`, `internal/indexer/`
 
-## Reference Doc
+## Reference Docs
 
 [[references/ingestion-pipeline]] — comprehensive overview with live/backfill flow diagrams, retry logic, processor architecture
+
+[[references/state-changes]] — state change concept, two-axis category-reason taxonomy, four producing processors; state changes are the primary indexer output that flows into `state_changes` hypertable
 
 ## Decisions
 
@@ -63,6 +65,20 @@ The ingestion pipeline reads Stellar ledger data via the Stellar RPC node and pe
 
 - [[catchup mode atomicity vs per-batch durability trade-off]] — catchup: all-or-nothing cursor jump; historical: per-batch incremental durability
 
+## Cross-Subsystem Connections
+
+- [[entries/data-layer]] — ingestion writes into five TimescaleDB hypertables; entries like [[compression timing trade-off: uncompressed inserts are faster but require post-processing pass]], [[progressive recompression compresses TimescaleDB chunks as watermark advances during historical backfill]], and [[ingest_store key-value table is the sole source of truth for cursor positions]] all straddle this boundary; the data layer reference doc covers the schema that ingestion writes into
+- [[entries/signing]] — the six-step persist transaction includes channel account unlock (step 4: `UnassignTxAndUnlockChannelAccounts()`); ingestion is the only place where channel account state transitions happen outside the transaction submission path; [[the six-step persist transaction ordering exists to satisfy foreign key prerequisites]] explains why the unlock must be inside the same atomic transaction as the data insert
+
+## Synthesis Opportunities
+
+- **Two-mechanism crash safety model**: [[advisory lock prevents concurrent ingestion instances via postgresql pg_try_advisory_lock]] and [[crash recovery relies on atomic transactions to make ledger re-processing idempotent]] are presented separately but together they form a complete crash safety model — the lock prevents concurrent writes (no racing re-processors), and atomicity makes re-processing idempotent (no partial state). Neither alone is sufficient. This compound claim is not yet captured as a single entry.
+
+---
+
+Agent Notes:
+- 2026-02-24: cross-subsystem links to data-layer and signing added; state-changes reference doc linked (was missing despite being the primary indexer output); synthesis opportunity flagged — the two-mechanism crash safety model spans advisory lock + atomic transactions and should be its own entry
+
 ## Topics
 
-[[entries/index]] | [[references/ingestion-pipeline]]
+[[entries/index]] | [[references/ingestion-pipeline]] | [[references/state-changes]] | [[entries/data-layer]] | [[entries/signing]]

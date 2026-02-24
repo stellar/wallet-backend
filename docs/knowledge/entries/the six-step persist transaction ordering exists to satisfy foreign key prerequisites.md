@@ -26,6 +26,7 @@ Source: [[references/ingestion-pipeline]]
 Relevant Notes:
 - [[live ingestion persists each ledger in a single atomic database transaction]] — the parent pattern describing the full six-step transaction
 - [[crash recovery relies on atomic transactions to make ledger re-processing idempotent]] — cursor-last ordering is what enables safe re-processing
+- [[entries/signing]] — step 4 (channel account unlock) means ingestion directly invokes signing subsystem state transitions; channel accounts remain locked if the data insert fails, preserving signing correctness
 
 Areas:
-- [[entries/ingestion]]
+- [[entries/ingestion]] | [[entries/signing]]

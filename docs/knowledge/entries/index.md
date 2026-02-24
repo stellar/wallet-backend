@@ -13,7 +13,7 @@ Entry point for the wallet-backend knowledge system. Navigate by subsystem or by
 
 | Subsystem | Knowledge Map | Reference Doc | Entries |
 |-----------|--------------|---------------|---------|
-| Ingestion | [[entries/ingestion]] | [[references/ingestion-pipeline]] | 0 |
+| Ingestion | [[entries/ingestion]] | [[references/ingestion-pipeline]] | 29 |
 | State Changes | — | [[references/state-changes]] | 0 |
 | GraphQL API | [[entries/graphql-api]] | [[references/graphql-api]] | 0 |
 | Data Layer | [[entries/data-layer]] | [[references/data-layer]] | 0 |

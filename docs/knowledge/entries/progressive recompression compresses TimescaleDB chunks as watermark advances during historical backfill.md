@@ -29,6 +29,7 @@ Source: [[references/ingestion-pipeline]]
 Relevant Notes:
 - [[compression timing trade-off: uncompressed inserts are faster but require post-processing pass]] — the trade-off this pattern resolves
 - [[backfill batch size and DB insert batch size are separate concerns for memory bounding]] — the batch structure that the watermark operates on
+- [[entries/data-layer]] — the chunks this watermark compresses are TimescaleDB hypertable chunks; the data layer reference doc covers the chunk interval design and compression policies that determine when chunks become eligible for compression
 
 Areas:
-- [[entries/ingestion]]
+- [[entries/ingestion]] | [[entries/data-layer]]

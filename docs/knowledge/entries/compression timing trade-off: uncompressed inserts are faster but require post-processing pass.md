@@ -34,6 +34,7 @@ Source: [[references/ingestion-pipeline]]
 
 Relevant Notes:
 - [[progressive recompression compresses TimescaleDB chunks as watermark advances during historical backfill]] — the mechanism that resolves this trade-off
+- [[entries/data-layer]] — this trade-off is rooted in TimescaleDB chunk compression behavior; the data layer reference doc covers the compression policies and chunk interval design that this trade-off operates within
 
 Areas:
-- [[entries/ingestion]]
+- [[entries/ingestion]] | [[entries/data-layer]]
