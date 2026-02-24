@@ -12,3 +12,6 @@ The `first`/`last` argument convention that the scorer works against is establis
 
 Relevant Notes:
 - [[relay-style cursor pagination on all list fields enables bidirectional traversal via first after and last before]] — the relay spec decision establishes first/last on all list fields; this entry captures the complexity gap in enforcing it
+
+Areas:
+- [[entries/graphql-api]]
