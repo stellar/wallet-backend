@@ -25,6 +25,18 @@ When multiple participants (accounts, signers) interact with the same transactio
 
 **Dedup maps** (separate from canonical storage): Trustline, account, and SAC balance changes use separate maps with highest-OperationID-wins semantics — these are not pointer-sharing but last-write-wins deduplication.
 
+**Merge() strategy details:**
+
+The `Merge()` method applies three different strategies depending on the collection type:
+
+1. **Canonical storage** (`txByHash`, `opByID`): Uses `maps.Copy` — the incoming buffer's pointers overwrite the target's for the same key. Since a transaction can only appear once per ledger, this is safe and produces a complete canonical set.
+
+2. **Dedup maps** (`trustlineChangesByTrustlineKey`, `accountChangesByAccountID`, `sacBalanceChangesByKey`): Iterate-and-compare — for each entry in the incoming map, replace the target's entry only if the incoming OperationID is higher. This is the highest-OperationID-wins logic.
+
+3. **Participants** (`participantsByToID`, `participantsByOpID`): Set-union — for each tx/op ID, merge the address sets. Unlike the dedup maps, there is no "wins" concept here; every participant address from both buffers is preserved in the union.
+
+**Clear() method:** Resets all maps to empty (length 0) but retains the backing array allocation. This avoids GC pressure during backfill where the same buffer is reused across thousands of ledger batches. Since [[IndexerBuffer Clear method preserves backing arrays to reduce GC pressure during backfill]], the buffer is designed for reuse across batches, which is why clearing resets but does not reallocate.
+
 Since [[IndexerBuffer Clear method preserves backing arrays to reduce GC pressure during backfill]], the buffer is designed for reuse across batches, which is why clearing resets but does not reallocate.
 
 ---

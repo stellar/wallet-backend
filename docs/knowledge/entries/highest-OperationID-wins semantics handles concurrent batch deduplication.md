@@ -19,6 +19,16 @@ This appears in two places:
 
 **ADD→REMOVE no-op detection:** If an entity is created (ADD) and then removed (REMOVE) within the same buffer or merge scope, the net effect is nothing — the entry is deleted from the map entirely. This handles cases like: trustline created and removed in the same backfill range, account opened and closed in the same range.
 
+**Per-entity-type no-op patterns:**
+- **Trustline**: ADD→REMOVE = delete from map (no net change); REMOVE→ADD is impossible (can't ADD after REMOVE within same ledger range); UPDATE→REMOVE = REMOVE wins (account closed after modification)
+- **Account**: ADD→REMOVE = delete from map; UPDATE→REMOVE is NOT a no-op — REMOVE wins and the deletion record is kept (account was closed, which is meaningful)
+- **SAC balance**: Same ADD→REMOVE = delete; UPDATE→REMOVE = REMOVE wins
+
+**Three dedup map merge semantics in IndexerBuffer.Merge():**
+1. **Trustlines/Accounts/SACBalances** — highest-OperationID-wins: `maps.Copy` is not used; instead, iterate incoming map and replace only if incoming OperationID > existing OperationID
+2. **Participants** — union semantics: all participant addresses from both buffers are merged with set union; there is no "wins" — all participants are kept
+3. **Transactions/Operations (canonical storage)** — overwrite: `maps.Copy` semantics since txByHash/opByID are canonical and later entries in the same ledger should replace earlier ones with the same hash
+
 The deduplication is necessary because parallel batch processing means changes to the same entity can arrive from different goroutines. Without dedup, the final state written to the database would depend on goroutine scheduling order.
 
 ---
