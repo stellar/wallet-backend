@@ -31,6 +31,7 @@ Source: [[references/ingestion-pipeline]]
 Relevant Notes:
 - [[backfill batch processing uses one LedgerBackend per goroutine because LedgerBackend is not thread-safe]] — the concrete application of this pattern
 - [[LedgerBackend interface abstracts between real-time RPC and cloud storage datastore backends]] — the interface the factory produces
+- [[the resolver struct is constructed once at startup and shared across all requests requiring all injected dependencies to be thread-safe]] — the GraphQL complement: instead of isolating per-worker, requires all shared dependencies to be thread-safe by design
 
 Areas:
 - [[entries/ingestion]]
