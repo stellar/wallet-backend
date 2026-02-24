@@ -336,6 +336,8 @@ flowchart TD
 
 **Parallelism model**: Transactions within a ledger are processed in parallel (via `pond.Pool` with unbounded workers). Within each transaction, the 3 `OperationProcessorInterface` processors run sequentially per operation (creating a pool per-operation adds overhead with only 3 processors). The `LedgerChangeProcessor` processors also run sequentially per operation.
 
+For comprehensive documentation of the state change subsystem — the category/reason taxonomy, producing processors, builder pattern, ordering, and schema — see [[references/state-changes]].
+
 ## IndexerBuffer Architecture
 
 ### Two-Layer Memory Architecture

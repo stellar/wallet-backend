@@ -63,6 +63,8 @@ flowchart TD
 - **Why `sparse_index = bloom(hash)` on `transactions`**: The bloom filter indexes `hash` within each chunk, allowing the columnar scan engine to skip chunks that provably don't contain a given hash. This accelerates `GetByHash` on large tables.
 - **Why 1-day default chunks**: Stellar produces ~17,280 ledgers/day. One day's data fits comfortably in a single chunk without making chunk management expensive. The chunk interval affects only future chunks and is runtime-configurable.
 
+For the state change concept, category/reason taxonomy, and producing processors, see [[references/state-changes]].
+
 ### Runtime Configuration: `configureHypertableSettings()`
 
 At ingest startup, `internal/ingest/timescaledb.go:configureHypertableSettings()` applies runtime settings to all five hypertables. This is idempotent on restart.
@@ -165,6 +167,8 @@ flowchart TD
 | `StateChangeModel` | No | `GetAll`, `BatchGetByAccountAddress`, `BatchGetByToID`, `BatchGetByToIDs`, `BatchGetByOperationID`, `BatchGetByOperationIDs`, `BatchCopy` | `state_changes` |
 
 **Why some models have interfaces and others don't**: Interface-backed models (balance and metadata models) are mocked in unit tests because their logic involves non-trivial business rules or they're called from services with injectable dependencies. The three hypertable models (`TransactionModel`, `OperationModel`, `StateChangeModel`) are tested against real TimescaleDB instances via `dbtest.Open(t)` because their queries use TimescaleDB-specific features that mocks can't validate.
+
+For full documentation of `StateChangeModel` query methods and the state change subsystem — concept, taxonomy, builder pattern, ordering, and schema — see [[references/state-changes]].
 
 ### Code Pattern
 

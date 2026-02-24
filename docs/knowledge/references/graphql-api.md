@@ -129,6 +129,8 @@ flowchart TD
 - **`operation` nullable on `BaseStateChange`**: Fee-related state changes have no associated operation (they arise from the ledger fee processing, not a specific operation). All other state changes link to an operation.
 - **`Balance` as an interface**: The four balance types (native XLM, trustlines, SAC, SEP41) share `balance`/`tokenId`/`tokenType` but have different additional fields. The interface lets `balancesByAccountAddress` return a heterogeneous list in a single query.
 
+For the full state change type hierarchy, category/reason taxonomy, and type dispatch logic (`convertStateChangeTypes()`), see [[references/state-changes]].
+
 ---
 
 ## Resolver Architecture
