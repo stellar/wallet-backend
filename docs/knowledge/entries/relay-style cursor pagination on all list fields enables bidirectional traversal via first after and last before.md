@@ -8,11 +8,14 @@ All list fields in the GraphQL schema use the Relay cursor connection spec: `fir
 
 The Relay spec's cursor opacity requirement follows directly from this choice: since [[opaque base64 cursors prevent client dependency on cursor structure but make debugging pagination state harder]], the debugging cost is the price paid for stable cursor evolution.
 
+The decision to use `first`/`last` arguments on all paginated fields has a downstream consequence in complexity scoring: since [[complexity scoring defaults to 10 when neither first nor last is provided on paginated fields making unbounded queries still incur a non-zero cost]], the relay spec pagination is not enforced at the complexity layer — clients who omit pagination args bypass the intended bounding.
+
 ---
 
 Relevant Notes:
 - [[three cursor types serve different query contexts with CursorTypeComposite for root queries and CursorTypeStateChange for state changes]] — the three cursor encodings that implement this spec
 - [[opaque base64 cursors prevent client dependency on cursor structure but make debugging pagination state harder]] — the spec requirement that produces cursor opacity and its debug trade-off
+- [[complexity scoring defaults to 10 when neither first nor last is provided on paginated fields making unbounded queries still incur a non-zero cost]] — downstream consequence: relay spec pagination args are not enforced; clients can omit first/last and still receive a finite complexity score
 
 Areas:
 - [[entries/graphql-api]]
