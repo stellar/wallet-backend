@@ -18,21 +18,36 @@ The GraphQL API is built with gqlgen (schema-first). It exposes ledger data (tra
 
 ## Decisions
 
-<!-- - [[entries/why-schema-first-graphql]] -->
-<!-- - [[entries/complexity-limit-design]] -->
+- [[entries/gqlgen schema-first means all graphqls files are the source of truth and make gql-generate must run after every schema change]] — mechanical requirement that follows from schema-first; gotcha for contributors
+- [[entries/relay-style cursor pagination on all list fields enables bidirectional traversal via first after and last before]] — covers all three entity types; stable position encoding even under insert load
+- [[entries/Balance as an interface allows balancesByAccountAddress to return heterogeneous balance types in a single query]] — explains the interface design for four balance types
+- [[entries/mutations do not submit transactions — clients receive signed XDR and submit directly to Stellar network]] — key security boundary; wallet-backend never proxies submission
+- [[entries/fee-bump eligibility check prevents the distribution account from sponsoring arbitrary non-tracked accounts]] — explains the IsAccountFeeBumpEligible guard
 
 ## Insights
 
-<!-- - [[entries/dataloader-batching-window]] -->
+- [[entries/since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history]] — cross-subsystem link between schema design and TimescaleDB performance
+- [[entries/dataloaders are created fresh per HTTP request to prevent cross-request data leakage and stale reads in horizontally-scaled deployments]] — per-request lifecycle; why global dataloaders would be incorrect
+- [[entries/GetDBColumnsForFields introspects the live GraphQL field selection set to build column-projected SQL queries reducing SELECT star overhead]] — column projection optimization mechanism
+- [[entries/TOID bit masking recovers parent transaction TOID from operation ID by clearing the lower 12 bits that encode op_index]] — enables join-free grouping in the operation dataloader
+- [[entries/state change composite ID encodes to_id op_id and sc_order as a dash-separated string to uniquely identify a state change across three dimensions]] — explains the composite key format
+- [[entries/three cursor types serve different query contexts with CursorTypeComposite for root queries and CursorTypeStateChange for state changes]] — when each cursor encoding applies
+- [[entries/the resolver struct is constructed once at startup and shared across all requests requiring all injected dependencies to be thread-safe]] — architectural constraint on injected services
+- [[entries/channel account time-bounded locks auto-release after 30 seconds if a client crashes after receiving the signed XDR]] — crash-safety mechanism for the mutation flow
+- [[entries/ingestion-based channel account release ties unlock to on-chain confirmation by running inside the same DB transaction as ledger commit]] — cross-subsystem: mutation locks, ingestion releases
+- [[entries/operation is nullable on BaseStateChange because fee-related state changes arise from ledger fee processing not from a specific operation]] — schema design that surprises newcomers
+- [[entries/complexity scoring defaults to 10 when neither first nor last is provided on paginated fields making unbounded queries still incur a non-zero cost]] — complexity scoring edge case
 
 ## Patterns
 
-<!-- - [[entries/dataloader-pattern]] -->
-<!-- - [[entries/resolver-service-split]] -->
+- [[entries/goField forceResolver is required on relationship fields to enable lazy dataloader loading instead of direct struct field access]] — without this directive, gqlgen bypasses the dataloader
+- [[entries/goField forceResolver on enum fields enables type conversion from DB integer representation to GraphQL enum in the resolver]] — extends forceResolver beyond relationships to enum conversion
+- [[entries/GraphQL fields that map to multiple DB columns require explicit switch cases in getDBColumns to project all required backing columns]] — maintenance hazard for compound fields
 
-## Gotchas
+## Tensions & Open Questions
 
-<!-- - [[entries/gql-generate-required-after-schema-change]] -->
+- [[entries/opaque base64 cursors prevent client dependency on cursor structure but make debugging pagination state harder]] — Relay spec recommendation vs. debug ergonomics
+- [[entries/whether the 5ms dataloader batching window and 100-key batch capacity are optimally tuned for production traffic patterns]] — untuned defaults; requires production profiling
 
 ## Topics
 
