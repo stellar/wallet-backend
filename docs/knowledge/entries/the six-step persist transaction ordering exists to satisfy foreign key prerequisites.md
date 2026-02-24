@@ -27,6 +27,8 @@ Relevant Notes:
 - [[live ingestion persists each ledger in a single atomic database transaction]] — the parent pattern describing the full six-step transaction
 - [[crash recovery relies on atomic transactions to make ledger re-processing idempotent]] — cursor-last ordering is what enables safe re-processing
 - [[entries/signing]] — step 4 (channel account unlock) means ingestion directly invokes signing subsystem state transitions; channel accounts remain locked if the data insert fails, preserving signing correctness
+- [[ingestion-based channel account release ties unlock to on-chain confirmation by running inside the same DB transaction as ledger commit]] — the full GraphQL mutation lifecycle perspective: BuildAndSignTransaction locks the channel account; PersistLedgerData releases it atomically with the ledger commit
+- [[channel account time-bounded locks auto-release after 30 seconds if a client crashes after receiving the signed XDR]] — the crash-safety fallback when on-chain confirmation never arrives
 
 Areas:
 - [[entries/ingestion]] | [[entries/signing]]
