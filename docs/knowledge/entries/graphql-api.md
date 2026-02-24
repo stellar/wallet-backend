@@ -49,12 +49,21 @@ The GraphQL API is built with gqlgen (schema-first). It exposes ledger data (tra
 - [[entries/opaque base64 cursors prevent client dependency on cursor structure but make debugging pagination state harder]] — Relay spec recommendation vs. debug ergonomics; compounded by three cursor encodings that are invisible in API responses
 - [[entries/whether the 5ms dataloader batching window and 100-key batch capacity are optimally tuned for production traffic patterns]] — untuned defaults; requires production profiling; operates within the per-request scope constraint
 
+## Cross-Subsystem Connections
+
+- [[since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history]] — already listed in Insights but worth noting explicitly: this entry is the bridge between GraphQL schema design and the data-layer partition strategy; the `since`/`until` parameters only deliver performance because `ledger_created_at` is the hypertable partition column
+- [[ROW_NUMBER PARTITION BY parent_id guarantees each parent receives at most limit rows in dataloader batch queries preventing head-of-line starvation]] — dataloader batch query pattern that depends on data-layer hypertable column structure
+- [[LATERAL join for parent-row lookup is O(1) per row via primary key compared to a regular join requiring planner strategy selection]] — data-layer query pattern used in the dataloader batch queries the GraphQL resolvers trigger
+
+These are catalogued in [[entries/data-layer]] but directly shape how the GraphQL resolvers and dataloaders perform.
+
 ## Topics
 
-[[entries/index]] | [[references/graphql-api]]
+[[entries/index]] | [[references/graphql-api]] | [[entries/data-layer]]
 
 ---
 
 Agent Notes:
 - 2026-02-24: thread safety has two levels in this subsystem — shared resolver (must be inherently safe) and per-request dataloaders (exception that gets isolated). Cross-subsystem path: [[entries/factory pattern for non-thread-safe resources enables safe parallelism]] in ingestion solves the same problem class with the opposite strategy (isolate per-worker vs. require shared safety).
 - 2026-02-24: cursor cluster forms a tight chain: relay spec → three cursor types → opacity → debug difficulty. Opaque cursors and three cursor types compound each other; wrong-type errors are silent because encoding is hidden.
+- 2026-02-24: added Cross-Subsystem Connections section — `since and until` is the clearest bridge between GraphQL schema design and data-layer chunk pruning; `ROW_NUMBER PARTITION BY` and `LATERAL join` are data-layer patterns that the dataloader queries depend on

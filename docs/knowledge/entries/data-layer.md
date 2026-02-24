@@ -81,11 +81,24 @@ Several ingestion entries straddle ingestion and data-layer concerns — they ca
 - [[ingest_store key-value table is the sole source of truth for cursor positions]] — a data-layer table (`ingest_store`) is the authoritative cursor store
 - [[backfill uses gap detection via window function on transactions ledger_number]] — gap detection queries the `transactions` hypertable directly
 - [[the six-step persist transaction ordering exists to satisfy foreign key prerequisites]] — FK relationships in the data layer constrain ingestion step ordering
+- [[the unified StateChange struct uses nullable fields and a category discriminator to store all state change types in a single database table]] — the ingestion schema decision that directly shapes the `state_changes` hypertable; single-table design with nullable fields was chosen over polymorphic tables because the read pattern is by address+time, a data-layer access concern
 
 These entries are catalogued in [[entries/ingestion]] but are equally relevant to data-layer understanding.
+
+The GraphQL layer exposes the `ledger_created_at` partition design as query parameters — the cross-subsystem linkage where schema choices become API features:
+
+- [[since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history]] — the GraphQL `since`/`until` parameters map directly to `ledger_created_at` predicates that activate chunk pruning; the API design only works because the hypertable is partitioned on this column
+
+This entry is catalogued in [[entries/graphql-api]] but is equally relevant to understanding why the `ledger_created_at` partition choice matters beyond the data layer.
+
+---
+
+## Agent Notes
+
+- 2026-02-24: added two cross-subsystem connections: (1) `the unified StateChange struct` — ingestion schema decision that directly shapes `state_changes` hypertable design, missed because it was tagged ingestion-only; (2) `since and until parameters` — GraphQL API entry that is the consumer-side of the `ledger_created_at` partition design, closes the loop between hypertable design and API ergonomics
 
 ---
 
 ## Topics
 
-[[entries/index]] | [[references/data-layer]] | [[entries/ingestion]]
+[[entries/index]] | [[references/data-layer]] | [[entries/ingestion]] | [[entries/graphql-api]]

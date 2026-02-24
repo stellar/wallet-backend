@@ -8,7 +8,7 @@ created: 2026-02-24
 
 Relay-style cursor pagination requires expressing "rows after cursor position (a, b)". The mathematically correct condition is: `(a > $1) OR (a = $1 AND b > $2)`. PostgreSQL also supports the more concise tuple comparison syntax: `ROW(a, b) > ROW($1, $2)` — semantically identical, shorter to write.
 
-However, the two forms have different performance characteristics in TimescaleDB. TimescaleDB's columnar scan engine can push simple column predicates (e.g., `a > $1`) into chunk-level filtering — this enables chunk pruning where chunks whose entire range of `a` falls below `$1` are skipped without scanning. This is the same mechanism that makes `since`/`until` time-range filtering efficient.
+However, the two forms have different performance characteristics in TimescaleDB. TimescaleDB's columnar scan engine can push simple column predicates (e.g., `a > $1`) into chunk-level filtering — this enables chunk pruning where chunks whose entire range of `a` falls below `$1` are skipped without scanning. This is the same mechanism that [[since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history]] exploits for explicit time filters.
 
 `ROW(a, b) > ROW($1, $2)` is treated as an opaque expression by the TimescaleDB planner. The tuple comparison cannot be decomposed into individual column predicates at the chunk-filter level. The result: every chunk must be scanned regardless of whether it could have been pruned.
 
@@ -22,6 +22,7 @@ Relevant Notes:
 - [[three cursor types serve different query contexts with CursorTypeComposite for root queries and CursorTypeStateChange for state changes]] — the cursor types whose SQL conditions this affects
 - [[raw SQL with strings.Builder and positional parameters gives full control over TimescaleDB-specific query constructs no query builder can generate]] — why raw SQL is required to express this pattern
 - [[MATERIALIZED CTE forces the planner to execute the join table subquery separately enabling ChunkAppend on the hypertable]] — another TimescaleDB-specific query optimization
+- [[since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history]] — the same chunk-pruning mechanism applied to explicit time filters; both rely on simple column predicates on ledger_created_at
 
 Areas:
 - [[entries/data-layer]]

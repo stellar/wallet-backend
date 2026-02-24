@@ -16,7 +16,7 @@ Entry point for the wallet-backend knowledge system. Navigate by subsystem or by
 | Ingestion | [[entries/ingestion]] | [[references/ingestion-pipeline]] | 52 |
 | State Changes | — (entries live in ingestion map; candidate for dedicated map when 5+ entries accumulate standalone) | [[references/state-changes]] | 4 |
 | GraphQL API | [[entries/graphql-api]] | [[references/graphql-api]] | 21 |
-| Data Layer | [[entries/data-layer]] | [[references/data-layer]] | 0 |
+| Data Layer | [[entries/data-layer]] | [[references/data-layer]] | 26 |
 | Signing & Channels | [[entries/signing]] | [[references/signing-and-channels]] | 0 |
 | Services | [[entries/services]] | [[references/services]] | 0 |
 | Authentication | [[entries/authentication]] | [[references/authentication]] | 0 |
