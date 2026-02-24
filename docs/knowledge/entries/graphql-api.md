@@ -57,9 +57,11 @@ The GraphQL API is built with gqlgen (schema-first). It exposes ledger data (tra
 
 These are catalogued in [[entries/data-layer]] but directly shape how the GraphQL resolvers and dataloaders perform.
 
+The mutation path has a deep coupling with [[entries/signing]]: `BuildAndSignTransaction` and `FeeBump` are the channel account lifecycle triggers. The signing subsystem handles locking during mutation execution; ingestion handles unlocking on-chain confirmation. The GraphQL API is the entry point for both operations but contains no locking logic itself.
+
 ## Topics
 
-[[entries/index]] | [[references/graphql-api]] | [[entries/data-layer]]
+[[entries/index]] | [[references/graphql-api]] | [[entries/data-layer]] | [[entries/signing]]
 
 ---
 
@@ -67,3 +69,4 @@ Agent Notes:
 - 2026-02-24: thread safety has two levels in this subsystem — shared resolver (must be inherently safe) and per-request dataloaders (exception that gets isolated). Cross-subsystem path: [[entries/factory pattern for non-thread-safe resources enables safe parallelism]] in ingestion solves the same problem class with the opposite strategy (isolate per-worker vs. require shared safety).
 - 2026-02-24: cursor cluster forms a tight chain: relay spec → three cursor types → opacity → debug difficulty. Opaque cursors and three cursor types compound each other; wrong-type errors are silent because encoding is hidden.
 - 2026-02-24: added Cross-Subsystem Connections section — `since and until` is the clearest bridge between GraphQL schema design and data-layer chunk pruning; `ROW_NUMBER PARTITION BY` and `LATERAL join` are data-layer patterns that the dataloader queries depend on
+- 2026-02-24: added signing subsystem link — mutation path (BuildAndSignTransaction, FeeBump) is the channel account lifecycle trigger; GraphQL is entry point only, locking is signing's responsibility, unlocking is ingestion's

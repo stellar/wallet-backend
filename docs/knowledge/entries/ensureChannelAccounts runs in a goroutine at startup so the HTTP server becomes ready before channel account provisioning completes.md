@@ -8,3 +8,7 @@ created: 2026-02-24
 ---
 
 `ensureChannelAccounts` runs in a goroutine at startup so the HTTP server becomes ready before channel account provisioning completes. Rather than provisioning channel accounts synchronously before starting the HTTP listener, the serve command launches `ensureChannelAccounts` in a background goroutine. The HTTP server becomes available immediately. The implication is that on a cold start (empty `channel_accounts` table), the service may briefly return `ErrNoChannelAccountConfigured` for transaction-building requests until the background provisioning goroutine completes and the on-chain channel accounts are created and stored.
+
+Since [[the two error types ErrNoIdleChannelAccountAvailable and ErrNoChannelAccountConfigured distinguish between pool exhaustion and empty pool]], cold-start callers receive the "empty pool" error (not the "exhausted pool" error) — the correct operator response is to wait for provisioning to complete, not to increase `NUM_CHANNEL_ACCOUNTS`.
+
+Areas: [[entries/signing]]
