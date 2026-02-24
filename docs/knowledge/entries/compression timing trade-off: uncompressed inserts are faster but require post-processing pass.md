@@ -30,6 +30,8 @@ The implication for operators: a running historical backfill will temporarily sh
 
 ---
 
+The migration that creates a hypertable also creates the initial compression policy via `add_compression_policy()`. The `configureHypertableSettings()` function called at runtime does NOT create a new policy — it calls `alter_job()` to update the existing policy's schedule interval and `compress_after` threshold. This two-step design (migration creates, runtime configures) means the compression policy always exists after migration, but its operational parameters (how aggressively to compress, how far back) can be adjusted without schema migrations.
+
 Source: [[references/ingestion-pipeline]]
 
 Relevant Notes:

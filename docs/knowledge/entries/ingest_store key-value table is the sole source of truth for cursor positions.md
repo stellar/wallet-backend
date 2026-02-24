@@ -28,6 +28,8 @@ The upsert pattern for `Update()` (`INSERT ... ON CONFLICT DO UPDATE`) means the
 
 ---
 
+A related job, `reconcile_oldest_cursor`, runs on the same cadence as the chunk interval (1 day). Its purpose: after TimescaleDB drops a chunk via retention policy, the `oldestLedgerCursor` value in `ingest_store` may reference ledgers that no longer exist. The reconcile job re-derives the actual oldest available ledger by querying `MIN(ledger_sequence)` from `transactions`, then updates `oldestLedgerCursor` to match. Without this job, the cursor would point to data that has been dropped, causing confusion in gap detection and oldest-ledger reporting. The cadence alignment with chunk interval ensures the cursor is reconciled no later than one chunk interval after a retention drop.
+
 Source: [[references/ingestion-pipeline]]
 
 Relevant Notes:
