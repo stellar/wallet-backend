@@ -499,4 +499,16 @@ flowchart LR
 
 ---
 
+## Adding a New Processor
+
+To add a new data processor to the indexer fan-out:
+
+1. Create the processor in `internal/indexer/processors/`
+2. Implement the processor interface (`OperationProcessorInterface`, `LedgerChangeProcessor[T]`, or `TokenTransferProcessorInterface` depending on data type)
+3. Register it in the indexer's processor list (`internal/indexer/indexer.go`)
+4. Create the corresponding DB model and migration in `internal/db/migrations/`
+5. Add GraphQL schema + resolvers if the data needs to be queryable
+
+---
+
 **Topics:** [[entries/index]] | [[entries/ingestion]]

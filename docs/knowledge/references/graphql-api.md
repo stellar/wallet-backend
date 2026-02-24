@@ -77,7 +77,7 @@ All schema source-of-truth files live in `internal/serve/graphql/schema/`. gqlge
 | `balances.graphqls` | Balance interface + 4 concrete types + multi-account wrapper | `Balance`, `NativeBalance`, `TrustlineBalance`, `SACBalance`, `SEP41Balance`, `AccountBalances` |
 | `account.graphqls` | Account entity | `Account` |
 | `pagination.graphqls` | Relay-style pagination wrappers for 3 entity types | `TransactionConnection/Edge`, `OperationConnection/Edge`, `StateChangeConnection/Edge`, `PageInfo` |
-| `scalars.graphqls` | Custom scalar declarations | `Time`, `UInt32`, `Int64` |
+| `scalars.graphqls` | Custom scalar declarations | `Time`, `UInt32`, `Int64` — Go implementations live in `internal/serve/graphql/scalars/` |
 | `enums.graphqls` | All domain enumerations | `OperationType` (27 values), `StateChangeCategory` (9), `StateChangeReason` (18), `TokenType` (4) |
 | `filters.graphqls` | Filter input types | `AccountStateChangeFilterInput` |
 | `directives.graphqls` | gqlgen code-generation directive | `@goField` |

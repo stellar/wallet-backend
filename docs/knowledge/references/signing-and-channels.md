@@ -194,7 +194,16 @@ Channel accounts are Stellar accounts whose keypairs are stored encrypted in the
 
 ### Provisioning Flow
 
-Run once via `go run main.go channel-account ensure <N>`:
+CLI commands:
+```bash
+# Ensure N channel accounts exist (creates or removes to reach target)
+go run main.go channel-account ensure <N>
+
+# List all channel accounts and their current lock status
+go run main.go channel-account list
+```
+
+Provisioning flow — run `ensure` once via `go run main.go channel-account ensure <N>`:
 
 ```mermaid
 sequenceDiagram
