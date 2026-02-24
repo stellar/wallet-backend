@@ -77,7 +77,7 @@ Key CLI flags and defaults:
 | `--port` | `8001` | HTTP listen port |
 | `--graphql-complexity-limit` | `1000` | Max query complexity score |
 | `--max-graphql-worker-pool-size` | `100` | pond.Pool size for resolver parallelism |
-| `--max-accounts-per-balances-query` | *(required)* | Balance query cardinality cap |
+| `--max-accounts-per-balances-query` | `20` | Balance query cardinality cap |
 | `--client-auth-max-timeout-seconds` | `15` | JWT token max age |
 | `--client-auth-max-body-size-bytes` | `102400` (100 KB) | Max body size for auth check |
 | `--number-channel-accounts` | `15` | Minimum channel account count |
