@@ -24,6 +24,9 @@ CLAUDE.md
 # Serena language server state
 .serena
 
+# Stray root-level ops/ directory (hooks may write here when cwd resolves incorrectly)
+ops/
+
 # ── Knowledge system — per-developer state ───
 docs/knowledge/self/memory/
 docs/knowledge/captures/
