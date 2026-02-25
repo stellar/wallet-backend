@@ -24,6 +24,12 @@ CLAUDE.md
 # Serena language server state
 .serena
 
+# ── Arscontexta plugin stray files (fallback vault detection) ──
+# Belt-and-suspenders: these files should not exist at repo root, but if
+# the plugin's vaultguard.sh recreates them they won't pollute git history.
+/.arscontexta
+/ops/
+
 # ── Knowledge system — per-developer state ───
 docs/knowledge/self/memory/
 docs/knowledge/captures/
