@@ -1,0 +1,50 @@
+# Kubernetes deployment configuration for the /k8s-ops skill.
+#
+# SETUP:
+#   1. Copy this file:  cp .claude/skills/k8s-ops/config.example.yaml .claude/k8s-config.yaml
+#   2. Fill in your deployment-specific values
+#   3. .claude/k8s-config.yaml is automatically gitignored
+#
+
+# Kubernetes namespace where all resources live
+namespace: <your-k8s-namespace>
+
+# EKS cluster name (used to verify kubectl context before mutations)
+cluster: <your-eks-cluster-name>
+
+# API deployment name (runs `serve`)
+api_deployment: <api-deployment-name>
+
+# Ingest deployment name (runs `ingest`)
+ingest_deployment: <ingest-deployment-name>
+
+# CNPG cluster name
+cnpg_cluster: <cnpg-cluster-name>
+
+# DB credentials secret name
+db_credentials_secret: <db-credentials-secret-name>
+
+# Database version description (informational only)
+db_version: "PG17 + TimescaleDB 2.25.0"
+
+# ConfigMap name for environment configuration
+configmap: <configmap-name>
+
+# Service name (ClusterIP)
+service: <service-name>
+
+# Ingress hostname
+ingress_hostname: <ingress-hostname>
+
+# Container image registry URL (without tag — full image is {image_registry}:{tag})
+image_registry: <container-registry-url>
+
+# App-level label (used in -l app= selectors)
+app_label: wallet-backend
+
+# Absolute paths to your local kube manifest repository checkout
+manifests:
+  app: <path-to-app-manifest.yaml>
+  cnpg: <path-to-cnpg-manifest.yaml>
+  backfill_job: <path-to-backfill-job-manifest.yaml>
+  tsdb_monitoring: <path-to-tsdb-monitoring-manifest.yaml>
