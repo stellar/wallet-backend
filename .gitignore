@@ -1,25 +1,38 @@
-# Visual Studio Code
+# Build / IDE / OS
 .vscode
-captive-core*/
-.env
-.DS_Store
-env.sh
 .idea
+.DS_Store
+captive-core*/
 __debug_bin*
 *.out
+
+# Environment / secrets
+.env
+env.sh
+
+# ── Claude Code — selective tracking ─────────
+# .claude/* (not .claude/) allows negation of specific children.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/rules/
+!.claude/skills/
+
+# CLAUDE.md — per-developer project instructions
 CLAUDE.md
-.claude/
+
+# Serena language server state
 .serena
 
-# Knowledge system: per-developer operational state
+# ── Knowledge system — per-developer state ───
 docs/knowledge/self/memory/
 docs/knowledge/captures/
 docs/knowledge/archive/
 docs/knowledge/ops/sessions/
+docs/knowledge/ops/tasks/
 docs/knowledge/ops/tasks.md
 docs/knowledge/ops/reminders.md
 docs/knowledge/ops/next-log.md
 docs/knowledge/ops/observations/
 docs/knowledge/ops/tensions/
 docs/knowledge/ops/queue/
-ops/sessions/
