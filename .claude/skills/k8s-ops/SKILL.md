@@ -42,6 +42,7 @@ metadata:
 - **CNPG manifest**: `{manifests.cnpg}`
 - **Backfill job**: `{manifests.backfill_job}`
 - **TSDB monitoring**: `{manifests.tsdb_monitoring}`
+- **Pubnet RPC**: `{manifests.stellar_rpc_pubnet}`
 
 ## Instructions
 
@@ -356,7 +357,41 @@ Run all of these in sequence:
 
 Report a summary of: pod states, CNPG replication health, any warning/error events, and resource usage.
 
-#### G2: Reset DB and Restart Deployments
+#### G2: Reset RPC StatefulSet (Wipe Data + New Image)
+
+Use when the user wants to apply a new RPC image **and** wipe persistent ledger data for a clean resync.
+
+> **Note:** ArgoCD auto-sync is OFF in this environment. The StatefulSet controller (not ArgoCD) handles pod recreation — deleting a pod is safe and will always recreate it. ArgoCD only controls manifest-level changes.
+
+1. **Apply the updated manifest** (new image tag already edited in `{manifests.stellar_rpc_pubnet}`):
+   ```bash
+   kubectl apply -f {manifests.stellar_rpc_pubnet}
+   ```
+
+2. **Delete the pod** — StatefulSet controller recreates it immediately:
+   ```bash
+   kubectl delete pod stellar-rpc-pubnet-dev-0 -n {namespace}
+   ```
+
+3. **Immediately delete the PVC** before the new pod binds to it — **IRREVERSIBLE, wipes all synced ledger data**:
+   ```bash
+   kubectl delete pvc stellar-rpc-pubnet-dev-var-lib-stellar-stellar-rpc-pubnet-dev-0 -n {namespace}
+   ```
+
+4. **Verify** the new pod is up and syncing from scratch:
+   ```bash
+   kubectl get pod stellar-rpc-pubnet-dev-0 -n {namespace}
+   kubectl get pvc -n {namespace} | grep stellar-rpc-pubnet
+   ```
+
+5. **Check logs** to confirm fresh sync (look for `History: Catching up` and fast `getHealth` responses):
+   ```bash
+   rtk proxy kubectl logs -n {namespace} stellar-rpc-pubnet-dev-0 --tail=30
+   ```
+
+> **Timing note:** The PVC deletion must happen while the pod is still starting (before it binds the volume). If the new pod already bound the PVC, it will block deletion until the pod is deleted again.
+
+#### G3: Reset DB and Restart Deployments
 
 **This is destructive — require explicit user confirmation at each step.**
 
@@ -384,7 +419,7 @@ Report a summary of: pod states, CNPG replication health, any warning/error even
    ```
 7. Monitor rollout and check logs.
 
-#### G3: Deploy New Version (End-to-End)
+#### G4: Deploy New Version (End-to-End)
 
 1. Get the image tag from the user.
 2. Follow Section D (Deploy a New Image Tag) steps 1-7.

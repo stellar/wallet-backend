@@ -48,3 +48,4 @@ manifests:
   cnpg: <path-to-cnpg-manifest.yaml>
   backfill_job: <path-to-backfill-job-manifest.yaml>
   tsdb_monitoring: <path-to-tsdb-monitoring-manifest.yaml>
+  stellar_rpc_pubnet: <path-to-stellar-rpc-pubnet-manifest.yaml>
