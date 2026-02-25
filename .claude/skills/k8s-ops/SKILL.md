@@ -35,6 +35,7 @@ metadata:
 | Ingress | `{ingress_hostname}` | External access |
 | Image Registry | `{image_registry}` | Container images (append `:<tag>`) |
 | DB Credentials | `{db_credentials_secret}` (Secret) | Database connection credentials |
+| App Label | `{app_label}` | Used in `-l app=` selectors (e.g., `kubectl get all -l app={app_label}`) |
 
 ### Manifest File Paths
 
@@ -75,6 +76,7 @@ Then edit .claude/k8s-config.yaml with your deployment-specific values.
 | `configmap` | `kubectl get configmap {configmap}` |
 | `service` | `svc/{service}` in port-forward |
 | `image_registry` | Image prefix: `{image_registry}:<tag>` |
+| `app_label` | `-l app={app_label}` on get/list commands |
 | `manifests.app` | File path to read/apply for deployments |
 | `manifests.cnpg` | File path to read/apply for CNPG cluster |
 | `manifests.backfill_job` | File path to apply for backfill jobs |
@@ -120,37 +122,28 @@ kubectl top pods -n {namespace}
 
 Determine whether the user wants API or Ingest logs:
 
+> **rtk proxy note:** The `rtk` token proxy intercepts `kubectl logs` and strips `-n`/`--namespace` flags, causing `error: unexpected argument '-n' found`. Always use `rtk proxy kubectl logs` to bypass filtering for log commands:
+> ```bash
+> rtk proxy kubectl logs -n {namespace} <pod-name> --tail=100
+> rtk proxy kubectl logs -n {namespace} <pod-name> --previous --tail=100
+> ```
+
 **API logs:**
 ```bash
-# Main container logs (follow)
-kubectl logs -n {namespace} deployment/{api_deployment} -f
-
-# Previous container (if crashed)
-kubectl logs -n {namespace} deployment/{api_deployment} --previous
-
-# Init container logs
-kubectl logs -n {namespace} deployment/{api_deployment} -c <init-container-name>
-
-# Last N lines
-kubectl logs -n {namespace} deployment/{api_deployment} --tail=200
+rtk proxy kubectl logs -n {namespace} deployment/{api_deployment} --tail=200
+rtk proxy kubectl logs -n {namespace} deployment/{api_deployment} --previous --tail=200
 ```
 
 **Ingest logs:**
 ```bash
-# Main container logs (follow)
-kubectl logs -n {namespace} deployment/{ingest_deployment} -f
-
-# Previous container (if crashed)
-kubectl logs -n {namespace} deployment/{ingest_deployment} --previous
-
-# Last N lines
-kubectl logs -n {namespace} deployment/{ingest_deployment} --tail=200
+rtk proxy kubectl logs -n {namespace} deployment/{ingest_deployment} --tail=200
+rtk proxy kubectl logs -n {namespace} deployment/{ingest_deployment} --previous --tail=200
 ```
 
 **Tip:** If multiple pods exist, first list pods then target a specific one:
 ```bash
 kubectl get pods -n {namespace} -l app={api_deployment}
-kubectl logs -n {namespace} <specific-pod-name> -f
+rtk proxy kubectl logs -n {namespace} <specific-pod-name> --tail=200 -f
 ```
 
 ### Section C: CNPG Database Operations
@@ -295,8 +288,8 @@ This is a multi-step workflow. **Always confirm the image tag with the user befo
 
 7. **Check logs for startup errors:**
    ```bash
-   kubectl logs -n {namespace} deployment/{api_deployment} --tail=50
-   kubectl logs -n {namespace} deployment/{ingest_deployment} --tail=50
+   rtk proxy kubectl logs -n {namespace} deployment/{api_deployment} --tail=50
+   rtk proxy kubectl logs -n {namespace} deployment/{ingest_deployment} --tail=50
    ```
 
 ### Section E: Scale Deployments
@@ -363,33 +356,43 @@ Use when the user wants to apply a new RPC image **and** wipe persistent ledger 
 
 > **Note:** ArgoCD auto-sync is OFF in this environment. The StatefulSet controller (not ArgoCD) handles pod recreation — deleting a pod is safe and will always recreate it. ArgoCD only controls manifest-level changes.
 
+> **Critical:** Do NOT try to delete the pod and PVC simultaneously. The `kubernetes.io/pvc-protection` finalizer blocks PVC deletion while any pod has the volume mounted. The StatefulSet recreates the pod instantly, which re-mounts the PVC before you can delete it. The only reliable approach is to scale down to 0 first so no pod holds the PVC.
+
 1. **Apply the updated manifest** (new image tag already edited in `{manifests.stellar_rpc_pubnet}`):
    ```bash
    kubectl apply -f {manifests.stellar_rpc_pubnet}
    ```
 
-2. **Delete the pod** — StatefulSet controller recreates it immediately:
+2. **Scale down to 0** — releases the PVC so it can be deleted:
    ```bash
-   kubectl delete pod stellar-rpc-pubnet-dev-0 -n {namespace}
+   kubectl scale statefulset/stellar-rpc-pubnet-dev -n {namespace} --replicas=0
    ```
 
-3. **Immediately delete the PVC** before the new pod binds to it — **IRREVERSIBLE, wipes all synced ledger data**:
+3. **Wait for the pod to fully terminate**:
+   ```bash
+   kubectl wait --for=delete pod/stellar-rpc-pubnet-dev-0 -n {namespace} --timeout=60s
+   ```
+
+4. **Delete the PVC** — **IRREVERSIBLE, wipes all synced ledger data**:
    ```bash
    kubectl delete pvc stellar-rpc-pubnet-dev-var-lib-stellar-stellar-rpc-pubnet-dev-0 -n {namespace}
    ```
 
-4. **Verify** the new pod is up and syncing from scratch:
+5. **Scale back up to 1** — StatefulSet provisions a fresh PVC and starts the new image:
+   ```bash
+   kubectl scale statefulset/stellar-rpc-pubnet-dev -n {namespace} --replicas=1
+   ```
+
+6. **Verify** the new pod has a brand-new PVC (check the PVC age — it should be seconds old):
    ```bash
    kubectl get pod stellar-rpc-pubnet-dev-0 -n {namespace}
    kubectl get pvc -n {namespace} | grep stellar-rpc-pubnet
    ```
 
-5. **Check logs** to confirm fresh sync (look for `History: Catching up` and fast `getHealth` responses):
+7. **Check logs** to confirm fresh sync (look for `History: Catching up` and fast `getHealth` responses):
    ```bash
    rtk proxy kubectl logs -n {namespace} stellar-rpc-pubnet-dev-0 --tail=30
    ```
-
-> **Timing note:** The PVC deletion must happen while the pod is still starting (before it binds the volume). If the new pod already bound the PVC, it will block deletion until the pod is deleted again.
 
 #### G3: Reset DB and Restart Deployments
 
@@ -408,10 +411,14 @@ Use when the user wants to apply a new RPC image **and** wipe persistent ledger 
    ```bash
    kubectl apply -f {manifests.cnpg}
    ```
-5. Wait for the DB cluster to become ready:
+5. Wait for the DB cluster to become ready (poll until phase is "Cluster in healthy state"):
    ```bash
-   kubectl cnpg status {cnpg_cluster} -n {namespace}
+   kubectl get cluster {cnpg_cluster} -n {namespace} -o jsonpath='{.status.phase}'
+   # Repeat until output shows: Cluster in healthy state
+   kubectl get cluster {cnpg_cluster} -n {namespace} -o json | \
+     jq '{phase: .status.phase, readyInstances: .status.readyInstances}'
    ```
+   Note: Do NOT use `kubectl cnpg status` — EKS blocks port 8000 (see Section C1).
 6. Restart the application deployments:
    ```bash
    kubectl rollout restart deployment/{api_deployment} -n {namespace}
@@ -484,7 +491,7 @@ Solution: Run `brew install kubectl-cnpg` and retry.
 ### Pods stuck in CrashLoopBackOff
 Cause: Application failing to start (bad config, DB not ready, etc.)
 Solution:
-1. Check logs: `kubectl logs -n {namespace} <pod-name> --previous`
+1. Check logs: `rtk proxy kubectl logs -n {namespace} <pod-name> --previous`
 2. Check events: `kubectl describe pod -n {namespace} <pod-name>`
 3. Check ConfigMap: `kubectl get configmap {configmap} -n {namespace} -o yaml`
 
@@ -495,6 +502,23 @@ Solution:
 2. Check psql reachability: `kubectl exec -n {namespace} <pod-name> -- psql -U postgres -c "SELECT pg_current_wal_lsn(), pg_is_in_recovery();"`
 3. Check DB logs: `kubectl cnpg logs cluster {cnpg_cluster} -n {namespace} | kubectl cnpg logs pretty --log-level error`
 4. Check events: `kubectl get events -n {namespace} --field-selector 'involvedObject.name={cnpg_cluster}'`
+
+### PVC stuck in Terminating
+Cause: The `kubernetes.io/pvc-protection` finalizer blocks deletion while any pod has the volume mounted. For StatefulSets, deleting the pod causes immediate recreation which re-mounts the PVC — so a concurrent pod-delete + PVC-delete race will always lose.
+Solution: Scale the StatefulSet to 0 first, wait for the pod to fully terminate, then delete the PVC:
+```bash
+kubectl scale statefulset/<name> -n {namespace} --replicas=0
+kubectl wait --for=delete pod/<name>-0 -n {namespace} --timeout=60s
+kubectl delete pvc <pvc-name> -n {namespace}
+kubectl scale statefulset/<name> -n {namespace} --replicas=1
+```
+
+### `kubectl logs` fails with "unexpected argument '-n'"
+Cause: The `rtk` token proxy intercepts `kubectl logs` and strips namespace flags.
+Solution: Use `rtk proxy` to bypass filtering:
+```bash
+rtk proxy kubectl logs -n {namespace} <pod-name> --tail=100
+```
 
 ### Wrong kubectl context
 Cause: kubectl is pointed at the wrong cluster.
