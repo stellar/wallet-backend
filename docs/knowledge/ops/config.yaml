@@ -49,6 +49,33 @@ subsystems:
   - services
   - auth
 
+reference_docs:
+  ingestion-pipeline:
+    file: references/ingestion-pipeline.md
+    source_dirs: [internal/ingest, internal/indexer]
+  state-changes:
+    file: references/state-changes.md
+    source_dirs: [internal/indexer/processors]
+  data-layer:
+    file: references/data-layer.md
+    source_dirs: [internal/db, internal/data, internal/entities]
+  signing-and-channels:
+    file: references/signing-and-channels.md
+    source_dirs: [internal/signing, internal/services/channel_account, internal/services/transaction]
+  graphql-api:
+    file: references/graphql-api.md
+    source_dirs: [internal/serve]
+  services:
+    file: references/services.md
+    source_dirs: [internal/services]
+  authentication:
+    file: references/authentication.md
+    source_dirs: [internal/validators, internal/serve/auth]
+  overview:
+    file: references/overview.md
+    source_dirs: []
+    cross_cutting: true
+
 extraction_categories:
   - Architecture decisions
   - Debugging insights

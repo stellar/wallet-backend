@@ -139,6 +139,7 @@ The reconciliation checks invariants that together define a healthy system:
 | Infrastructure ideas | Are there improvement ideas waiting for review? |
 | Pipeline pressure | Is the processing queue backing up? |
 | Schema compliance | Do all entries pass schema validation? |
+| Stale reference docs | Have >= 5 source files changed in a subsystem since the corresponding reference doc was last updated? Tracked in `ops/reference-doc-changes.yaml`, incremented by the `track-code-changes.sh` hook, reset by `/write-architecture-doc` Phase 6. Consequence speed: multi-session (agents load increasingly inaccurate architecture context). |
 
 Each invariant is self-healing: fix the underlying issue (process the captures, connect the orphan, resolve the tension) and the task disappears at next reconciliation. No manual status updates needed.
 
