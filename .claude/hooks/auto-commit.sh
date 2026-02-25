@@ -25,11 +25,25 @@ if git diff --quiet "$FILE_PATH" 2>/dev/null && ! git ls-files --others --exclud
   exit 0
 fi
 
-# Stage the specific file
-git add "$FILE_PATH" 2>/dev/null || exit 0
+# Also stage any other pending knowledge changes
+git add docs/knowledge/ 2>/dev/null || true
 
-# Commit with a standard message
-BASENAME=$(basename "$FILE_PATH")
-git commit -m "knowledge: update $BASENAME" --no-verify 2>/dev/null || exit 0
+# Build commit message from staged changes
+CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null | head -5)
+FILE_COUNT=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+STATS=$(git diff --cached --stat 2>/dev/null | tail -1)
+
+if [[ "$FILE_COUNT" -eq 1 ]]; then
+  FILENAME=$(echo "$CHANGED_FILES" | head -1)
+  MSG="Auto: $FILENAME"
+else
+  MSG="Auto: $FILE_COUNT files"
+fi
+
+if [[ -n "$STATS" ]]; then
+  MSG="$MSG | $STATS"
+fi
+
+git commit -m "$MSG" --no-verify 2>/dev/null || exit 0
 
 exit 0

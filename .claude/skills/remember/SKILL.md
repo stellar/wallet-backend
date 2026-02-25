@@ -34,7 +34,7 @@ If these files don't exist (pre-init invocation or standalone use), use universa
 Parse immediately:
 - If target contains a quoted description or unquoted text: **explicit mode** — user describes friction directly
 - If target is empty: **contextual mode** — review recent conversation for corrections
-- If target contains `--mine-sessions` or `--mine`: **session mining mode** — scan ops/sessions/ for patterns
+- If target contains `--mine-sessions` or `--mine`: **session mining mode** — scan docs/knowledge/ops/sessions/ for patterns
 
 **START NOW.** Reference below defines the three modes.
 
@@ -262,7 +262,7 @@ This mode scans stored session transcripts for friction patterns the user addres
 
 ```bash
 # Find session files without mined: true marker
-UNMINED=$(grep -rL '^mined: true' ops/sessions/*.md 2>/dev/null)
+UNMINED=$(grep -rL '^mined: true' docs/knowledge/ops/sessions/*.md 2>/dev/null)
 UNMINED_COUNT=$(echo "$UNMINED" | grep -c . 2>/dev/null || echo 0)
 ```
 
@@ -270,7 +270,7 @@ If no unmined sessions found:
 ```
 --=={ remember — mine }==--
 
-  No unprocessed sessions found in ops/sessions/.
+  No unprocessed sessions found in docs/knowledge/ops/sessions/.
   All sessions have been mined for friction patterns.
 ```
 
@@ -504,7 +504,7 @@ If the new friction CONTRADICTS an existing methodology entry (user now wants th
 
 ### No Sessions to Mine
 
-Report clearly: "No unprocessed sessions found in ops/sessions/." Do not treat this as an error.
+Report clearly: "No unprocessed sessions found in docs/knowledge/ops/sessions/." Do not treat this as an error.
 
 ### Very Long Sessions
 

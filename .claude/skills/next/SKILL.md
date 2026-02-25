@@ -64,7 +64,7 @@ Before collecting state, evaluate all maintenance conditions and reconcile the q
 | observation_accumulation | Count status: pending in ops/observations/. |
 | tension_accumulation | Count status: pending or open in ops/tensions/. |
 | pipeline_stalled | Queue tasks with status: pending unchanged across sessions. |
-| unprocessed_sessions | Count files in ops/sessions/ without mined: true. |
+| unprocessed_sessions | Count files in docs/knowledge/ops/sessions/ without mined: true. |
 | moc_oversize | For each knowledge map, count linked entries. |
 | stale_notes | Entries not modified in 30+ days with < 2 links. |
 | low_link_density | Average link count across all entries. |
@@ -129,12 +129,12 @@ Gather all signals. Run independent checks in parallel where possible. Record ea
 | **Tensions** | Count files with `status: pending` or `status: open` in `ops/tensions/` | Count |
 | **Methodology** | Check `ops/methodology/` for recent captures (files modified in last 7 days) | Count of recent, total count |
 | **Health** | Read most recent report in `ops/health/` — note timestamp and issues | Last run date, issue count, any critical issues |
-| **Sessions** | Check `ops/sessions/` for files without `mined: true` in frontmatter | Count of unmined sessions |
+| **Sessions** | Check `docs/knowledge/ops/sessions/` for files without `mined: true` in frontmatter | Count of unmined sessions |
 | **Recent /next** | Read `ops/next-log.md` (if exists) — last 3 recommendations | Previous suggestions to avoid repetition |
 
 **Adaptation rules:**
 - Directory names adapt to domain vocabulary (e.g., captures/ instead of hardcoded "inbox")
-- Skip checks silently for directories that do not exist — do not report "ops/sessions/ not found"
+- Skip checks silently for directories that do not exist — do not report "docs/knowledge/ops/sessions/ not found"
 - A missing directory means that feature is not active, which is valid state
 
 **Signal collection commands:**
@@ -154,7 +154,7 @@ OBS_COUNT=$(grep -rl '^status: pending' ops/observations/ 2>/dev/null | wc -l | 
 TENSION_COUNT=$(grep -rl '^status: pending\|^status: open' ops/tensions/ 2>/dev/null | wc -l | tr -d ' ')
 
 # Unmined sessions
-SESSION_COUNT=$(grep -rL '^mined: true' ops/sessions/*.md 2>/dev/null | wc -l | tr -d ' ')
+SESSION_COUNT=$(grep -rL '^mined: true' docs/knowledge/ops/sessions/*.md 2>/dev/null | wc -l | tr -d ' ')
 ```
 
 ---

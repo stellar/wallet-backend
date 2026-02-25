@@ -29,7 +29,7 @@ mkdir -p "$SESSIONS_DIR"
 SESSION_FILE="$SESSIONS_DIR/session-${SESSION_STAMP}.md"
 
 # ── Get session start time from current.json ──────────────────────────────────
-CURRENT_JSON="ops/sessions/current.json"
+CURRENT_JSON="docs/knowledge/ops/sessions/current.json"
 SESSION_STARTED=""
 if [[ -f "$CURRENT_JSON" ]]; then
   SESSION_STARTED=$(jq -r '.started // ""' "$CURRENT_JSON" 2>/dev/null || true)

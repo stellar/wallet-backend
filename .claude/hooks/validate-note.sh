@@ -23,6 +23,11 @@ fi
 
 # Check for required frontmatter fields
 if [[ -f "$FILE_PATH" ]]; then
+  # Check for YAML frontmatter delimiters
+  if ! head -1 "$FILE_PATH" | grep -q "^---$"; then
+    echo "WARNING: $FILE_PATH is missing YAML frontmatter delimiters (---)"
+  fi
+
   # Check for context (description) field
   if ! grep -q "^context:" "$FILE_PATH" && ! grep -q "^description:" "$FILE_PATH"; then
     echo "WARNING: $FILE_PATH is missing 'context' field in frontmatter"

@@ -208,7 +208,7 @@ OBS_PENDING=$(grep -rl '^status: pending' ops/observations/ 2>/dev/null | wc -l 
 TENSION_PENDING=$(grep -rl '^status: open\|^status: pending' ops/tensions/ 2>/dev/null | wc -l | tr -d ' ')
 
 # Sessions captured
-SESSION_COUNT=$(ls -1 ops/sessions/*.md 2>/dev/null | wc -l | tr -d ' ')
+SESSION_COUNT=$(ls -1 docs/knowledge/ops/sessions/*.md 2>/dev/null | wc -l | tr -d ' ')
 ```
 
 Adapt all directory names to domain vocabulary. Skip checks for directories that do not exist — report "N/A" instead of errors.
