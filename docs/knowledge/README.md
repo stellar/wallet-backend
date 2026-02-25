@@ -2,7 +2,7 @@
 
 This directory contains a structured knowledge base for the wallet-backend codebase. It captures architecture decisions, debugging insights, code patterns, and gotchas — the kind of institutional knowledge that normally lives in people's heads or gets buried in Slack threads. Instead of losing it when someone moves to a different team, or rediscovering the same pitfall six months later, the knowledge graph makes it searchable, linkable, and durable.
 
-The system is powered by [Ars Contexta v0.8.0](https://arscontexta.com) and integrated with Claude Code via automation hooks and slash commands. When you open this repo in Claude Code, hooks automatically surface relevant knowledge at session start, validate new entries against the schema, auto-commit knowledge files to git, track when source code changes make reference docs stale, and capture a session summary when you close.
+The system is powered by [Ars Contexta v0.8.0](https://arscontexta.org) and integrated with Claude Code via automation hooks and slash commands. When you open this repo in Claude Code, hooks automatically surface relevant knowledge at session start, validate new entries against the schema, auto-commit knowledge files to git, track when source code changes make reference docs stale, and capture a session summary when you close.
 
 **At a glance:** ~124 entries, 8 reference docs, 7 knowledge maps, 18+ slash commands, 5 automation hooks.
 
