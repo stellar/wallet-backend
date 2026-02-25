@@ -27,7 +27,7 @@ CREATE TABLE protocols (
 -- 'classification_in_progress' - Checkpoint classification running
 -- 'classification_success'    - Checkpoint classification complete
 -- 'backfilling_in_progress'   - Historical state migration running
--- 'backfilling_success'       - Migration complete, data is complete
+-- 'backfilling_success'       - Migration complete, live ingestion owns current state
 -- 'failed'                    - Migration failed
 ```
 
@@ -49,6 +49,27 @@ INSERT INTO ingest_store (key, value) VALUES ('protocol_SEP41_migration_cursor',
 
 Each protocol migration has its own cursor key (e.g., `protocol_{PROTOCOL_ID}_migration_cursor`).
 This cursor is updated atomically with each batch commit for crash recovery and can be deleted after the migration completes.
+
+**Current State Cursor** (via `ingest_store` table):
+
+Each protocol also has a shared current-state cursor that tracks the last ledger for which current state was produced:
+
+```sql
+-- Current state cursor example:
+INSERT INTO ingest_store (key, value) VALUES ('protocol_SEP41_current_state_cursor', '50000');
+```
+
+The current state cursor (e.g., `protocol_{PROTOCOL_ID}_current_state_cursor`) is **shared between migration and live ingestion**. It is advanced atomically via compare-and-swap (CAS) within the same DB transaction that writes current state data:
+
+```sql
+-- CAS: only advance if the cursor is at the expected value
+UPDATE ingest_store SET value = $new WHERE key = $cursor_name AND value = $expected;
+-- Returns rows_affected = 1 on success, 0 if another process already advanced it
+```
+
+This requires a new `CompareAndSwap` method on `IngestStoreModel`. The existing `Update()` (`ingest_store.go:48`) is an unconditional upsert and cannot be used for this purpose.
+
+The CAS mechanism ensures that exactly one process (migration or live ingestion) writes current state for any given ledger, enabling a seamless handoff without coordination between the two processes (see [Convergence Model](#backfill-migration)).
 
 ### protocol_contracts
 
@@ -86,26 +107,37 @@ Adding a new protocol requires three coordinated processes:
 │                      PROTOCOL ONBOARDING WORKFLOW                               │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-   STEP 1: SETUP             STEP 2: LIVE INGESTION         STEP 3: BACKFILL
+   STEP 1: SETUP             STEP 2: LIVE INGESTION      STEP 3: BACKFILL
 ┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
 │ ./wallet-backend     │    │ Restart ingestion    │    │ ./wallet-backend     │
-│ protocol-setup       │───▶│ with new processor   │───▶│ protocol-migrate     │
+│ protocol-setup       │───▶│ with new processor   │    │ protocol-migrate     │
 │                      │    │                      │    │                      │
-│ Classifies existing  │    │ Note the restart     │    │ Backfills historical │
-│ contracts            │    │ ledger number        │    │ state                │
-└──────────────────────┘    └──────────────────────┘    └──────────────────────┘
-       ▲                            │                           │
-       │                            │                           │
-       │                            ▼                           │
-       │                    ┌──────────────────┐                │
-       │                    │ Live ingestion   │                │
-       │                    │ produces state   │                │
-       │                    │ from restart     │                │
-       │                    │ ledger onward    │                │
-       │                    └──────────────────┘                │
-       │                                                        │
-       └────────────────────────────────────────────────────────┘
-                    Complete coverage: [first_block → current]
+│ Classifies existing  │    │ Produces state from  │    │ Backfills historical │
+│ contracts            │    │ restart ledger onward│    │ state from start     │
+└──────────────────────┘    └──────────┬───────────┘    └──────────┬───────────┘
+                                       │                           │
+                            ┌──────────┘                           │
+                            │      Steps 2 & 3 run concurrently    │
+                            │                                      │
+                            ▼                                      ▼
+                    ┌──────────────────┐                ┌──────────────────┐
+                    │ Live ingestion:  │                │ Migration:       │
+                    │ state changes    │                │ processes all    │
+                    │ immediately,     │                │ ledgers from     │
+                    │ current state    │                │ start to tip,    │
+                    │ only after       │◄──── CAS ────▶ │ CAS-advances     │
+                    │ migration        │   handoff      │ current state    │
+                    │ catches up       │                │ cursor           │
+                    └──────────────────┘                └──────────────────┘
+                            │                                      │
+                            └──────────────┬───────────────────────┘
+                                           │
+                              Migration CAS fails = handoff
+                              Live ingestion takes over current state
+                                           │
+                                           ▼
+                            Complete coverage: [start → current]
+                            via shared current state cursor
 ```
 
 ## Process Dependencies
@@ -113,8 +145,10 @@ Adding a new protocol requires three coordinated processes:
 | Step | Requires | Produces |
 |------|----------|----------|
 | **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `known_wasms`, `protocol_contracts`, status = `classification_success` |
-| **2. ingest (live)** | Status = `classification_success`, processor registered | State from `restart_ledger` onward |
-| **3. protocol-migrate** | `protocol_contracts` populated, status = `classification_success` | Historical state from `first_block` to `restart_ledger - 1` |
+| **2. ingest (live)** | Status = `classification_success`, processor registered | State changes from `restart_ledger` onward. Current state only after migration catches up (cursor >= N-1). |
+| **3. protocol-migrate** | `protocol_contracts` populated, status = `classification_success` | Current state from `start_ledger` through convergence with live ingestion. Historical state changes within retention window. |
+
+Steps 2 and 3 run **concurrently and converge** via a shared current-state cursor (`protocol_{ID}_current_state_cursor`). Both processes independently process ledgers near the tip, but only one writes current state per ledger (determined by CAS). Migration naturally terminates when live ingestion wins the CAS race, at which point live ingestion takes over current-state production.
 
 Both live ingestion and backfill migration need the `protocol_contracts` table populated to know which contracts to process. The `protocol-setup` command ensures this data exists before either process runs.
 
@@ -209,7 +243,7 @@ During live ingestion, classification happens in two parts: (1) new WASM uploads
                                   ▼
                    ┌──────────────────────────────┐
                    │ ProcessLedger()              │
-                   │ (iterate ledger entry changes│
+                   │ iterate ledger entry changes │
                    └──────────────┬───────────────┘
                                   │
               ┌───────────────────┴───────────────────┐
@@ -302,7 +336,7 @@ and live ingestion.
 │   │ Custom Sections                      │                       │
 │   │   └── "contractspecv0" ◄─────────────┼── XDR-encoded spec    │
 │   └──────────────────────────────────────┘                       │
-│                                                                   │
+│                                                                  │
 │   for _, section := range compiledModule.CustomSections() {      │
 │       if section.Name() == "contractspecv0" {                    │
 │           specBytes = section.Data()                             │
@@ -313,14 +347,14 @@ and live ingestion.
                                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │ Step 3: XDR Unmarshal → []ScSpecEntry                            │
-│                                                                   │
+│                                                                  │
 │   reader := bytes.NewReader(specBytes)                           │
 │   for reader.Len() > 0 {                                         │
 │       var spec xdr.ScSpecEntry                                   │
 │       xdr.Unmarshal(reader, &spec)                               │
 │       specs = append(specs, spec)                                │
 │   }                                                              │
-│                                                                   │
+│                                                                  │
 │   Each ScSpecEntry represents:                                   │
 │   - Function definitions (name, inputs, outputs)                 │
 │   - Type definitions (structs, enums)                            │
@@ -330,18 +364,18 @@ and live ingestion.
                                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │ Step 4: Protocol Signature Validation                            │
-│                                                                   │
+│                                                                  │
 │   For each function in contractSpec:                             │
 │   - Extract function name                                        │
 │   - Extract input parameters (name → type mapping)               │
 │   - Extract output types                                         │
 │   - Compare against protocol's required functions                │
-│                                                                   │
+│                                                                  │
 │   Example (SEP-41 Token Standard):                               │
 │   - Required: balance, allowance, decimals, name, symbol,        │
 │               approve, transfer, transfer_from, burn, burn_from  │
 │   - All parameter names and types must match exactly             │
-│                                                                   │
+│                                                                  │
 │   foundFunctions.Add(funcName) if signature matches              │
 │   MATCH = foundFunctions.Cardinality() == len(requiredSpecs)     │
 └──────────────────────────────────────────────────────────────────┘
@@ -551,6 +585,26 @@ State produced by new protocols is done through dual processes in order to cover
 - Historical state: A backfill style migration will run for all ledgers that are needed to produce historical state enrichment, as well as current state tracking.
 - Live ingest state: live ingestion will produce state defined by a protocol, this state can be an enrichment for an operation(richer data for history) and/or can be an update to the tracking of the current-state of a protocol as it relates to a user(which collectibles does a user own?).
 
+### Additive vs Non-Additive Current State
+
+Protocol current state falls into two categories that affect how migration and live ingestion interact:
+
+**Non-additive state** (e.g., collectible ownership): The current state at ledger N can be determined from the ledger data alone, without knowing the state at ledger N-1. Live ingestion can write current state immediately for any ledger, independent of migration progress.
+
+**Additive state** (e.g., token balances): The current state at ledger N depends on the state at ledger N-1. A "transfer of 5 tokens" event at ledger N requires knowing the balance before ledger N to compute the new balance. During migration, that previous balance doesn't exist until all prior ledgers are processed.
+
+```
+Non-additive example (collectible ownership):
+  Ledger N says "User A owns collectible X" → write directly, no prior state needed.
+
+Additive example (token balance):
+  Ledger N says "Transfer 5 tokens from A to B"
+  → Need balance of A at ledger N-1 to compute new balance
+  → That balance doesn't exist until migration processes ledgers 1 through N-1
+```
+
+This distinction drives the convergence model: migration must run to the tip (not stop at a fixed end-ledger) so that additive current state is continuously built without gaps. The shared current-state cursor with CAS ensures exactly one process produces current state for each ledger, with a seamless handoff when migration catches up to live ingestion.
+
 ### Backfill Migration
 The migration runner processes historical ledgers to enrich operations with protocol state and produce state changes/current state.
 
@@ -566,7 +620,6 @@ The migration runner processes historical ledgers to enrich operations with prot
                     │ protocol-migrate           │
                     │ --protocol-id SEP50 ...    │
                     │ --start-ledger 1000        │
-                    │ --end-ledger 5000          │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
@@ -582,56 +635,95 @@ The migration runner processes historical ledgers to enrich operations with prot
                     │   _in_progress             │
                     │ - Read oldest_ledger_cursor│
                     │   from ingest_store        │
+                    │ - Initialize current_state │
+                    │   _cursor = start-ledger-1 │
                     └─────────────┬──────────────┘
                                   │
                                   ▼
                     ┌────────────────────────────┐
-                    │ For each ledger in range:  │
-                    │(start-ledger to end-ledger)│
-                    └─────────────┬──────────────┘
-                                  │
-                                  ▼
-                    ┌────────────────────────────┐
-                    │ Use processor to:          │
-                    │ - Find operations involving│
-                    │   protocol contracts       │
-                    │ - Generate state changes   │
-                    │ - Update current state     │
-                    │   running totals           │
-                    └─────────────┬──────────────┘
-                                  │
-                                  ▼
-                    ┌────────────────────────────┐
-                    │ If ledger >= retention     │
-                    │ window start:              │
-                    │ - Persist state changes    │
-                    │ - Enrich historical data   │
-                    │                            │
-                    │ Otherwise:                 │
-                    │ - Discard state changes    │
-                    │   (already applied to      │
-                    │    current state totals)   │
-                    └─────────────┬──────────────┘
-                                  │
-                                  ▼
+                    │ Read latest_ledger_cursor  │
+                    │ Split [start, target] into │
+                    │ batches. Process in        │
+                    │ parallel with ordered      │◀──────────────┐
+                    │ commit.                    │               │
+                    └─────────────┬──────────────┘               │
+                                  │                              │
+                                  ▼                              │
+                    ┌────────────────────────────┐               │
+                    │ Per batch commit:          │               │
+                    │ - Write state changes      │               │
+                    │   (if within retention)    │               │
+                    │ - CAS-advance current      │               │
+                    │   _state_cursor            │               │
+                    │ - Write current state      │               │
+                    │   (if CAS succeeded)       │               │
+                    └─────────────┬──────────────┘               │
+                                  │                              │
+                         ┌────────┴────────┐                     │
+                         │                 │                     │
+                    CAS success       CAS failure                │
+                         │                 │                     │
+                         ▼                 ▼                     │
+                    ┌──────────┐   ┌──────────────────┐          │
+                    │ Continue │   │ Handoff detected │          │
+                    │ to next  │   │ Live ingestion   │          │
+                    │ batch    │   │ took over.       │          │
+                    └────┬─────┘   │ Exit loop.       │          │
+                         │         └────────┬─────────┘          │
+                         │                  │                    │
+                         ▼                  │                    │
+                    ┌──────────────┐        │                    │
+                    │ More batches │        │                    │
+                    │ remaining?   │        │                    │
+                    │              │        │                    │
+                    │ YES: continue│        │                    │
+                    │ NO: re-read  │────────┼────────────────────┘
+                    │ latest_ledger│        │  (fetch new target,
+                    │ _cursor, loop│        │   process remaining)
+                    └──────────────┘        │
+                                            │
+                                            ▼
                     ┌────────────────────────────┐
                     │ Complete()                 │
-                    │ - Write final current state│
                     │ - Set status =             │
                     │   backfilling_success      │
+                    │ - Clean up resources       │
                     └────────────────────────────┘
 
+
+CONVERGENCE MODEL:
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Migration and live ingestion converge via a shared current-state cursor.   │
+│                                                                            │
+│ 1. Migration processes ALL ledgers from start-ledger to tip               │
+│ 2. Live ingestion runs concurrently, producing state changes immediately  │
+│ 3. Both processes CAS-advance the shared cursor for each ledger           │
+│ 4. Exactly one wins the CAS per ledger — the winner writes current state  │
+│ 5. When migration's CAS fails, live ingestion has taken over              │
+│ 6. Migration sets backfilling_success and exits                           │
+│                                                                            │
+│ Timeline example:                                                          │
+│   T=0s:   Cursor=10004. Migration CAS 10004→10005. Success.              │
+│   T=0.5s: Migration CAS 10005→10006. Success.                            │
+│   T=5s:   Live ingestion processes 10008. Cursor=10007 >= 10007. YES.    │
+│           Live CAS 10007→10008. Success.                                  │
+│   T=5.5s: Migration tries CAS 10007→10008. FAILS. Handoff detected.     │
+│                                                                            │
+│ No gap: every ledger gets current state from exactly one process.          │
+└────────────────────────────────────────────────────────────────────────────┘
 
 MIGRATION DEPENDENCIES:
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ The migration has an explicit dependency on protocol-setup,                │
-│ and an implicit dependency on live-ingestion                               |                                            
-│ 1. Live ingestion must be running with the same processor                  │
-│ 2. Checkpoint population must have completed for the protocol              │
-│ 3. Migration processes: start-ledger → (live ingestion start - 1)          │
-│ 4. Live ingestion continues from its start point onward                    │
+│ and runs concurrently with live ingestion:                                 │
+│ 1. Checkpoint population must have completed for the protocol              │
+│ 2. Live ingestion should be running with the same processor               │
+│ 3. Migration processes: start-ledger → tip (until CAS fails)             │
+│ 4. Live ingestion produces state changes immediately; current state       │
+│    only after migration catches up (cursor >= N-1)                        │
+│ 5. Handoff: migration CAS fails → live ingestion owns current state      │
 │                                                                            │
-│ This ensures no ledger gap between backfill and live ingestion.            │
+│ This ensures zero-gap current state coverage via CAS serialization.       │
 └────────────────────────────────────────────────────────────────────────────┘
 
 RETENTION WINDOW HANDLING:
@@ -640,8 +732,8 @@ RETENTION WINDOW HANDLING:
 │                                                                            │
 │ Example: Protocol deployed at ledger 1000, retention starts at 4000        │
 │                                                                            │
-│   Ledger 1000 ──────────────────────────────────────── Ledger 5000         │
-│   [start-ledger]           [retention start]          [end-ledger]         │
+│   Ledger 1000 ──────────────────────────────────────── tip                 │
+│   [start-ledger]           [retention start]          [convergence]        │
 │        │                         │                          │              │
 │        ├─────────────────────────┤                          │              │
 │        │  Process but DISCARD    │                          │              │
@@ -679,11 +771,11 @@ During live ingestion, two related but distinct processes run sequentially:
 │                          1. CLASSIFICATION                                  │
 │                                                                             │
 │  Process ledger entry changes to classify contracts:                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ ContractCode entries: validate WASM, store in known_wasms           │   │
-│  │ ContractData Instance entries: lookup hash in known_wasms,          │   │
-│  │   map contract to protocol_contracts                                │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ ContractCode entries: validate WASM, store in known_wasms           │    │
+│  │ ContractData Instance entries: lookup hash in known_wasms,          │    │
+│  │   map contract to protocol_contracts                                │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
                                       ▼
@@ -691,12 +783,12 @@ During live ingestion, two related but distinct processes run sequentially:
 │                          2. STATE PRODUCTION                                │
 │                                                                             │
 │  Run protocol processors on transactions (using updated classifications):   │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ For each protocol processor:                                         │   │
-│  │   Processor.Process(ledger)                                          │   │
-│  │   - Examines transactions involving protocol contracts               │   │
-│  │   - Produces protocol-specific state changes                         │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ For each protocol processor:                                        │    │
+│  │   Processor.Process(ledger)                                         │    │
+│  │   - Examines transactions involving protocol contracts              │    │
+│  │   - Produces protocol-specific state changes                        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
                                       ▼
@@ -714,6 +806,28 @@ During live ingestion, two related but distinct processes run sequentially:
 │ (protocol_contracts, │  │ (from processors)    │  │ accounts, etc.       │
 │  known_wasms)        │  │                      │  │                      │
 └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PER-PROTOCOL CURRENT STATE GATING                        │
+│                                                                             │
+│  Within PersistLedgerData, for each registered protocol at ledger N:        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ 1. Read protocol_{ID}_current_state_cursor                          │    │
+│  │                                                                     │    │
+│  │ 2. If cursor >= N-1:                                                │    │
+│  │    - Protocol state changes: WRITE (always)                         │    │
+│  │    - CAS cursor from N-1 to N                                       │    │
+│  │    - If CAS succeeds: WRITE current state for N                     │    │
+│  │    - If CAS fails: skip current state (migration wrote it)          │    │
+│  │                                                                     │    │
+│  │ 3. If cursor < N-1:                                                 │    │
+│  │    - Protocol state changes: WRITE (always)                         │    │
+│  │    - Current state: SKIP (migration hasn't caught up yet)           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  This logic is per-protocol. Different protocols can be at different        │
+│  stages — one may have migration complete while another is still running.   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## known_wasms Lookup Optimization
@@ -796,22 +910,92 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
 }
 ```
 
+## Write-Through Current State Cache
+
+When live ingestion first takes over current-state production for a protocol (its first successful CAS), it needs the current state to compute the next state. This is handled by a write-through in-memory cache, similar in pattern to the known_wasms LRU cache above.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WRITE-THROUGH CURRENT STATE CACHE                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                    Live Ingestion at Ledger N
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Check in-memory      │
+                    │ state cache for      │
+                    │ protocol             │
+                    └──────────┬───────────┘
+                               │
+                   ┌───────────┴───────────┐
+                   │                       │
+              POPULATED                 EMPTY
+                   │                       │
+                   ▼                       ▼
+          ┌──────────────┐      ┌──────────────────────┐
+          │ Use cached   │      │ Read current state   │
+          │ state to     │      │ from protocol state  │
+          │ compute N    │      │ tables (one-time DB  │
+          │              │      │ read at handoff)     │
+          └──────────────┘      └──────────┬───────────┘
+                   │                       │
+                   │                       ▼
+                   │            ┌──────────────────────┐
+                   │            │ Populate in-memory   │
+                   │            │ cache                │
+                   │            └──────────┬───────────┘
+                   │                       │
+                   └───────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Compute new state    │
+                    │ for ledger N         │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Update in-memory     │
+                    │ cache + write to     │
+                    │ protocol state       │
+                    │ tables in DB         │
+                    │ (write-through)      │
+                    └──────────────────────┘
+```
+
+**Cache structure**:
+```go
+// Per-protocol current state cache
+map[protocolID] -> {
+    currentStateCursor uint32           // last ledger for which state was produced
+    stateData          protocolState    // protocol-specific current state
+}
+```
+
+**Lifecycle**:
+- **Empty at start**: Cache is unpopulated when live ingestion starts
+- **Populated from DB**: When live ingestion first successfully CAS-advances the cursor (handoff from migration), it reads current state from the protocol's state tables (one-time read)
+- **Updated per ledger**: On each subsequent ledger, cache is updated in-memory and written through to DB
+- **Lost on restart**: If live ingestion restarts, the cache is repopulated from DB on the next current-state production
+
 ## Backfill Migrations
 
-Backfill migrations process historical ledgers to build current state and generate state changes. State changes are only persisted for ledgers within the retention window, but all ledgers in the specified range are processed to produce accurate current state.
+Backfill migrations process historical ledgers to build current state and generate state changes. State changes are only persisted for ledgers within the retention window, but all ledgers in the range are processed to produce accurate current state. Migration runs from a start ledger to the tip, converging with live ingestion via the shared current-state cursor (see [Convergence Model](#backfill-migration)).
 
-The `protocol-migrate` command accepts a set of protocol IDs for an explicit signal to migrate those protocols. Each protocol migration requires a specific range, which may not be exactly what other migrations need even if they are implemented at the same time. Migrations that do share a ledger range can run in one process.
+The `protocol-migrate` command accepts a set of protocol IDs for an explicit signal to migrate those protocols. Each protocol migration requires a specific start ledger, which may differ between protocols. Migrations that share a ledger range can run in one process.
 
 ### Migration Command
 
 ```bash
-./wallet-backend protocol-migrate --protocol-id SEP50 SEP41 --start-ledger 1 --end-ledger 5
+./wallet-backend protocol-migrate --protocol-id SEP50 SEP41 --start-ledger 1
 ```
 
 **Parameters**:
 - `--protocol-id`: The protocol(s) to migrate (must exist in `protocols` table)
 - `--start-ledger`: First ledger to process (set based on protocol deployment/data needs)
-- `--end-ledger`: Last ledger to process (should be the ledger before live ingestion started)
+
+The migration runs until it converges with live ingestion. It processes batches from `--start-ledger` toward the tip, CAS-advancing the shared current-state cursor with each batch commit. When a CAS fails (because live ingestion advanced the cursor first), the migration detects the handoff, sets status to `backfilling_success`, and exits.
 
 ### Migration Workflow
 
@@ -823,31 +1007,42 @@ The `protocol-migrate` command accepts a set of protocol IDs for an explicit sig
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 1. VALIDATE                                                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ - Verify protocol(s) exists in registry                                    │                                     
+│ - Verify protocol(s) exists in registry                                    │
 │ - Verify migration_status = 'classification_success'                       │
 │ - Set migration_status = 'backfilling_in_progress'                         │
 │ - Read oldest_ledger_cursor from ingest_store (retention window start)     │
+│ - Initialize protocol_{ID}_current_state_cursor = start_ledger - 1         │
 └────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ 2. PROCESS LEDGER RANGE                                                    │
+│ 2. PROCESS BATCHES TO TIP                                                  │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ For ledger = start-ledger to end-ledger:                                   │
-│   - Fetch ledger data (from archive or RPC)                                │
-│   - Run processor to find protocol operations                              │
-│   - Generate state changes, update current state running totals            │
-│   - If ledger >= retention window start: persist state changes             │
-│   - Otherwise: discard state changes (totals already updated)              │
+│ Loop:                                                                      │
+│   a. Read latest_ledger_cursor to get target                               │
+│   b. Split [cursor+1, target] into batches                                 │
+│   c. Process batches in parallel with ordered commit                       │
+│   d. Each batch commit:                                                    │
+│      - Write state changes (if within retention window)                    │
+│      - CAS-advance protocol_{ID}_current_state_cursor                      │
+│      - If CAS succeeds: write current state                                │
+│      - If CAS fails: handoff detected → go to step 3                       │
+│   e. After all batches: re-read latest_ledger_cursor                       │
+│   f. If more ledgers remain: repeat from (b)                               │
+│   g. If no more ledgers: block on RPC for next ledger (~5s), repeat        │
 └────────────────────────────────────────────────────────────────────────────┘
+                                  │
+                            CAS failure
+                            (handoff)
                                   │
                                   ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 3. COMPLETE                                                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ - Write final current state                                                │
+│ - Verify cursor is at or past the ledger migration tried to write          │
 │ - Set migration_status = 'backfilling_success'                             │
-│ - Current state APIs now serve this protocol's data                        │
+│ - Clean up migration resources                                             │
+│ - Live ingestion now owns current-state production for this protocol       │
 └────────────────────────────────────────────────────────────────────────────┘
 
 ERROR HANDLING:
@@ -856,6 +1051,17 @@ ERROR HANDLING:
 │ - Set migration_status = 'failed'                                          │
 │ - Log error details                                                        │
 │ - Migration can be retried after fixing the issue                          │
+│ - On restart: resume from protocol_{ID}_current_state_cursor + 1           │
+└────────────────────────────────────────────────────────────────────────────┘
+
+STATUS TRANSITIONS:
+┌────────────────────────────────────────────────────────────────────────────┐
+│ not_started                                                                │
+│   → classification_in_progress   (protocol-setup starts)                   │
+│   → classification_success       (protocol-setup completes)                │
+│   → backfilling_in_progress      (protocol-migrate starts)                 │
+│   → backfilling_success          (migration CAS fails = live took over)    │
+│   → failed                       (any error)                               │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -891,7 +1097,7 @@ The solution uses a **streaming ordered commit** pattern:
 
 1. **PARALLEL PHASE**: Process ledger batches concurrently (each batch gets isolated state)
 2. **ORDERED COMMIT**: A committer goroutine writes completed batches to the database **in order**
-3. **CURSOR TRACKING**: Each batch commit updates the migration cursor for crash recovery
+3. **CURSOR TRACKING**: Each batch commit CAS-advances the shared current-state cursor and updates the migration cursor for crash recovery. If a CAS fails during any batch commit, migration detects that live ingestion has taken over and exits.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -956,15 +1162,17 @@ The solution uses a **streaming ordered commit** pattern:
                                      │
          ┌───────────────────────────┼───────────────────────────┐
          ▼                           ▼                           ▼
-┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-│ COMMIT Batch 1  │       │ COMMIT Batch 2  │       │ COMMIT Batch 3  │
-│ cursor = 1000   │  ──▶  │ cursor = 2000   │  ──▶  │ cursor = 3000   │
-│ (atomic tx)     │       │ (atomic tx)     │       │ (atomic tx)     │
-└─────────────────┘       └─────────────────┘       └─────────────────┘
+┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│ COMMIT Batch 1   │       │ COMMIT Batch 2   │       │ COMMIT Batch 3   │
+│ CAS cursor→1000  │  ──▶  │ CAS cursor→2000  │  ──▶  │ CAS cursor→3000  │
+│ + current state  │       │ + current state  │       │ + current state  │
+│ (atomic tx)      │       │ (atomic tx)      │       │ (atomic tx)      │
+└──────────────────┘       └──────────────────┘       └──────────────────┘
          │                           │                           │
          ▼                           ▼                           ▼
-      Crash?                      Crash?                      Crash?
-    Resume @ 1                  Resume @ 1001               Resume @ 2001
+    CAS fail?                   CAS fail?                   CAS fail?
+    No → continue              No → continue              No → continue
+    Yes → handoff              Yes → handoff              Yes → handoff
 ```
 
 **Crash Recovery**: If the process crashes after committing batch 2, the cursor is at ledger 2000.
@@ -1143,7 +1351,12 @@ The API exposes `Protocol.migrationStatus` to allow clients to handle in-progres
 
 **For current state data**:
 
-Clients should check `Protocol.migrationStatus = 'backfilling_success'` before relying on current state queries. Current state may be incomplete or inaccurate while migration is in progress.
+Current state is **progressively available** during migration — the current-state cursor advances incrementally as migration processes each ledger. However, until `backfilling_success`, the current state only reflects ledgers up to the cursor position and may not include recent activity.
+
+- `backfilling_in_progress`: Current state exists but may lag behind live activity. The cursor indicates how far the migration has progressed.
+- `backfilling_success`: Live ingestion has fully taken over current-state production. Current state is up-to-date and will stay current going forward.
+
+Clients should check `Protocol.migrationStatus = 'backfilling_success'` before relying on current state queries for completeness. Clients that can tolerate partial data may use current state during `backfilling_in_progress` with the understanding that it reflects state up to the migration cursor, not necessarily the latest ledger.
 
 Example query to check migration status:
 
