@@ -19,8 +19,11 @@ Two different write scenarios exist: backfill (inserting historical ledger data 
 |----------|--------|----------|-------------------|
 | `pgx.CopyFrom` | `BatchCopy` | Backfill — no duplicates expected (fresh gaps) | None — COPY fails on any conflict |
 | `UNNEST + ON CONFLICT DO UPDATE` | `BatchUpsert` (balance models) | Live ingestion — restarts may overlap | `ON CONFLICT ... DO UPDATE SET ...` |
-| `ON CONFLICT DO NOTHING` | `BatchInsert` (Contract, TrustlineAsset) | Idempotent metadata inserts | Skips existing rows silently |
+| `ON CONFLICT DO NOTHING` | `BatchInsert` (assets/contracts) | Idempotent metadata inserts | Skips existing rows silently |
+| `ON CONFLICT DO NOTHING` | `BatchInsert` (account_contract_tokens) | Append-only relationship inserts | Skips existing rows silently |
 | `pgx.CopyFrom` (initial only) | `BatchCopy` (balance models) | `PopulateAccountTokens()` first run | None — called once on empty tables |
+
+All four `BatchUpsert` calls in `ProcessTokenChanges()` (trustline, contract, native balance, SAC balance) use `pgx.Batch.SendBatch()` — a pipeline of multiple SQL statements sent in a single round-trip per ledger. This means the per-ledger live ingestion path makes exactly one DB round-trip for all four balance type updates combined.
 
 `pgx.CopyFrom` uses PostgreSQL's binary COPY protocol, which is significantly faster than INSERT statements because:
 1. Binary wire format has less overhead than text SQL.

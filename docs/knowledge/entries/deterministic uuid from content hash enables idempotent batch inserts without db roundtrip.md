@@ -38,6 +38,7 @@ Callers set the `ID` field via these functions before calling `BatchInsert`, whi
 - Any code creating a new `TrustlineAsset` or `Contract` must call `DeterministicAssetID` / `DeterministicContractID` to populate the UUID — do not use `uuid.New()`.
 - The namespace-qualified SHA-1 (UUID v5) ensures there are no collisions between different content types even if the raw strings are similar.
 - This pattern works because the natural key (`code+issuer` or `contractID`) uniquely identifies the entity.
+- The double-namespacing (`uuid.NameSpaceDNS ⊕ 'trustline_assets'` vs `uuid.NameSpaceDNS ⊕ 'contract_tokens'`) is a cross-entity collision prevention mechanism: two different entity types with the same raw string input will produce different UUIDs because their intermediate namespace UUIDs differ.
 
 ## Source
 

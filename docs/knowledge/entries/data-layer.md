@@ -32,10 +32,17 @@ The data layer provides all database access through model interfaces aggregated 
 
 - [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — Why current-state tables don't benefit from TimescaleDB partitioning; enriched with why Postgres-extension nature enables standard+hypertable coexistence in one database
 - [[balance tables require aggressive autovacuum tuning because rows are updated every ledger]] — fillfactor=80 and all 4 autovacuum settings; why defaults are too conservative
+- [[deferrable initially deferred foreign keys enable checkpoint population to insert children before parents within a single transaction]] — DEFERRABLE FK pattern on all balance table FK constraints; FK check deferred to COMMIT to allow out-of-order child/parent inserts
+
+## Token Balance Storage
+
+- [[G-address SAC token holdings are stored in trustline_balances not sac_balances because stellar represents them as standard trustlines]] — Critical gotcha: querying sac_balances for a G-address returns nothing even if it holds SAC tokens
+- [[sac_balances exclusively tracks contract-address SAC positions because SAC balances for non-contract holders appear in their respective balance tables]] — The C-address restriction on sac_balances; symmetric complement of the G-address gotcha
+- [[account_contract_tokens is append-only because sep-41 relationship tracking requires history of which contracts an account has ever interacted with]] — No DELETE path on account_contract_tokens; historical relationships vs current state
 
 ## Insert Strategies
 
-- [[pgx copyfrom binary protocol is used for backfill bulk inserts unnest upsert for live ingestion]] — COPY vs upsert tradeoff; when each strategy is appropriate
+- [[pgx copyfrom binary protocol is used for backfill bulk inserts unnest upsert for live ingestion]] — COPY vs upsert tradeoff; when each strategy is appropriate; all four BatchUpsert calls use pgx.Batch.SendBatch() for single round-trip per ledger
 
 ## DataLoader Query Patterns
 

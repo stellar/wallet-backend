@@ -39,6 +39,10 @@ HOT (Heap-Only Tuple) updates require `fillfactor < 100` — the reserved space 
 `internal/db/migrations/2026-01-15.0-native_balances.sql`
 `internal/db/migrations/2026-01-16.0-sac-balances.sql`
 
+## Schema Context
+
+The FK constraints on balance tables are declared `DEFERRABLE INITIALLY DEFERRED`, which means FK checks are deferred to COMMIT rather than evaluated per-statement. This is documented in [[deferrable initially deferred foreign keys enable checkpoint population to insert children before parents within a single transaction]]. Both the autovacuum settings and the DEFERRABLE FK declarations are in the same migration files for each balance table.
+
 ## Related
 
 The autovacuum requirement follows directly from [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — because they use upsert rather than append, every active account produces dead tuples that would accumulate without aggressive vacuuming.

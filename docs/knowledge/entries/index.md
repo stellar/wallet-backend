@@ -33,14 +33,15 @@ These entries connect multiple subsystems:
 
 | Subsystem | Entries |
 |-----------|---------|
-| ingestion | 15 |
-| data-layer | 13 |
+| ingestion | 22 |
+| data-layer | 19 |
 | signing | 6 |
 | graphql | 3 |
 | services | 2 |
 | auth | 3 |
-| **Total** | **42** |
+| **Total** | **55** |
 
 Note: some entries appear in multiple subsystems (e.g. data.models spans services+data-layer, buildTransaction spans graphql+signing, row_number/toid span data-layer+graphql). The total reflects unique entries.
 
 Note: 2026-02-26 batch "why-timescaledb-over-vanilla-postgres" added 3 new entries (2 claims, 1 enrichment target) and enriched 2 existing entries.
+Note: 2026-02-26 batch "token-ingestion" added 11 new entries and enriched 3 existing entries. New entries cover: G/C address SAC balance split, checkpoint FK disable strategy, DEFERRABLE FK pattern, streaming batch architecture, UNKNOWN contract skip, wazero SEP-41 validation, SEP-41 10-function classification, dummy keypair rationale, RPC rate-limiting, account_contract_tokens append-only design, plus 1 tension entry.

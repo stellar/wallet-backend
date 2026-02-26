@@ -36,6 +36,16 @@ The ingestion pipeline reads Stellar ledger data and persists it into TimescaleD
 - [[canonical pointer pattern in indexerbuffer avoids duplicating large xdr structs across participants]] — Memory-efficient two-layer buffer design for multi-participant transactions
 - [[dedup maps use highest-operationid-wins semantics to resolve intra-ledger state conflicts]] — How ADD→REMOVE no-ops and intra-ledger conflicts are resolved
 
+## Token Ingestion
+
+- [[checkpoint streaming batch uses 250k flush threshold and slice colon zero reset to handle 30M+ ledger entries without memory exhaustion]] — Memory ceiling pattern for checkpoint population; slice[:0] reuse avoids GC pressure during 30M+ entry streaming
+- [[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] — Why the checkpoint transaction uses session_replication_role=replica; integrity is manually guaranteed by storeTokensInDB order
+- [[unknown contract type is silently skipped in processTokenChanges because unclassified contracts cannot be safely stored]] — No error, no retry — UNKNOWN contracts are dropped at ingestion time
+- [[wazero pure-go wasm runtime validates sep-41 contract specs in-process by compiling wasm and parsing the contractspecv0 custom section]] — No CGo, no external process; wazero reads contractspecv0 custom section to classify contracts
+- [[sep-41 contract classification uses the contractspecv0 wasm custom section to verify all 10 required function signatures before accepting a contract as valid]] — All 10 SEP-41 function signatures must match; missing even one produces UNKNOWN
+- [[contract metadata fetching rate-limits to 20 parallel contracts per batch with 2s sleep to avoid overloading stellar rpc during checkpoint]] — Rate-limiting constants in contract_metadata.go; 20 contracts per batch × 3 simulations each
+- [[rpc metadata simulation uses a dummy random keypair because simulate_transaction does not validate signatures or balances]] — Throwaway keypair is not a security shortcut; simulation is structurally execution-only
+
 ## State Changes
 
 - [[state changes use a two-axis category-reason taxonomy to classify every account history event]] — The category×reason classification system and its 4 producing processors
