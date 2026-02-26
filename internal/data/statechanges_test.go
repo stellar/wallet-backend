@@ -41,19 +41,21 @@ func generateTestStateChanges(n int, txHash string, accountID string, startToID 
 			// sql.NullString fields
 			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
 			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
-			OfferID:            sql.NullString{String: fmt.Sprintf("offer_%d", i), Valid: true},
 			SignerAccountID:    sql.NullString{String: fmt.Sprintf("GSIGNER%032d", i), Valid: true},
 			SpenderAccountID:   sql.NullString{String: fmt.Sprintf("GSPENDER%031d", i), Valid: true},
 			SponsoredAccountID: sql.NullString{String: fmt.Sprintf("GSPONSORED%028d", i), Valid: true},
 			SponsorAccountID:   sql.NullString{String: fmt.Sprintf("GSPONSOR%030d", i), Valid: true},
 			DeployerAccountID:  sql.NullString{String: fmt.Sprintf("GDEPLOYER%029d", i), Valid: true},
 			FunderAccountID:    sql.NullString{String: fmt.Sprintf("GFUNDER%031d", i), Valid: true},
-			// JSONB fields
-			SignerWeights:  types.NullableJSONB{"weight": i + 1, "key": fmt.Sprintf("signer_%d", i)},
-			Thresholds:     types.NullableJSONB{"low": 1, "med": 2, "high": 3},
-			TrustlineLimit: types.NullableJSONB{"limit": fmt.Sprintf("%d", (i+1)*1000)},
-			Flags:          types.NullableJSON{"auth_required", "auth_revocable"},
-			KeyValue:       types.NullableJSONB{"key": fmt.Sprintf("data_key_%d", i), "value": fmt.Sprintf("data_value_%d", i)},
+			// Typed fields (previously JSONB)
+			SignerWeightOld:   sql.NullInt16{Int16: int16(i), Valid: true},
+			SignerWeightNew:   sql.NullInt16{Int16: int16(i + 1), Valid: true},
+			ThresholdOld:      sql.NullInt16{Int16: 1, Valid: true},
+			ThresholdNew:      sql.NullInt16{Int16: 2, Valid: true},
+			TrustlineLimitOld: sql.NullString{String: fmt.Sprintf("%d", i*1000), Valid: true},
+			TrustlineLimitNew: sql.NullString{String: fmt.Sprintf("%d", (i+1)*1000), Valid: true},
+			Flags:             sql.NullInt16{Int16: 6, Valid: true}, // Bitmask for auth_required (2) | auth_revocable (4)
+			KeyValue:          types.NullableJSONB{"key": fmt.Sprintf("data_key_%d", i), "value": fmt.Sprintf("data_value_%d", i)},
 		}
 	}
 
@@ -294,7 +296,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		OperationID:         456,
 		TxHash:              tx2.Hash,
 	}
-	// State change with nullable JSONB fields
+	// State change with typed signer/threshold fields
 	sc3 := types.StateChange{
 		ToID:                3,
 		StateChangeOrder:    1,
@@ -305,8 +307,10 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		AccountID:           kp1.Address(),
 		OperationID:         789,
 		TxHash:              tx1.Hash,
-		SignerWeights:       types.NullableJSONB{"weight": 10},
-		Thresholds:          types.NullableJSONB{"low": 1, "med": 2, "high": 3},
+		SignerWeightOld:     sql.NullInt16{Int16: 0, Valid: true},
+		SignerWeightNew:     sql.NullInt16{Int16: 10, Valid: true},
+		ThresholdOld:        sql.NullInt16{Int16: 1, Valid: true},
+		ThresholdNew:        sql.NullInt16{Int16: 3, Valid: true},
 	}
 
 	testCases := []struct {

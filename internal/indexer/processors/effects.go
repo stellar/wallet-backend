@@ -48,16 +48,16 @@ var (
 	}
 	// accountFlags defines the Stellar account flags we track for authorization states
 	accountFlags = []string{
-		"auth_required_flag",
-		"auth_revocable_flag",
-		"auth_immutable_flag",
-		"auth_clawback_enabled_flag",
+		"auth_required",
+		"auth_revocable",
+		"auth_immutable",
+		"auth_clawback_enabled",
 	}
 	// trustlineFlags defines the Stellar trustline flags we track for asset authorization states
 	trustlineFlags = []string{
-		"authorized_flag",
-		"authorized_to_maintain_liabilites",
-		"clawback_enabled_flag",
+		"authorized",
+		"authorized_to_maintain_liabilities",
+		"clawback_enabled",
 	}
 )
 
@@ -229,22 +229,17 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 // 1. State change for the sponsoring account (with SponsoredAccountID set to effect.Address)
 // 2. State change for the sponsored account (effect.Address, with SponsorAccountID set)
 // For non-account sponsorships (trustline, data, claimable balance, signer), both state changes
-// include keyValue containing entity-specific details (asset, data_name, balance_id, signer).
+// use explicit columns for entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id).
 func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effect EffectOutput, baseBuilder *StateChangeBuilder) ([]types.StateChange, error) {
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
-	var sponsorChanges []types.StateChange
-
-	// Determine if this is account sponsorship or other entity sponsorship
-	isAccountSponsorship := effectType == EffectAccountSponsorshipCreated ||
-		effectType == EffectAccountSponsorshipUpdated ||
-		effectType == EffectAccountSponsorshipRemoved
-
-	// Extract keyValue for non-account sponsorships, nil for account sponsorships
-	var keyValue map[string]any
-	if !isAccountSponsorship {
-		keyValue = p.extractSponsorshipKeyValue(effectType, effect.Details)
+	// Apply entity-specific fields to the builder for non-account sponsorships
+	baseBuilder, err := p.applySponsorshipEntityFields(effectType, effect.Details, baseBuilder)
+	if err != nil {
+		return nil, fmt.Errorf("applying sponsorship entity fields: %w", err)
 	}
+
+	var sponsorChanges []types.StateChange
 
 	// Handle different sponsorship effect types and create appropriate state changes
 	//exhaustive:ignore
@@ -262,14 +257,14 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 			// Generate 2 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for sponsoring account
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, effect.Address, keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, effect.Address),
 				// State change for sponsored account (effect.Address)
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), effect.Address, sponsor, keyValue),
+				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), effect.Address, sponsor),
 			)
 		// Except the account sponsorship and trustline sponsorship, we don't have a sponsored account for the other types of sponsorships
 		default:
 			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, "", keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, ""),
 			)
 		}
 
@@ -286,14 +281,14 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 			// Generate 2 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for sponsoring account
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, effect.Address, keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, effect.Address),
 				// State change for sponsored account (effect.Address)
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), effect.Address, formerSponsor, keyValue),
+				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), effect.Address, formerSponsor),
 			)
 		// Except the account sponsorship and trustline sponsorship, we don't have a sponsored account for the other types of sponsorships
 		default:
 			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, "", keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, ""),
 			)
 		}
 
@@ -314,19 +309,19 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 			// Generate 4 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for new sponsoring account
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor, effect.Address, keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor, effect.Address),
 				// State change for former sponsoring account
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, effect.Address, keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, effect.Address),
 				// State change for sponsored account with new sponsor
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), effect.Address, newSponsor, keyValue),
+				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), effect.Address, newSponsor),
 				// State change for sponsored account with former sponsor
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), effect.Address, formerSponsor, keyValue),
+				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), effect.Address, formerSponsor),
 			)
 		// Except the account sponsorship and trustline sponsorship, we don't have a sponsored account for the other types of sponsorships
 		default:
 			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor, "", keyValue),
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, "", keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor, ""),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, ""),
 			)
 		}
 	}
@@ -336,71 +331,68 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 
 // createSponsorChangeForSponsoringAccount creates a state change for the sponsoring account in a sponsorship relationship.
 // This tracks when an account starts, stops, or changes its sponsorship of another account's or entity's reserves.
-// For account sponsorships, pass nil keyValue. For non-account sponsorships (trustline, data, claimable balance, signer),
-// pass entity-specific details in keyValue.
-func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsoredAccountID string, keyValue map[string]any) types.StateChange {
+// Entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id) should already be set on the builder.
+func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsoredAccountID string) types.StateChange {
 	builder = builder.
 		WithReason(reason).
 		WithAccount(accountID)
 	if sponsoredAccountID != "" {
 		builder = builder.WithSponsoredAccountID(sponsoredAccountID)
 	}
-	if len(keyValue) > 0 {
-		builder = builder.WithKeyValue(keyValue)
-	}
 	return builder.Build()
 }
 
 // createSponsorChangeForSponsoredAccount creates a state change for the sponsored account in a sponsorship relationship.
 // This tracks when an account's account or entity reserves start, stop, or change sponsorship.
-// For account sponsorships, pass nil keyValue. For non-account sponsorships (trustline, data, claimable balance, signer),
-// pass entity-specific details in keyValue.
-func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsor string, keyValue map[string]any) types.StateChange {
+// Entity-specific details (token_id, sponsored_data, claimable_balance_id, signer_account_id) should already be set on the builder.
+func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsor string) types.StateChange {
 	builder = builder.
 		WithReason(reason).
 		WithAccount(accountID).
 		WithSponsor(sponsor)
-	if len(keyValue) > 0 {
-		builder = builder.WithKeyValue(keyValue)
-	}
 	return builder.Build()
 }
 
-// extractSponsorshipKeyValue extracts entity-specific details from sponsorship effect details.
-// For different sponsorship types, it extracts: balance_id (claimable balance), data_name (data),
-// asset/liquidity_pool_id (trustline), or signer (signer sponsorship).
-func (p *EffectsProcessor) extractSponsorshipKeyValue(effectType EffectType, details map[string]interface{}) map[string]any {
-	keyValue := make(map[string]any)
-
+// applySponsorshipEntityFields applies entity-specific fields to the builder for sponsorship effects.
+// Uses explicit columns instead of keyValue: token_id (for asset), liquidity_pool_id, sponsored_data,
+// claimable_balance_id, and signer_account_id.
+func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, details map[string]interface{}, builder *StateChangeBuilder) (*StateChangeBuilder, error) {
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineSponsorshipCreated, EffectTrustlineSponsorshipRemoved, EffectTrustlineSponsorshipUpdated:
 		// Check if it's a liquidity pool trustline
 		if assetType, ok := details["asset_type"]; ok && assetType == "liquidity_pool" {
-			if liquidityPoolID, ok := details["liquidity_pool_id"]; ok {
-				keyValue["liquidity_pool_id"] = liquidityPoolID
+			if liquidityPoolID, ok := details["liquidity_pool_id"].(string); ok {
+				builder = builder.WithLiquidityPoolID(liquidityPoolID)
 			}
-		} else if asset, ok := details["asset"]; ok {
-			keyValue["asset"] = asset
+		} else if asset, ok := details["asset"].(string); ok {
+			// For trustline sponsorship, we convert the asset to contract ID and store in token_id
+			// The asset format is typically "CODE:ISSUER"
+			assetContractID, err := getContractIDFromAssetString(p.networkPassphrase, asset)
+			if err != nil {
+				return nil, fmt.Errorf("calculating contract ID from from asset %q for trustline sponsorship: %w", asset, err)
+			}
+			builder = builder.WithToken(assetContractID)
 		}
 
 	case EffectDataSponsorshipCreated, EffectDataSponsorshipRemoved, EffectDataSponsorshipUpdated:
-		if dataName, ok := details["data_name"]; ok {
-			keyValue["data_name"] = dataName
+		if dataName, ok := details["data_name"].(string); ok {
+			builder = builder.WithSponsoredData(dataName)
 		}
 
 	case EffectClaimableBalanceSponsorshipCreated, EffectClaimableBalanceSponsorshipRemoved, EffectClaimableBalanceSponsorshipUpdated:
-		if balanceID, ok := details["balance_id"]; ok {
-			keyValue["balance_id"] = balanceID
+		if balanceID, ok := details["balance_id"].(string); ok {
+			builder = builder.WithClaimableBalanceID(balanceID)
 		}
 
 	case EffectSignerSponsorshipCreated, EffectSignerSponsorshipRemoved, EffectSignerSponsorshipUpdated:
-		if signer, ok := details["signer"]; ok {
-			keyValue["signer"] = signer
+		if signer, ok := details["signer"].(string); ok {
+			// Store signer in signer_account_id field
+			builder = builder.WithSigner(signer, nil, nil)
 		}
 	}
 
-	return keyValue
+	return builder, nil
 }
 
 func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) (types.StateChange, error) {
@@ -416,9 +408,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
 
-		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
-			"liquidity_pool_id": poolID,
-		})
+		baseBuilder = baseBuilder.WithLiquidityPoolID(poolID)
 	} else {
 		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
@@ -432,24 +422,18 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 		}
-		baseBuilder = baseBuilder.WithToken(assetContractID).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer))
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 	}
 
 	var stateChange types.StateChange
 
-	// Note: XDR fields (balance, liabilities, flags) are NOT extracted here.
-	// TrustlinesProcessor handles balance tracking from ledger changes directly.
-	// This function only tracks trustline add/remove/update for state change history.
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
-			map[string]any{
-				"limit": map[string]any{
-					"new": effect.Details["limit"],
-				},
-			},
-		).Build()
+		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).
+			WithTrustlineLimit(nil, &newLimit).
+			Build()
 
 	case EffectTrustlineRemoved:
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
@@ -457,14 +441,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	case EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
-			map[string]any{
-				"limit": map[string]any{
-					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
-					"new": effect.Details["limit"],
-				},
-			},
-		).Build()
+		oldLimit := strconv.FormatInt(int64(prevTrustline.Limit), 10)
+		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).
+			WithTrustlineLimit(&oldLimit, &newLimit).
+			Build()
 	}
 
 	return stateChange, nil
@@ -488,9 +469,7 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
-		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
-			"liquidity_pool_id": poolID,
-		})
+		baseBuilder = baseBuilder.WithLiquidityPoolID(poolID)
 	} else {
 		assetCode, assetIssuer, assetContractID, err := p.buildAssetContractIDFromTrustlineEffect(effect)
 		if err != nil {
@@ -659,31 +638,11 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	var setFlags, clearFlags []string
 
 	for _, flag := range flags {
-		flagName := flag
-		// We dont want to use the "_flag" suffix for the flag names
-		if flag == "authorized_flag" {
-			flagName = AuthorizedFlagName
-		}
-		if flag == "clawback_enabled_flag" {
-			flagName = ClawbackEnabledFlagName
-		}
-		if flag == "auth_required_flag" {
-			flagName = AuthorizedRequiredFlagName
-		}
-		if flag == "auth_revocable_flag" {
-			flagName = AuthorizedRevocableFlagName
-		}
-		if flag == "auth_immutable_flag" {
-			flagName = AuthorizedImmutableFlagName
-		}
-		if flag == "auth_clawback_enabled_flag" {
-			flagName = AuthorizedClawbackEnabledFlagName
-		}
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {
-				setFlags = append(setFlags, flagName)
+				setFlags = append(setFlags, flag)
 			} else {
-				clearFlags = append(clearFlags, flagName)
+				clearFlags = append(clearFlags, flag)
 			}
 		}
 	}
@@ -713,30 +672,30 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 	if err != nil {
 		return nil, fmt.Errorf("converting weight for signer effect: %w", err)
 	}
+	newWeight := int16(weight)
 
 	//exhaustive:ignore
 	switch effectType {
 	case EffectSignerCreated:
-		changeBuilder = changeBuilder.WithSigner(
-			signerPublicKey,
-			map[string]any{
-				"new": weight,
-			},
-		)
+		changeBuilder = changeBuilder.WithSigner(signerPublicKey, nil, &newWeight)
 	case EffectSignerUpdated, EffectSignerRemoved:
-		weights := map[string]any{}
+		var oldWeight *int16
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
 		if prevLedgerEntryState != nil {
 			prevAccount := prevLedgerEntryState.Data.MustAccount()
 			oldSignerSummary := prevAccount.SignerSummary()
-			weights["old"] = oldSignerSummary[signerPublicKey]
+			if oldVal, ok := oldSignerSummary[signerPublicKey]; ok {
+				w := int16(oldVal)
+				oldWeight = &w
+			}
 		} else {
 			log.Debugf("no previous account state found for account: %s: opID: %d", effect.Address, effect.OperationID)
 		}
 		if effectType == EffectSignerUpdated {
-			weights["new"] = weight
+			changeBuilder = changeBuilder.WithSigner(signerPublicKey, oldWeight, &newWeight)
+		} else {
+			changeBuilder = changeBuilder.WithSigner(signerPublicKey, oldWeight, nil)
 		}
-		changeBuilder = changeBuilder.WithSigner(signerPublicKey, weights)
 	}
 	return []types.StateChange{changeBuilder.Build()}, nil
 }
@@ -751,27 +710,23 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	var thresholdChanges []types.StateChange
 	for threshold, reason := range thresholdToReasonMap {
 		if value, ok := effect.Details[threshold]; ok {
-			// Convert XDR threshold value to string for storage
-			thresholdValue := strconv.FormatInt(int64(value.(xdr.Uint32)), 10)
+			// Convert XDR threshold value to int16 for storage
+			newValue := int16(value.(xdr.Uint32))
 
-			// Create threshold details with both old and new values
-			thresholdDetails := map[string]any{
-				"new": thresholdValue,
-			}
-
-			// Add old threshold value if available
+			// Get old threshold value if available
+			var oldValue *int16
 			if prevLedgerEntryState != nil {
-				var oldValue string
 				prevAccount := prevLedgerEntryState.Data.MustAccount()
+				var oldVal int16
 				switch threshold {
 				case "low_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[lowThresholdIndex]), 10)
+					oldVal = int16(prevAccount.Thresholds[lowThresholdIndex])
 				case "med_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[medThresholdIndex]), 10)
+					oldVal = int16(prevAccount.Thresholds[medThresholdIndex])
 				case "high_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[highThresholdIndex]), 10)
+					oldVal = int16(prevAccount.Thresholds[highThresholdIndex])
 				}
-				thresholdDetails["old"] = oldValue
+				oldValue = &oldVal
 			} else {
 				log.Debugf("no previous account state found for account: %s: opID: %d", effect.Address, effect.OperationID)
 			}
@@ -779,7 +734,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 			thresholdChanges = append(thresholdChanges, changeBuilder.
 				Clone().
 				WithReason(reason).
-				WithThresholds(thresholdDetails).
+				WithThreshold(oldValue, &newValue).
 				Build())
 		}
 	}

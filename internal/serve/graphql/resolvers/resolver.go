@@ -118,28 +118,6 @@ func (r *Resolver) resolveRequiredString(field sql.NullString) string {
 	return ""
 }
 
-// resolveJSONBField resolves JSONB fields that return nullable strings
-// Marshals Go object to JSON string, returns nil if field is nil or empty map
-func (r *Resolver) resolveJSONBField(field interface{}) (*string, error) {
-	if field == nil {
-		return nil, nil
-	}
-
-	// Handle NullableJSONB specifically - if it's an empty map, treat as nil
-	if jsonbField, ok := field.(types.NullableJSONB); ok {
-		if len(jsonbField) == 0 {
-			return nil, nil
-		}
-	}
-
-	jsonBytes, err := json.Marshal(field)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JSONB field: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
 // resolveRequiredJSONBField resolves JSONB fields that return required strings
 // Marshals Go object to JSON string, returns empty string if field is nil
 func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) {

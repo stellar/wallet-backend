@@ -307,6 +307,62 @@ const (
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// Flag bitmask constants for encoding/decoding authorization flags.
+// These map to the flags SMALLINT column in the state_changes table.
+const (
+	FlagBitAuthorized                      int16 = 1 << 0 // Bit 0: authorized
+	FlagBitAuthRequired                    int16 = 1 << 1 // Bit 1: auth_required
+	FlagBitAuthRevocable                   int16 = 1 << 2 // Bit 2: auth_revocable
+	FlagBitAuthImmutable                   int16 = 1 << 3 // Bit 3: auth_immutable
+	FlagBitAuthClawbackEnabled             int16 = 1 << 4 // Bit 4: auth_clawback_enabled
+	FlagBitClawbackEnabled                 int16 = 1 << 5 // Bit 5: clawback_enabled
+	FlagBitAuthorizedToMaintainLiabilities int16 = 1 << 6 // Bit 6: authorized_to_maintain_liabilities
+)
+
+// flagNameToBit maps flag names to their bitmask values.
+var flagNameToBit = map[string]int16{
+	"authorized":                         FlagBitAuthorized,
+	"auth_required":                      FlagBitAuthRequired,
+	"auth_revocable":                     FlagBitAuthRevocable,
+	"auth_immutable":                     FlagBitAuthImmutable,
+	"auth_clawback_enabled":              FlagBitAuthClawbackEnabled,
+	"clawback_enabled":                   FlagBitClawbackEnabled,
+	"authorized_to_maintain_liabilities": FlagBitAuthorizedToMaintainLiabilities,
+}
+
+// flagBitToName maps bitmask values to flag names (for decoding)
+var flagBitToName = map[int16]string{
+	FlagBitAuthorized:                      "authorized",
+	FlagBitAuthRequired:                    "auth_required",
+	FlagBitAuthRevocable:                   "auth_revocable",
+	FlagBitAuthImmutable:                   "auth_immutable",
+	FlagBitAuthClawbackEnabled:             "auth_clawback_enabled",
+	FlagBitClawbackEnabled:                 "clawback_enabled",
+	FlagBitAuthorizedToMaintainLiabilities: "authorized_to_maintain_liabilities",
+}
+
+// EncodeFlagsToBitmask encodes a slice of flag names to a bitmask value
+func EncodeFlagsToBitmask(flags []string) int16 {
+	var bitmask int16
+	for _, flag := range flags {
+		if bit, ok := flagNameToBit[flag]; ok {
+			bitmask |= bit
+		}
+	}
+	return bitmask
+}
+
+// DecodeBitmaskToFlags decodes a bitmask value to a slice of flag names
+func DecodeBitmaskToFlags(bitmask int16) []string {
+	var flags []string
+	for bit, name := range flagBitToName {
+		if bitmask&bit != 0 {
+			flags = append(flags, name)
+		}
+	}
+	return flags
+}
+
 // StateChange represents a unified database model for all types of blockchain state changes.
 //
 // DESIGN RATIONALE:
@@ -316,13 +372,13 @@ const (
 //
 // FIELD USAGE BY CATEGORY:
 // - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Liability changes: TokenID, Amount, OfferID
-// - Sponsorship changes: SponsoredAccountID, SponsorAccountID
-// - Signer changes: SignerAccountID, SignerWeights
-// - Threshold changes: Thresholds
-// - Flag changes: Flags
+// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, SponsoredData
+// - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
+// - Threshold changes: ThresholdOld, ThresholdNew
+// - Flag changes: Flags (bitmask)
 // - Metadata changes: KeyValue
 // - Allowance changes: SpenderAccountID
+// - Trustline changes: TrustlineLimitOld, TrustlineLimitNew, LiquidityPoolID
 //
 // The StateChangeCategory field determines which subset of fields are populated and relevant.
 // This approach enables:
@@ -341,22 +397,40 @@ type StateChange struct {
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
-	// Nullable fields:
+
+	// Nullable string fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
 	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
 	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
-	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
-	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
-	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
-	TrustlineLimit NullableJSONB `json:"trustlineLimit,omitempty" db:"trustline_limit"`
-	Flags          NullableJSON  `json:"flags,omitempty" db:"flags"`
-	KeyValue       NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+
+	// Entity identifiers (moved from key_value JSONB):
+	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
+	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
+	SponsoredData      sql.NullString `json:"sponsoredData,omitempty" db:"sponsored_data"`
+
+	// Flattened signer weights (range 0-255, was JSONB {"old": int, "new": int}):
+	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`
+	SignerWeightNew sql.NullInt16 `json:"signerWeightNew,omitempty" db:"signer_weight_new"`
+
+	// Flattened thresholds (range 0-255, was JSONB {"old": "val", "new": "val"}):
+	ThresholdOld sql.NullInt16 `json:"thresholdOld,omitempty" db:"threshold_old"`
+	ThresholdNew sql.NullInt16 `json:"thresholdNew,omitempty" db:"threshold_new"`
+
+	// Flattened trustline limit (was JSONB {"limit": {"old": "...", "new": "..."}}):
+	TrustlineLimitOld sql.NullString `json:"trustlineLimitOld,omitempty" db:"trustline_limit_old"`
+	TrustlineLimitNew sql.NullString `json:"trustlineLimitNew,omitempty" db:"trustline_limit_new"`
+
+	// Flags as bitmask instead of JSON array (see FlagBit* constants):
+	Flags sql.NullInt16 `json:"flags,omitempty" db:"flags"`
+
+	// ONLY truly variable data remains as JSONB (data entries, home domain):
+	KeyValue NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty"`
@@ -364,11 +438,10 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
+
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string (used for state change history)
-	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }
@@ -388,53 +461,6 @@ type StateChangeCursorGetter interface {
 }
 
 type NullableJSONB map[string]any
-
-// NullableJSON represents a nullable JSON array of strings
-type NullableJSON []string
-
-var _ sql.Scanner = (*NullableJSON)(nil)
-
-func (n *NullableJSON) Scan(value any) error {
-	if value == nil {
-		*n = nil
-		return nil
-	}
-
-	switch v := value.(type) {
-	case []byte:
-		var stringSlice []string
-		if err := json.Unmarshal(v, &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value []byte: %w", err)
-		}
-		*n = stringSlice
-	case string:
-		var stringSlice []string
-		if err := json.Unmarshal([]byte(v), &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value string: %w", err)
-		}
-		*n = stringSlice
-	default:
-		return fmt.Errorf("unsupported type for JSON array: %T", value)
-	}
-
-	return nil
-}
-
-var _ driver.Valuer = (*NullableJSON)(nil)
-
-func (n NullableJSON) Value() (driver.Value, error) {
-	// Handle nil slice as empty array to avoid null in JSON
-	if n == nil {
-		return []byte("[]"), nil
-	}
-
-	bytes, err := json.Marshal([]string(n))
-	if err != nil {
-		return nil, fmt.Errorf("marshalling JSON array: %w", err)
-	}
-
-	return bytes, nil
-}
 
 var _ sql.Scanner = (*NullableJSONB)(nil)
 
