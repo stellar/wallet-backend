@@ -23,6 +23,8 @@ The tradeoff is explicit: if the process crashes during backfill, some recent wr
 1. Gap detection will re-fill the missing ledgers on the next backfill run.
 2. The `latestLedgerCursor` is NOT advanced during backfill for historical mode — only `oldestCursor` moves.
 
+The safety of accepting durability risk depends on a structural property of the data: since [[blockchain ledger data is append-only and time-series which makes timescaledb columnar compression maximally effective]], every lost write can be re-derived cleanly from the Stellar history archive — there are no in-place modifications to lose, only missing insertions to re-run.
+
 ## Implications
 
 - Never use `OpenDBConnectionPoolForBackfill` in the serve process — it's exclusively for bulk historical ingestion.

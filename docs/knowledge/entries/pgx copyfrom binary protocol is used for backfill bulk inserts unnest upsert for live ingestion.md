@@ -27,7 +27,7 @@ Two different write scenarios exist: backfill (inserting historical ledger data 
 2. The server processes rows in bulk, reducing per-row overhead.
 3. No query parsing, planning, or parameter binding per row.
 
-The tradeoff: COPY cannot handle `ON CONFLICT` clauses — it aborts the entire batch on the first duplicate.
+The tradeoff: COPY cannot handle `ON CONFLICT` clauses — it aborts the entire batch on the first duplicate. Since [[blockchain ledger data is append-only and time-series which makes timescaledb columnar compression maximally effective]], this limitation is not a constraint during backfill: historical records inserted into fresh gap ranges have no prior versions to conflict with — append-only data and COPY's conflict intolerance are structurally compatible.
 
 ## Implications
 
@@ -46,3 +46,4 @@ The COPY strategy pairs with [[backfill mode trades acid durability for insert t
 
 relevant_notes:
   - "[[backfill mode trades acid durability for insert throughput via synchronous_commit off]] — synthesizes with this: synchronous_commit=off and COPY together form the backfill performance strategy; each targets a different bottleneck (WAL sync vs row-level overhead)"
+  - "[[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — constrains this: COPY's conflict intolerance makes it unusable for balance tables regardless of ingestion mode; their current-state upsert semantics mandate the UNNEST upsert path always, not just during live ingestion"

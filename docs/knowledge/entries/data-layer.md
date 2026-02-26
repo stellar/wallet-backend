@@ -16,15 +16,21 @@ The data layer provides all database access through model interfaces aggregated 
 - [[interface-backed models are for unit test mocking concrete models are tested against real timescaledb]] — Why some models have interfaces and others don't; dbtest.Open for hypertable model tests
 - [[deterministic uuid from content hash enables idempotent batch inserts without db roundtrip]] — UUID v5 pattern for TrustlineAsset and ContractModel; no pre-insert SELECT needed
 
+## Why TimescaleDB
+
+- [[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] — Root architecture decision: PoC evidence plus four pillars (compression, retention, chunk queries, Postgres-extension zero-migration-cost)
+- [[blockchain ledger data is append-only and time-series which makes timescaledb columnar compression maximally effective]] — Why compression ratios are high: append-only write-once records with repeated column values compress extremely well
+- [[timescaledb automatic retention policy eliminates custom pruning code for blockchain history tables]] — add_retention_policy drops entire time chunks automatically; no cron jobs or custom DELETE logic needed
+
 ## TimescaleDB Hypertables
 
-- [[timescaledb chunk skipping must be explicitly enabled per column for sparse index scans to work]] — The hidden session setting required for sparse index effectiveness; dbtest.Open handles this
+- [[timescaledb chunk skipping must be explicitly enabled per column for sparse index scans to work]] — The hidden session setting required for sparse index effectiveness; now includes the architectural motivation (account-history-over-time-window is the primary query shape); dbtest.Open handles this
 - [[the decomposed cursor condition enables timescaledb chunk pruning where row tuple comparison cannot]] — Why ROW() comparisons break vectorized chunk filters; the OR-expanded decomposition
 - [[materialized cte plus lateral join forces separate planning to preserve chunk pruning on account queries]] — MATERIALIZED keyword is load-bearing; why LATERAL gives O(1) join per account transaction
 
 ## Balance Tables
 
-- [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — Why current-state tables don't benefit from TimescaleDB partitioning
+- [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — Why current-state tables don't benefit from TimescaleDB partitioning; enriched with why Postgres-extension nature enables standard+hypertable coexistence in one database
 - [[balance tables require aggressive autovacuum tuning because rows are updated every ledger]] — fillfactor=80 and all 4 autovacuum settings; why defaults are too conservative
 
 ## Insert Strategies
@@ -46,3 +52,6 @@ The data layer provides all database access through model interfaces aggregated 
 Agent Notes:
 - 2026-02-26: the three TimescaleDB query optimization techniques form a chain — [[timescaledb chunk skipping must be explicitly enabled per column for sparse index scans to work]] enables the sparse indexes, [[the decomposed cursor condition enables timescaledb chunk pruning where row tuple comparison cannot]] makes cursors use them, [[materialized cte plus lateral join forces separate planning to preserve chunk pruning on account queries]] prevents the planner from undoing the work. All three must be understood together.
 - 2026-02-26: [[deterministic uuid from content hash enables idempotent batch inserts without db roundtrip]] connects directly to [[per-ledger persistence is a single atomic database transaction ensuring all-or-nothing ledger commits]] — the UUID idempotency is what makes steps 1-2 of PersistLedgerData crash-safe.
+- 2026-02-26: [[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] has a cross-subsystem link to [[the database is the sole integration point between the serve and ingest processes]] via pillar 4 (Postgres-extension model) — the zero-migration-cost extension property is what makes the single-database integration point architecturally viable. Following this link leads from data-layer to ingestion architecture decisions.
+- 2026-02-26: [[blockchain ledger data is append-only and time-series which makes timescaledb columnar compression maximally effective]] is the structural claim that grounds the hypertable vs standard table design split. Follow this entry to understand WHY event tables use hypertables (append-only + time-series = compression wins), then follow [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] to see the negative case: current-state tables lack both properties, which is why they stay row-oriented. This append-only insight also propagates into the ingestion subsystem: it grounds the COPY-for-backfill strategy, the safety of synchronous_commit=off, and the progressive recompression pattern.
+- 2026-02-26: [[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] has a cross-subsystem consequence in ingestion: the per-batch vs deferred split in [[catchup mode merges all batch changes in a single db transaction using highest-operationid-wins]] is directly explained by balance table semantics. An agent investigating why catchup defers token/balance writes must read this data-layer entry to understand the answer — the current-state update model makes intermediate states wrong, which is the reason for deferral.

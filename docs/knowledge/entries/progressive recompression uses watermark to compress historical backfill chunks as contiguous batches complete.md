@@ -38,8 +38,11 @@ This applies only to historical backfill mode. Catchup mode (`BackfillModeCatchu
 
 Progressive recompression is possible only because [[backfill mode trades acid durability for insert throughput via synchronous_commit off]] — the reduced durability allows fast parallel writes that produce compressible chunks worth optimizing.
 
+The columnar compression that makes progressive recompression valuable exists because [[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] — columnar compression was pillar 1 of the adoption decision, the primary driver that made blockchain history storage feasible; this entry manages the operational process of applying that compression during backfill. The compression ratios that make this optimization worthwhile are high specifically because [[blockchain ledger data is append-only and time-series which makes timescaledb columnar compression maximally effective]] — write-once records with predictable column value patterns are precisely the data shape columnar compression exploits.
+
 This applies only to historical backfill, not to the path triggered by [[catchup threshold triggers parallel backfill instead of sequential processing when service falls behind]] — catchup commits atomically at the end rather than progressively compressing as batches complete.
 
 relevant_notes:
   - "[[backfill mode trades acid durability for insert throughput via synchronous_commit off]] — grounds this: the reduced-durability parallel write pattern creates the uncompressed chunks that progressive recompression targets"
   - "[[catchup threshold triggers parallel backfill instead of sequential processing when service falls behind]] — contrasts with this: catchup mode does not use progressive recompression; compression only applies to historical backfill mode"
+  - "[[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] — grounds this: columnar compression (pillar 1 of that decision) is what progressive recompression manages; without the storage constraint that motivated the TimescaleDB choice, this optimization would not exist"

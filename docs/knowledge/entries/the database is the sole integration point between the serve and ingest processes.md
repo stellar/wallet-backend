@@ -20,6 +20,8 @@ The two processes communicate exclusively through the TimescaleDB database:
 - `serve` reads the same hypertables to answer GraphQL queries.
 - Neither process has a direct network connection to the other.
 
+This design is only coherent because [[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] — specifically pillar 4 of that decision (Postgres extension, zero migration cost). If the time-series store were a standalone system like InfluxDB or QuestDB, serve and ingest would require separate query layers and a transactional consistency strategy across two databases; the single-connection-string integration point would not exist.
+
 This means there is no inter-process RPC, no message queue, and no shared memory. The `ingest` process's progress is visible to `serve` only after the atomic DB transaction for each ledger commits.
 
 ## Implications
@@ -42,3 +44,4 @@ The data visible through this integration point is written by [[per-ledger persi
 relevant_notes:
   - "[[advisory lock prevents concurrent ingestion instances via postgresql pg_try_advisory_lock]] — extends this: the single-integration-point design requires single-writer enforcement; the advisory lock provides that guarantee"
   - "[[per-ledger persistence is a single atomic database transaction ensuring all-or-nothing ledger commits]] — extends this: the atomic transaction is why the database as integration point is safe — serve cannot observe partial ledger writes"
+  - "[[timescaledb was chosen over vanilla postgres because history tables exceeded feasible storage limits without columnar compression]] — grounds this: pillar 4 (Postgres-extension model) is the architectural prerequisite; a standalone time-series system would break the single-connection integration point"

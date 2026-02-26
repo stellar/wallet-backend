@@ -34,11 +34,13 @@ These entries connect multiple subsystems:
 | Subsystem | Entries |
 |-----------|---------|
 | ingestion | 15 |
-| data-layer | 10 |
+| data-layer | 13 |
 | signing | 6 |
 | graphql | 3 |
 | services | 2 |
 | auth | 3 |
-| **Total** | **39** |
+| **Total** | **42** |
 
 Note: some entries appear in multiple subsystems (e.g. data.models spans services+data-layer, buildTransaction spans graphql+signing, row_number/toid span data-layer+graphql). The total reflects unique entries.
+
+Note: 2026-02-26 batch "why-timescaledb-over-vanilla-postgres" added 3 new entries (2 claims, 1 enrichment target) and enriched 2 existing entries.

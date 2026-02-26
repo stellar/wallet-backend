@@ -40,5 +40,8 @@ This decomposed form is logically equivalent to the row tuple comparison, but th
 
 The decomposed cursor condition works alongside [[materialized cte plus lateral join forces separate planning to preserve chunk pruning on account queries]] — that technique preserves chunk pruning across the CTE/join boundary; this one preserves it within the cursor WHERE clause. Both are required for full TimescaleDB query optimization on account-scoped queries.
 
+Both of these techniques assume the sparse indexes exist to be consulted. Since [[timescaledb chunk skipping must be explicitly enabled per column for sparse index scans to work]], the decomposed form's ability to push `ledger_created_at < $1` into a chunk filter is only valuable when chunk skipping is on — without it, the engine ignores the sparse min/max index and scans all chunks anyway.
+
 relevant_notes:
   - "[[materialized cte plus lateral join forces separate planning to preserve chunk pruning on account queries]] — synthesizes with this: MATERIALIZED CTE handles chunk pruning at the join layer; decomposed cursor handles it at the pagination layer — both are needed for end-to-end pruning"
+  - "[[timescaledb chunk skipping must be explicitly enabled per column for sparse index scans to work]] — grounds this: the decomposed cursor's chunk-pruning payoff depends on sparse indexes that this entry activates; without it the pushable predicate exists but the engine has no index to skip chunks with"
