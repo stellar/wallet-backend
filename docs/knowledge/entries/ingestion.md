@@ -38,6 +38,7 @@ The ingestion pipeline reads Stellar ledger data and persists it into TimescaleD
 
 ## Token Ingestion
 
+- [[references/token-ingestion]] — Full subsystem reference: checkpoint population, live ingestion flow, contract classification pipeline, deterministic UUID system, and balance table schema
 - [[checkpoint streaming batch uses 250k flush threshold and slice colon zero reset to handle 30M+ ledger entries without memory exhaustion]] — Memory ceiling pattern for checkpoint population; slice[:0] reuse avoids GC pressure during 30M+ entry streaming
 - [[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] — Why the checkpoint transaction uses session_replication_role=replica; integrity is manually guaranteed by storeTokensInDB order
 - [[unknown contract type is silently skipped in processTokenChanges because unclassified contracts cannot be safely stored]] — No error, no retry — UNKNOWN contracts are dropped at ingestion time

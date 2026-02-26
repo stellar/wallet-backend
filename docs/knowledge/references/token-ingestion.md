@@ -1,7 +1,10 @@
 ---
 title: Token Ingestion Subsystem
+description: Comprehensive reference for the token ingestion subsystem — checkpoint population from history archive and per-ledger live ingestion, covering token taxonomy, contract classification via wazero, deterministic UUID IDs, and balance table schema
 type: reference
-subsystem: token-ingestion
+status: current
+subsystem: ingestion
+areas: [ingestion, data-layer, token-ingestion]
 updated: 2026-02-26
 ---
 
