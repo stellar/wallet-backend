@@ -1,6 +1,11 @@
+---
+paths:
+  - "docs/knowledge/**"
+---
+
 # Knowledge System — Rules & Methodology
 
-Auto-loaded at session start. Read before working on entries, knowledge maps, or the processing pipeline.
+Auto-loaded when working in the knowledge vault. Read before working on entries, knowledge maps, or the processing pipeline.
 
 **Vault root:** `docs/knowledge/`
 **Content tiers:** `references/` (subsystem overviews) · `entries/` (decisions, insights, patterns, gotchas)

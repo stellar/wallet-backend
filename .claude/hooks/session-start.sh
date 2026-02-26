@@ -47,13 +47,14 @@ fi
 
 # ── Context injection (stdout → conversation) ──────────────────
 
-# Print vault entry listing for orientation
-echo "=== Knowledge Vault ==="
-if command -v tree &>/dev/null; then
-  tree -L 3 "$VAULT_ROOT" --dirsfirst -I "*.arscontexta" 2>/dev/null || true
-else
-  find "$VAULT_ROOT" -type f -name "*.md" | sort | head -40 2>/dev/null || true
-fi
+# Print compact vault summary (replaces verbose tree dump)
+ENTRY_COUNT=$(find "$VAULT_ROOT/entries" -name "*.md" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+MAP_COUNT=$(find "$VAULT_ROOT/entries" -name "*.md" -exec grep -l '^## Core Ideas' {} \; 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+REF_COUNT=$(find "$VAULT_ROOT/references" -name "*.md" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+echo "=== Knowledge System ==="
+echo "$ENTRY_COUNT entries + $MAP_COUNT knowledge maps in $VAULT_ROOT/entries/"
+echo "$REF_COUNT reference docs in $VAULT_ROOT/references/"
+echo "Route: see 'Knowledge Router' in CLAUDE.md"
 
 # Surface reminders if they exist
 if [[ -f "$OPS_DIR/reminders.md" ]]; then
