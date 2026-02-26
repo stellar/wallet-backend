@@ -20,26 +20,26 @@ type ProtocolValidator interface {
 // WasmIngestionService tracks and persists WASM hashes during checkpoint population.
 type WasmIngestionService interface {
 	ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error
-	PersistKnownWasms(ctx context.Context, dbTx pgx.Tx) error
+	PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error
 }
 
 var _ WasmIngestionService = (*wasmIngestionService)(nil)
 
 type wasmIngestionService struct {
-	validators     []ProtocolValidator
-	knownWasmModel data.KnownWasmModelInterface
-	wasmHashes     map[xdr.Hash]struct{}
+	validators        []ProtocolValidator
+	protocolWasmModel data.ProtocolWasmModelInterface
+	wasmHashes        map[xdr.Hash]struct{}
 }
 
 // NewWasmIngestionService creates a WasmIngestionService.
 func NewWasmIngestionService(
-	knownWasmModel data.KnownWasmModelInterface,
+	protocolWasmModel data.ProtocolWasmModelInterface,
 	validators ...ProtocolValidator,
 ) WasmIngestionService {
 	return &wasmIngestionService{
-		validators:     validators,
-		knownWasmModel: knownWasmModel,
-		wasmHashes:     make(map[xdr.Hash]struct{}),
+		validators:        validators,
+		protocolWasmModel: protocolWasmModel,
+		wasmHashes:        make(map[xdr.Hash]struct{}),
 	}
 }
 
@@ -62,24 +62,24 @@ func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash
 	return nil
 }
 
-// PersistKnownWasms writes all accumulated WASM hashes to the known_wasms table.
-func (s *wasmIngestionService) PersistKnownWasms(ctx context.Context, dbTx pgx.Tx) error {
+// PersistProtocolWasms writes all accumulated WASM hashes to the protocol_wasms table.
+func (s *wasmIngestionService) PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error {
 	if len(s.wasmHashes) == 0 {
 		return nil
 	}
 
-	wasms := make([]data.KnownWasm, 0, len(s.wasmHashes))
+	wasms := make([]data.ProtocolWasm, 0, len(s.wasmHashes))
 	for hash := range s.wasmHashes {
-		wasms = append(wasms, data.KnownWasm{
+		wasms = append(wasms, data.ProtocolWasm{
 			WasmHash:   hash.HexString(),
 			ProtocolID: nil, // No validators matched for now
 		})
 	}
 
-	if err := s.knownWasmModel.BatchInsert(ctx, dbTx, wasms); err != nil {
-		return fmt.Errorf("persisting known wasms: %w", err)
+	if err := s.protocolWasmModel.BatchInsert(ctx, dbTx, wasms); err != nil {
+		return fmt.Errorf("persisting protocol wasms: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Persisted %d known WASM hashes", len(wasms))
+	log.Ctx(ctx).Infof("Persisted %d protocol WASM hashes", len(wasms))
 	return nil
 }
