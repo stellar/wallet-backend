@@ -532,12 +532,16 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				AND (to_id, operation_id, state_change_order) < ($%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2))
+			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 3
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				AND (to_id, operation_id, state_change_order) > ($%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2))
+			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 3
 		}
 	}
 
@@ -642,12 +646,16 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) < (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				AND (to_id, operation_id, state_change_order) < ($%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2))
+			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 3
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id, operation_id, state_change_order) > (%d, %d, %d)
-			`, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder))
+				AND (to_id, operation_id, state_change_order) > ($%d, $%d, $%d)
+			`, argIndex, argIndex+1, argIndex+2))
+			args = append(args, cursor.ToID, cursor.OperationID, cursor.StateChangeOrder)
+			argIndex += 3
 		}
 	}
 

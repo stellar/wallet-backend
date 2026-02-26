@@ -192,7 +192,9 @@ func (x XDRBytea) Value() (driver.Value, error) {
 	if len(x) == 0 {
 		return nil, nil
 	}
-	return []byte(x), nil
+	buf := make([]byte, len(x))
+	copy(buf, x)
+	return buf, nil
 }
 
 // String returns the XDR as a base64 string.
