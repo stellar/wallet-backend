@@ -102,13 +102,13 @@ CREATE TABLE protocol_contracts (
 );
 ```
 
-### known_wasms
+### protocol_wasms
 
 A cache for all known WASM blobs. This acts as a filter for the classification process
 to reduce the overhead of classifying new contract instances that use the same WASM code.
 
 ```sql
-CREATE TABLE known_wasms (
+CREATE TABLE protocol_wasms (
     wasm_hash TEXT PRIMARY KEY,
     protocol_id TEXT REFERENCES protocols(id),  -- NULL if unknown/unclassified
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -172,7 +172,7 @@ Adding a new protocol requires four coordinated processes:
 
 | Step | Requires | Produces |
 |------|----------|----------|
-| **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `known_wasms`, `protocol_contracts`, `classification_status = success`, both cursors initialized |
+| **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `protocol_wasms`, `protocol_contracts`, `classification_status = success`, both cursors initialized |
 | **2. ingest (live)** | `classification_status = success`, processor registered | State changes after history convergence (history cursor). Current state after current-state convergence (current-state cursor). |
 | **3a. protocol-migrate history** | `classification_status = success` | Protocol state changes within retention window, through convergence with live ingestion |
 | **3b. protocol-migrate current-state** | `classification_status = success` | Current state from `start_ledger` through convergence with live ingestion |
@@ -189,7 +189,7 @@ Both live ingestion and backfill migration need the `protocol_contracts` table p
 Classification is the act of identifying new and existing contracts on the network and assigning a relationship to a known protocol.
 This has to happen in 2 stages during the migration process:
 - checkpoint population: We will use a history archive from the latest checkpoint in order to classify all contracts on the network. We will rely on the latest checkpoint available at the time of the migration.
-- live ingestion: during live ingestion, we classify new WASM uploads by validating the bytecode against protocol specs, and map contract deployments/upgrades to protocols by looking up their WASM hash in `known_wasms`.
+- live ingestion: during live ingestion, we classify new WASM uploads by validating the bytecode against protocol specs, and map contract deployments/upgrades to protocols by looking up their WASM hash in `protocol_wasms`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -245,7 +245,7 @@ This has to happen in 2 stages during the migration process:
             │hash in │ │hash in   │              │ Map contract ID  │
             │known_  │ │known_    │              │ to WASM hash     │
             │wasms   │ │wasms     │              │ (for later lookup│
-            │with    │ │with NULL │              │ in known_wasms)  │
+            │with    │ │with NULL │              │ in protocol_wasms)  │
             │protocol│ │protocol  │              └──────────────────┘
             └────────┘ └──────────┘
 
@@ -253,15 +253,15 @@ This has to happen in 2 stages during the migration process:
                     │ Post-Processing:              │
                     │ 1. Store in protocol_contracts│
                     │    (contract → protocol via   │
-                    │     wasm hash → known_wasms)  │
-                    │ 2. Cache in known_wasms       │
+                    │     wasm hash → protocol_wasms)  │
+                    │ 2. Cache in protocol_wasms       │
                     └───────────────────────────────┘
 ```
 
 Contracts are grouped by WASM hash before validation. This means we validate each unique WASM blob once, then apply the result to all contracts using that same code.
-Once a WASM hash is classified, it is stored in the `known_wasms` table to avoid re-classification of future contracts using the same code.
+Once a WASM hash is classified, it is stored in the `protocol_wasms` table to avoid re-classification of future contracts using the same code.
 
-During live ingestion, classification happens in two parts: (1) new WASM uploads are validated against protocol specs and stored in `known_wasms`, and (2) contract deployments/upgrades are mapped to protocols via their WASM hash lookup in `known_wasms`.
+During live ingestion, classification happens in two parts: (1) new WASM uploads are validated against protocol specs and stored in `protocol_wasms`, and (2) contract deployments/upgrades are mapped to protocols via their WASM hash lookup in `protocol_wasms`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -296,7 +296,7 @@ During live ingestion, classification happens in two parts: (1) new WASM uploads
               ▼                                     ▼
    ┌─────────────────────┐             ┌──────────────────────────┐
    │ Validate against    │             │ Lookup hash in           │
-   │ protocol validators │             │ known_wasms              │
+   │ protocol validators │             │ protocol_wasms              │
    └──────────┬──────────┘             └────────────┬─────────────┘
               │                                     │
          ┌────┴────┐                    ┌───────────┴───────────┐
@@ -434,15 +434,15 @@ and live ingestion.
 - Parameter names must match exactly (`from`, `to`, `amount`, etc.)
 - Parameter types must match (Address, i128, u32, etc.)
 
-**known_wasms Table Usage**:
+**protocol_wasms Table Usage**:
 
-The `known_wasms` table stores classification results by WASM hash. The table stores
+The `protocol_wasms` table stores classification results by WASM hash. The table stores
 a `protocol_id` for each WASM hash - this is `NULL` for WASM blobs that don't match
 any known protocol.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                        known_wasms CACHE FLOW                              │
+│                        protocol_wasms CACHE FLOW                              │
 └────────────────────────────────────────────────────────────────────────────┘
 
          New Contract Deployment
@@ -455,7 +455,7 @@ any known protocol.
                     ▼
          ┌─────────────────────┐
          │ SELECT protocol_id  │
-         │ FROM known_wasms    │
+         │ FROM protocol_wasms    │
          │ WHERE wasm_hash = ? │
          └──────────┬──────────┘
                     │
@@ -469,7 +469,7 @@ any known protocol.
    │ protocol_id  │  │ validation       │
    │              │  │                  │
    │ Skip WASM    │  │ Then INSERT INTO │
-   │ validation   │  │ known_wasms      │
+   │ validation   │  │ protocol_wasms      │
    └──────────────┘  └──────────────────┘
 ```
 
@@ -499,11 +499,11 @@ When a new protocol is registered, running `protocol-setup` re-validates previou
                                   │
                                   ▼
                     ┌─────────────────────────────┐
-                    │ Query known_wasms for       │
+                    │ Query protocol_wasms for       │
                     │ unclassified entries:       │
                     │                             │
                     │ SELECT wasm_hash            │
-                    │ FROM known_wasms            │
+                    │ FROM protocol_wasms            │
                     │ WHERE protocol_id IS NULL   │
                     └─────────────┬───────────────┘
                                   │
@@ -521,7 +521,7 @@ When a new protocol is registered, running `protocol-setup` re-validates previou
                   ▼                               ▼
         ┌─────────────────┐             ┌─────────────────┐
         │ UPDATE          │             │ Leave as        │
-        │ known_wasms     │             │ protocol_id     │
+        │ protocol_wasms     │             │ protocol_id     │
         │ SET protocol_id │             │ = NULL          │
         │ = 'BLEND'       │             │                 │
         │ WHERE wasm_hash │             │ (still unknown) │
@@ -566,8 +566,8 @@ current SEP-41 validator - compile WASM, extract `contractspecv0` section, parse
 XDR spec entries, check for required functions.
 
 When checkpoint population runs for a newly registered protocol, it validates contracts whose WASM hash is either:
-1. **Not in known_wasms** (never seen before)
-2. **In known_wasms with `protocol_id IS NULL`** (previously unknown)
+1. **Not in protocol_wasms** (never seen before)
+2. **In protocol_wasms with `protocol_id IS NULL`** (previously unknown)
 
 #### When Checkpoint Classification Runs
 Backfill migrations rely on checkpoint population being complete before they can produce state changes for a new protocol. If checkpoint population does not run before a backfill migration is started for a new protocol, backfill migration will fail and exit since it does not classify protocols and cannot produce state without any classification being available.
@@ -584,10 +584,10 @@ Backfill migrations rely on checkpoint population being complete before they can
 2. **Sets `classification_status`** to `in_progress` for specified protocols
 3. **Reads the latest checkpoint** from the history archive
 4. **Extracts all WASM code** from contract entries in the checkpoint
-5. **Queries existing unclassified entries** from `known_wasms WHERE protocol_id IS NULL`
+5. **Queries existing unclassified entries** from `protocol_wasms WHERE protocol_id IS NULL`
 6. **Validates each WASM** against all specified protocols' validators
 7. **Populates tables**:
-   - `known_wasms`: Maps WASM hashes to protocol IDs
+   - `protocol_wasms`: Maps WASM hashes to protocol IDs
    - `protocol_contracts`: Maps contract IDs to protocols
 8. **Initializes cursors**:
    - `protocol_{ID}_history_cursor` = `oldest_ledger_cursor - 1`
@@ -896,8 +896,8 @@ During live ingestion, two related but distinct processes run sequentially:
 │                                                                             │
 │  Process ledger entry changes to classify contracts:                        │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │ ContractCode entries: validate WASM, store in known_wasms           │    │
-│  │ ContractData Instance entries: lookup hash in known_wasms,          │    │
+│  │ ContractCode entries: validate WASM, store in protocol_wasms           │    │
+│  │ ContractData Instance entries: lookup hash in protocol_wasms,          │    │
 │  │   map contract to protocol_contracts                                │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────┬───────────────────────────────────────┘
@@ -928,7 +928,7 @@ During live ingestion, two related but distinct processes run sequentially:
 │ New contract         │  │ Protocol-specific    │  │ Operations,          │
 │ classifications      │  │ state changes        │  │ transactions,        │
 │ (protocol_contracts, │  │ (from processors)    │  │ accounts, etc.       │
-│  known_wasms)        │  │                      │  │                      │
+│  protocol_wasms)        │  │                      │  │                      │
 └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -974,9 +974,9 @@ During live ingestion, two related but distinct processes run sequentially:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## known_wasms Lookup Optimization
+## protocol_wasms Lookup Optimization
 
-The `known_wasms` table grows unboundedly as new contracts are deployed on the network. Since
+The `protocol_wasms` table grows unboundedly as new contracts are deployed on the network. Since
 every live ingestion lookup queries this table, optimizing lookup performance is critical.
 
 #### Default Implementation: LRU Cache + PostgreSQL
@@ -985,7 +985,7 @@ The recommended approach is an in-memory LRU cache layered over the PostgreSQL t
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    known_wasms LOOKUP OPTIMIZATION                          │
+│                    protocol_wasms LOOKUP OPTIMIZATION                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 
                      New Contract Deployment
@@ -1008,7 +1008,7 @@ The recommended approach is an in-memory LRU cache layered over the PostgreSQL t
                    ▼                       ▼
           ┌──────────────┐      ┌──────────────────────┐
           │ Return       │      │ Query PostgreSQL     │
-          │ cached       │      │ known_wasms table    │
+          │ cached       │      │ protocol_wasms table    │
           │ protocol_id  │      │ (1-5ms)              │
           └──────────────┘      └──────────┬───────────┘
                                            │
@@ -1039,7 +1039,7 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
     // Cache miss: query DB (~1-5ms)
     var protocolID *string
     err := c.db.QueryRowContext(ctx, 
-        "SELECT protocol_id FROM known_wasms WHERE wasm_hash = $1", key).Scan(&protocolID)
+        "SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1", key).Scan(&protocolID)
     
     if err == sql.ErrNoRows {
         return nil, false, nil  // Not in DB at all
@@ -1056,7 +1056,7 @@ func (c *KnownWasmsCache) Lookup(ctx context.Context, hash []byte) (*string, boo
 
 ## Write-Through Current State Cache
 
-When live ingestion first takes over current-state production for a protocol (its first successful CAS), it needs the current state to compute the next state. This is handled by a write-through in-memory cache, similar in pattern to the known_wasms LRU cache above.
+When live ingestion first takes over current-state production for a protocol (its first successful CAS), it needs the current state to compute the next state. This is handled by a write-through in-memory cache, similar in pattern to the protocol_wasms LRU cache above.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
