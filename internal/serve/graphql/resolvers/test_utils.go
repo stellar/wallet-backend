@@ -70,7 +70,6 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		for j := range 2 {
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
-				TxHash:          txn.Hash,
 				OperationType:   "PAYMENT",
 				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
 				ResultCode:      "op_success",
@@ -99,11 +98,10 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			}
 
 			stateChanges = append(stateChanges, &types.StateChange{
-				ToID:                op.ID,
+				ToID:                op.ID &^ 0xFFF, // Derive transaction to_id from operation_id using TOID bitmask
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
-				TxHash:              op.TxHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
 				LedgerCreatedAt:     time.Now(),
@@ -119,7 +117,6 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
-			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
 			LedgerNumber:        1000,
@@ -146,8 +143,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, op := range ops {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				op.ID, op.TxHash, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
+				`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				op.ID, op.OperationType, op.OperationXDR, op.ResultCode, op.Successful, op.LedgerNumber, op.LedgerCreatedAt)
 			require.NoError(t, err)
 
 			_, err = tx.ExecContext(ctx,
@@ -158,8 +155,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, sc := range stateChanges {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil

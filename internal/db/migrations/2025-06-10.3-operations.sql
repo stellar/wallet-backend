@@ -3,7 +3,6 @@
 -- Table: operations
 CREATE TABLE operations (
     id BIGINT PRIMARY KEY,
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
     operation_type TEXT NOT NULL CHECK (
         operation_type IN (
             'CREATE_ACCOUNT', 'PAYMENT', 'PATH_PAYMENT_STRICT_RECEIVE',
@@ -26,8 +25,6 @@ CREATE TABLE operations (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_operations_tx_hash ON operations(tx_hash);
-CREATE INDEX idx_operations_operation_type ON operations(operation_type);
 CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
 
 -- Table: operations_accounts
@@ -37,6 +34,8 @@ CREATE TABLE operations_accounts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, operation_id)
 );
+
+CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
 
 -- +migrate Down
 

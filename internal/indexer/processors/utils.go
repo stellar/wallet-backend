@@ -355,6 +355,5 @@ func ConvertOperation(
 		Successful:      successful,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
-		TxHash:          transaction.Hash.HexString(),
 	}, nil
 }

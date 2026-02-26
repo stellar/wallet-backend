@@ -239,6 +239,12 @@ const (
 )
 
 type Operation struct {
+	// ID is the TOID (Total Order ID) per SEP-35, encoding:
+	//   - Ledger sequence (bits 63-32)
+	//   - Transaction order within ledger (bits 31-12)
+	//   - Operation index within transaction (bits 11-0, 1-indexed)
+	//
+	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
@@ -248,7 +254,6 @@ type Operation struct {
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
-	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
@@ -436,12 +441,10 @@ type StateChange struct {
 	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
 
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }
@@ -453,6 +456,7 @@ type StateChangeWithCursor struct {
 
 type StateChangeCursor struct {
 	ToID             int64 `db:"cursor_to_id"`
+	OperationID      int64 `db:"cursor_operation_id"`
 	StateChangeOrder int64 `db:"cursor_state_change_order"`
 }
 
@@ -565,6 +569,7 @@ func (sc StateChange) GetTransaction() *Transaction {
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
 		ToID:             sc.ToID,
+		OperationID:      sc.OperationID,
 		StateChangeOrder: sc.StateChangeOrder,
 	}
 }

@@ -813,9 +813,6 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 	if expectedToken != "" {
 		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
-	if change.OperationID != 0 {
-		require.Equal(t, change.OperationID, change.ToID)
-	}
 }
 
 // Assertion helpers for common patterns
@@ -823,7 +820,6 @@ func assertFeeEvent(t *testing.T, change types.StateChange, expectedAmount strin
 	t.Helper()
 	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, someTxAccount.ToAccountId().Address(), expectedAmount, nativeContractAddress)
 	assert.Equal(t, types.StateChangeReasonDebit, *change.StateChangeReason)
-	assert.Equal(t, change.TxID, change.ToID)
 }
 
 func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {

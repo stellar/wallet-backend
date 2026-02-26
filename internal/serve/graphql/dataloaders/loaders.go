@@ -17,17 +17,17 @@ import (
 // Each dataloader batches requests for a specific type of data relationship
 // GraphQL resolvers use these to efficiently load related data
 type Dataloaders struct {
-	// OperationsByTxHashLoader batches requests for operations by transaction hash
+	// OperationsByToIDLoader batches requests for operations by transaction ToID
 	// Used by Transaction.operations field resolver to prevent N+1 queries
-	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor]
+	OperationsByToIDLoader *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor]
 
 	// AccountsByToIDLoader batches requests for accounts by transaction ToID
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
 	AccountsByToIDLoader *dataloadgen.Loader[AccountColumnsKey, []*types.Account]
 
-	// StateChangesByTxHashLoader batches requests for state changes by transaction hash
+	// StateChangesByToIDLoader batches requests for state changes by to_id
 	// Used by Transaction.stateChanges field resolver to prevent N+1 queries
-	StateChangesByTxHashLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor]
+	StateChangesByToIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor]
 
 	// TransactionsByOperationIDLoader batches requests for transactions by operation ID
 	// Used by Operation.transaction field resolver to prevent N+1 queries
@@ -60,11 +60,11 @@ type Dataloaders struct {
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
+		OperationsByToIDLoader:           operationsByToIDLoader(models),
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
+		StateChangesByToIDLoader:         stateChangesByToIDLoader(models),
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByToIDLoader:             accountsByToIDLoader(models),
 		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),

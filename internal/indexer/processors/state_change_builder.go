@@ -19,14 +19,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TxHash:          txHash,
-			TxID:            txID,
+			ToID:            txID,
 		},
 		metricsService: metricsService,
 	}
@@ -167,11 +166,6 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	if b.base.OperationID != 0 {
-		b.base.ToID = b.base.OperationID
-	} else {
-		b.base.ToID = b.base.TxID
-	}
 	b.base.SortKey = b.generateSortKey()
 
 	return b.base

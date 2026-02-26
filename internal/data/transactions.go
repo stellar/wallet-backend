@@ -110,13 +110,26 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+//
+// Uses TOID bit masking to derive tx_to_id from operation ID:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// This works because TOID encodes (ledger, tx_order, op_index) where:
+//   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
+//   - Clearing these bits yields the transaction's to_id
+//
+// See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+	// Join operations to transactions using TOID encoding:
+	// An operation ID's lower 12 bits encode the operation index within the transaction.
+	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON o.tx_hash = transactions.hash 
+		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
@@ -133,21 +146,21 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 }
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
-	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
 	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
+		SELECT %s, CONCAT(sc.to_id, '-', sc.operation_id, '-', sc.state_change_order) as state_change_id
 		FROM transactions
-		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
-		WHERE (sc.to_id, sc.state_change_order) IN (%s)
+		INNER JOIN state_changes sc ON transactions.to_id = sc.to_id
+		WHERE (sc.to_id, sc.operation_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
 	var transactions []*types.TransactionWithStateChangeID
