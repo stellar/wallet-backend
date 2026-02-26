@@ -40,6 +40,9 @@ entry_types:
   - pattern
   - gotcha
   - reference
+  - question
+  - fact
+  - tension
 
 subsystems:
   - ingestion
@@ -103,7 +106,7 @@ schema:
     - confidence
     - superseded_by
   enums:
-    type: [decision, insight, pattern, gotcha, reference]
-    status: [current, superseded, experimental]
+    type: [decision, insight, pattern, gotcha, reference, question, fact, tension]
+    status: [current, active, superseded, experimental, open]
     confidence: [proven, likely, experimental]
     subsystem: [ingestion, graphql, data-layer, signing, services, auth]

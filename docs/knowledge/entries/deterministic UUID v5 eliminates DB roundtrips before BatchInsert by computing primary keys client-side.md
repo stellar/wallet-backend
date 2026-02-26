@@ -2,6 +2,9 @@
 context: Asset and contract token IDs are UUIDv5(namespace, canonical_string); ON CONFLICT DO NOTHING makes streaming ingestion idempotent without pre-querying for existing rows
 type: pattern
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, ingestion]
 ---
 
 # deterministic UUID v5 eliminates DB roundtrips before BatchInsert by computing primary keys client-side

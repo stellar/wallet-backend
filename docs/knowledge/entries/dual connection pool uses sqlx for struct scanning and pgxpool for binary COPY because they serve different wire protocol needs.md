@@ -2,6 +2,9 @@
 context: Each DBConnectionPool wraps both sqlx.DB (text protocol, struct scanning) and pgxpool.Pool (binary protocol, COPY); BatchCopy uses pgxpool directly; all other queries use sqlx
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # dual connection pool uses sqlx for struct scanning and pgxpool for binary COPY because they serve different wire protocol needs

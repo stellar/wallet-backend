@@ -2,6 +2,9 @@
 context: defer tx.Rollback() runs on any return path; if Rollback() itself fails, the error is logged but not returned — the original operation error is preserved as the return value
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # tension: transaction helpers auto-rollback via defer but log rollback errors separately to avoid masking the original error

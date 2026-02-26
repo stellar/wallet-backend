@@ -2,6 +2,9 @@
 context: All data-layer queries use strings.Builder with $N positional params; no ORM or query builder; this is necessary for MATERIALIZED CTEs, decomposed cursor conditions, and LATERAL joins that query builders cannot express
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # raw SQL with strings.Builder and positional parameters gives full control over TimescaleDB-specific query constructs no query builder can generate

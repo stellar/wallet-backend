@@ -2,6 +2,9 @@
 context: GetDBErrorType extracts the PQ error code from errors wrapped in the db layer and maps them to string labels (e.g., unique_violation, foreign_key_violation, connection_exception) used as Prometheus label values
 type: pattern
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # GetDBErrorType maps PostgreSQL error codes to named Prometheus categories enabling structured DB error observability

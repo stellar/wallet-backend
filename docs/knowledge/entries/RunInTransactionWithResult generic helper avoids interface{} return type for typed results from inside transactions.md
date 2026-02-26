@@ -2,6 +2,9 @@
 context: Go 1.18+ generic function RunInTransactionWithResult[T any](ctx, db, fn func(tx) (T, error)) (T, error) lets callers return typed values from transactional closures without type assertions
 type: pattern
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # RunInTransactionWithResult generic helper avoids interface{} return type for typed results from inside transactions

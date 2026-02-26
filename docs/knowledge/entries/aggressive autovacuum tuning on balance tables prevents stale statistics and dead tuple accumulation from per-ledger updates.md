@@ -2,6 +2,9 @@
 context: autovacuum_vacuum_scale_factor=0.02, autovacuum_analyze_scale_factor=0.01, autovacuum_vacuum_cost_delay=0, autovacuum_vacuum_cost_limit=1000 applied per-table via ALTER TABLE
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # aggressive autovacuum tuning on balance tables prevents stale statistics and dead tuple accumulation from per-ledger updates

@@ -2,6 +2,9 @@
 context: Time-bounding at the GraphQL layer maps directly to WHERE clauses that allow the TimescaleDB planner to skip non-overlapping chunks entirely
 type: insight
 created: 2026-02-24
+status: current
+subsystem: graphql
+areas: [graphql, data-layer, timescaledb]
 ---
 
 # since and until parameters on Account queries enable TimescaleDB chunk exclusion to reduce scan cost for time-bounded account history

@@ -2,6 +2,9 @@
 context: All five hypertables (transactions, operations, state_changes, transactions_accounts, operations_accounts) use ledger_created_at as the time dimension; since/until GraphQL parameters map directly to this column for chunk exclusion
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # ledger_created_at is the hypertable partition column because time-bounded queries are the dominant API access pattern

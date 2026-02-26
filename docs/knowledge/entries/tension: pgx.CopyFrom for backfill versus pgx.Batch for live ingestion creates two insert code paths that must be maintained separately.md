@@ -2,6 +2,9 @@
 context: Backfill uses pgx.CopyFrom (binary COPY, no conflict handling); live ingestion uses UNNEST + ON CONFLICT DO NOTHING or pgx.Batch upsert+delete; both paths implement the same logical operation but with different semantics
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, ingestion]
 ---
 
 # tension: pgx.CopyFrom for backfill versus pgx.Batch for live ingestion creates two insert code paths that must be maintained separately

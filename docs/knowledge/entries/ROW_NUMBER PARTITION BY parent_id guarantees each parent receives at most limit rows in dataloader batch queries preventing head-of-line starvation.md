@@ -2,6 +2,9 @@
 context: Dataloader batch queries use ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY ...) then filter WHERE rn <= limit; a global LIMIT would return all rows from the first few parents, leaving later parents with zero results
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, graphql]
 ---
 
 # ROW_NUMBER PARTITION BY parent_id guarantees each parent receives at most limit rows in dataloader batch queries preventing head-of-line starvation

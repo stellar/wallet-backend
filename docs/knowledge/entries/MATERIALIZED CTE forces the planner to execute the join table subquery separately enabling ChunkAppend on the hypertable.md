@@ -2,6 +2,9 @@
 context: WITH accts AS MATERIALIZED (SELECT to_id FROM transactions_accounts WHERE account_id = $1) prevents planner from merging CTE into the outer query; ChunkAppend then applies to the transactions hypertable scan
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # MATERIALIZED CTE forces the planner to execute the join table subquery separately enabling ChunkAppend on the hypertable

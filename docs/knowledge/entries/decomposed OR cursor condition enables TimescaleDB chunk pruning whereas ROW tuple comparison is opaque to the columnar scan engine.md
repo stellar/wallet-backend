@@ -2,6 +2,9 @@
 context: Cursor WHERE clauses use (a > $1) OR (a = $1 AND b > $2) form; ROW(a,b) > ROW($1,$2) tuple comparison is semantically equivalent but TimescaleDB cannot push it into vectorized chunk filtering
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # decomposed OR cursor condition enables TimescaleDB chunk pruning whereas ROW tuple comparison is opaque to the columnar scan engine

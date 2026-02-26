@@ -2,6 +2,9 @@
 context: migrate up count=0 means "apply all pending"; migrate down count=0 is rejected — caller must specify how many to roll back; prevents running `migrate down` with no argument from wiping the schema
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # migrate down requires explicit count to prevent accidental full rollback while migrate up treats zero as apply-all

@@ -2,6 +2,9 @@
 context: HOT (Heap Only Tuple) updates require the new version to fit on the same page as the old version; fillfactor 80 leaves 20% page slack for in-place updates, reducing dead tuple accumulation and autovacuum pressure
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # fillfactor 80 on balance tables reserves page space for HOT updates to avoid dead tuples on non-indexed column changes

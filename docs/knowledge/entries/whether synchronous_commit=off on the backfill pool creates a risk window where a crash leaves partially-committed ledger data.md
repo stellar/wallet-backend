@@ -2,6 +2,9 @@
 context: synchronous_commit=off means WAL flushes are async; a crash within the wal_writer_delay window (~200ms) could lose committed transactions without the crash recovery mechanism detecting the gap
 type: question
 created: 2026-02-24
+status: open
+subsystem: data-layer
+areas: [data-layer, ingestion]
 ---
 
 # whether synchronous_commit=off on the backfill pool creates a risk window where a crash leaves partially-committed ledger data

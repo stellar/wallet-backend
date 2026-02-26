@@ -2,6 +2,9 @@
 context: go:embed //go:embed migrations/*.sql embeds the migrations/ directory into the binary; rubenv/sql-migrate uses HttpFileSystemMigrationSource to read from the embedded FS
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # go:embed compiles SQL migrations into the binary at build time making migration files unavailable at runtime

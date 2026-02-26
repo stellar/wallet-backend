@@ -2,6 +2,9 @@
 context: BatchGetByOperationIDs uses LATERAL (SELECT * FROM transactions WHERE to_id = op.id & ~x'FFF'::bigint LIMIT 1) instead of JOIN; this forces primary key lookup per operation row
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # LATERAL join for parent-row lookup is O(1) per row via primary key compared to a regular join requiring planner strategy selection

@@ -2,6 +2,9 @@
 context: Stellar produces ~17,280 ledgers/day at 5s/ledger; 1-day chunks fit this volume comfortably while keeping the total chunk count manageable for retention and compression scheduling
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # one-day chunk interval balances Stellar ledger volume against chunk management overhead

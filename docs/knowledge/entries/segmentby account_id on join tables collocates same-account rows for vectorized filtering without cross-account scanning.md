@@ -2,6 +2,9 @@
 context: transactions_accounts and operations_accounts use segmentby=account_id; the main hypertables (transactions, operations) do not use segmentby because they are queried by multiple dimensions
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # segmentby account_id on join tables collocates same-account rows for vectorized filtering without cross-account scanning

@@ -2,6 +2,9 @@
 context: GetByHash queries use a bloom filter sparse index on transactions.hash; without it, hash lookup would require scanning all chunks since hash is not correlated with the time partition
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # bloom filter sparse index on transactions hash enables chunk-level hash lookup pruning without full scan

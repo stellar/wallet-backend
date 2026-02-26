@@ -2,6 +2,9 @@
 context: In the Models struct, Transaction/Operation/StateChange model fields are concrete pointers (*TransactionModel etc); NativeBalance/TrustlineBalance/ContractBalance/IngestStore are interfaces tested via mocks
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, testing]
 ---
 
 # hypertable models lack interfaces because they require real TimescaleDB for testing while balance models use interfaces for mock-based unit tests

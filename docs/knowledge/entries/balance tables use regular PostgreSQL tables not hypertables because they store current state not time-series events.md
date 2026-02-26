@@ -2,6 +2,9 @@
 context: NativeBalance, TrustlineBalance, ContractBalance tables are regular PG tables; five event tables (transactions, operations, state_changes, *_accounts) are hypertables
 type: decision
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, timescaledb]
 ---
 
 # balance tables use regular PostgreSQL tables not hypertables because they store current state not time-series events

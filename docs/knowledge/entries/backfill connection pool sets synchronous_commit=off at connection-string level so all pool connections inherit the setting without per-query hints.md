@@ -2,6 +2,9 @@
 context: BackfillDBConnectionPool appends synchronous_commit=off to the DATABASE_URL before opening sqlx.DB; live pool does not; this means backfill gets async WAL for all connections automatically
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, ingestion]
 ---
 
 # backfill connection pool sets synchronous_commit=off at connection-string level so all pool connections inherit the setting without per-query hints

@@ -2,6 +2,9 @@
 context: rubenv/sql-migrate splits migration files on semicolons by default; stored procedures and DO blocks containing semicolons must be wrapped in -- StatementBegin / -- StatementEnd comments
 type: gotcha
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer]
 ---
 
 # multi-statement migration DDL requires StatementBegin and StatementEnd delimiters to prevent parser splitting on semicolons

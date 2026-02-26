@@ -2,6 +2,9 @@
 context: session_replication_role='replica' disables FK and trigger checks; must be set via SET command per connection after opening because PostgreSQL does not honor it in connection string options
 type: gotcha
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, ingestion]
 ---
 
 # ConfigureBackfillSession disables FK constraint checking via session_replication_role replica because it cannot be set at connection-string level

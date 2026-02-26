@@ -38,8 +38,8 @@ rethink_skill: retrospect
 ```yaml
 entry_required: [description, type, status, subsystem, areas]
 entry_optional: [confidence, superseded_by]
-entry_types: [decision, insight, pattern, gotcha, reference]
-entry_statuses: [current, superseded, experimental]
+entry_types: [decision, insight, pattern, gotcha, reference, question, fact, tension]
+entry_statuses: [current, active, superseded, experimental, open]
 entry_confidences: [proven, likely, experimental]
 subsystems: [ingestion, graphql, data-layer, signing, services, auth]
 ```

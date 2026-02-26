@@ -2,6 +2,9 @@
 context: dbtest.OpenWithoutMigrations runs ALTER DATABASE ... SET timescaledb.enable_chunk_skipping = on before migration runner executes; ensures test hypertable queries can skip chunks just like production
 type: insight
 created: 2026-02-24
+status: current
+subsystem: data-layer
+areas: [data-layer, testing]
 ---
 
 # dbtest Open enables TimescaleDB extension and chunk skipping before running migrations so hypertable queries behave identically to production
