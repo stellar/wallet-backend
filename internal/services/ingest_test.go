@@ -541,7 +541,7 @@ func createTestOperation(id int64) types.Operation {
 	return types.Operation{
 		ID:              id,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "test_operation_xdr",
+		OperationXDR:    types.XDRBytea([]byte("test_operation_xdr")),
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,
 		IngestedAt:      now,

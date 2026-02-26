@@ -87,7 +87,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			ops = append(ops, &types.Operation{
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				OperationType:   "PAYMENT",
-				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
+				OperationXDR:    types.XDRBytea([]byte(fmt.Sprintf("opxdr%d", opIdx))),
 				ResultCode:      "op_success",
 				Successful:      true,
 				LedgerNumber:    1,

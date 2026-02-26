@@ -171,7 +171,7 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByToID
+	return maps.Clone(b.participantsByToID)
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
@@ -351,7 +351,7 @@ func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByOpID
+	return maps.Clone(b.participantsByOpID)
 }
 
 // pushOperationUnsafe is the internal implementation for operation storage.

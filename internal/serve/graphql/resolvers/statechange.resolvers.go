@@ -69,7 +69,7 @@ func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, ob
 
 // TokenID is the resolver for the tokenId field.
 func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+	return r.resolveNullableAddress(obj.TokenID), nil
 }
 
 // LiquidityPoolID is the resolver for the liquidityPoolId field.
@@ -197,7 +197,7 @@ func (r *reservesChangeResolver) ClaimableBalanceID(ctx context.Context, obj *ty
 
 // SponsoredTrustline is the resolver for the sponsoredTrustline field.
 func (r *reservesChangeResolver) SponsoredTrustline(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+	return r.resolveNullableAddress(obj.TokenID), nil
 }
 
 // SponsoredData is the resolver for the sponsoredData field.
@@ -330,7 +330,7 @@ func (r *standardBalanceChangeResolver) Transaction(ctx context.Context, obj *ty
 
 // TokenID is the resolver for the tokenId field.
 func (r *standardBalanceChangeResolver) TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TokenID), nil
+	return obj.TokenID.String(), nil
 }
 
 // Amount is the resolver for the amount field.
@@ -365,7 +365,7 @@ func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.Tr
 
 // TokenID is the resolver for the tokenId field.
 func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+	return r.resolveNullableAddress(obj.TokenID), nil
 }
 
 // Limit is the resolver for the limit field.

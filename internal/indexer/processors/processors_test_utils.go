@@ -811,7 +811,7 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 		require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	}
 	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
+		require.Equal(t, utils.NullAddressBytea(expectedToken), change.TokenID)
 	}
 }
 

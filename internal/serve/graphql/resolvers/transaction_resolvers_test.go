@@ -2,6 +2,8 @@ package resolvers
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +18,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
+
+// testOpXDR returns the expected base64-encoded XDR for test operation N
+func testOpXDRTx(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", n)))
+}
 
 func TestTransactionResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
@@ -42,8 +49,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 2)
-		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), operations.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRTx(2), operations.Edges[1].Node.OperationXDR.String())
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
@@ -73,7 +80,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -83,7 +90,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentTx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(2), ops.Edges[0].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -95,7 +102,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentTx, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(2), ops.Edges[0].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -105,7 +112,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentTx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
