@@ -478,7 +478,7 @@ This optimization is critical for performance because:
 - WASM compilation with wazero is CPU-intensive
 - A single validation per unique WASM hash serves all contracts using that code
 
-When a new protocol is registered, previously unknown WASM hashes (those with `protocol_id = NULL`) must be re-validated against the new protocol's spec. This ensures contracts deployed before the protocol was added can still be classified correctly.
+When a new protocol is registered, running `protocol-setup` re-validates previously unknown WASM hashes (those with `protocol_id = NULL`) against the new protocol's spec. This ensures contracts deployed before the protocol was added can still be classified correctly.
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                 RE-CLASSIFICATION ON NEW PROTOCOL REGISTRATION              │
@@ -492,9 +492,9 @@ When a new protocol is registered, previously unknown WASM hashes (those with `p
                                   │
                                   ▼
                     ┌─────────────────────────────┐
-                    │ Restart Live Ingestion      │
-                    │ (triggers checkpoint        │
-                    │ population for new protocol)│
+                    │ protocol-setup              │
+                    │ --protocol-id BLEND         │
+                    │                             │
                     └─────────────┬───────────────┘
                                   │
                                   ▼
