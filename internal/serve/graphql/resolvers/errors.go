@@ -22,6 +22,9 @@ const (
 	// BalancesByAccountAddress errors (single account)
 	ErrMsgSingleInvalidAddress = "invalid address format: must be a valid Stellar account (G...) or contract (C...) address"
 
+	// TransactionByHash / StateChanges hash filter errors
+	ErrMsgInvalidTransactionHash = "invalid transaction hash format: must be a 64-character hex string"
+
 	// BalancesByAccountAddresses errors (multiple accounts)
 	ErrMsgEmptyAddresses      = "addresses array cannot be empty"
 	ErrMsgTooManyAddresses    = "maximum %d addresses allowed per query, got %d"
