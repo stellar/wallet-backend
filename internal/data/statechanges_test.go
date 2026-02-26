@@ -40,8 +40,8 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			LedgerNumber:        uint32(i + 1),
 			AccountID:           types.AddressBytea(accountID),
 			OperationID:         int64(i + 1),
-			// sql.NullString fields
-			TokenID: sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			// NullAddressBytea token field
+			TokenID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+6)%len(auxAddresses)]), Valid: true},
 			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
 			// NullAddressBytea fields
 			SignerAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
@@ -126,7 +126,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp1.Address()), Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
@@ -282,7 +282,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp1.Address()), Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{

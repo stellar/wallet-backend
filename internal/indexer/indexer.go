@@ -253,7 +253,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 				contractChange := types.ContractChange{
 					AccountID:    string(stateChange.AccountID),
 					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String,
+					ContractID:   stateChange.TokenID.String(),
 					LedgerNumber: tx.Ledger.LedgerSequence(),
 					ContractType: stateChange.ContractType,
 				}
