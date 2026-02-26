@@ -47,8 +47,7 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// sharedTestAccountAddress is a fixed test address used by tests that rely on setupDB.
-// It's generated once and reused to ensure test data consistency.
+// sharedTestAccountAddress is a test address used by tests that rely on setupDB.
 var sharedTestAccountAddress = keypair.MustRandom().Address()
 
 // sharedNonExistentAccountAddress is a valid Stellar address that doesn't exist in the test DB.
