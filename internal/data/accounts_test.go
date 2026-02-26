@@ -390,8 +390,8 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	ctx := context.Background()
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	toID1 := int64(100)
-	toID2 := int64(200)
+	toID1 := int64(4096)
+	toID2 := int64(8192)
 	stateChangeOrder1 := int64(1)
 	stateChangeOrder2 := int64(1)
 
@@ -411,25 +411,26 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	_, err = m.DB.ExecContext(ctx, `
 		INSERT INTO state_changes (
 			to_id, state_change_order, state_change_category, ledger_created_at,
-			ledger_number, account_id, operation_id, tx_hash
+			ledger_number, account_id, operation_id
 		) VALUES
-		($1, $2, 'BALANCE', NOW(), 1, $3, 4097, 'tx1'),
-		($4, $5, 'BALANCE', NOW(), 2, $6, 8193, 'tx2')
+		($1, $2, 'BALANCE', NOW(), 1, $3, 4097),
+		($4, $5, 'BALANCE', NOW(), 2, $6, 8193)
 	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeIDs function
 	scToIDs := []int64{toID1, toID2}
+	scOpIDs := []int64{4097, 8193}
 	scOrders := []int64{stateChangeOrder1, stateChangeOrder2}
-	accounts, err := m.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, "")
+	accounts, err := m.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, "")
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 
-	// Verify accounts are returned with correct state_change_id
+	// Verify accounts are returned with correct state_change_id (format: to_id-operation_id-state_change_order)
 	addressSet := make(map[string]string)
 	for _, acc := range accounts {
 		addressSet[acc.StellarAddress] = acc.StateChangeID
 	}
-	assert.Equal(t, "100-1", addressSet[address1])
-	assert.Equal(t, "200-1", addressSet[address2])
+	assert.Equal(t, "4096-4097-1", addressSet[address1])
+	assert.Equal(t, "8192-8193-1", addressSet[address2])
 }
