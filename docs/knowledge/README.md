@@ -2,9 +2,9 @@
 
 This directory contains a structured knowledge base for the wallet-backend codebase. It captures architecture decisions, debugging insights, code patterns, and gotchas — the kind of institutional knowledge that normally lives in people's heads or gets buried in Slack threads. Instead of losing it when someone moves to a different team, or rediscovering the same pitfall six months later, the knowledge graph makes it searchable, linkable, and durable.
 
-The system is powered by [Ars Contexta v0.8.0](https://arscontexta.org) and integrated with Claude Code via automation hooks and slash commands. When you open this repo in Claude Code, hooks automatically surface relevant knowledge at session start, validate new entries against the schema, auto-commit knowledge files to git, track when source code changes make reference docs stale, and capture a session summary when you close.
+The system is powered by Ars Contexta and integrated with Claude Code via automation hooks and slash commands. When you open this repo in Claude Code, hooks automatically surface relevant knowledge at session start, validate new entries against the schema, auto-commit knowledge files to git, track when source code changes make reference docs stale, and capture a session summary when you close.
 
-**At a glance:** ~124 entries, 8 reference docs, 7 knowledge maps, 18+ slash commands, 5 automation hooks.
+**At a glance:** 53 individual entries, 7 knowledge maps, 9 reference docs, 18+ slash commands, 5 automation hooks, 6 path-triggered routing rules.
 
 ---
 
@@ -21,15 +21,19 @@ docs/knowledge/
 │   ├── signing-and-channels.md  # Signing providers (ENV/KMS), channel account lifecycle
 │   ├── services.md              # Service pattern, inventory, dependency graph
 │   ├── authentication.md        # JWT/Ed25519 auth flow, client library
-│   └── state-changes.md         # Unified state change model, processor taxonomy
+│   ├── state-changes.md         # Unified state change model, processor taxonomy
+│   └── token-ingestion.md       # SEP-41 contract classification, SAC balance storage
 ├── entries/                     # Individual insights (one idea per file)
 │   ├── index.md                 # Hub knowledge map — start here
 │   ├── ingestion.md             # Knowledge map: ingestion subsystem
 │   ├── graphql-api.md           # Knowledge map: GraphQL API
 │   ├── data-layer.md            # Knowledge map: data layer
 │   ├── signing.md               # Knowledge map: signing and channels
-│   └── *.md                     # ~124 individual insight entries
+│   ├── authentication.md        # Knowledge map: authentication
+│   ├── services.md              # Knowledge map: services
+│   └── *.md                     # 53 individual insight entries
 ├── manual/                      # Human-readable documentation for using the system
+│   ├── manual.md                # The complete user manual
 │   ├── getting-started.md       # First 10 minutes walkthrough
 │   ├── skills.md                # Complete slash command reference
 │   ├── workflows.md             # Detailed workflow patterns
@@ -39,14 +43,17 @@ docs/knowledge/
 ├── ops/                         # System operations — pipeline state, queue, config
 │   ├── config.yaml              # System configuration
 │   ├── derivation.md            # Rationale for configuration choices
-│   ├── tasks/                   # Pending knowledge work tasks
+│   ├── tasks.md                 # Pending knowledge work tasks
 │   ├── queries/                 # Diagnostic shell scripts
 │   ├── sessions/                # Per-session capture summaries
 │   └── methodology/             # Full methodology specification
+├── templates/                   # Entry and knowledge map templates
+├── captures/                    # Raw notes not yet processed into entries
+├── archive/                     # Superseded or retired entries
 └── self/                        # Agent identity and methodology docs
 ```
 
-The knowledge base has three content tiers. **Reference docs** (`references/`) are comprehensive subsystem overviews — the first thing to read before touching a subsystem. They contain Mermaid architecture diagrams, processor inventories, source file paths, and cross-references. **Entries** (`entries/`) are atomic insights — each file captures exactly one decision, pattern, or gotcha, and entries link to each other via wiki-links. **Knowledge maps** (the named `.md` files inside `entries/`) are navigation hubs that organize entries by subsystem with context explaining why each entry matters.
+The knowledge base has three content tiers. **Reference docs** (`references/`) are comprehensive subsystem overviews — the first thing to read before touching a subsystem. They contain Mermaid architecture diagrams, processor inventories, source file paths, and cross-references. **Entries** (`entries/`) are atomic insights — each file captures exactly one decision, pattern, or gotcha, and entries link to each other via wiki-links. **Knowledge maps** (the seven named `.md` files inside `entries/`) are navigation hubs that organize entries by subsystem with context explaining why each entry matters.
 
 ---
 
@@ -54,18 +61,78 @@ The knowledge base has three content tiers. **Reference docs** (`references/`) a
 
 Before working on any subsystem, read the corresponding reference doc. These are not summaries — they contain the full architecture with diagrams.
 
-| Subsystem | Reference Doc | Entries |
-|-----------|--------------|---------|
-| Ingestion pipeline | `references/ingestion-pipeline.md` | 52 |
-| GraphQL API | `references/graphql-api.md` | 21 |
-| Data layer | `references/data-layer.md` | 26 |
-| Signing & channels | `references/signing-and-channels.md` | 21 |
-| State changes | `references/state-changes.md` | 4 |
-| Services | `references/services.md` | 0 |
-| Authentication | `references/authentication.md` | 0 |
-| Architecture overview | `references/overview.md` | — |
+| Subsystem | Reference Doc | Scope |
+|-----------|--------------|-------|
+| Architecture overview | `references/overview.md` | High-level service structure, process boundaries |
+| Ingestion pipeline | `references/ingestion-pipeline.md` | Live mode, backfill, processor fan-out, retry logic |
+| GraphQL API | `references/graphql-api.md` | Request flow, schema, resolvers, dataloaders, mutations |
+| Data layer | `references/data-layer.md` | TimescaleDB hypertables, models, migrations, connection pool |
+| Signing & channels | `references/signing-and-channels.md` | ENV/KMS providers, channel account lifecycle |
+| Services | `references/services.md` | Service pattern, inventory, dependency graph |
+| Authentication | `references/authentication.md` | JWT/Ed25519 auth flow, client library |
+| State changes | `references/state-changes.md` | Unified state change model, processor taxonomy |
+| Token ingestion | `references/token-ingestion.md` | SEP-41 classification, SAC/trustline balance storage |
 
 Each reference doc contains: a Mermaid architecture diagram showing component relationships, an inventory of relevant source files with their roles, configuration tables, and cross-references to related entries. They are generated and maintained via the `/write-architecture-doc` slash command. When source code changes accumulate (tracked automatically via the `track-code-changes` hook), a reference doc is flagged as potentially stale and `/next` will surface it for regeneration.
+
+---
+
+## Knowledge Routing System
+
+The routing system is the newest and most important architectural addition. It solves a friction point that existed in earlier versions: developers had to manually browse the vault to find relevant knowledge before starting work. The routing system automates that discovery with two layers.
+
+### Layer 1 — Path-Triggered Rules (`.claude/rules/`)
+
+Six files in `.claude/rules/` are automatically loaded by Claude Code when you edit files matching their path patterns. Each rule file surfaces the exact reference doc and knowledge map you need for that subsystem, plus inline gotchas that are too critical to require a docs lookup.
+
+| Rule File | Triggers On | Surfaces |
+|-----------|------------|---------|
+| `knowledge-route-ingestion.md` | `internal/ingest/**`, `internal/indexer/**` | `references/ingestion-pipeline.md` + `entries/ingestion.md` |
+| `knowledge-route-data-layer.md` | `internal/data/**`, `internal/db/**`, `internal/entities/**` | `references/data-layer.md` + `entries/data-layer.md` |
+| `knowledge-route-graphql.md` | `internal/serve/graphql/**` | `references/graphql-api.md` + `entries/graphql-api.md` |
+| `knowledge-route-signing.md` | `internal/signing/**`, `internal/services/transaction_service*`, `internal/services/channel_account*` | `references/signing-and-channels.md` + `entries/signing.md` |
+| `knowledge-route-auth.md` | `internal/serve/middleware/**`, `internal/validators/**`, `pkg/wbclient/auth/**` | `references/authentication.md` + `entries/authentication.md` |
+| `knowledge-route-token-ingestion.md` | `internal/services/token_*`, `internal/services/contract_*` | `references/token-ingestion.md` + `entries/ingestion.md` § Token Ingestion |
+
+Each rule file also includes a **Section Focus** block naming the specific sections most relevant to that subsystem, and an **Inline Gotchas** block listing the highest-stakes traps that should not require a full docs read to avoid.
+
+### Layer 2 — Task-Based Routing (CLAUDE.md)
+
+The routing table in `CLAUDE.md` maps both **source directories** and **task types** to the specific docs you need. This handles cases where the relevant knowledge doesn't align with which directory you're editing.
+
+#### Source Directory → Knowledge Files
+
+| Directory | Read These |
+|-----------|-----------|
+| `internal/ingest/**`, `internal/indexer/**` | `references/ingestion-pipeline.md` + `entries/ingestion.md` |
+| `internal/data/**`, `internal/db/**`, `internal/entities/**` | `references/data-layer.md` + `entries/data-layer.md` |
+| `internal/serve/graphql/**` | `references/graphql-api.md` + `entries/graphql-api.md` |
+| `internal/signing/**`, `internal/services/transaction_service*`, `internal/services/channel_account*` | `references/signing-and-channels.md` + `entries/signing.md` |
+| `internal/serve/middleware/**`, `internal/validators/**`, `pkg/wbclient/auth/**` | `references/authentication.md` + `entries/authentication.md` |
+| `internal/services/token_*`, `internal/services/contract_*` | `references/token-ingestion.md` + `entries/ingestion.md` § Token Ingestion |
+| `internal/indexer/processors/**` | `references/state-changes.md` + `entries/ingestion.md` § State Changes |
+| Anything else in `internal/` | `references/overview.md` + `entries/index.md` |
+
+#### Task Type → Knowledge Files
+
+| Task | Focus |
+|------|-------|
+| Adding a GraphQL query or mutation | `graphql-api.md` § Schema Design + DataLoaders; also `data-layer.md` § Insert Strategies if writing |
+| Adding/changing ingestion processors | `ingestion-pipeline.md` § Indexer Architecture + `entries/ingestion.md` § Indexer |
+| Changing balance storage or DB schema | `data-layer.md` full + `entries/data-layer.md` § TimescaleDB Hypertables |
+| Transaction submission / channel accounts | `signing-and-channels.md` full (short doc, 6 entries) |
+| Auth middleware or JWT handling | `authentication.md` full (short doc, 3 entries) |
+| Token ingestion / contract metadata | `token-ingestion.md` full + `entries/ingestion.md` § Token Ingestion |
+| Cross-subsystem refactor | Read all affected reference docs; trace cross-links in entries |
+
+#### Consumption Depth
+
+How much to read depends on the scope of the work:
+
+- **Quick Scan** (bug fix, small addition): reference doc + knowledge map **Gotchas** section only
+- **Deep Review** (new feature, refactor): full knowledge map — Decisions, Patterns, Tensions
+
+Unmapped directories: start at `references/overview.md` + `entries/index.md`.
 
 ---
 
@@ -94,7 +161,7 @@ created: 2026-02-24
 ---
 ```
 
-The `context` field is required. It must add new information beyond what the title already says — scope, mechanism, or implication. A context that restates the title (`"Exhausting channel accounts causes transactions to be dropped silently"`) is invalid. A good context adds specificity the title omits: the lock hash function, which variant of the PostgreSQL function is used, and the non-blocking behavior.
+The `context` field is required. It must add new information beyond what the title already says — scope, mechanism, or implication. A context that restates the title is invalid. A good context adds specificity the title omits: the lock hash function, which variant of the PostgreSQL function is used, and the non-blocking behavior.
 
 ### Entry types
 
@@ -119,22 +186,6 @@ Not: `"See [[crash recovery relies on atomic transactions...]] for related infor
 
 ---
 
-## Automation
-
-Five Claude Code hooks automate the routine maintenance work that would otherwise go undone.
-
-| Hook | Trigger | What It Does | Output |
-|------|---------|--------------|--------|
-| `session-orient.sh` | Session start (`SessionStart`) | Surfaces vault tree, pending tasks, reminders, and recent sessions | Displayed in Claude Code context |
-| `validate-note.sh` | Writing to `entries/` (`PostToolUse: Write`) | Checks YAML schema — required fields, enum values, context quality | Inline warnings (non-blocking) |
-| `auto-commit.sh` | Writing to `docs/knowledge/` (`PostToolUse: Write`) | Auto-commits the file to git so knowledge is never accidentally lost | Git history |
-| `track-code-changes.sh` | Editing `.go` files (`PostToolUse: Edit`) | Increments change counter per reference doc, creates review tasks when a doc accumulates 5+ changes | `ops/reference-doc-changes.yaml`, `ops/tasks/` |
-| `session-capture.sh` | Session end (`Stop`) | Captures session summary: commits made, files changed, tool usage patterns | `ops/sessions/` |
-
-The change-tracking lifecycle works as follows: every time you edit a `.go` file in a subsystem, the hook increments a counter in `ops/reference-doc-changes.yaml` for the corresponding reference doc. When a doc accumulates 5 changes, it's flagged as potentially stale — the source code has drifted enough that the architecture doc may no longer be accurate. Running `/next` will surface this as a recommended action, and `/write-architecture-doc` regenerates the reference doc from current source code, resetting the counter.
-
----
-
 ## Processing Pipeline
 
 New knowledge flows through four phases. Each phase has a distinct purpose — mixing them degrades quality.
@@ -148,6 +199,22 @@ New knowledge flows through four phases. Each phase has a distinct purpose — m
 4. **Verify** (`/verify`) — Quality gate: cold-read test (can you predict the entry's content from its title and context alone?), schema validation, and link health check. Entries that fail the cold-read test have context that restates the title and need to be sharpened.
 
 For most developers, `/document` followed by `/connect` covers the common case. The full pipeline from raw capture to verified, linked entry can run end-to-end via `/pipeline`, or in batches via `/ralph` (which spawns isolated subagents to prevent context contamination between entries).
+
+---
+
+## Automation Hooks
+
+Five Claude Code hooks automate the routine maintenance work that would otherwise go undone.
+
+| Hook | Trigger | What It Does | Output |
+|------|---------|--------------|--------|
+| `session-start.sh` | Session start (`SessionStart`) | Surfaces vault tree, pending tasks, reminders, and recent sessions | Displayed in Claude Code context |
+| `validate-note.sh` | Writing to `entries/` (`PostToolUse: Write`) | Checks YAML schema — required fields, enum values, context quality | Inline warnings (non-blocking) |
+| `auto-commit.sh` | Writing to `docs/knowledge/` (`PostToolUse: Write`) | Auto-commits the file to git so knowledge is never accidentally lost | Git history |
+| `track-code-changes.sh` | Editing `.go` files (`PostToolUse: Edit`) | Increments change counter per reference doc, creates review tasks when a doc accumulates 5+ changes | `ops/reference-doc-changes.yaml`, `ops/tasks.md` |
+| `session-capture.sh` | Session end (`Stop`) | Captures session summary: commits made, files changed, tool usage patterns | `ops/sessions/` |
+
+The change-tracking lifecycle works as follows: every time you edit a `.go` file in a subsystem, the hook increments a counter in `ops/reference-doc-changes.yaml` for the corresponding reference doc. When a doc accumulates 5 changes, it's flagged as potentially stale — the source code has drifted enough that the architecture doc may no longer be accurate. Running `/next` will surface this as a recommended action, and `/write-architecture-doc` regenerates the reference doc from current source code, resetting the counter.
 
 ---
 
@@ -198,7 +265,7 @@ See `manual/skills.md` for detailed documentation on each command, including arg
 
 ### Before working on a subsystem
 
-Read the reference doc first. If you're about to touch the ingestion pipeline, open `references/ingestion-pipeline.md`. It has a Mermaid diagram of the processor fan-out, the full processor inventory with their source files, notes on retry logic, and links to the entries that explain non-obvious design decisions. Reading it takes five minutes and can save hours of archaeology through the codebase.
+The routing system handles this automatically via path-triggered rules — when you open a file in a mapped directory, Claude Code loads the relevant routing rule and surfaces the right docs. For manual navigation, read the reference doc first. If you're about to touch the ingestion pipeline, open `references/ingestion-pipeline.md`. It has a Mermaid diagram of the processor fan-out, the full processor inventory with their source files, notes on retry logic, and links to the entries that explain non-obvious design decisions. Reading it takes five minutes and can save hours of archaeology through the codebase.
 
 ### After debugging something non-obvious
 
@@ -240,6 +307,7 @@ The system configuration lives in a few places:
 - **`ops/config.yaml`** — System configuration: vocabulary dimensions, entry schema, subsystem mapping, and hook declarations. This is the source of truth for how the system is structured.
 - **`ops/derivation.md`** — The rationale for each configuration choice. Read this before changing `config.yaml` to understand why the current structure was chosen.
 - **`.claude/rules/knowledge-system.md`** — Entry design rules and methodology, loaded into every Claude Code session. This is what the agent reads to know how to create and connect entries.
+- **`.claude/rules/knowledge-route-*.md`** — Path-triggered routing rules: six files that auto-surface the right reference doc and knowledge map when you edit files in a mapped subsystem directory.
 - **`.claude/settings.json`** — Hook registration: maps Claude Code events (`SessionStart`, `PostToolUse`, `Stop`) to the hook scripts.
 
 See `manual/configuration.md` for the full configuration reference, including all schema fields and vocabulary terms.
