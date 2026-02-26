@@ -219,7 +219,14 @@ func (m *StateChangeModel) BatchInsert(
 		if err != nil {
 			return nil, fmt.Errorf("converting account_id: %w", err)
 		}
-		accountIDBytes[i] = addrBytes.([]byte)
+		if addrBytes == nil {
+			return nil, fmt.Errorf("converting account_id: got nil BYTEA for required field")
+		}
+		accountIDByteSlice, ok := addrBytes.([]byte)
+		if !ok {
+			return nil, fmt.Errorf("converting account_id: unexpected type %T, want []byte", addrBytes)
+		}
+		accountIDBytes[i] = accountIDByteSlice
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {

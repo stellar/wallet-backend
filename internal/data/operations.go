@@ -306,11 +306,15 @@ func (m *OperationModel) BatchInsert(
 	for opID, addresses := range stellarAddressesByOpID {
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
-			addrBytes, err := types.AddressBytea(address).Value()
+			addrBytesValue, err := types.AddressBytea(address).Value()
 			if err != nil {
 				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
 			}
-			stellarAddressBytes = append(stellarAddressBytes, addrBytes.([]byte))
+			addrBytes, ok := addrBytesValue.([]byte)
+			if !ok || addrBytes == nil {
+				return nil, fmt.Errorf("converting address %s to bytes: unexpected value %T", address, addrBytesValue)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrBytes)
 		}
 	}
 
