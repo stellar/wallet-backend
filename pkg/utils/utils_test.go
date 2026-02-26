@@ -374,6 +374,57 @@ func Test_IsSorobanXDROp(t *testing.T) {
 	}
 }
 
+func Test_ResolveToGAddress(t *testing.T) {
+	gAddress := keypair.MustRandom().Address()
+
+	// Build a muxed M-address from the same G-address with a memo ID.
+	muxedAccount, err := xdr.MuxedAccountFromAccountId(gAddress, 12345)
+	require.NoError(t, err)
+	mAddress := muxedAccount.Address()
+	require.NotEqual(t, gAddress, mAddress)
+
+	testCases := []struct {
+		name        string
+		address     string
+		wantAddress string
+		wantErr     string
+	}{
+		{
+			name:        "empty_string",
+			address:     "",
+			wantAddress: "",
+		},
+		{
+			name:        "g_address_returns_same",
+			address:     gAddress,
+			wantAddress: gAddress,
+		},
+		{
+			name:        "m_address_returns_underlying_g_address",
+			address:     mAddress,
+			wantAddress: gAddress,
+		},
+		{
+			name:    "invalid_address_returns_error",
+			address: "INVALID",
+			wantErr: `parsing address "INVALID"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ResolveToGAddress(tc.address)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantAddress, result)
+			}
+		})
+	}
+}
+
 func Test_IsSorobanTxnbuildOp(t *testing.T) {
 	nonSorobanOps := []txnbuild.Operation{
 		&txnbuild.CreateAccount{},

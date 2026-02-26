@@ -232,6 +232,47 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 			forbiddenSigners: forbiddenSigners,
 		},
 		{
+			name: "🔴CredentialsSourceAccount/opSourceAccount_muxed_forbidden_signer",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount: func() string {
+				muxed, err := xdr.MuxedAccountFromAccountId(forbiddenSigner1, 12345)
+				require.NoError(t, err)
+				return muxed.Address()
+			}(),
+			forbiddenSigners: forbiddenSigners,
+			wantErrContains:  "handling SorobanCredentialsTypeSorobanCredentialsSourceAccount: " + ErrForbiddenSigner.Error(),
+		},
+		{
+			name: "🟢CredentialsSourceAccount/opSourceAccount_muxed_allowed_signer",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount: func() string {
+				muxed, err := xdr.MuxedAccountFromAccountId(allowedSigner1, 99999)
+				require.NoError(t, err)
+				return muxed.Address()
+			}(),
+			forbiddenSigners: forbiddenSigners,
+		},
+		{
 			name: "🔴CredentialsUnsupported",
 			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
 				{
