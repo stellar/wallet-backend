@@ -15,8 +15,6 @@ CREATE TABLE contract_tokens (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_contract_tokens_contract_id ON contract_tokens(contract_id);
-
 CREATE TRIGGER contract_tokens_set_updated_at BEFORE UPDATE ON contract_tokens FOR EACH ROW EXECUTE PROCEDURE
   refresh_updated_at_column();
 
