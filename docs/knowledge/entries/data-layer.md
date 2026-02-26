@@ -54,6 +54,10 @@ The data layer provides all database access through model interfaces aggregated 
 - Binary COPY vs conflict-safe upsert: backfill uses COPY for speed, live uses upsert for safety — different needs drive different strategies per path.
 - Hypertable vs standard table: event data goes in hypertables (chunk pruning, compression), current-state balance data stays in standard tables (upsert-friendly, HOT updates). Adding a new data type requires choosing the right model.
 
+## Synthesis Opportunities
+
+- [[G-address SAC token holdings are stored in trustline_balances not sac_balances because stellar represents them as standard trustlines]], [[sac_balances exclusively tracks contract-address SAC positions because SAC balances for non-contract holders appear in their respective balance tables]], and [[account_contract_tokens is append-only because sep-41 relationship tracking requires history of which contracts an account has ever interacted with]] together imply: "A complete picture of an account's token exposure requires three queries — trustline_balances (G-address SAC + classic tokens), sac_balances (C-address SAC), and account_contract_tokens (historical contract relationships). No single table captures the full picture." Not yet captured as a standalone entry.
+
 ---
 
 Agent Notes:

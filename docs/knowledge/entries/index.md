@@ -45,3 +45,4 @@ Note: some entries appear in multiple subsystems (e.g. data.models spans service
 
 Note: 2026-02-26 batch "why-timescaledb-over-vanilla-postgres" added 3 new entries (2 claims, 1 enrichment target) and enriched 2 existing entries.
 Note: 2026-02-26 batch "token-ingestion" added 11 new entries and enriched 3 existing entries. New entries cover: G/C address SAC balance split, checkpoint FK disable strategy, DEFERRABLE FK pattern, streaming batch architecture, UNKNOWN contract skip, wazero SEP-41 validation, SEP-41 10-function classification, dummy keypair rationale, RPC rate-limiting, account_contract_tokens append-only design, plus 1 tension entry.
+Note: 2026-02-26 /connect pass added cross-subsystem links: pgx copyfrom ↔ checkpoint streaming batch; per-ledger persistence ↔ deferrable FK; backfill mode ↔ checkpoint FK disable; wazero ↔ options struct (ContractValidator no-dep exception).

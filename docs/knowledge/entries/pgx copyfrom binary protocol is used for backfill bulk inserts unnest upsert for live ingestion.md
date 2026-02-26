@@ -47,6 +47,9 @@ The tradeoff: COPY cannot handle `ON CONFLICT` clauses — it aborts the entire 
 
 The COPY strategy pairs with [[backfill mode trades acid durability for insert throughput via synchronous_commit off]] — both are applied to historical ingestion only, together forming the performance profile of the backfill path where re-derivability justifies the tradeoffs.
 
+Since [[checkpoint streaming batch uses 250k flush threshold and slice colon zero reset to handle 30M+ ledger entries without memory exhaustion]], each flush() call within `PopulateAccountTokens()` triggers exactly these BatchCopy calls — the 250k threshold defines when CopyFrom is triggered; CopyFrom is the write protocol that executes each flush.
+
 relevant_notes:
   - "[[backfill mode trades acid durability for insert throughput via synchronous_commit off]] — synthesizes with this: synchronous_commit=off and COPY together form the backfill performance strategy; each targets a different bottleneck (WAL sync vs row-level overhead)"
   - "[[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — constrains this: COPY's conflict intolerance makes it unusable for balance tables regardless of ingestion mode; their current-state upsert semantics mandate the UNNEST upsert path always, not just during live ingestion"
+  - "[[checkpoint streaming batch uses 250k flush threshold and slice colon zero reset to handle 30M+ ledger entries without memory exhaustion]] — exemplifies this: the streaming batch flush() is the checkpoint scenario where BatchCopy (pgx.CopyFrom) is the write protocol; the 250k-entry windows define what each CopyFrom call receives"

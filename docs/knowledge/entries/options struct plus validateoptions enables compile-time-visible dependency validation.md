@@ -47,5 +47,8 @@ Services with ≤4 deps use direct constructor parameters with inline validation
 
 The Options structs receive `*data.Models` as a single field because [[data.models aggregates all database model interfaces into a single injectable struct]] — without that aggregation, an Options struct for TransactionService would need 11 model fields, making ValidateOptions boilerplate-heavy.
 
+`ContractValidator` is the exception to this pattern because [[wazero pure-go wasm runtime validates sep-41 contract specs in-process by compiling wasm and parsing the contractspecv0 custom section]] — since wazero is a pure-Go runtime initialized entirely in-process, `ContractValidator` has no external dependencies to inject and uses `NewContractValidator()` with no arguments.
+
 relevant_notes:
   - "[[data.models aggregates all database model interfaces into a single injectable struct]] — enables this: data.Models aggregation is what keeps Options structs readable; together the two patterns form the dependency injection strategy for complex services"
+  - "[[wazero pure-go wasm runtime validates sep-41 contract specs in-process by compiling wasm and parsing the contractspecv0 custom section]] — explains exception: ContractValidator's no-dep design is explained by wazero being an in-process pure-Go runtime — no external dependencies means nothing to inject"

@@ -43,6 +43,9 @@ The same mode-specific setup skips [[hypertable settings are only applied in liv
 
 The COPY strategy in [[pgx copyfrom binary protocol is used for backfill bulk inserts unnest upsert for live ingestion]] pairs with synchronous_commit=off to form the full backfill performance profile — reduced WAL sync overhead and binary COPY protocol together enable the insert throughput needed for historical ingestion.
 
+`session_replication_role = 'replica'` appears here at pool/session level (for all backfill connections), and also in [[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] at transaction level (LOCAL to a single transaction in `PopulateAccountTokens()`). The scope differs: backfill applies it connection-wide, checkpoint reverts it at COMMIT — both use FK-disable to handle the out-of-order insertion problem.
+
 relevant_notes:
   - "[[hypertable settings are only applied in live mode to avoid overwriting a running instance config]] — synthesizes with this: both entries describe backfill-only configurations; synchronous_commit=off and skipped hypertable settings share the same rationale"
   - "[[pgx copyfrom binary protocol is used for backfill bulk inserts unnest upsert for live ingestion]] — synthesizes with this: COPY and synchronous_commit=off are the two main backfill throughput optimizations; this entry handles WAL overhead, that entry handles per-row overhead"
+  - "[[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] — contrasts with this: both apply session_replication_role=replica for FK-disable, but at different scopes — backfill applies it connection-wide; checkpoint applies it LOCAL to a single transaction and reverts at COMMIT"

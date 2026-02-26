@@ -42,7 +42,9 @@ Both are needed because checkpoint and live ingestion have different transaction
 
 - [[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] — the other FK constraint strategy, used for the streaming phase
 - [[balance tables require aggressive autovacuum tuning because rows are updated every ledger]] — the other schema-level setting on balance tables
+- [[per-ledger persistence is a single atomic database transaction ensuring all-or-nothing ledger commits]] — the live ingestion transaction where DEFERRABLE FKs operate; steps 1-2 insert TrustlineAsset+Contract before balance rows that reference them, and DEFERRABLE FKs ensure FK integrity is checked at COMMIT rather than per-INSERT
 
 relevant_notes:
   - "[[checkpoint population disables FK checks via session_replication_role replica to allow balance entries to be inserted before their parent contract rows]] — counterpart: the two FK strategies are complementary — session_replication_role covers the streaming COPY phase, DEFERRABLE covers per-ledger transactions in live ingestion"
   - "[[balance tables require aggressive autovacuum tuning because rows are updated every ledger]] — co-located in the same migration: both autovacuum settings and DEFERRABLE FK declarations are in the same migration files for balance tables"
+  - "[[per-ledger persistence is a single atomic database transaction ensuring all-or-nothing ledger commits]] — exemplifies this: DEFERRABLE FKs are the schema mechanism that makes the step 1→5 ordering in PersistLedgerData safe; parents are inserted first in step order, but FK check fires only at COMMIT"

@@ -50,3 +50,4 @@ The tradeoff is performance: wazero is slower than native WASM runtimes. For con
 relevant_notes:
   - "[[sep-41 contract classification uses the contractspecv0 wasm custom section to verify all 10 required function signatures before accepting a contract as valid]] — grounds this: the contractspecv0 custom section reading is how wazero implements the 10-function validation check"
   - "[[unknown contract type is silently skipped in processTokenChanges because unclassified contracts cannot be safely stored]] — consequence: wazero classification failure produces UNKNOWN, which is then silently skipped in processContractTokenChanges"
+  - "[[options struct plus validateoptions enables compile-time-visible dependency validation]] — explains exception: wazero's in-process pure-Go design makes ContractValidator the one zero-dep service in the codebase; the no-CGo constraint is why no external runtime needs injecting"

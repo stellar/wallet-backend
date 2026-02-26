@@ -44,8 +44,11 @@ Step 4 of PersistLedgerData is [[channel account is released atomically with the
 
 The cursor advance in step 6 is the synchronization primitive described in [[the database is the sole integration point between the serve and ingest processes]] — `serve` learns about a new ledger only when this transaction commits.
 
+The FK ordering in steps 1-2 (TrustlineAsset before balances, Contract before sac_balances) is safe within a single transaction because [[deferrable initially deferred foreign keys enable checkpoint population to insert children before parents within a single transaction]] — the DEFERRABLE FK schema means the FK check only fires at COMMIT, allowing children to be inserted before their parents within the same transaction without violating integrity.
+
 relevant_notes:
   - "[[advisory lock prevents concurrent ingestion instances via postgresql pg_try_advisory_lock]] — synthesizes with this: advisory lock guarantees single-writer, atomic transaction guarantees complete-or-nothing; together they make ingestion crash-safe"
   - "[[channel account is released atomically with the confirming ledger commit in persistledgerdata]] — grounds this: channel release is step 4 in this transaction, proving the atomicity guarantee applies to signing infrastructure too"
   - "[[the database is the sole integration point between the serve and ingest processes]] — grounds this: the cursor advance in step 6 is the event that makes ingested data visible to serve; atomicity guarantees serve never sees partial ledgers"
   - "[[balance tables are standard postgres tables not hypertables because they store current state not time-series events]] — grounds this: the upsert-based current-state design of balance tables is what makes them steps 1 and 5 in PersistLedgerData — FK prerequisite first, then in-place updates after all hypertable event writes"
+  - "[[deferrable initially deferred foreign keys enable checkpoint population to insert children before parents within a single transaction]] — grounds this: the FK ordering across steps 1-2 (TrustlineAsset → Contract → balances) is safe within this atomic transaction because DEFERRABLE FK constraints defer the integrity check to COMMIT"
