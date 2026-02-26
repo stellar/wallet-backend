@@ -268,6 +268,9 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.ClaimableBalanceID.Valid {
 			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
 		}
+		if sc.ClaimableBalanceID.Valid {
+			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
+		}
 		if sc.LiquidityPoolID.Valid {
 			liquidityPoolIDs[i] = &sc.LiquidityPoolID.String
 		}
