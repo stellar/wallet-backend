@@ -239,7 +239,7 @@ func (m *WasmIngestionServiceMock) ProcessContractCode(ctx context.Context, wasm
 	return args.Error(0)
 }
 
-func (m *WasmIngestionServiceMock) PersistKnownWasms(ctx context.Context, dbTx pgx.Tx) error {
+func (m *WasmIngestionServiceMock) PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error {
 	args := m.Called(ctx, dbTx)
 	return args.Error(0)
 }

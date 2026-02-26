@@ -135,7 +135,7 @@ func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) 
 	tokenProcessorMock.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// WASM persistence
-	wasmIngestionServiceMock.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	wasmIngestionServiceMock.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Contract validator cleanup
 	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
@@ -171,7 +171,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 	// Finalization
 	tokenProcessorMock.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	tokenProcessorMock.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
-	wasmIngestionServiceMock.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	wasmIngestionServiceMock.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
 	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
 
 	err := svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
@@ -200,7 +200,7 @@ func TestCheckpointService_PopulateFromCheckpoint_NonContractCodeEntry(t *testin
 	// Finalization
 	tokenProcessorMock.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	tokenProcessorMock.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
-	wasmIngestionServiceMock.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	wasmIngestionServiceMock.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
 	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
 
 	err := svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
@@ -247,7 +247,7 @@ func TestCheckpointService_PopulateFromCheckpoint_MixedEntries(t *testing.T) {
 	// Finalization
 	tokenProcessorMock.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	tokenProcessorMock.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
-	wasmIngestionServiceMock.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	wasmIngestionServiceMock.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
 	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
 
 	err := svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
@@ -347,11 +347,11 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
-				wis.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(errors.New("persist error")).Once()
+				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(errors.New("persist error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
 			},
-			expectedErrMsg: "persisting known wasms",
+			expectedErrMsg: "persisting protocol wasms",
 		},
 		{
 			name: "initialize_cursors_error",
@@ -361,7 +361,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
-				wis.On("PersistKnownWasms", mock.Anything, mock.Anything).Return(nil).Once()
+				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return errors.New("cursor init failed") }
 			},

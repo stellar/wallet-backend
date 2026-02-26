@@ -116,7 +116,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			if change.Type == xdr.LedgerEntryTypeContractCode {
 				contractCodeEntry := change.Post.Data.MustContractCode()
 
-				// WASM service: track hash for known_wasms
+				// WASM service: track hash for protocol_wasms
 				if txErr := s.wasmIngestionService.ProcessContractCode(ctx, contractCodeEntry.Hash, contractCodeEntry.Code); txErr != nil {
 					return fmt.Errorf("wasm service processing contract code: %w", txErr)
 				}
@@ -148,9 +148,9 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			return fmt.Errorf("finalizing token processor: %w", txErr)
 		}
 
-		// Post-processing: persist known WASMs
-		if txErr := s.wasmIngestionService.PersistKnownWasms(ctx, dbTx); txErr != nil {
-			return fmt.Errorf("persisting known wasms: %w", txErr)
+		// Post-processing: persist protocol WASMs
+		if txErr := s.wasmIngestionService.PersistProtocolWasms(ctx, dbTx); txErr != nil {
+			return fmt.Errorf("persisting protocol wasms: %w", txErr)
 		}
 
 		// Initialize cursors within the same transaction
