@@ -17,7 +17,7 @@ func buildStateChange(toID int64, reason types.StateChangeReason, accountID stri
 		ToID:                toID,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
-		AccountID:           accountID,
+		AccountID:           types.AddressBytea(accountID),
 		OperationID:         operationID,
 		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}

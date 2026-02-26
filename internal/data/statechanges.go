@@ -26,7 +26,7 @@ type StateChangeModel struct {
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order")
 	var queryBuilder strings.Builder
-	args := []interface{}{accountAddress}
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	queryBuilder.WriteString(fmt.Sprintf(`
@@ -184,16 +184,16 @@ func (m *StateChangeModel) BatchInsert(
 	reasons := make([]*string, len(stateChanges))
 	ledgerCreatedAts := make([]time.Time, len(stateChanges))
 	ledgerNumbers := make([]int, len(stateChanges))
-	accountIDs := make([]string, len(stateChanges))
+	accountIDBytes := make([][]byte, len(stateChanges))
 	operationIDs := make([]int64, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
-	signerAccountIDs := make([]*string, len(stateChanges))
-	spenderAccountIDs := make([]*string, len(stateChanges))
-	sponsoredAccountIDs := make([]*string, len(stateChanges))
-	sponsorAccountIDs := make([]*string, len(stateChanges))
-	deployerAccountIDs := make([]*string, len(stateChanges))
-	funderAccountIDs := make([]*string, len(stateChanges))
+	signerAccountIDBytes := make([][]byte, len(stateChanges))
+	spenderAccountIDBytes := make([][]byte, len(stateChanges))
+	sponsoredAccountIDBytes := make([][]byte, len(stateChanges))
+	sponsorAccountIDBytes := make([][]byte, len(stateChanges))
+	deployerAccountIDBytes := make([][]byte, len(stateChanges))
+	funderAccountIDBytes := make([][]byte, len(stateChanges))
 	claimableBalanceIDs := make([]*string, len(stateChanges))
 	liquidityPoolIDs := make([]*string, len(stateChanges))
 	sponsoredDataValues := make([]*string, len(stateChanges))
@@ -212,8 +212,21 @@ func (m *StateChangeModel) BatchInsert(
 		categories[i] = string(sc.StateChangeCategory)
 		ledgerCreatedAts[i] = sc.LedgerCreatedAt
 		ledgerNumbers[i] = int(sc.LedgerNumber)
-		accountIDs[i] = sc.AccountID
 		operationIDs[i] = sc.OperationID
+
+		// Convert account_id to BYTEA (required field)
+		addrBytes, err := sc.AccountID.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting account_id: %w", err)
+		}
+		if addrBytes == nil {
+			return nil, fmt.Errorf("converting account_id: got nil BYTEA for required field")
+		}
+		accountIDByteSlice, ok := addrBytes.([]byte)
+		if !ok {
+			return nil, fmt.Errorf("converting account_id: unexpected type %T, want []byte", addrBytes)
+		}
+		accountIDBytes[i] = accountIDByteSlice
 
 		// Nullable fields
 		if sc.StateChangeReason != nil {
@@ -226,23 +239,34 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
 		}
-		if sc.SignerAccountID.Valid {
-			signerAccountIDs[i] = &sc.SignerAccountID.String
+
+		// Convert nullable account_id fields to BYTEA
+		signerAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting signer_account_id: %w", err)
 		}
-		if sc.SpenderAccountID.Valid {
-			spenderAccountIDs[i] = &sc.SpenderAccountID.String
+		spenderAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting spender_account_id: %w", err)
 		}
-		if sc.SponsoredAccountID.Valid {
-			sponsoredAccountIDs[i] = &sc.SponsoredAccountID.String
+		sponsoredAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
 		}
-		if sc.SponsorAccountID.Valid {
-			sponsorAccountIDs[i] = &sc.SponsorAccountID.String
+		sponsorAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
 		}
-		if sc.DeployerAccountID.Valid {
-			deployerAccountIDs[i] = &sc.DeployerAccountID.String
+		deployerAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting deployer_account_id: %w", err)
 		}
-		if sc.FunderAccountID.Valid {
-			funderAccountIDs[i] = &sc.FunderAccountID.String
+		funderAccountIDBytes[i], err = pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting funder_account_id: %w", err)
+		}
+		if sc.ClaimableBalanceID.Valid {
+			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
 		}
 		if sc.ClaimableBalanceID.Valid {
 			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
@@ -289,16 +313,16 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($4::text[]) AS state_change_reason,
 				UNNEST($5::timestamptz[]) AS ledger_created_at,
 				UNNEST($6::integer[]) AS ledger_number,
-				UNNEST($7::text[]) AS account_id,
+				UNNEST($7::bytea[]) AS account_id,
 				UNNEST($8::bigint[]) AS operation_id,
 				UNNEST($9::text[]) AS token_id,
 				UNNEST($10::text[]) AS amount,
-				UNNEST($11::text[]) AS signer_account_id,
-				UNNEST($12::text[]) AS spender_account_id,
-				UNNEST($13::text[]) AS sponsored_account_id,
-				UNNEST($14::text[]) AS sponsor_account_id,
-				UNNEST($15::text[]) AS deployer_account_id,
-				UNNEST($16::text[]) AS funder_account_id,
+				UNNEST($11::bytea[]) AS signer_account_id,
+				UNNEST($12::bytea[]) AS spender_account_id,
+				UNNEST($13::bytea[]) AS sponsored_account_id,
+				UNNEST($14::bytea[]) AS sponsor_account_id,
+				UNNEST($15::bytea[]) AS deployer_account_id,
+				UNNEST($16::bytea[]) AS funder_account_id,
 				UNNEST($17::text[]) AS claimable_balance_id,
 				UNNEST($18::text[]) AS liquidity_pool_id,
 				UNNEST($19::text[]) AS sponsored_data,
@@ -342,16 +366,16 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(reasons),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(ledgerNumbers),
-		pq.Array(accountIDs),
+		pq.Array(accountIDBytes),
 		pq.Array(operationIDs),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
-		pq.Array(signerAccountIDs),
-		pq.Array(spenderAccountIDs),
-		pq.Array(sponsoredAccountIDs),
-		pq.Array(sponsorAccountIDs),
-		pq.Array(deployerAccountIDs),
-		pq.Array(funderAccountIDs),
+		pq.Array(signerAccountIDBytes),
+		pq.Array(spenderAccountIDBytes),
+		pq.Array(sponsoredAccountIDBytes),
+		pq.Array(sponsorAccountIDBytes),
+		pq.Array(deployerAccountIDBytes),
+		pq.Array(funderAccountIDBytes),
 		pq.Array(claimableBalanceIDs),
 		pq.Array(liquidityPoolIDs),
 		pq.Array(sponsoredDataValues),
@@ -410,6 +434,39 @@ func (m *StateChangeModel) BatchCopy(
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
+
+			// Convert account_id to BYTEA (required field)
+			accountBytes, err := sc.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account_id: %w", err)
+			}
+
+			// Convert nullable account_id fields to BYTEA
+			signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting signer_account_id: %w", err)
+			}
+			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting spender_account_id: %w", err)
+			}
+			sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
+			}
+			sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
+			}
+			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
+			}
+			funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
+			if err != nil {
+				return nil, fmt.Errorf("converting funder_account_id: %w", err)
+			}
+
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
@@ -417,16 +474,16 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromReasonPtr(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				pgtype.Text{String: sc.AccountID, Valid: true},
+				accountBytes,
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
 				pgtypeTextFromNullString(sc.TokenID),
 				pgtypeTextFromNullString(sc.Amount),
-				pgtypeTextFromNullString(sc.SignerAccountID),
-				pgtypeTextFromNullString(sc.SpenderAccountID),
-				pgtypeTextFromNullString(sc.SponsoredAccountID),
-				pgtypeTextFromNullString(sc.SponsorAccountID),
-				pgtypeTextFromNullString(sc.DeployerAccountID),
-				pgtypeTextFromNullString(sc.FunderAccountID),
+				signerBytes,
+				spenderBytes,
+				sponsoredBytes,
+				sponsorBytes,
+				deployerBytes,
+				funderBytes,
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
 				pgtypeTextFromNullString(sc.SponsoredData),

@@ -382,10 +382,10 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
+	b.pushTransactionUnsafe(string(stateChange.AccountID), &transaction)
 	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
-		b.pushOperationUnsafe(stateChange.AccountID, &operation)
+		b.pushOperationUnsafe(string(stateChange.AccountID), &operation)
 	}
 }
 

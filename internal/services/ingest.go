@@ -300,7 +300,7 @@ func (m *ingestService) filterByRegisteredAccounts(
 	// Filter state changes: include if account is registered
 	filteredSC := make([]types.StateChange, 0)
 	for _, sc := range stateChanges {
-		if registeredAccounts.Contains(sc.AccountID) {
+		if registeredAccounts.Contains(string(sc.AccountID)) {
 			filteredSC = append(filteredSC, sc)
 		}
 	}

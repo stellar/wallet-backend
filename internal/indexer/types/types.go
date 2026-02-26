@@ -38,8 +38,90 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// AddressBytea represents a Stellar address stored as BYTEA in the database.
+// Storage format: 33 bytes (1 version byte + 32 raw key bytes)
+// Go representation: StrKey string (G.../C...)
+type AddressBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (33 bytes) to StrKey string
+func (a *AddressBytea) Scan(value any) error {
+	if value == nil {
+		*a = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 33 {
+		return fmt.Errorf("expected 33 bytes, got %d", len(bytes))
+	}
+	versionByte := strkey.VersionByte(bytes[0])
+	rawKey := bytes[1:33]
+	encoded, err := strkey.Encode(versionByte, rawKey)
+	if err != nil {
+		return fmt.Errorf("encoding stellar address: %w", err)
+	}
+	*a = AddressBytea(encoded)
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte
+func (a AddressBytea) Value() (driver.Value, error) {
+	if a == "" {
+		return nil, nil
+	}
+	versionByte, rawBytes, err := strkey.DecodeAny(string(a))
+	if err != nil {
+		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
+	}
+	result := make([]byte, 33)
+	result[0] = byte(versionByte)
+	copy(result[1:], rawBytes)
+	return result, nil
+}
+
+// String returns the Stellar address as a string.
+func (a AddressBytea) String() string {
+	return string(a)
+}
+
+// NullAddressBytea represents a nullable Stellar address stored as BYTEA in the database.
+// Similar to sql.NullString but handles BYTEA encoding/decoding for Stellar addresses.
+type NullAddressBytea struct {
+	AddressBytea AddressBytea // The Stellar address (G.../C...)
+	Valid        bool         // Valid is true if AddressBytea is not NULL
+}
+
+// Scan implements sql.Scanner - converts nullable BYTEA (33 bytes) to StrKey string
+func (n *NullAddressBytea) Scan(value any) error {
+	if value == nil {
+		n.AddressBytea, n.Valid = "", false
+		return nil
+	}
+	if err := n.AddressBytea.Scan(value); err != nil {
+		return err
+	}
+	n.Valid = true
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte or nil
+func (n NullAddressBytea) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return n.AddressBytea.Value()
+}
+
+// String returns the Stellar address as a string (convenience accessor).
+func (n NullAddressBytea) String() string {
+	return string(n.AddressBytea)
+}
 
 type ContractType string
 
@@ -118,8 +200,8 @@ const (
 )
 
 type Account struct {
-	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
-	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
+	StellarAddress AddressBytea `json:"address,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time    `json:"createdAt,omitempty" db:"created_at"`
 }
 
 type AccountWithToID struct {
@@ -404,14 +486,16 @@ type StateChange struct {
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 
 	// Nullable string fields:
-	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
-	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
-	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	TokenID sql.NullString `json:"tokenId,omitempty" db:"token_id"`
+	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
+
+	// Nullable address fields (stored as BYTEA in database):
+	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SpenderAccountID   NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	SponsoredAccountID NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID   NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID  NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID    NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
@@ -437,7 +521,7 @@ type StateChange struct {
 	KeyValue NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 
 	// Relationships:
-	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	AccountID   AddressBytea `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`

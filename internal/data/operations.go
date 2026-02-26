@@ -300,13 +300,21 @@ func (m *OperationModel) BatchInsert(
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
 	}
 
-	// 2. Flatten the stellarAddressesByOpID into parallel slices
+	// 2. Flatten the stellarAddressesByOpID into parallel slices, converting to BYTEA
 	var opIDs []int64
-	var stellarAddresses []string
+	var stellarAddressBytes [][]byte
 	for opID, addresses := range stellarAddressesByOpID {
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
-			stellarAddresses = append(stellarAddresses, address)
+			addrBytesValue, err := types.AddressBytea(address).Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
+			}
+			addrBytes, ok := addrBytesValue.([]byte)
+			if !ok || addrBytes == nil {
+				return nil, fmt.Errorf("converting address %s to bytes: unexpected value %T", address, addrBytesValue)
+			}
+			stellarAddressBytes = append(stellarAddressBytes, addrBytes)
 		}
 	}
 
@@ -342,7 +350,7 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($8::bigint[]) AS op_id,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($9::bytea[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -362,7 +370,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
-		pq.Array(stellarAddresses),
+		pq.Array(stellarAddressBytes),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"operations", "operations_accounts"} {
@@ -436,7 +444,12 @@ func (m *OperationModel) BatchCopy(
 		for opID, addresses := range stellarAddressesByOpID {
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				oaRows = append(oaRows, []any{opIDPgtype, pgtype.Text{String: addr, Valid: true}})
+				var addrBytes any
+				addrBytes, err = types.AddressBytea(addr).Value()
+				if err != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				}
+				oaRows = append(oaRows, []any{opIDPgtype, addrBytes})
 			}
 		}
 
