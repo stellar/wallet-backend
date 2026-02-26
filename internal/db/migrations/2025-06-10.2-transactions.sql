@@ -2,8 +2,8 @@
 
 -- Table: transactions
 CREATE TABLE transactions (
-    hash TEXT PRIMARY KEY,
-    to_id BIGINT NOT NULL,
+    to_id BIGINT PRIMARY KEY,
+    hash TEXT NOT NULL UNIQUE,
     envelope_xdr TEXT,
     fee_charged BIGINT NOT NULL,
     result_code TEXT NOT NULL,
@@ -18,11 +18,13 @@ CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_a
 
 -- Table: transactions_accounts
 CREATE TABLE transactions_accounts (
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
+    tx_to_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
     account_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (account_id, tx_hash)
+    PRIMARY KEY (account_id, tx_to_id)
 );
+
+CREATE INDEX idx_transactions_accounts_tx_to_id ON transactions_accounts(tx_to_id);
 
 -- +migrate Down
 

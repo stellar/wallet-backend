@@ -11,32 +11,32 @@ import (
 )
 
 type AccountColumnsKey struct {
-	TxHash        string
+	ToID          int64
 	OperationID   int64
 	StateChangeID string
 	Columns       string
 }
 
-// accountsByTxHashLoader creates a dataloader for fetching accounts by transaction hash
+// accountsByToIDLoader creates a dataloader for fetching accounts by transaction ToID
 // This prevents N+1 queries when multiple transactions request their accounts
-// The loader batches multiple transaction hashes into a single database query
-func accountsByTxHashLoader(models *data.Models) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
+// The loader batches multiple transaction ToIDs into a single database query
+func accountsByToIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []AccountColumnsKey) ([]*types.AccountWithTxHash, error) {
-			txHashes := make([]string, len(keys))
+		func(ctx context.Context, keys []AccountColumnsKey) ([]*types.AccountWithToID, error) {
+			toIDs := make([]int64, len(keys))
 			columns := keys[0].Columns
 			for i, key := range keys {
-				txHashes[i] = key.TxHash
+				toIDs[i] = key.ToID
 			}
-			return models.Account.BatchGetByTxHashes(ctx, txHashes, columns)
+			return models.Account.BatchGetByToIDs(ctx, toIDs, columns)
 		},
-		func(item *types.AccountWithTxHash) string {
-			return item.TxHash
+		func(item *types.AccountWithToID) int64 {
+			return item.ToID
 		},
-		func(key AccountColumnsKey) string {
-			return key.TxHash
+		func(key AccountColumnsKey) int64 {
+			return key.ToID
 		},
-		func(item *types.AccountWithTxHash) types.Account {
+		func(item *types.AccountWithToID) types.Account {
 			return item.Account
 		},
 	)
@@ -78,11 +78,11 @@ func accountByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Accou
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
 			}
-			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Account.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
+			return models.Account.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
 		},
 		func(item *types.AccountWithStateChangeID) string {
 			return item.StateChangeID

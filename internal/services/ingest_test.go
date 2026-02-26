@@ -509,13 +509,12 @@ func createTestTransaction(hash string, toID int64) types.Transaction {
 }
 
 // createTestOperation creates an operation with required fields for testing.
-func createTestOperation(id int64, txHash string) types.Operation {
+func createTestOperation(id int64) types.Operation {
 	now := time.Now()
 	return types.Operation{
 		ID:              id,
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "test_operation_xdr",
-		TxHash:          txHash,
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,
 		IngestedAt:      now,
@@ -523,7 +522,7 @@ func createTestOperation(id int64, txHash string) types.Operation {
 }
 
 // createTestStateChange creates a state change with required fields for testing.
-func createTestStateChange(toID int64, accountID string, txHash string, opID int64) types.StateChange {
+func createTestStateChange(toID int64, accountID string, opID int64) types.StateChange {
 	now := time.Now()
 	reason := types.StateChangeReasonCredit
 	return types.StateChange{
@@ -532,7 +531,6 @@ func createTestStateChange(toID int64, accountID string, txHash string, opID int
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           accountID,
-		TxHash:              txHash,
 		OperationID:         opID,
 		LedgerNumber:        1000,
 		LedgerCreatedAt:     now,
@@ -1144,10 +1142,10 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("flush_tx_1", 1)
 				tx2 := createTestTransaction("flush_tx_2", 2)
-				op1 := createTestOperation(200, "flush_tx_1")
-				op2 := createTestOperation(201, "flush_tx_2")
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "flush_tx_1", 200)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "flush_tx_2", 201)
+				op1 := createTestOperation(200)
+				op2 := createTestOperation(201)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 200)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 201)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
@@ -1224,13 +1222,14 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs
 			for _, hash := range []string{"flush_tx_1", "flush_tx_2", "flush_tx_3", "flush_tx_4", "flush_tx_5", "flush_tx_6"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations WHERE tx_hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
 				require.NoError(t, err)
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
+			// Also clean up any orphan operations
+			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			require.NoError(t, err)
 			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
 			require.NoError(t, err)
 
@@ -1311,8 +1310,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			if tc.wantOpCount > 0 {
 				var opCount int
 				err = dbConnectionPool.GetContext(ctx, &opCount,
-					`SELECT COUNT(*) FROM operations WHERE tx_hash = ANY($1)`,
-					pq.Array(tc.txHashes))
+					`SELECT COUNT(*) FROM operations`)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantOpCount, opCount, "operation count mismatch")
 			}
@@ -1321,7 +1319,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			if tc.wantStateChangeCount > 0 {
 				var scCount int
 				err = dbConnectionPool.GetContext(ctx, &scCount,
-					`SELECT COUNT(*) FROM state_changes WHERE tx_hash = ANY($1)`,
+					`SELECT COUNT(*) FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = ANY($1))`,
 					pq.Array(tc.txHashes))
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
@@ -1356,10 +1354,10 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
 				tx2 := createTestTransaction("tx_hash_2", 2)
-				op1 := createTestOperation(100, "tx_hash_1")
-				op2 := createTestOperation(101, "tx_hash_2")
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_2", 101)
+				op1 := createTestOperation(100)
+				op2 := createTestOperation(101)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 101)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GDEF2222222222222222222222222222222222222222222222222", tx2)
@@ -1380,8 +1378,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
-				op1 := createTestOperation(100, "tx_hash_1")
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
+				op1 := createTestOperation(100)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
 
 				// Tx has 2 participants but only 1 is registered
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
@@ -1395,7 +1393,7 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			wantStateChangeCount: 1,
 			verifyParticipants: func(t *testing.T, filtered *filteredIngestionData) {
 				// Verify ALL participants are preserved (not just registered ones)
-				participants := filtered.txParticipants["tx_hash_1"]
+				participants := filtered.txParticipants[int64(1)]
 				assert.Equal(t, 2, participants.Cardinality())
 				assert.True(t, participants.Contains("GABC1111111111111111111111111111111111111111111111111"))
 				assert.True(t, participants.Contains("GXYZ9999999999999999999999999999999999999999999999999"))
@@ -1409,8 +1407,8 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1) // Has registered
 				tx2 := createTestTransaction("tx_hash_2", 2) // No registered
-				op1 := createTestOperation(100, "tx_hash_1")
-				op2 := createTestOperation(101, "tx_hash_2")
+				op1 := createTestOperation(100)
+				op2 := createTestOperation(101)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushTransaction("GUNREGISTERED11111111111111111111111111111111111111", tx2)
@@ -1443,12 +1441,12 @@ func Test_ingestService_filterParticipantData(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction("tx_hash_1", 1)
-				op1 := createTestOperation(100, "tx_hash_1")
+				op1 := createTestOperation(100)
 
 				// 3 state changes: 2 for registered accounts, 1 for unregistered
-				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", "tx_hash_1", 100)
-				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", "tx_hash_1", 100)
-				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", "tx_hash_1", 100)
+				sc1 := createTestStateChange(1, "GABC1111111111111111111111111111111111111111111111111", 100)
+				sc2 := createTestStateChange(2, "GDEF2222222222222222222222222222222222222222222222222", 100)
+				sc3 := createTestStateChange(3, "GUNREGISTERED11111111111111111111111111111111111111", 100)
 
 				buf.PushTransaction("GABC1111111111111111111111111111111111111111111111111", tx1)
 				buf.PushOperation("GABC1111111111111111111111111111111111111111111111111", op1, tx1)
@@ -2733,13 +2731,14 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs
 			for _, hash := range []string{"catchup_tx_1", "catchup_tx_2", "catchup_tx_3", "catchup_tx_4", "catchup_tx_5", "catchup_tx_6", "prev_tx"} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE tx_hash = $1`, hash)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations WHERE tx_hash = $1`, hash)
+				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, hash)
 				require.NoError(t, err)
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, hash)
 				require.NoError(t, err)
 			}
+			// Also clean up any orphan operations
+			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			require.NoError(t, err)
 
 			// Set up cursors
 			setupDBCursors(t, ctx, dbConnectionPool, 200, 100)

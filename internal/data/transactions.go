@@ -88,7 +88,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		TableName:      "transactions",
 		CursorColumn:   "to_id",
 		JoinTable:      "transactions_accounts",
-		JoinCondition:  "transactions_accounts.tx_hash = transactions.hash",
+		JoinCondition:  "transactions_accounts.tx_to_id = transactions.to_id",
 		Columns:        columns,
 		AccountAddress: accountAddress,
 		Limit:          limit,
@@ -110,13 +110,26 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+//
+// Uses TOID bit masking to derive tx_to_id from operation ID:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// This works because TOID encodes (ledger, tx_order, op_index) where:
+//   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
+//   - Clearing these bits yields the transaction's to_id
+//
+// See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+	// Join operations to transactions using TOID encoding:
+	// An operation ID's lower 12 bits encode the operation index within the transaction.
+	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions
-		ON o.tx_hash = transactions.hash 
+		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
@@ -133,21 +146,21 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 }
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
-	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
 	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
+		SELECT %s, CONCAT(sc.to_id, '-', sc.operation_id, '-', sc.state_change_order) as state_change_id
 		FROM transactions
-		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
-		WHERE (sc.to_id, sc.state_change_order) IN (%s)
+		INNER JOIN state_changes sc ON transactions.to_id = sc.to_id
+		WHERE (sc.to_id, sc.operation_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
 	var transactions []*types.TransactionWithStateChangeID
@@ -170,7 +183,7 @@ func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
 	txs []*types.Transaction,
-	stellarAddressesByTxHash map[string]set.Set[string],
+	stellarAddressesByToID map[int64]set.Set[string],
 ) ([]string, error) {
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
@@ -199,11 +212,12 @@ func (m *TransactionModel) BatchInsert(
 		isFeeBumps[i] = t.IsFeeBump
 	}
 
-	// 2. Flatten the stellarAddressesByTxHash into parallel slices
-	var txHashes, stellarAddresses []string
-	for txHash, addresses := range stellarAddressesByTxHash {
+	// 2. Flatten the stellarAddressesByToID into parallel slices
+	var txToIDs []int64
+	var stellarAddresses []string
+	for toID, addresses := range stellarAddressesByToID {
 		for address := range addresses.Iter() {
-			txHashes = append(txHashes, txHash)
+			txToIDs = append(txToIDs, toID)
 			stellarAddresses = append(stellarAddresses, address)
 		}
 	}
@@ -229,19 +243,19 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($8::timestamptz[]) AS ledger_created_at,
 				UNNEST($9::boolean[]) AS is_fee_bump
 		) t
-		ON CONFLICT (hash) DO NOTHING
+		ON CONFLICT (to_id) DO NOTHING
 		RETURNING hash
 	),
 
 	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_hash, account_id)
+			(tx_to_id, account_id)
 		SELECT
-			ta.tx_hash, ta.account_id
+			ta.tx_to_id, ta.account_id
 		FROM (
 			SELECT
-				UNNEST($10::text[]) AS tx_hash,
+				UNNEST($10::bigint[]) AS tx_to_id,
 				UNNEST($11::text[]) AS account_id
 		) ta
 		ON CONFLICT DO NOTHING
@@ -263,7 +277,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(isFeeBumps),
-		pq.Array(txHashes),
+		pq.Array(txToIDs),
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
@@ -298,7 +312,7 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByTxHash map[string]set.Set[string],
+	stellarAddressesByToID map[int64]set.Set[string],
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil
@@ -335,19 +349,19 @@ func (m *TransactionModel) BatchCopy(
 	}
 
 	// COPY transactions_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByTxHash) > 0 {
+	if len(stellarAddressesByToID) > 0 {
 		var taRows [][]any
-		for txHash, addresses := range stellarAddressesByTxHash {
-			txHashPgtype := pgtype.Text{String: txHash, Valid: true}
+		for toID, addresses := range stellarAddressesByToID {
+			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				taRows = append(taRows, []any{txHashPgtype, pgtype.Text{String: addr, Valid: true}})
+				taRows = append(taRows, []any{toIDPgtype, pgtype.Text{String: addr, Valid: true}})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"transactions_accounts"},
-			[]string{"tx_hash", "account_id"},
+			[]string{"tx_to_id", "account_id"},
 			pgx.CopyFromRows(taRows),
 		)
 		if err != nil {

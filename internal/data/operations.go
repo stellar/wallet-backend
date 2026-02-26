@@ -78,31 +78,60 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	return operations, nil
 }
 
-// BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+// BatchGetByToIDs gets the operations that are associated with the given transaction ToIDs.
+//
+// # TOID (Total Order ID) Encoding - SEP-35
+//
+// Operations and transactions use a 64-bit ID that encodes ordering information:
+//
+//	| Ledger Sequence (32 bits) | Transaction Order (20 bits) | Operation Index (12 bits) |
+//	|---------------------------|-----------------------------|-----------------------------|
+//	| bits 63-32                | bits 31-12                  | bits 11-0                   |
+//
+// Key relationships:
+//   - Transaction's to_id has OperationIndex = 0
+//   - Operation IDs are 1-indexed within a transaction (1, 2, 3, ...)
+//   - Max 4095 operations per transaction (12 bits)
+//
+// To derive transaction to_id from operation ID:
+//
+//	tx_to_id = operation_id &^ 0xFFF  (clear lower 12 bits)
+//
+// To query operations for a transaction:
+//
+//	WHERE id > tx_to_id AND id < tx_to_id + 4096
+//
+// The range (tx_to_id, tx_to_id + 4096) captures operation indices 1-4095.
+// Using exclusive bounds avoids matching the transaction itself (index 0)
+// and the next transaction (index 4096 = 0x1000).
+//
+// See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
+func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// This CTE query implements per-transaction pagination to ensure balanced results.
 	// Instead of applying a global LIMIT that could return all operations from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// transactions, we use ROW_NUMBER() with PARTITION BY to limit results per transaction.
 	// This guarantees that each transaction gets at most 'limit' operations, providing
 	// more balanced and predictable pagination across multiple transactions.
+	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
 	query := `
 		WITH
-			inputs (tx_hash) AS (
-				SELECT * FROM UNNEST($1::text[])
+			inputs (to_id) AS (
+				SELECT * FROM UNNEST($1::bigint[])
 			),
-			
-			ranked_operations_per_tx_hash AS (
+
+			ranked_operations_per_to_id AS (
 				SELECT
 					o.*,
-					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
-				FROM 
+					i.to_id as tx_to_id,
+					ROW_NUMBER() OVER (PARTITION BY i.to_id ORDER BY o.id %s) AS rn
+				FROM
 					operations o
-				JOIN 
-					inputs i ON o.tx_hash = i.tx_hash
+				JOIN
+					inputs i ON o.id > i.to_id AND o.id < i.to_id + 4096
 			)
-		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+		SELECT %s, id as cursor FROM ranked_operations_per_to_id
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -115,25 +144,27 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(toIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHashes", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByTxHashes", "operations", len(txHashes))
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "operations", len(toIDs))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHashes", "operations", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting operations by tx hashes: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "operations", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting operations by to_ids: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHashes", "operations")
+	m.MetricsService.IncDBQuery("BatchGetByToIDs", "operations")
 	return operations, nil
 }
 
-// BatchGetByTxHash gets operations for a single transaction with pagination support.
-func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+// BatchGetByToID gets operations for a single transaction ToID with pagination support.
+// Operations for a transaction are found using TOID range: (tx_to_id, tx_to_id + 4096).
+func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
+	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
 
-	args := []interface{}{txHash}
+	args := []interface{}{toID}
 	argIndex := 2
 
 	if cursor != nil {
@@ -166,12 +197,12 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, co
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHash", "operations", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByTxHash", "operations", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
+		m.MetricsService.IncDBQueryError("BatchGetByToID", "operations", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting paginated operations by to_id: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByTxHash", "operations")
+	m.MetricsService.IncDBQuery("BatchGetByToID", "operations")
 	return operations, nil
 }
 
@@ -206,21 +237,21 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
-	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
 	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
+		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.operation_id, '-', state_changes.state_change_order) AS state_change_id
 		FROM operations
 		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
+		WHERE (state_changes.to_id, state_changes.operation_id, state_changes.state_change_order) IN (%s)
 		ORDER BY operations.ledger_created_at DESC
 	`, columns, strings.Join(tuples, ", "))
 
@@ -252,7 +283,6 @@ func (m *OperationModel) BatchInsert(
 
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
-	txHashes := make([]string, len(operations))
 	operationTypes := make([]string, len(operations))
 	operationXDRs := make([]string, len(operations))
 	resultCodes := make([]string, len(operations))
@@ -262,7 +292,6 @@ func (m *OperationModel) BatchInsert(
 
 	for i, op := range operations {
 		ids[i] = op.ID
-		txHashes[i] = op.TxHash
 		operationTypes[i] = string(op.OperationType)
 		operationXDRs[i] = op.OperationXDR
 		resultCodes[i] = op.ResultCode
@@ -287,19 +316,18 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations
 	inserted_operations AS (
 		INSERT INTO operations
-			(id, tx_hash, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+			(id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		SELECT
-			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.result_code, o.successful, o.ledger_number, o.ledger_created_at
+			o.id, o.operation_type, o.operation_xdr, o.result_code, o.successful, o.ledger_number, o.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::text[]) AS tx_hash,
-				UNNEST($3::text[]) AS operation_type,
-				UNNEST($4::text[]) AS operation_xdr,
-				UNNEST($5::text[]) AS result_code,
-				UNNEST($6::boolean[]) AS successful,
-				UNNEST($7::bigint[]) AS ledger_number,
-				UNNEST($8::timestamptz[]) AS ledger_created_at
+				UNNEST($2::text[]) AS operation_type,
+				UNNEST($3::text[]) AS operation_xdr,
+				UNNEST($4::text[]) AS result_code,
+				UNNEST($5::boolean[]) AS successful,
+				UNNEST($6::bigint[]) AS ledger_number,
+				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) o
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id
@@ -313,8 +341,8 @@ func (m *OperationModel) BatchInsert(
 			oa.op_id, oa.account_id
 		FROM (
 			SELECT
-				UNNEST($9::bigint[]) AS op_id,
-				UNNEST($10::text[]) AS account_id
+				UNNEST($8::bigint[]) AS op_id,
+				UNNEST($9::text[]) AS account_id
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -327,7 +355,6 @@ func (m *OperationModel) BatchInsert(
 	var insertedIDs []int64
 	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
 		pq.Array(ids),
-		pq.Array(txHashes),
 		pq.Array(operationTypes),
 		pq.Array(operationXDRs),
 		pq.Array(resultCodes),
@@ -381,12 +408,11 @@ func (m *OperationModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"operations"},
-		[]string{"id", "tx_hash", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
+		[]string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
 		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
 			op := operations[i]
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
-				pgtype.Text{String: op.TxHash, Valid: true},
 				pgtype.Text{String: string(op.OperationType), Valid: true},
 				pgtype.Text{String: op.OperationXDR, Valid: true},
 				pgtype.Text{String: op.ResultCode, Valid: true},

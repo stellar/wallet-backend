@@ -28,14 +28,14 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		TxHash:    obj.Hash,
+		ToID:      obj.ToID,
 		Columns:   strings.Join(dbColumns, ", "),
 		Limit:     &queryLimit,
 		Cursor:    params.Cursor,
 		SortOrder: params.SortOrder,
 	}
 
-	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
+	operations, err := loaders.OperationsByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -69,10 +69,10 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 	// This prevents N+1 queries when multiple transactions request their operations
 	// The loader groups multiple requests and executes them in a single database query
 	loaderKey := dataloaders.AccountColumnsKey{
-		TxHash:  obj.Hash,
+		ToID:    obj.ToID,
 		Columns: strings.Join(dbColumns, ", "),
 	}
-	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, loaderKey)
+	accounts, err := loaders.AccountsByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -92,21 +92,21 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		TxHash:    obj.Hash,
+		ToID:      obj.ToID,
 		Columns:   strings.Join(dbColumns, ", "),
 		Limit:     &queryLimit,
 		Cursor:    params.StateChangeCursor,
 		SortOrder: params.SortOrder,
 	}
 
-	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
+	stateChanges, err := loaders.StateChangesByToIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))

@@ -22,7 +22,7 @@ import (
 
 // generateTestStateChanges creates n test state changes for benchmarking.
 // Populates all fields to provide an upper-bound benchmark.
-func generateTestStateChanges(n int, txHash string, accountID string, startToID int64) []types.StateChange {
+func generateTestStateChanges(n int, accountID string, startToID int64) []types.StateChange {
 	scs := make([]types.StateChange, n)
 	now := time.Now()
 	reason := types.StateChangeReasonCredit
@@ -37,7 +37,6 @@ func generateTestStateChanges(n int, txHash string, accountID string, startToID 
 			LedgerNumber:        uint32(i + 1),
 			AccountID:           accountID,
 			OperationID:         int64(i + 1),
-			TxHash:              txHash,
 			// sql.NullString fields
 			TokenID:            sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
 			Amount:             sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
@@ -107,9 +106,9 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	require.NoError(t, err)
 	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[string]set.Set[string]{
-		tx1.Hash: set.NewSet(kp1.Address()),
-		tx2.Hash: set.NewSet(kp2.Address()),
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
+		tx1.ToID: set.NewSet(kp1.Address()),
+		tx2.ToID: set.NewSet(kp2.Address()),
 	})
 	require.NoError(t, err)
 
@@ -123,7 +122,6 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           kp1.Address(),
 		OperationID:         123,
-		TxHash:              tx1.Hash,
 		TokenID:             sql.NullString{String: "token1", Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
@@ -136,7 +134,6 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        2,
 		AccountID:           kp2.Address(),
 		OperationID:         456,
-		TxHash:              tx2.Hash,
 	}
 
 	testCases := []struct {
@@ -150,13 +147,13 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟢successful_insert_without_dbTx",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc2},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d", sc2.ToID, sc2.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d-%d", sc2.ToID, sc2.OperationID, sc2.StateChangeOrder)},
 		},
 		{
 			name:         "🟢successful_insert_with_dbTx",
 			useDBTx:      true,
 			stateChanges: []types.StateChange{sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
 		},
 		{
 			name:         "🟢empty_input",
@@ -168,7 +165,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟡duplicate_state_change",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
 		},
 	}
 
@@ -211,7 +208,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 
 			// Verify from DB
 			var dbInsertedIDs []string
-			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', state_change_order) FROM state_changes")
+			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes")
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tc.wantIDs, dbInsertedIDs)
 
@@ -265,9 +262,9 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	require.NoError(t, err)
 	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[string]set.Set[string]{
-		tx1.Hash: set.NewSet(kp1.Address()),
-		tx2.Hash: set.NewSet(kp2.Address()),
+	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
+		tx1.ToID: set.NewSet(kp1.Address()),
+		tx2.ToID: set.NewSet(kp2.Address()),
 	})
 	require.NoError(t, err)
 
@@ -281,7 +278,6 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           kp1.Address(),
 		OperationID:         123,
-		TxHash:              tx1.Hash,
 		TokenID:             sql.NullString{String: "token1", Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
@@ -294,19 +290,17 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		LedgerNumber:        2,
 		AccountID:           kp2.Address(),
 		OperationID:         456,
-		TxHash:              tx2.Hash,
 	}
-	// State change with typed signer/threshold fields
+	// State change with typed signer/threshold fields (uses to_id=1 to reference tx1)
 	sc3 := types.StateChange{
-		ToID:                3,
-		StateChangeOrder:    1,
+		ToID:                1,
+		StateChangeOrder:    2, // Different order to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
 		StateChangeReason:   nil,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        3,
 		AccountID:           kp1.Address(),
 		OperationID:         789,
-		TxHash:              tx1.Hash,
 		SignerWeightOld:     sql.NullInt16{Int16: 0, Valid: true},
 		SignerWeightNew:     sql.NullInt16{Int16: 10, Valid: true},
 		ThresholdOld:        sql.NullInt16{Int16: 1, Valid: true},
@@ -389,7 +383,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 
 			// Verify from DB
 			var dbInsertedIDs []string
-			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
+			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
@@ -421,7 +415,7 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 
 	reason := types.StateChangeReasonCredit
 	sc1 := types.StateChange{
-		ToID:                999,
+		ToID:                1, // Must reference the transaction created above with to_id=1
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
@@ -429,7 +423,6 @@ func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           kp1.Address(),
 		OperationID:         123,
-		TxHash:              "tx_for_sc_dup_test",
 	}
 
 	// Pre-insert the state change using BatchInsert (which uses ON CONFLICT DO NOTHING)
@@ -501,11 +494,11 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
-			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
-			(3, 1, 'credit', $1, 3, $3, 789, 'tx3')
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES
+			(1, 1, 'BALANCE', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', $1, 3, $3, 789)
 	`, now, address1, address2)
 	require.NoError(t, err)
 
@@ -561,15 +554,16 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	`, now)
 	require.NoError(t, err)
 
-	// Create test state changes with different operation IDs, transaction hashes, categories, and reasons
+	// Create test state changes with different operation IDs, categories, and reasons
+	// State changes must reference valid transaction to_ids (1, 2, or 3)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'BALANCE', 'DEBIT', $1, 2, $2, 456, 'tx2'),
-			(3, 1, 'SIGNER', 'ADD', $1, 3, $2, 789, 'tx3'),
-			(4, 1, 'BALANCE', 'DEBIT', $1, 4, $2, 123, 'tx1'),
-			(5, 1, 'SIGNER', 'ADD', $1, 5, $2, 999, 'tx2')
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', 'DEBIT', $1, 2, $2, 456),
+			(3, 1, 'SIGNER', 'ADD', $1, 3, $2, 789),
+			(1, 2, 'BALANCE', 'DEBIT', $1, 4, $2, 124),
+			(2, 2, 'SIGNER', 'ADD', $1, 5, $2, 999)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -587,9 +581,10 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		txHash := "tx1"
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
+		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, address, sc.AccountID)
 		}
 	})
@@ -608,7 +603,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
-		assert.Len(t, stateChanges, 2)
+		// Only 1 state change has operation_id=123 (the first one with to_id=1)
+		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, address, sc.AccountID)
@@ -630,10 +626,10 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
-		// Should get only state changes that match BOTH filters
-		assert.Len(t, stateChanges, 2)
+		// Should get only state changes that match BOTH filters (to_id=1 from tx1 hash, operation_id=123)
+		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, address, sc.AccountID)
 		}
@@ -723,7 +719,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
@@ -764,7 +760,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
-		assert.Equal(t, "tx1", stateChanges[0].TxHash)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
 	})
 }
 
@@ -805,11 +801,11 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
-			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 789, 'tx3')
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES
+			(1, 1, 'BALANCE', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', $1, 3, $2, 789)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -825,7 +821,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	assert.Len(t, stateChanges, 2)
 }
 
-func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
+func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -850,118 +846,99 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 	`, now)
 	require.NoError(t, err)
 
-	// Create test state changes - multiple state changes per transaction to test ranking
+	// Create test state changes - multiple state changes per to_id to test ranking
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
-			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 789, 'tx1'),
-			(4, 1, 'debit', $1, 4, $2, 101, 'tx1'),
-			(5, 1, 'credit', $1, 5, $2, 102, 'tx2'),
-			(6, 1, 'debit', $1, 6, $2, 103, 'tx3'),
-			(7, 1, 'credit', $1, 7, $2, 104, 'tx2')
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES
+			(1, 1, 'BALANCE', $1, 1, $2, 123),
+			(1, 2, 'BALANCE', $1, 2, $2, 124),
+			(1, 3, 'BALANCE', $1, 3, $2, 125),
+			(2, 1, 'BALANCE', $1, 4, $2, 456),
+			(2, 2, 'BALANCE', $1, 5, $2, 457),
+			(3, 1, 'BALANCE', $1, 6, $2, 789)
 	`, now, address)
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name              string
-		txHashes          []string
-		limit             *int32
-		sortOrder         SortOrder
-		expectedCount     int
-		expectedTxCounts  map[string]int
-		expectMetricCalls int
+		name               string
+		toIDs              []int64
+		limit              *int32
+		sortOrder          SortOrder
+		expectedCount      int
+		expectedToIDCounts map[int64]int
+		expectMetricCalls  int
 	}{
 		{
-			name:              "🟢 basic functionality with multiple tx hashes",
-			txHashes:          []string{"tx1", "tx2"},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     6, // 3 state changes for tx1 + 3 for tx2
-			expectedTxCounts:  map[string]int{"tx1": 3, "tx2": 3},
-			expectMetricCalls: 1,
+			name:               "🟢 basic functionality with multiple to_ids",
+			toIDs:              []int64{1, 2},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      5, // 3 state changes for to_id=1 + 2 for to_id=2
+			expectedToIDCounts: map[int64]int{1: 3, 2: 2},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 with limit parameter",
-			txHashes:          []string{"tx1", "tx2"},
-			limit:             func() *int32 { v := int32(2); return &v }(),
-			sortOrder:         ASC,
-			expectedCount:     4, // 2 state changes per tx hash (limited by ROW_NUMBER)
-			expectedTxCounts:  map[string]int{"tx1": 2, "tx2": 2},
-			expectMetricCalls: 1,
+			name:               "🟢 with limit parameter",
+			toIDs:              []int64{1, 2},
+			limit:              func() *int32 { v := int32(2); return &v }(),
+			sortOrder:          ASC,
+			expectedCount:      4, // 2 state changes per to_id (limited by ROW_NUMBER)
+			expectedToIDCounts: map[int64]int{1: 2, 2: 2},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 DESC sort order",
-			txHashes:          []string{"tx1"},
-			limit:             nil,
-			sortOrder:         DESC,
-			expectedCount:     3,
-			expectedTxCounts:  map[string]int{"tx1": 3},
-			expectMetricCalls: 1,
+			name:               "🟢 DESC sort order",
+			toIDs:              []int64{1},
+			limit:              nil,
+			sortOrder:          DESC,
+			expectedCount:      3,
+			expectedToIDCounts: map[int64]int{1: 3},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟢 single transaction",
-			txHashes:          []string{"tx3"},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     1,
-			expectedTxCounts:  map[string]int{"tx3": 1},
-			expectMetricCalls: 1,
+			name:               "🟢 single to_id",
+			toIDs:              []int64{3},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      1,
+			expectedToIDCounts: map[int64]int{3: 1},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 empty tx hashes array",
-			txHashes:          []string{},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     0,
-			expectedTxCounts:  map[string]int{},
-			expectMetricCalls: 1,
+			name:               "🟡 empty to_ids array",
+			toIDs:              []int64{},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      0,
+			expectedToIDCounts: map[int64]int{},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 non-existent transaction hash",
-			txHashes:          []string{"nonexistent"},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     0,
-			expectedTxCounts:  map[string]int{},
-			expectMetricCalls: 1,
+			name:               "🟡 non-existent to_id",
+			toIDs:              []int64{999},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      0,
+			expectedToIDCounts: map[int64]int{},
+			expectMetricCalls:  1,
 		},
 		{
-			name:              "🟡 mixed existing and non-existent hashes",
-			txHashes:          []string{"tx1", "nonexistent", "tx2"},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     6,
-			expectedTxCounts:  map[string]int{"tx1": 3, "tx2": 3},
-			expectMetricCalls: 1,
-		},
-		{
-			name:              "🟢 limit smaller than state changes per transaction",
-			txHashes:          []string{"tx1"},
-			limit:             func() *int32 { v := int32(1); return &v }(),
-			sortOrder:         ASC,
-			expectedCount:     1, // Only first state change due to ROW_NUMBER ranking
-			expectedTxCounts:  map[string]int{"tx1": 1},
-			expectMetricCalls: 1,
-		},
-		{
-			name:              "🟢 all transactions",
-			txHashes:          []string{"tx1", "tx2", "tx3"},
-			limit:             nil,
-			sortOrder:         ASC,
-			expectedCount:     7, // All state changes
-			expectedTxCounts:  map[string]int{"tx1": 3, "tx2": 3, "tx3": 1},
-			expectMetricCalls: 1,
+			name:               "🟢 all to_ids",
+			toIDs:              []int64{1, 2, 3},
+			limit:              nil,
+			sortOrder:          ASC,
+			expectedCount:      6, // All state changes
+			expectedToIDCounts: map[int64]int{1: 3, 2: 2, 3: 1},
+			expectMetricCalls:  1,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHashes", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("ObserveDBBatchSize", "BatchGetByTxHashes", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("IncDBQuery", "BatchGetByTxHashes", "state_changes").Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "state_changes").Return().Times(tc.expectMetricCalls)
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &StateChangeModel{
@@ -969,53 +946,16 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 				MetricsService: mockMetricsService,
 			}
 
-			stateChanges, err := m.BatchGetByTxHashes(ctx, tc.txHashes, "", tc.limit, tc.sortOrder)
+			stateChanges, err := m.BatchGetByToIDs(ctx, tc.toIDs, "", tc.limit, tc.sortOrder)
 			require.NoError(t, err)
 			assert.Len(t, stateChanges, tc.expectedCount)
 
-			// Verify state changes are for correct tx hashes
-			txHashesFound := make(map[string]int)
+			// Verify state changes are for correct to_ids
+			toIDsFound := make(map[int64]int)
 			for _, sc := range stateChanges {
-				txHashesFound[sc.TxHash]++
+				toIDsFound[sc.ToID]++
 			}
-			assert.Equal(t, tc.expectedTxCounts, txHashesFound)
-
-			// Verify within-transaction ordering
-			// The CTE uses ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s)
-			// This means state changes within each transaction should be ordered by (to_id, state_change_order)
-			if len(stateChanges) > 0 {
-				stateChangesByTxHash := make(map[string][]*types.StateChangeWithCursor)
-				for _, sc := range stateChanges {
-					stateChangesByTxHash[sc.TxHash] = append(stateChangesByTxHash[sc.TxHash], sc)
-				}
-
-				// Verify ordering within each transaction
-				for txHash, txStateChanges := range stateChangesByTxHash {
-					if len(txStateChanges) > 1 {
-						for i := 1; i < len(txStateChanges); i++ {
-							prev := txStateChanges[i-1]
-							curr := txStateChanges[i]
-							// After final transformation, state changes should be in ascending (to_id, state_change_order) order within each tx
-							if prev.Cursor.ToID == curr.Cursor.ToID {
-								assert.True(t, prev.Cursor.StateChangeOrder <= curr.Cursor.StateChangeOrder,
-									"state changes within tx %s with same to_id should be ordered by state_change_order: prev=(%d,%d), curr=(%d,%d)",
-									txHash, prev.Cursor.ToID, prev.Cursor.StateChangeOrder, curr.Cursor.ToID, curr.Cursor.StateChangeOrder)
-							} else {
-								assert.True(t, prev.Cursor.ToID <= curr.Cursor.ToID,
-									"state changes within tx %s should be ordered by to_id: prev=(%d,%d), curr=(%d,%d)",
-									txHash, prev.Cursor.ToID, prev.Cursor.StateChangeOrder, curr.Cursor.ToID, curr.Cursor.StateChangeOrder)
-							}
-						}
-					}
-				}
-			}
-
-			// Verify limit behavior when specified
-			if tc.limit != nil && len(tc.expectedTxCounts) > 0 {
-				for txHash, count := range tc.expectedTxCounts {
-					assert.True(t, count <= int(*tc.limit), "number of state changes for %s should not exceed limit %d", txHash, *tc.limit)
-				}
-			}
+			assert.Equal(t, tc.expectedToIDCounts, toIDsFound)
 
 			// Verify cursor structure for returned state changes
 			for _, sc := range stateChanges {
@@ -1064,11 +1004,11 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
-			(3, 1, 'credit', $1, 3, $2, 123, 'tx3')
+			(1, 1, 'BALANCE', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', $1, 3, $2, 123)
 	`, now, address)
 	require.NoError(t, err)
 
@@ -1087,7 +1027,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, 1, operationIDsFound[456])
 }
 
-func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
+func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -1095,8 +1035,8 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &StateChangeModel{
@@ -1121,68 +1061,68 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	`, now)
 	require.NoError(t, err)
 
-	// Create test state changes for tx1
+	// Create test state changes for to_id=1 (multiple state_change_orders)
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
-			(2, 1, 'debit', $1, 2, $2, 124, 'tx1'),
-			(3, 1, 'credit', $1, 3, $2, 125, 'tx1'),
-			(4, 1, 'debit', $1, 4, $2, 456, 'tx2')
+			(1, 1, 'BALANCE', $1, 1, $2, 123),
+			(1, 2, 'BALANCE', $1, 2, $2, 124),
+			(1, 3, 'BALANCE', $1, 3, $2, 125),
+			(2, 1, 'BALANCE', $1, 4, $2, 456)
 	`, now, address)
 	require.NoError(t, err)
 
-	t.Run("get all state changes for single transaction", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", nil, nil, ASC)
+	t.Run("get all state changes for single to_id", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
-		// Verify all state changes are for tx1
+		// Verify all state changes are for to_id=1
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(1), sc.ToID)
 		}
 
 		// Verify ordering (ASC by to_id, state_change_order)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder)
 	})
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
 		limit := int32(2)
-		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", &limit, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
 	})
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
-		cursor := &types.StateChangeCursor{ToID: 1, StateChangeOrder: 1}
-		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", &limit, cursor, ASC)
+		cursor := &types.StateChangeCursor{ToID: 1, OperationID: 123, StateChangeOrder: 1}
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		// Should get results after cursor (to_id=1, state_change_order=1)
-		assert.Equal(t, int64(2), stateChanges[0].ToID)
-		assert.Equal(t, int64(3), stateChanges[1].ToID)
+		// Should get results after cursor (to_id=1, operation_id=123, state_change_order=1)
+		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[1].StateChangeOrder)
 	})
 
 	t.Run("get state changes with DESC ordering", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", nil, nil, DESC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, DESC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
 		// Verify ordering (results should be in ASC order after DESC query transformation)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder)
 	})
 
-	t.Run("no state changes for non-existent transaction", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByTxHash(ctx, "nonexistent", "", nil, nil, ASC)
+	t.Run("no state changes for non-existent to_id", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
@@ -1233,7 +1173,7 @@ func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
 				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
 				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size))
 				b.StartTimer()
 
 				_, err := m.BatchInsert(ctx, nil, scs)
@@ -1301,7 +1241,7 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, txHash, accountID, int64(i*size))
+				scs := generateTestStateChanges(size, accountID, int64(i*size))
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)
