@@ -40,8 +40,8 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			LedgerNumber:        uint32(i + 1),
 			AccountID:           types.AddressBytea(accountID),
 			OperationID:         int64(i + 1),
-			// sql.NullString fields
-			TokenID: sql.NullString{String: fmt.Sprintf("token_%d", i), Valid: true},
+			// NullAddressBytea token field
+			TokenID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+6)%len(auxAddresses)]), Valid: true},
 			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
 			// NullAddressBytea fields
 			SignerAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
@@ -86,7 +86,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -97,7 +97,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "0276b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -126,7 +126,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp1.Address()), Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
@@ -242,7 +242,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            1,
 		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
@@ -253,7 +253,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		IsFeeBump:       false,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "0276b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            2,
 		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
@@ -282,7 +282,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
 		OperationID:         123,
-		TokenID:             sql.NullString{String: "token1", Valid: true},
+		TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp1.Address()), Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
@@ -487,14 +487,17 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -549,14 +552,18 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions
+	// Create test transactions (hash is BYTEA)
+	testHash1 := "0000000000000000000000000000000000000000000000000000000000000001"
+	testHash2 := "0000000000000000000000000000000000000000000000000000000000000002"
+	testHash3 := "0000000000000000000000000000000000000000000000000000000000000003"
+	testHashNonExistent := "0000000000000000000000000000000000000000000000000000000000000004"
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1)
+	`, now, types.HashBytea(testHash1), types.HashBytea(testHash2), types.HashBytea(testHash3))
 	require.NoError(t, err)
 
 	// Create test state changes with different operation IDs, categories, and reasons
@@ -583,7 +590,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
 		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
@@ -627,7 +634,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		operationID := int64(123)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
@@ -716,7 +723,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		operationID := int64(123)
 		category := "BALANCE"
 		reason := "CREDIT"
@@ -743,7 +750,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "nonexistent"
+		txHash := testHashNonExistent
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
@@ -760,7 +767,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		txHash := "tx1"
+		txHash := testHash1
 		limit := int32(1)
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
 		require.NoError(t, err)
@@ -794,14 +801,17 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -841,14 +851,17 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes - multiple state changes per to_id to test ranking
@@ -997,14 +1010,17 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			('tx3', 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
+			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
 	// Create test state changes
@@ -1057,13 +1073,15 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Create test transactions first
+	// Create test transactions first (hash is BYTEA)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			('tx1', 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			('tx2', 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
-	`, now)
+			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
+			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Create test state changes for to_id=1 (multiple state_change_orders)

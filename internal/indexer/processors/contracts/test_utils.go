@@ -628,7 +628,7 @@ func assertContractEvent(t *testing.T, change types.StateChange, reason types.St
 	require.Equal(t, expectedAccount, change.AccountID.String())
 	if expectedContractID != "" {
 		require.NotNil(t, change.TokenID)
-		require.Equal(t, expectedContractID, change.TokenID.String)
+		require.Equal(t, expectedContractID, change.TokenID.String())
 	}
 	require.Equal(t, reason, *change.StateChangeReason)
 }

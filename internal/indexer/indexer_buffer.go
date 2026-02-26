@@ -114,7 +114,7 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 //
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash
+	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
 	}
@@ -171,7 +171,7 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByToID
+	return maps.Clone(b.participantsByToID)
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
@@ -351,7 +351,7 @@ func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByOpID
+	return maps.Clone(b.participantsByOpID)
 }
 
 // pushOperationUnsafe is the internal implementation for operation storage.

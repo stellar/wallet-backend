@@ -284,7 +284,7 @@ func (m *OperationModel) BatchInsert(
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
 	operationTypes := make([]string, len(operations))
-	operationXDRs := make([]string, len(operations))
+	operationXDRs := make([][]byte, len(operations))
 	resultCodes := make([]string, len(operations))
 	successfulFlags := make([]bool, len(operations))
 	ledgerNumbers := make([]uint32, len(operations))
@@ -293,7 +293,7 @@ func (m *OperationModel) BatchInsert(
 	for i, op := range operations {
 		ids[i] = op.ID
 		operationTypes[i] = string(op.OperationType)
-		operationXDRs[i] = op.OperationXDR
+		operationXDRs[i] = []byte(op.OperationXDR)
 		resultCodes[i] = op.ResultCode
 		successfulFlags[i] = op.Successful
 		ledgerNumbers[i] = op.LedgerNumber
@@ -331,7 +331,7 @@ func (m *OperationModel) BatchInsert(
 			SELECT
 				UNNEST($1::bigint[]) AS id,
 				UNNEST($2::text[]) AS operation_type,
-				UNNEST($3::text[]) AS operation_xdr,
+				UNNEST($3::bytea[]) AS operation_xdr,
 				UNNEST($4::text[]) AS result_code,
 				UNNEST($5::boolean[]) AS successful,
 				UNNEST($6::bigint[]) AS ledger_number,
@@ -422,7 +422,7 @@ func (m *OperationModel) BatchCopy(
 			return []any{
 				pgtype.Int8{Int64: op.ID, Valid: true},
 				pgtype.Text{String: string(op.OperationType), Valid: true},
-				pgtype.Text{String: op.OperationXDR, Valid: true},
+				[]byte(op.OperationXDR),
 				pgtype.Text{String: op.ResultCode, Valid: true},
 				pgtype.Bool{Bool: op.Successful, Valid: true},
 				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},

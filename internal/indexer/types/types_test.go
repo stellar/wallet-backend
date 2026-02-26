@@ -2,6 +2,7 @@ package types
 
 import (
 	"database/sql/driver"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -238,6 +239,143 @@ func TestNullableJSONB_Value(t *testing.T) {
 				assert.NoError(t, err)
 				assert.JSONEq(t, string(tc.want.([]byte)), string(got.([]byte)))
 			}
+		})
+	}
+}
+
+func TestHashBytea_Scan(t *testing.T) {
+	// Valid 32-byte hash
+	validHex := "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"
+	validBytes, err := hex.DecodeString(validHex)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		input           any
+		want            HashBytea
+		wantErrContains string
+	}{
+		{
+			name:  "🟢nil value",
+			input: nil,
+			want:  "",
+		},
+		{
+			name:  "🟢valid 32-byte hash",
+			input: validBytes,
+			want:  HashBytea(validHex),
+		},
+		{
+			name:            "🔴wrong type",
+			input:           12345,
+			wantErrContains: "expected []byte",
+		},
+		{
+			name:            "🔴wrong length",
+			input:           []byte{1, 2, 3},
+			wantErrContains: "expected 32 bytes",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var h HashBytea
+			err := h.Scan(tc.input)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.want, h)
+			}
+		})
+	}
+}
+
+func TestHashBytea_Value(t *testing.T) {
+	// Valid 32-byte hash
+	validHex := "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"
+	expectedBytes, err := hex.DecodeString(validHex)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		input           HashBytea
+		want            driver.Value
+		wantErrContains string
+	}{
+		{
+			name:  "🟢empty string",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "🟢valid hex hash",
+			input: HashBytea(validHex),
+			want:  expectedBytes,
+		},
+		{
+			name:            "🔴invalid hex",
+			input:           "not-a-valid-hex",
+			wantErrContains: "decoding hex hash",
+		},
+		{
+			name:            "🔴wrong length (short)",
+			input:           "abcd",
+			wantErrContains: "invalid hash length",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.input.Value()
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestHashBytea_Roundtrip(t *testing.T) {
+	// Test that Value -> Scan produces the original hash
+	original := HashBytea("e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760")
+
+	// Convert to bytes
+	bytes, err := original.Value()
+	require.NoError(t, err)
+
+	// Convert back to hash
+	var restored HashBytea
+	err = restored.Scan(bytes)
+	require.NoError(t, err)
+
+	assert.Equal(t, original, restored)
+}
+
+func TestHashBytea_String(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input HashBytea
+		want  string
+	}{
+		{
+			name:  "🟢empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "🟢valid hex hash",
+			input: HashBytea("e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"),
+			want:  "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.input.String()
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

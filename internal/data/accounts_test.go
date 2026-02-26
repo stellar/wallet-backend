@@ -266,8 +266,10 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', $1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ('tx2', $2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", toID1, toID2)
+	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($3, $4, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, toID1, testHash2, toID2)
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
@@ -318,12 +320,16 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())")
+	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Insert test operations (IDs don't need to be in TOID range here since we're just testing operations_accounts links)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'PAYMENT', 'xdr1', 'op_success', true, 1, NOW()), ($2, 'PAYMENT', 'xdr2', 'op_success', true, 2, NOW())", operationID1, operationID2)
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'PAYMENT', $3, 'op_success', true, 1, NOW()), ($2, 'PAYMENT', $4, 'op_success', true, 2, NOW())", operationID1, operationID2, xdr1, xdr2)
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links (account_id is BYTEA)
@@ -411,12 +417,16 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 		types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	// Insert test transactions first
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ('tx2', 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())")
+	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
+	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Insert test operations (IDs must be in TOID range for each transaction)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES (4097, 'PAYMENT', 'xdr1', 'op_success', true, 1, NOW()), (8193, 'PAYMENT', 'xdr2', 'op_success', true, 2, NOW())")
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES (4097, 'PAYMENT', $1, 'op_success', true, 1, NOW()), (8193, 'PAYMENT', $2, 'op_success', true, 2, NOW())", xdr1, xdr2)
 	require.NoError(t, err)
 
 	// Insert test state changes that reference the accounts (state_changes.account_id is TEXT)

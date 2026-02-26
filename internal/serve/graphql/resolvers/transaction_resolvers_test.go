@@ -2,6 +2,8 @@ package resolvers
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +18,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
+
+// testOpXDR returns the expected base64-encoded XDR for test operation N
+func testOpXDRTx(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", n)))
+}
 
 func TestTransactionResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
@@ -32,7 +39,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		},
 	}}
 	// ToID=toid.New(1000, 1, 0) matches the test data setup in test_utils.go (testLedger=1000, i=0)
-	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
+	parentTx := &types.Transaction{Hash: types.HashBytea(testTxHash1), ToID: toid.New(1000, 1, 0).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -42,8 +49,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 2)
-		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), operations.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRTx(2), operations.Edges[1].Node.OperationXDR.String())
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
@@ -56,7 +63,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("transaction with no operations", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 999999}
+		nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: 999999}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
@@ -73,7 +80,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -83,7 +90,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentTx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(2), ops.Edges[0].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -95,7 +102,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentTx, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(2), ops.Edges[0].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -105,7 +112,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentTx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, testOpXDRTx(1), ops.Edges[0].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -167,7 +174,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{ToID: toid.New(1000, 1, 0).ToInt64(), Hash: "tx1"}
+	parentTx := &types.Transaction{ToID: toid.New(1000, 1, 0).ToInt64(), Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877"}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -190,7 +197,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 	})
 
 	t.Run("transaction with no associated accounts", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877"}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
@@ -219,8 +226,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "tx1", ToID: toid.New(1000, 1, 0).ToInt64()}
-	nonExistentTx := &types.Transaction{Hash: "non-existent-tx", ToID: 0}
+	parentTx := &types.Transaction{Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: toid.New(1000, 1, 0).ToInt64()}
+	nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: 0}
 
 	t.Run("success without pagination", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)

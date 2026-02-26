@@ -372,7 +372,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		asset := xdr.MustNewCreditAsset("TEST", "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
-		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String())
 	})
 	t.Run("ChangeTrust - trustline updated", func(t *testing.T) {
 		envelopeXDR := "AAAAAHHbEhVipyZ2k4byyCZkS1Bdvpj7faBChuYo8S/Rt89UAAAAZAAQuJIAAAAHAAAAAQAAAAAAAAAAAAAAAF4XVskAAAAAAAAAAQAAAAAAAAAGAAAAAlRFU1RBU1NFVAAAAAAAAAA7JUkkD+tgCi2xTVyEcs4WZXOA0l7w2orZg/bghXOgkAAAAAA7msoAAAAAAAAAAAHRt89UAAAAQOCi2ylqRvvRzZaCFjGkLYFk7DCjJA5uZ1nXo8FaPCRl2LZczoMbc46sZIlHh0ENzk7fKjFnRPMo8XAirrrf2go="
@@ -409,7 +409,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		asset := xdr.MustNewCreditAsset("TESTASSET", "GA5SKSJEB7VWACRNWFGVZBDSZYLGK44A2JPPBWUK3GB7NYEFOOQJAC2B")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
-		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String())
 		assert.Equal(t, "1000000000", changes[0].TrustlineLimitOld.String)
 		assert.Equal(t, "100.0000000", changes[0].TrustlineLimitNew.String)
 	})
@@ -448,6 +448,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		asset := xdr.MustNewCreditAsset("OCIToken", "GBE4L76HUCHCQ2B7IIWBXRAJDBDPIY6MGWX7VZHUZD2N5RO7XI4J6GTJ")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
-		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String())
 	})
 }

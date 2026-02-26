@@ -3,7 +3,7 @@
 -- Table: transactions
 CREATE TABLE transactions (
     to_id BIGINT PRIMARY KEY,
-    hash TEXT NOT NULL UNIQUE,
+    hash BYTEA NOT NULL UNIQUE,
     envelope_xdr TEXT,
     fee_charged BIGINT NOT NULL,
     result_code TEXT NOT NULL,

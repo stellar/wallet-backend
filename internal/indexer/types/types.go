@@ -34,6 +34,8 @@ package types
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -121,6 +123,83 @@ func (n NullAddressBytea) Value() (driver.Value, error) {
 // String returns the Stellar address as a string (convenience accessor).
 func (n NullAddressBytea) String() string {
 	return string(n.AddressBytea)
+}
+
+// HashBytea represents a transaction hash stored as BYTEA in the database.
+// Storage format: 32 bytes (raw SHA-256 hash)
+// Go representation: hex string (64 characters)
+type HashBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (32 bytes) to hex string
+func (h *HashBytea) Scan(value any) error {
+	if value == nil {
+		*h = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 32 {
+		return fmt.Errorf("expected 32 bytes, got %d", len(bytes))
+	}
+	*h = HashBytea(hex.EncodeToString(bytes))
+	return nil
+}
+
+// Value implements driver.Valuer - converts hex string to 32-byte []byte
+func (h HashBytea) Value() (driver.Value, error) {
+	if h == "" {
+		return nil, nil
+	}
+	bytes, err := hex.DecodeString(string(h))
+	if err != nil {
+		return nil, fmt.Errorf("decoding hex hash %s: %w", h, err)
+	}
+	if len(bytes) != 32 {
+		return nil, fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(bytes))
+	}
+	return bytes, nil
+}
+
+// String returns the hash as a hex string.
+func (h HashBytea) String() string {
+	return string(h)
+}
+
+// XDRBytea represents XDR data stored as BYTEA in the database.
+// Storage format: raw XDR bytes (variable length)
+// Go representation: raw bytes internally, base64 string via String()
+type XDRBytea []byte
+
+// Scan implements sql.Scanner - reads raw bytes from BYTEA column
+func (x *XDRBytea) Scan(value any) error {
+	if value == nil {
+		*x = nil
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	*x = make([]byte, len(bytes))
+	copy(*x, bytes)
+	return nil
+}
+
+// Value implements driver.Valuer - returns raw bytes for BYTEA storage
+func (x XDRBytea) Value() (driver.Value, error) {
+	if len(x) == 0 {
+		return nil, nil
+	}
+	buf := make([]byte, len(x))
+	copy(buf, x)
+	return buf, nil
+}
+
+// String returns the XDR as a base64 string.
+func (x XDRBytea) String() string {
+	return base64.StdEncoding.EncodeToString(x)
 }
 
 type ContractType string
@@ -215,7 +294,7 @@ type AccountWithOperationID struct {
 }
 
 type Transaction struct {
-	Hash            string    `json:"hash,omitempty" db:"hash"`
+	Hash            HashBytea `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	FeeCharged      int64     `json:"feeCharged,omitempty" db:"fee_charged"`
@@ -329,7 +408,7 @@ type Operation struct {
 	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
-	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	OperationXDR    XDRBytea      `json:"operationXdr,omitempty" db:"operation_xdr"`
 	ResultCode      string        `json:"resultCode,omitempty" db:"result_code"`
 	Successful      bool          `json:"successful,omitempty" db:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
@@ -485,9 +564,9 @@ type StateChange struct {
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 
-	// Nullable string fields:
-	TokenID sql.NullString `json:"tokenId,omitempty" db:"token_id"`
-	Amount  sql.NullString `json:"amount,omitempty" db:"amount"`
+	// Nullable address fields (stored as BYTEA in database):
+	TokenID NullAddressBytea `json:"tokenId,omitempty" db:"token_id"`
+	Amount  sql.NullString   `json:"amount,omitempty" db:"amount"`
 
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`

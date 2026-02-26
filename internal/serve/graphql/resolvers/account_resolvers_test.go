@@ -1,6 +1,8 @@
 package resolvers
 
 import (
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +16,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
+
+// testOpXDRAcc returns the expected base64-encoded XDR for test operation N
+func testOpXDRAcc(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opxdr%d", n)))
+}
 
 func TestAccountResolver_Transactions(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
@@ -39,10 +46,10 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
-		assert.Equal(t, "tx1", transactions.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", transactions.Edges[1].Node.Hash)
-		assert.Equal(t, "tx3", transactions.Edges[2].Node.Hash)
-		assert.Equal(t, "tx4", transactions.Edges[3].Node.Hash)
+		assert.Equal(t, testTxHash1, transactions.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, transactions.Edges[1].Node.Hash.String())
+		assert.Equal(t, testTxHash3, transactions.Edges[2].Node.Hash.String())
+		assert.Equal(t, testTxHash4, transactions.Edges[3].Node.Hash.String())
 		mockMetricsService.AssertExpectations(t)
 	})
 
@@ -52,8 +59,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash2, txs.Edges[1].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 
@@ -63,8 +70,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 		mockMetricsService.AssertExpectations(t)
@@ -76,8 +83,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -88,7 +95,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
 
@@ -98,7 +105,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
 		mockMetricsService.AssertExpectations(t)
@@ -166,10 +173,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
-		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", operations.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", operations.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), operations.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), operations.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(3), operations.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), operations.Edges[3].Node.OperationXDR.String())
 	})
 
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
@@ -178,8 +185,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -189,8 +196,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr3", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(3), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -200,10 +207,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
-		assert.Equal(t, "opxdr5", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr6", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr7", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(6), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(7), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(8), ops.Edges[3].Node.OperationXDR.String())
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -214,8 +221,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr7", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr8", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(7), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(8), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 		assert.False(t, ops.PageInfo.HasNextPage)
 
@@ -225,8 +232,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "opxdr5", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr6", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(5), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(6), ops.Edges[1].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -236,10 +243,10 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 4)
-		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
-		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
-		assert.Equal(t, "opxdr3", ops.Edges[2].Node.OperationXDR)
-		assert.Equal(t, "opxdr4", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, testOpXDRAcc(1), ops.Edges[0].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(2), ops.Edges[1].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(3), ops.Edges[2].Node.OperationXDR.String())
+		assert.Equal(t, testOpXDRAcc(4), ops.Edges[3].Node.OperationXDR.String())
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -518,7 +525,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
@@ -591,7 +598,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx2"
+		txHash := testTxHash2
 		opID := toid.New(1000, 2, 1).ToInt64()
 		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		filter := &graphql1.AccountStateChangeFilterInput{
@@ -618,7 +625,8 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter with no matching results", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "non-existent-tx"
+		// Use a valid 64-char hex hash that doesn't exist in the test DB
+		txHash := "0000000000000000000000000000000000000000000000000000000000000000"
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
@@ -632,7 +640,7 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 
 	t.Run("filter with pagination", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 		}
@@ -766,7 +774,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		txHash := "tx1"
+		txHash := testTxHash1
 		opID := toid.New(1000, 1, 1).ToInt64()
 		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
 		category := "BALANCE"
