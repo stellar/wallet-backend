@@ -8,6 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,6 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
@@ -540,5 +544,369 @@ func TestTokenProcessor_ProcessContractCode(t *testing.T) {
 		assert.Equal(t, types.ContractTypeSEP41, tp.data.contractTypesByWasmHash[hash1])
 		assert.Equal(t, types.ContractTypeSEP41, tp.data.contractTypesByWasmHash[hash2])
 		assert.Equal(t, 2, tp.entries)
+	})
+}
+
+// newTestTokenProcessor creates a tokenProcessor with minimal dependencies for unit testing.
+// No DB models are needed since we only inspect accumulated slices, never flush.
+func newTestTokenProcessor() *tokenProcessor {
+	svc := &tokenIngestionService{networkPassphrase: network.TestNetworkPassphrase}
+	return &tokenProcessor{
+		service:          svc,
+		checkpointLedger: 100,
+		data: checkpointData{
+			contractTokensByHolderAddress: make(map[string][]uuid.UUID),
+			contractIDsByWasmHash:         make(map[xdr.Hash][]string),
+			contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
+			uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
+			uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
+		},
+		batch: &batch{
+			nativeBalances:    make([]wbdata.NativeBalance, 0),
+			trustlineBalances: make([]wbdata.TrustlineBalance, 0),
+			sacBalances:       make([]wbdata.SACBalance, 0),
+		},
+	}
+}
+
+// makeAccountChangeWithBalance builds an ingest.Change for an Account entry with the given balance and liabilities.
+func makeAccountChangeWithBalance(address string, balance xdr.Int64, numSubEntries xdr.Uint32, buyingLiab, sellingLiab xdr.Int64) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeAccount,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeAccount,
+				Account: &xdr.AccountEntry{
+					AccountId:     accountID,
+					Balance:       balance,
+					NumSubEntries: numSubEntries,
+					Ext: xdr.AccountEntryExt{
+						V: 1,
+						V1: &xdr.AccountEntryExtensionV1{
+							Liabilities: xdr.Liabilities{
+								Buying:  buyingLiab,
+								Selling: sellingLiab,
+							},
+							Ext: xdr.AccountEntryExtensionV1Ext{V: 0},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// makeTrustlineChange builds an ingest.Change for a CreditAlphanum4 trustline.
+func makeTrustlineChange(address, assetCode, assetIssuer string, balance, limit xdr.Int64) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	asset, err := xdr.NewCreditAsset(assetCode, assetIssuer)
+	if err != nil {
+		panic(err)
+	}
+	trustlineAsset := asset.ToTrustLineAsset()
+
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: accountID,
+					Asset:     trustlineAsset,
+					Balance:   balance,
+					Limit:     limit,
+					Flags:     xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag),
+					Ext: xdr.TrustLineEntryExt{
+						V: 1,
+						V1: &xdr.TrustLineEntryV1{
+							Liabilities: xdr.Liabilities{Buying: 100, Selling: 200},
+							Ext:         xdr.TrustLineEntryV1Ext{V: 0},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// makePoolShareTrustlineChange builds an ingest.Change for a pool share trustline (should be skipped).
+func makePoolShareTrustlineChange(address string) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	poolID := xdr.PoolId{1, 2, 3}
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: accountID,
+					Asset: xdr.TrustLineAsset{
+						Type:            xdr.AssetTypeAssetTypePoolShare,
+						LiquidityPoolId: &poolID,
+					},
+					Balance: 1000,
+					Limit:   2000,
+					Ext:     xdr.TrustLineEntryExt{V: 0},
+				},
+			},
+		},
+	}
+}
+
+// makeContractInstanceChange builds an ingest.Change for a ContractData entry with
+// ScvLedgerKeyContractInstance key and a WASM executable (non-SAC).
+func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&contractHash),
+					},
+					Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val: xdr.ScVal{
+						Type: xdr.ScValTypeScvContractInstance,
+						Instance: &xdr.ScContractInstance{
+							Executable: xdr.ContractExecutable{
+								Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+								WasmHash: &wasmHash,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// makeContractBalanceChange builds an ingest.Change for a ContractData entry with
+// a Balance key (non-SAC). The holder is an account G-address.
+func makeContractBalanceChange(contractHash [32]byte, holderAddress string) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&contractHash),
+					},
+					Key: xdr.ScVal{
+						Type: xdr.ScValTypeScvVec,
+						Vec: ptrToScVec([]xdr.ScVal{
+							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
+							{
+								Type: xdr.ScValTypeScvAddress,
+								Address: &xdr.ScAddress{
+									Type:      xdr.ScAddressTypeScAddressTypeAccount,
+									AccountId: ptrToAccountID(holderAddress),
+								},
+							},
+						}),
+					},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        makeBalanceMapVal(1000, true, false),
+				},
+			},
+		},
+	}
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func ptrToScMap(m xdr.ScMap) **xdr.ScMap {
+	ptr := &m
+	return &ptr
+}
+
+// makeBalanceMapVal creates a ScVal map with amount, authorized, and clawback fields.
+func makeBalanceMapVal(amountLo xdr.Uint64, authorized, clawback bool) xdr.ScVal {
+	m := xdr.ScMap{
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("amount")},
+			Val: xdr.ScVal{
+				Type: xdr.ScValTypeScvI128,
+				I128: &xdr.Int128Parts{
+					Hi: 0,
+					Lo: amountLo,
+				},
+			},
+		},
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("authorized")},
+			Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(authorized)},
+		},
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("clawback")},
+			Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(clawback)},
+		},
+	}
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  ptrToScMap(m),
+	}
+}
+
+func TestTokenProcessor_ProcessEntry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("account_entry", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		balance := xdr.Int64(100_000_000) // 10 XLM
+		numSubEntries := xdr.Uint32(3)
+		buyingLiab := xdr.Int64(5_000_000)
+		sellingLiab := xdr.Int64(2_000_000)
+
+		change := makeAccountChangeWithBalance(address, balance, numSubEntries, buyingLiab, sellingLiab)
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		// minimumBalance = (MinimumBaseReserveCount + numSubEntries + numSponsoring - numSponsored) * BaseReserveStroops + sellingLiab
+		// With v1 ext (no v2): numSponsoring=0, numSponsored=0
+		// = (2 + 3 + 0 - 0) * 5_000_000 + 2_000_000 = 27_000_000
+		expectedMinBalance := int64(processors.MinimumBaseReserveCount+3)*processors.BaseReserveStroops + int64(sellingLiab)
+
+		require.Len(t, tp.batch.nativeBalances, 1)
+		nb := tp.batch.nativeBalances[0]
+		assert.Equal(t, address, nb.AccountAddress)
+		assert.Equal(t, int64(balance), nb.Balance)
+		assert.Equal(t, expectedMinBalance, nb.MinimumBalance)
+		assert.Equal(t, int64(buyingLiab), nb.BuyingLiabilities)
+		assert.Equal(t, int64(sellingLiab), nb.SellingLiabilities)
+		assert.Equal(t, uint32(100), nb.LedgerNumber)
+		assert.Equal(t, 1, tp.entries)
+		assert.Equal(t, 1, tp.accountCount)
+		assert.Empty(t, tp.batch.trustlineBalances)
+		assert.Empty(t, tp.batch.sacBalances)
+	})
+
+	t.Run("trustline_entry", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		assetCode := "USDC"
+
+		change := makeTrustlineChange(address, assetCode, issuer, 5_000_000, 100_000_000)
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		require.Len(t, tp.batch.trustlineBalances, 1)
+		tb := tp.batch.trustlineBalances[0]
+		assert.Equal(t, address, tb.AccountAddress)
+		assert.Equal(t, wbdata.DeterministicAssetID(assetCode, issuer), tb.AssetID)
+		assert.Equal(t, int64(5_000_000), tb.Balance)
+		assert.Equal(t, int64(100_000_000), tb.Limit)
+		assert.Equal(t, int64(100), tb.BuyingLiabilities)
+		assert.Equal(t, int64(200), tb.SellingLiabilities)
+		assert.Equal(t, uint32(xdr.TrustLineFlagsAuthorizedFlag), tb.Flags)
+		assert.Equal(t, uint32(100), tb.LedgerNumber)
+
+		// Assert asset is recorded in uniqueAssets
+		assetID := wbdata.DeterministicAssetID(assetCode, issuer)
+		require.Contains(t, tp.data.uniqueAssets, assetID)
+		assert.Equal(t, assetCode, tp.data.uniqueAssets[assetID].Code)
+		assert.Equal(t, issuer, tp.data.uniqueAssets[assetID].Issuer)
+
+		assert.Equal(t, 1, tp.entries)
+		assert.Equal(t, 1, tp.trustlineCount)
+		assert.Empty(t, tp.batch.nativeBalances)
+	})
+
+	t.Run("trustline_pool_share_skipped", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		change := makePoolShareTrustlineChange(address)
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		assert.Empty(t, tp.batch.trustlineBalances)
+		assert.Empty(t, tp.batch.nativeBalances)
+		assert.Empty(t, tp.batch.sacBalances)
+		assert.Equal(t, 0, tp.entries)
+		assert.Equal(t, 0, tp.trustlineCount)
+	})
+
+	t.Run("contract_instance_non_sac", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+		contractHash := [32]byte{0xAA, 0xBB, 0xCC}
+		wasmHash := xdr.Hash{0x11, 0x22, 0x33}
+
+		change := makeContractInstanceChange(contractHash, wasmHash)
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
+		contractUUID := wbdata.DeterministicContractID(contractAddr)
+
+		// Should store the contract as Unknown type
+		require.Contains(t, tp.data.uniqueContractTokens, contractUUID)
+		contract := tp.data.uniqueContractTokens[contractUUID]
+		assert.Equal(t, contractAddr, contract.ContractID)
+		assert.Equal(t, string(types.ContractTypeUnknown), contract.Type)
+
+		// Should track the contract ID by WASM hash
+		require.Contains(t, tp.data.contractIDsByWasmHash, wasmHash)
+		assert.Equal(t, []string{contractAddr}, tp.data.contractIDsByWasmHash[wasmHash])
+
+		// entries incremented twice: once for instance, once for wasm hash tracking
+		assert.Equal(t, 2, tp.entries)
+	})
+
+	t.Run("contract_balance_non_sac", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+		contractHash := [32]byte{0xDD, 0xEE, 0xFF}
+		holderAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+
+		change := makeContractBalanceChange(contractHash, holderAddress)
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
+		contractUUID := wbdata.DeterministicContractID(contractAddr)
+
+		// Should track holder -> contract UUID mapping
+		require.Contains(t, tp.data.contractTokensByHolderAddress, holderAddress)
+		assert.Equal(t, []uuid.UUID{contractUUID}, tp.data.contractTokensByHolderAddress[holderAddress])
+
+		assert.Equal(t, 1, tp.entries)
+		// No SAC balance should be added since ContractBalanceFromContractData returns false
+		// for arbitrary contracts (only returns true for actual SAC contract IDs)
+		assert.Empty(t, tp.batch.sacBalances)
+	})
+
+	t.Run("unhandled_entry_type_ignored", func(t *testing.T) {
+		tp := newTestTokenProcessor()
+
+		change := ingest.Change{
+			Type: xdr.LedgerEntryTypeOffer,
+			Post: &xdr.LedgerEntry{
+				Data: xdr.LedgerEntryData{
+					Type: xdr.LedgerEntryTypeOffer,
+					Offer: &xdr.OfferEntry{
+						SellerId: xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
+						OfferId:  1,
+					},
+				},
+			},
+		}
+		err := tp.ProcessEntry(ctx, change)
+		require.NoError(t, err)
+
+		assert.Empty(t, tp.batch.nativeBalances)
+		assert.Empty(t, tp.batch.trustlineBalances)
+		assert.Empty(t, tp.batch.sacBalances)
+		assert.Equal(t, 0, tp.entries)
+		assert.Equal(t, 0, tp.accountCount)
+		assert.Equal(t, 0, tp.trustlineCount)
 	})
 }
