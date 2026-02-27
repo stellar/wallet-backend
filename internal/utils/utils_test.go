@@ -103,3 +103,25 @@ func TestIsEmpty(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidTransactionHash(t *testing.T) {
+	tests := []struct {
+		name  string
+		hash  string
+		valid bool
+	}{
+		{"valid lowercase hex", "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4870", true},
+		{"valid uppercase hex", "3476B7B0133690FBFB2DE8FA9CA2273CB4F2E29447E0CF0E14A5F82D0DAA4870", true},
+		{"all zeros", "0000000000000000000000000000000000000000000000000000000000000000", true},
+		{"empty", "", false},
+		{"too short", "abcdef", false},
+		{"too long", "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa487000", false},
+		{"non-hex characters", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", false},
+		{"mixed valid length but non-hex", "non-existent-hashXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.valid, IsValidTransactionHash(tc.hash))
+		})
+	}
+}
