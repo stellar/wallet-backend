@@ -5,6 +5,7 @@ package ingest
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -368,5 +369,69 @@ func TestConfigureHypertableSettings(t *testing.T) {
 			require.NoError(t, err, "querying compression schedule for %s", table)
 			assert.Equal(t, defaultIntervals[table], intervalSecs, "compression schedule interval should remain unchanged for %s", table)
 		}
+	})
+
+	t.Run("reconciliation_job_scheduled_after_retention", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "")
+		require.NoError(t, err)
+
+		// Note: job_stats.next_start is NULL immediately after add_retention_policy —
+		// the TimescaleDB background scheduler hasn't processed the job yet. The
+		// production code uses COALESCE(next_start, NOW()), so in tests the
+		// reconciliation initial_start will be approximately NOW() + 1 hour.
+		beforeSetup := time.Now()
+
+		// Get retention job's schedule_interval for transactions table.
+		var retentionScheduleSecs float64
+		err = dbConnectionPool.GetContext(ctx, &retentionScheduleSecs,
+			`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'policy_retention'
+			   AND j.hypertable_name = 'transactions'`)
+		require.NoError(t, err)
+
+		// Get reconciliation job's schedule_interval, initial_start, fixed_schedule.
+		var reconScheduleSecs float64
+		err = dbConnectionPool.GetContext(ctx, &reconScheduleSecs,
+			`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+		require.NoError(t, err)
+
+		var reconInitialStart time.Time
+		err = dbConnectionPool.GetContext(ctx, &reconInitialStart,
+			`SELECT j.initial_start
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+		require.NoError(t, err)
+
+		var reconFixedSchedule bool
+		err = dbConnectionPool.GetContext(ctx, &reconFixedSchedule,
+			`SELECT j.fixed_schedule
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+		require.NoError(t, err)
+
+		afterSetup := time.Now()
+
+		assert.Equal(t, retentionScheduleSecs, reconScheduleSecs,
+			"reconciliation schedule_interval should match retention schedule_interval")
+		// initial_start should be ~1 hour from now (COALESCE used NOW() since next_start was NULL).
+		// Allow a 5-second window around [beforeSetup+1h, afterSetup+1h] for test execution time.
+		assert.True(t,
+			!reconInitialStart.Before(beforeSetup.Add(time.Hour).Add(-5*time.Second)) &&
+				!reconInitialStart.After(afterSetup.Add(time.Hour).Add(5*time.Second)),
+			"reconciliation initial_start %v should be ~1 hour after setup (window: %v – %v)",
+			reconInitialStart, beforeSetup.Add(time.Hour), afterSetup.Add(time.Hour))
+		assert.True(t, reconFixedSchedule,
+			"reconciliation job should use fixed_schedule")
 	})
 }
