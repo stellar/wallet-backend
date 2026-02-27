@@ -94,7 +94,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		}
 
 		// Create the token checkpoint processor
-		tokenProcessor := s.tokenIngestionService.NewTokenProcessor(dbTx, checkpointLedger)
+		tokenProcessor := s.tokenIngestionService.NewTokenProcessor(dbTx, checkpointLedger, s.contractValidator)
 
 		// Single-pass iteration over all checkpoint entries
 		for {

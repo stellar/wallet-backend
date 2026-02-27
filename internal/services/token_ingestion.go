@@ -137,7 +137,7 @@ type TokenIngestionService interface {
 	// NewTokenProcessor creates a TokenProcessor for processing checkpoint data.
 	// The processor handles Account, Trustline, ContractCode, and ContractData entries,
 	// streaming balances in batches and collecting contract metadata in memory.
-	NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32) TokenProcessor
+	NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor
 
 	// ProcessTokenChanges applies trustline, contract, and SAC balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
@@ -169,7 +169,6 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	contractValidator          ContractValidator
 	contractMetadataService    ContractMetadataService
 	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
@@ -182,7 +181,6 @@ type tokenIngestionService struct {
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
 func NewTokenIngestionService(
-	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
 	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
@@ -193,7 +191,6 @@ func NewTokenIngestionService(
 	networkPassphrase string,
 ) TokenIngestionService {
 	return &tokenIngestionService{
-		contractValidator:          contractValidator,
 		contractMetadataService:    contractMetadataService,
 		trustlineAssetModel:        trustlineAssetModel,
 		trustlineBalanceModel:      trustlineBalanceModel,
@@ -227,24 +224,26 @@ func NewTokenIngestionServiceForLoadtest(
 
 // tokenProcessor processes checkpoint ledger entries for token data.
 type tokenProcessor struct {
-	service          *tokenIngestionService
-	dbTx             pgx.Tx
-	checkpointLedger uint32
-	data             checkpointData
-	batch            *batch
-	entries          int
-	trustlineCount   int
-	accountCount     int
-	batchCount       int
-	startTime        time.Time
+	service           *tokenIngestionService
+	contractValidator ContractValidator
+	dbTx              pgx.Tx
+	checkpointLedger  uint32
+	data              checkpointData
+	batch             *batch
+	entries           int
+	trustlineCount    int
+	accountCount      int
+	batchCount        int
+	startTime         time.Time
 }
 
 // NewTokenProcessor creates a TokenProcessor for processing checkpoint data.
-func (s *tokenIngestionService) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32) TokenProcessor {
+func (s *tokenIngestionService) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor {
 	return &tokenProcessor{
-		service:          s,
-		dbTx:             dbTx,
-		checkpointLedger: checkpointLedger,
+		service:           s,
+		contractValidator: contractValidator,
+		dbTx:              dbTx,
+		checkpointLedger:  checkpointLedger,
 		data: checkpointData{
 			contractTokensByHolderAddress: make(map[string][]uuid.UUID),
 			contractIDsByWasmHash:         make(map[xdr.Hash][]string),
@@ -349,7 +348,7 @@ func (p *tokenProcessor) ProcessEntry(ctx context.Context, change ingest.Change)
 
 // ProcessContractCode validates WASM against SEP-41 and stores the type by hash.
 func (p *tokenProcessor) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	contractType, err := p.service.contractValidator.ValidateFromContractCode(ctx, wasmCode)
+	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
 	if err != nil {
 		return nil // Skip invalid entries
 	}

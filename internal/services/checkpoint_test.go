@@ -130,7 +130,7 @@ func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) 
 	readerMock.On("Close").Return(nil).Once()
 
 	// Token processor creation and finalization
-	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tokenProcessorMock).Once()
+	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100), contractValidatorMock).Return(tokenProcessorMock).Once()
 	tokenProcessorMock.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	tokenProcessorMock.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 
@@ -161,7 +161,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	readerMock.On("Close").Return(nil).Once()
 
-	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tokenProcessorMock).Once()
+	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100), contractValidatorMock).Return(tokenProcessorMock).Once()
 
 	// Both services should receive the ContractCode
 	wasmIngestionServiceMock.On("ProcessContractCode", mock.Anything, hash, code).Return(nil).Once()
@@ -191,7 +191,7 @@ func TestCheckpointService_PopulateFromCheckpoint_NonContractCodeEntry(t *testin
 	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	readerMock.On("Close").Return(nil).Once()
 
-	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tokenProcessorMock).Once()
+	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100), contractValidatorMock).Return(tokenProcessorMock).Once()
 
 	// Only token processor ProcessEntry should be called
 	tokenProcessorMock.On("ProcessEntry", mock.Anything, accountChange).Return(nil).Once()
@@ -228,7 +228,7 @@ func TestCheckpointService_PopulateFromCheckpoint_MixedEntries(t *testing.T) {
 	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	readerMock.On("Close").Return(nil).Once()
 
-	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tokenProcessorMock).Once()
+	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100), contractValidatorMock).Return(tokenProcessorMock).Once()
 
 	// 2 WASM calls
 	wasmIngestionServiceMock.On("ProcessContractCode", mock.Anything, hash1, code1).Return(nil).Once()
@@ -266,7 +266,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				change := makeContractCodeChange(xdr.Hash{1}, []byte{0x01})
 				reader.On("Read").Return(change, nil).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				wis.On("ProcessContractCode", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("wasm error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
@@ -279,7 +279,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				change := makeContractCodeChange(xdr.Hash{1}, []byte{0x01})
 				reader.On("Read").Return(change, nil).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				wis.On("ProcessContractCode", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 				tp.On("ProcessContractCode", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("token contract code error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
@@ -293,7 +293,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				change := makeAccountChange()
 				reader.On("Read").Return(change, nil).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("ProcessEntry", mock.Anything, mock.Anything).Return(errors.New("process entry error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
@@ -306,7 +306,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				change := makeAccountChange()
 				reader.On("Read").Return(change, nil).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("ProcessEntry", mock.Anything, mock.Anything).Return(nil).Once()
 				tp.On("FlushBatchIfNeeded", mock.Anything).Return(errors.New("flush error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
@@ -319,7 +319,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(errors.New("flush remaining error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
@@ -331,7 +331,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(errors.New("finalize error")).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
@@ -344,7 +344,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(errors.New("persist error")).Once()
@@ -358,7 +358,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
@@ -372,7 +372,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, errors.New("network timeout")).Once()
 				reader.On("Close").Return(nil).Once()
-				tis.On("NewTokenProcessor", mock.Anything, uint32(100)).Return(tp).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
 			},
@@ -393,21 +393,21 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_ContextCancellation(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, _, _, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, _, contractValidatorMock, _ := setupCheckpointTest(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	readerMock.On("Close").Return(nil).Once()
 
 	// Cancel context when NewTokenProcessor is called (after transaction starts, before loop)
-	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100)).
+	tokenIngestionServiceMock.On("NewTokenProcessor", mock.Anything, uint32(100), contractValidatorMock).
 		Run(func(_ mock.Arguments) {
 			cancel()
 		}).
 		Return(tokenProcessorMock).Once()
 
 	// The contractValidator.Close is deferred and will be called with the cancelled context
-	svc.contractValidator.(*ContractValidatorMock).On("Close", mock.Anything).Return(nil).Once()
+	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
 
 	err := svc.PopulateFromCheckpoint(ctx, 100, func(_ pgx.Tx) error { return nil })
 	require.Error(t, err)
