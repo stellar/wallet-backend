@@ -28,7 +28,11 @@ type readerFactory func(ctx context.Context, archive historyarchive.ArchiveInter
 
 // defaultReaderFactory wraps ingest.NewCheckpointChangeReader to satisfy readerFactory.
 func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInterface, checkpointLedger uint32) (ingest.ChangeReader, error) {
-	return ingest.NewCheckpointChangeReader(ctx, archive, checkpointLedger)
+	reader, err := ingest.NewCheckpointChangeReader(ctx, archive, checkpointLedger)
+	if err != nil {
+		return nil, fmt.Errorf("creating checkpoint change reader: %w", err)
+	}
+	return reader, nil
 }
 
 type checkpointService struct {
