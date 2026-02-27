@@ -1781,6 +1781,13 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			// Set up initial cursors
 			setupDBCursors(t, ctx, dbConnectionPool, tc.initialLatest, tc.initialOldest)
 
+			// Insert anchor transaction so GetOldestLedger() returns initialOldest
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+				VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $1, NOW())`,
+				tc.initialOldest)
+			require.NoError(t, err)
+
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
 			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
