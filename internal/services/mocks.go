@@ -131,8 +131,8 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32) TokenProcessor {
-	args := m.Called(dbTx, checkpointLedger)
+func (m *TokenIngestionServiceMock) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor {
+	args := m.Called(dbTx, checkpointLedger, contractValidator)
 	return args.Get(0).(TokenProcessor)
 }
 
