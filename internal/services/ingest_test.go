@@ -217,10 +217,10 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 50,
 			endLedger:   80,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				// Actual oldest ledger in transactions is 100
+				_, err := dbConnectionPool.ExecContext(ctx,
+					`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+					VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 100, NOW())`)
 				require.NoError(t, err)
 			},
 			expectedGaps: []data.LedgerRange{
@@ -232,12 +232,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 50,
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions for 100-200 (no gaps)
+				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -255,12 +250,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 110,
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions for 100-200 (no gaps)
+				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -276,12 +266,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 110,
 			endLedger:   180,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
+				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149); oldest is 100
 				for ledger := uint32(100); ledger <= 120; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -299,6 +284,32 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			},
 			expectedGaps: []data.LedgerRange{
 				{GapStart: 121, GapEnd: 149},
+			},
+		},
+		{
+			// After TimescaleDB retention drops old chunks, the stored oldest_ledger_cursor
+			// may point to a ledger that no longer exists in the transactions table.
+			// calculateBackfillGaps should ignore the cursor and use the actual oldest
+			// ledger from the transactions table.
+			name:        "stale_cursor_is_ignored_uses_actual_oldest_from_transactions",
+			startLedger: 50,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Cursor claims oldest is 50 (stale — retention dropped ledgers 50-99)
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 50)`)
+				require.NoError(t, err)
+				// Actual transactions only exist from 100 onwards
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			// Oldest in transactions is 100, so gap [50,99] should be backfilled
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 99},
 			},
 		},
 	}
