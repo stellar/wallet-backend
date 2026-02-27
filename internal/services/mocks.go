@@ -201,7 +201,6 @@ func NewTokenProcessorMock(t interface {
 	return mock
 }
 
-
 // WasmIngestionServiceMock is a mock implementation of the WasmIngestionService interface
 type WasmIngestionServiceMock struct {
 	mock.Mock

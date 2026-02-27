@@ -25,7 +25,7 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
-		_, tracked := svc.wasmHashes[hash]
+		_, tracked := svc.wasmHashToProtocolID[hash]
 		assert.True(t, tracked, "hash should be tracked")
 	})
 
@@ -40,8 +40,10 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
-		_, tracked := svc.wasmHashes[hash]
+		protocolID, tracked := svc.wasmHashToProtocolID[hash]
 		assert.True(t, tracked)
+		require.NotNil(t, protocolID)
+		assert.Equal(t, "test-protocol", *protocolID)
 	})
 
 	t.Run("validator_no_match", func(t *testing.T) {
@@ -54,8 +56,9 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
-		_, tracked := svc.wasmHashes[hash]
+		protocolID, tracked := svc.wasmHashToProtocolID[hash]
 		assert.True(t, tracked, "hash should still be tracked even without match")
+		assert.Nil(t, protocolID, "protocol ID should be nil when no validator matched")
 	})
 
 	t.Run("validator_error_continues", func(t *testing.T) {
@@ -69,7 +72,7 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err, "validator error should not propagate")
 
-		_, tracked := svc.wasmHashes[hash]
+		_, tracked := svc.wasmHashToProtocolID[hash]
 		assert.True(t, tracked, "hash should still be tracked despite validator error")
 	})
 
@@ -100,7 +103,7 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		err = svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
-		assert.Len(t, svc.wasmHashes, 1, "duplicate hash should be deduplicated")
+		assert.Len(t, svc.wasmHashToProtocolID, 1, "duplicate hash should be deduplicated")
 
 		// Verify PersistProtocolWasms produces 1 entry
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
@@ -141,6 +144,35 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 
 		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
 		err := svc.ProcessContractCode(ctx, hash, []byte{0x01})
+		require.NoError(t, err)
+
+		err = svc.PersistProtocolWasms(ctx, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("matched_protocol_id_persisted", func(t *testing.T) {
+		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		hash := xdr.Hash{10, 20, 30}
+		code := []byte{0x01}
+		expectedProtocolID := "test-protocol"
+
+		validatorMock := NewProtocolValidatorMock(t)
+		validatorMock.On("Validate", mock.Anything, code).Return(true, nil).Once()
+		validatorMock.On("ProtocolID").Return(expectedProtocolID).Once()
+
+		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
+			mock.MatchedBy(func(wasms []data.ProtocolWasm) bool {
+				if len(wasms) != 1 {
+					return false
+				}
+				return wasms[0].WasmHash == hash.HexString() &&
+					wasms[0].ProtocolID != nil &&
+					*wasms[0].ProtocolID == expectedProtocolID
+			}),
+		).Return(nil).Once()
+
+		svc := NewWasmIngestionService(protocolWasmModelMock, validatorMock).(*wasmIngestionService)
+		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
 		err = svc.PersistProtocolWasms(ctx, nil)

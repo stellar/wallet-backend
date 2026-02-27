@@ -26,9 +26,9 @@ type WasmIngestionService interface {
 var _ WasmIngestionService = (*wasmIngestionService)(nil)
 
 type wasmIngestionService struct {
-	validators        []ProtocolValidator
-	protocolWasmModel data.ProtocolWasmModelInterface
-	wasmHashes        map[xdr.Hash]struct{}
+	validators           []ProtocolValidator
+	protocolWasmModel    data.ProtocolWasmModelInterface
+	wasmHashToProtocolID map[xdr.Hash]*string
 }
 
 // NewWasmIngestionService creates a WasmIngestionService.
@@ -37,15 +37,17 @@ func NewWasmIngestionService(
 	validators ...ProtocolValidator,
 ) WasmIngestionService {
 	return &wasmIngestionService{
-		validators:        validators,
-		protocolWasmModel: protocolWasmModel,
-		wasmHashes:        make(map[xdr.Hash]struct{}),
+		validators:           validators,
+		protocolWasmModel:    protocolWasmModel,
+		wasmHashToProtocolID: make(map[xdr.Hash]*string),
 	}
 }
 
 // ProcessContractCode runs protocol validators against the WASM and tracks the hash.
 func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	// Run all registered validators
+	// Run all registered validators; if multiple match, the last one's ID is used
+	// since the data model supports a single protocol_id per wasm hash.
+	var matchedProtocolID *string
 	for _, v := range s.validators {
 		matched, err := v.Validate(ctx, wasmCode)
 		if err != nil {
@@ -53,26 +55,28 @@ func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash
 			continue
 		}
 		if matched {
-			log.Ctx(ctx).Infof("WASM %s matched protocol %s", wasmHash.HexString(), v.ProtocolID())
+			pid := v.ProtocolID()
+			matchedProtocolID = &pid
+			log.Ctx(ctx).Infof("WASM %s matched protocol %s", wasmHash.HexString(), pid)
 		}
 	}
 
-	// Track hash for later persistence
-	s.wasmHashes[wasmHash] = struct{}{}
+	// Track hash with its matched protocol ID (nil if no validator matched)
+	s.wasmHashToProtocolID[wasmHash] = matchedProtocolID
 	return nil
 }
 
 // PersistProtocolWasms writes all accumulated WASM hashes to the protocol_wasms table.
 func (s *wasmIngestionService) PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error {
-	if len(s.wasmHashes) == 0 {
+	if len(s.wasmHashToProtocolID) == 0 {
 		return nil
 	}
 
-	wasms := make([]data.ProtocolWasm, 0, len(s.wasmHashes))
-	for hash := range s.wasmHashes {
+	wasms := make([]data.ProtocolWasm, 0, len(s.wasmHashToProtocolID))
+	for hash, protocolID := range s.wasmHashToProtocolID {
 		wasms = append(wasms, data.ProtocolWasm{
 			WasmHash:   hash.HexString(),
-			ProtocolID: nil, // No validators matched for now
+			ProtocolID: protocolID,
 		})
 	}
 
