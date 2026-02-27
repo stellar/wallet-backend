@@ -201,31 +201,6 @@ func NewTokenProcessorMock(t interface {
 	return mock
 }
 
-// CheckpointServiceMock is a mock implementation of the CheckpointService interface
-type CheckpointServiceMock struct {
-	mock.Mock
-}
-
-var _ CheckpointService = (*CheckpointServiceMock)(nil)
-
-func (m *CheckpointServiceMock) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
-	args := m.Called(ctx, checkpointLedger, initializeCursors)
-	return args.Error(0)
-}
-
-// NewCheckpointServiceMock creates a new instance of CheckpointServiceMock.
-func NewCheckpointServiceMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *CheckpointServiceMock {
-	mock := &CheckpointServiceMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
 
 // WasmIngestionServiceMock is a mock implementation of the WasmIngestionService interface
 type WasmIngestionServiceMock struct {
