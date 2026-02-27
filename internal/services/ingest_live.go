@@ -20,6 +20,7 @@ import (
 const (
 	maxIngestProcessedDataRetries      = 5
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
+	oldestLedgerSyncInterval           = 100
 )
 
 // PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
@@ -124,7 +125,17 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
 		}
+		m.metricsService.SetLatestLedgerIngested(float64(startLedger))
+		m.metricsService.SetOldestLedgerIngested(float64(startLedger))
 	} else {
+		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
+		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
+		if oldestErr != nil {
+			return fmt.Errorf("getting oldest ledger cursor: %w", oldestErr)
+		}
+		m.metricsService.SetOldestLedgerIngested(float64(oldestIngestedLedger))
+		m.metricsService.SetLatestLedgerIngested(float64(latestIngestedLedger))
+
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
@@ -194,6 +205,12 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.metricsService.IncIngestionOperationsProcessed(numOperationProcessed)
 		m.metricsService.IncIngestionLedgersProcessed(1)
 		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs)
+		if currentLedger%oldestLedgerSyncInterval == 0 {
+			if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
+				m.metricsService.SetOldestLedgerIngested(float64(oldest))
+			}
+		}
 
 		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
 		currentLedger++

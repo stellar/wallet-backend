@@ -269,137 +269,13 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	return operationsWithStateChanges, nil
 }
 
-// BatchInsert inserts the operations and the operations_accounts links.
-// It returns the IDs of the successfully inserted operations.
-func (m *OperationModel) BatchInsert(
-	ctx context.Context,
-	sqlExecuter db.SQLExecuter,
-	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]set.Set[string],
-) ([]int64, error) {
-	if sqlExecuter == nil {
-		sqlExecuter = m.DB
-	}
-
-	// 1. Flatten the operations into parallel slices
-	ids := make([]int64, len(operations))
-	operationTypes := make([]string, len(operations))
-	operationXDRs := make([][]byte, len(operations))
-	resultCodes := make([]string, len(operations))
-	successfulFlags := make([]bool, len(operations))
-	ledgerNumbers := make([]uint32, len(operations))
-	ledgerCreatedAts := make([]time.Time, len(operations))
-
-	for i, op := range operations {
-		ids[i] = op.ID
-		operationTypes[i] = string(op.OperationType)
-		operationXDRs[i] = []byte(op.OperationXDR)
-		resultCodes[i] = op.ResultCode
-		successfulFlags[i] = op.Successful
-		ledgerNumbers[i] = op.LedgerNumber
-		ledgerCreatedAts[i] = op.LedgerCreatedAt
-	}
-
-	// 2. Flatten the stellarAddressesByOpID into parallel slices, converting to BYTEA
-	var opIDs []int64
-	var stellarAddressBytes [][]byte
-	for opID, addresses := range stellarAddressesByOpID {
-		for address := range addresses.Iter() {
-			opIDs = append(opIDs, opID)
-			addrBytesValue, err := types.AddressBytea(address).Value()
-			if err != nil {
-				return nil, fmt.Errorf("converting address %s to bytes: %w", address, err)
-			}
-			addrBytes, ok := addrBytesValue.([]byte)
-			if !ok || addrBytes == nil {
-				return nil, fmt.Errorf("converting address %s to bytes: unexpected value %T", address, addrBytesValue)
-			}
-			stellarAddressBytes = append(stellarAddressBytes, addrBytes)
-		}
-	}
-
-	// Insert operations and operations_accounts links.
-	const insertQuery = `
-	WITH
-	-- Insert operations
-	inserted_operations AS (
-		INSERT INTO operations
-			(id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-		SELECT
-			o.id, o.operation_type, o.operation_xdr, o.result_code, o.successful, o.ledger_number, o.ledger_created_at
-		FROM (
-			SELECT
-				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::text[]) AS operation_type,
-				UNNEST($3::bytea[]) AS operation_xdr,
-				UNNEST($4::text[]) AS result_code,
-				UNNEST($5::boolean[]) AS successful,
-				UNNEST($6::bigint[]) AS ledger_number,
-				UNNEST($7::timestamptz[]) AS ledger_created_at
-		) o
-		ON CONFLICT (id) DO NOTHING
-		RETURNING id
-	),
-
-	-- Insert operations_accounts links
-	inserted_operations_accounts AS (
-		INSERT INTO operations_accounts
-			(operation_id, account_id)
-		SELECT
-			oa.op_id, oa.account_id
-		FROM (
-			SELECT
-				UNNEST($8::bigint[]) AS op_id,
-				UNNEST($9::bytea[]) AS account_id
-		) oa
-		ON CONFLICT DO NOTHING
-	)
-
-	-- Return the IDs of successfully inserted operations
-	SELECT id FROM inserted_operations;
-    `
-
-	start := time.Now()
-	var insertedIDs []int64
-	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
-		pq.Array(ids),
-		pq.Array(operationTypes),
-		pq.Array(operationXDRs),
-		pq.Array(resultCodes),
-		pq.Array(successfulFlags),
-		pq.Array(ledgerNumbers),
-		pq.Array(ledgerCreatedAts),
-		pq.Array(opIDs),
-		pq.Array(stellarAddressBytes),
-	)
-	duration := time.Since(start).Seconds()
-	for _, dbTableName := range []string{"operations", "operations_accounts"} {
-		m.MetricsService.ObserveDBQueryDuration("BatchInsert", dbTableName, duration)
-		if dbTableName == "operations" {
-			m.MetricsService.ObserveDBBatchSize("BatchInsert", dbTableName, len(operations))
-		}
-		if err == nil {
-			m.MetricsService.IncDBQuery("BatchInsert", dbTableName)
-		}
-	}
-	if err != nil {
-		for _, dbTableName := range []string{"operations", "operations_accounts"} {
-			m.MetricsService.IncDBQueryError("BatchInsert", dbTableName, utils.GetDBErrorType(err))
-		}
-		return nil, fmt.Errorf("batch inserting operations and operations_accounts: %w", err)
-	}
-
-	return insertedIDs, nil
-}
-
 // BatchCopy inserts operations using pgx's binary COPY protocol.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 //
-// IMPORTANT: Unlike BatchInsert which uses ON CONFLICT DO NOTHING, BatchCopy will FAIL
-// if any duplicate records exist. The PostgreSQL COPY protocol does not support conflict
-// handling. Callers must ensure no duplicates exist before calling this method, or handle
-// the unique constraint violation error appropriately.
+// IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
+// protocol does not support conflict handling. Callers must ensure no duplicates exist
+// before calling this method, or handle the unique constraint violation error appropriately.
 func (m *OperationModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
@@ -440,23 +316,34 @@ func (m *OperationModel) BatchCopy(
 
 	// COPY operations_accounts using pgx binary format with native pgtype types
 	if len(stellarAddressesByOpID) > 0 {
+		// Build OpID -> LedgerCreatedAt lookup from operations
+		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
+		for _, op := range operations {
+			ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
+		}
+
 		var oaRows [][]any
 		for opID, addresses := range stellarAddressesByOpID {
+			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
+			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 			for _, addr := range addresses.ToSlice() {
-				var addrBytes any
-				addrBytes, err = types.AddressBytea(addr).Value()
-				if err != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, err)
+				addrBytes, addrErr := types.AddressBytea(addr).Value()
+				if addrErr != nil {
+					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 				}
-				oaRows = append(oaRows, []any{opIDPgtype, addrBytes})
+				oaRows = append(oaRows, []any{
+					ledgerCreatedAtPgtype,
+					opIDPgtype,
+					addrBytes,
+				})
 			}
 		}
 
 		_, err = pgxTx.CopyFrom(
 			ctx,
 			pgx.Identifier{"operations_accounts"},
-			[]string{"operation_id", "account_id"},
+			[]string{"ledger_created_at", "operation_id", "account_id"},
 			pgx.CopyFromRows(oaRows),
 		)
 		if err != nil {

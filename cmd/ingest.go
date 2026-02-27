@@ -140,6 +140,38 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: true,
 			Required:    false,
 		},
+		{
+			Name:        "chunk-interval",
+			Usage:       "TimescaleDB chunk time interval for hypertables. Only affects future chunks. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.ChunkInterval,
+			FlagDefault: "1 day",
+			Required:    false,
+		},
+		{
+			Name:        "retention-period",
+			Usage:       "TimescaleDB data retention period. Chunks older than this are automatically dropped. Empty disables retention. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.RetentionPeriod,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:        "compression-schedule-interval",
+			Usage:       "How frequently the TimescaleDB compression policy job checks for chunks to compress. Does not change which chunks are eligible (that's controlled by compress_after). Empty skips configuration. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.CompressionScheduleInterval,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:        "compression-compress-after",
+			Usage:       "How long after a chunk is closed before it becomes eligible for compression. Lower values reduce the number of uncompressed chunks. Empty skips configuration. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.CompressAfter,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{

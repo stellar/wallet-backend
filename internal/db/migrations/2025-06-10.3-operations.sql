@@ -1,8 +1,8 @@
 -- +migrate Up
 
--- Table: operations
+-- Table: operations (TimescaleDB hypertable with columnstore)
 CREATE TABLE operations (
-    id BIGINT PRIMARY KEY,
+    id BIGINT NOT NULL,
     operation_type TEXT NOT NULL CHECK (
         operation_type IN (
             'CREATE_ACCOUNT', 'PAYMENT', 'PATH_PAYMENT_STRICT_RECEIVE',
@@ -21,21 +21,37 @@ CREATE TABLE operations (
     result_code TEXT NOT NULL,
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    PRIMARY KEY (id, ledger_created_at)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.orderby = 'ledger_created_at DESC, id DESC',
+    tsdb.sparse_index = 'bloom(operation_type)'
 );
 
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
+SELECT enable_chunk_skipping('operations', 'id');
 
--- Table: operations_accounts
+-- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
-    operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (account_id, operation_id)
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (account_id, operation_id, ledger_created_at)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.orderby = 'ledger_created_at DESC, operation_id DESC',
+    tsdb.segmentby = 'account_id'
 );
+
+SELECT enable_chunk_skipping('operations_accounts', 'operation_id');
 
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC, operation_id DESC);
 
 -- +migrate Down
 

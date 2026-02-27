@@ -217,10 +217,10 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 50,
 			endLedger:   80,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
+				// Actual oldest ledger in transactions is 100
+				_, err := dbConnectionPool.ExecContext(ctx,
+					`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+					VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 100, NOW())`)
 				require.NoError(t, err)
 			},
 			expectedGaps: []data.LedgerRange{
@@ -232,12 +232,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 50,
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions for 100-200 (no gaps)
+				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -255,12 +250,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 110,
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions for 100-200 (no gaps)
+				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -276,12 +266,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			startLedger: 110,
 			endLedger:   180,
 			setupDB: func(t *testing.T) {
-				// Set oldest to 100, latest to 200
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 100)`)
-				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', 200)`)
-				require.NoError(t, err)
-				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149)
+				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149); oldest is 100
 				for ledger := uint32(100); ledger <= 120; ledger++ {
 					_, err := dbConnectionPool.ExecContext(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
@@ -299,6 +284,32 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			},
 			expectedGaps: []data.LedgerRange{
 				{GapStart: 121, GapEnd: 149},
+			},
+		},
+		{
+			// After TimescaleDB retention drops old chunks, the stored oldest_ledger_cursor
+			// may point to a ledger that no longer exists in the transactions table.
+			// calculateBackfillGaps should ignore the cursor and use the actual oldest
+			// ledger from the transactions table.
+			name:        "stale_cursor_is_ignored_uses_actual_oldest_from_transactions",
+			startLedger: 50,
+			endLedger:   150,
+			setupDB: func(t *testing.T) {
+				// Cursor claims oldest is 50 (stale — retention dropped ledgers 50-99)
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 50)`)
+				require.NoError(t, err)
+				// Actual transactions only exist from 100 onwards
+				for ledger := uint32(100); ledger <= 200; ledger++ {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						"hash"+string(rune(ledger)), ledger, ledger)
+					require.NoError(t, err)
+				}
+			},
+			// Oldest in transactions is 100, so gap [50,99] should be backfilled
+			expectedGaps: []data.LedgerRange{
+				{GapStart: 50, GapEnd: 99},
 			},
 		},
 	}
@@ -1686,7 +1697,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
-			results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, tc.batches)
+			results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, tc.batches, nil)
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -1769,6 +1780,13 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 
 			// Set up initial cursors
 			setupDBCursors(t, ctx, dbConnectionPool, tc.initialLatest, tc.initialOldest)
+
+			// Insert anchor transaction so GetOldestLedger() returns initialOldest
+			_, err = dbConnectionPool.ExecContext(ctx,
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+				VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $1, NOW())`,
+				tc.initialOldest)
+			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
@@ -1944,7 +1962,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
-	results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, batches)
+	results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, batches, nil)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -2923,7 +2941,7 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, batchChanges, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, batchChanges, _, _, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
@@ -3089,6 +3107,104 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			cursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantLatestCursor, cursor, "latest ledger cursor mismatch")
+		})
+	}
+}
+
+// Test_ingestService_processBackfillBatchesParallel_BothModes verifies
+// that both historical and catchup modes process batches successfully.
+func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name string
+		mode BackfillMode
+	}{
+		{
+			name: "historical_mode_processes_batches",
+			mode: BackfillModeHistorical,
+		},
+		{
+			name: "catchup_mode_processes_batches",
+			mode: BackfillModeCatchup,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
+			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, modelsErr)
+
+			mockRPCService := &RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+
+			// Factory that returns a backend with minimal valid ledger data
+			factory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+				mockBackend := &LedgerBackendMock{}
+				mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(nil)
+				mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(xdr.LedgerCloseMeta{
+					V: 0,
+					V0: &xdr.LedgerCloseMetaV0{
+						LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+							Header: xdr.LedgerHeader{
+								LedgerSeq: xdr.Uint32(100),
+							},
+						},
+					},
+				}, nil)
+				mockBackend.On("Close").Return(nil)
+				return mockBackend, nil
+			}
+
+			svc, svcErr := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             mockRPCService,
+				LedgerBackend:          &LedgerBackendMock{},
+				LedgerBackendFactory:   factory,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                &HistoryArchiveMock{},
+				BackfillBatchSize:      10,
+			})
+			require.NoError(t, svcErr)
+
+			batches := []BackfillBatch{
+				{StartLedger: 100, EndLedger: 100},
+				{StartLedger: 101, EndLedger: 101},
+			}
+
+			results := svc.processBackfillBatchesParallel(ctx, tc.mode, batches, nil)
+
+			// All batches should succeed
+			require.Len(t, results, 2)
+			for i, result := range results {
+				assert.NoError(t, result.Error, "batch %d should succeed", i)
+			}
 		})
 	}
 }

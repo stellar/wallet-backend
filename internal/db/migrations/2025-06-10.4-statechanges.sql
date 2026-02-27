@@ -1,8 +1,10 @@
 -- +migrate Up
 
--- Table: state_changes
+-- Table: state_changes (TimescaleDB hypertable with columnstore)
+-- Note: FK to transactions removed (hypertable FKs not supported)
 CREATE TABLE state_changes (
-    to_id BIGINT NOT NULL REFERENCES transactions(to_id) ON DELETE CASCADE,
+    to_id BIGINT NOT NULL,
+    operation_id BIGINT NOT NULL,
     state_change_order BIGINT NOT NULL CHECK (state_change_order >= 1),
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
@@ -19,10 +21,8 @@ CREATE TABLE state_changes (
         )
     ),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
     account_id BYTEA NOT NULL,
-    operation_id BIGINT NOT NULL,
     token_id BYTEA,
     amount TEXT,
     signer_account_id BYTEA,
@@ -42,13 +42,22 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
-
-    PRIMARY KEY (to_id, operation_id, state_change_order)
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (to_id, operation_id, state_change_order, ledger_created_at)
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'ledger_created_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.orderby = 'ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC',
+    tsdb.segmentby = 'account_id',
+    tsdb.sparse_index = 'bloom(state_change_category),bloom(state_change_reason)'
 );
 
-CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
+SELECT enable_chunk_skipping('state_changes', 'to_id');
+SELECT enable_chunk_skipping('state_changes', 'operation_id');
+
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
-CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
+CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC);
 
 -- +migrate Down
 

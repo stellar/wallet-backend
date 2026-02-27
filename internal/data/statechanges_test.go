@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
@@ -65,162 +64,6 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 	return scs
 }
 
-func TestStateChangeModel_BatchInsert(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Create test data
-	kp1 := keypair.MustRandom()
-	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
-	require.NoError(t, err)
-
-	// Create referenced transactions first
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
-	tx1 := types.Transaction{
-		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
-		ToID:            1,
-		EnvelopeXDR:     &envelope1,
-		FeeCharged:      100,
-		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta1,
-		LedgerNumber:    1,
-		LedgerCreatedAt: now,
-		IsFeeBump:       false,
-	}
-	tx2 := types.Transaction{
-		Hash:            "0276b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
-		ToID:            2,
-		EnvelopeXDR:     &envelope2,
-		FeeCharged:      200,
-		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta2,
-		LedgerNumber:    2,
-		LedgerCreatedAt: now,
-		IsFeeBump:       true,
-	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	require.NoError(t, err)
-	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
-		tx1.ToID: set.NewSet(kp1.Address()),
-		tx2.ToID: set.NewSet(kp2.Address()),
-	})
-	require.NoError(t, err)
-
-	reason := types.StateChangeReasonAdd
-	sc1 := types.StateChange{
-		ToID:                1,
-		StateChangeOrder:    1,
-		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
-		LedgerCreatedAt:     now,
-		LedgerNumber:        1,
-		AccountID:           types.AddressBytea(kp1.Address()),
-		OperationID:         123,
-		TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp1.Address()), Valid: true},
-		Amount:              sql.NullString{String: "100", Valid: true},
-	}
-	sc2 := types.StateChange{
-		ToID:                2,
-		StateChangeOrder:    1,
-		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
-		LedgerCreatedAt:     now,
-		LedgerNumber:        2,
-		AccountID:           types.AddressBytea(kp2.Address()),
-		OperationID:         456,
-	}
-
-	testCases := []struct {
-		name            string
-		useDBTx         bool
-		stateChanges    []types.StateChange
-		wantIDs         []string
-		wantErrContains string
-	}{
-		{
-			name:         "🟢successful_insert_without_dbTx",
-			useDBTx:      false,
-			stateChanges: []types.StateChange{sc1, sc2},
-			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d-%d", sc2.ToID, sc2.OperationID, sc2.StateChangeOrder)},
-		},
-		{
-			name:         "🟢successful_insert_with_dbTx",
-			useDBTx:      true,
-			stateChanges: []types.StateChange{sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
-		},
-		{
-			name:         "🟢empty_input",
-			useDBTx:      false,
-			stateChanges: []types.StateChange{},
-			wantIDs:      nil,
-		},
-		{
-			name:         "🟡duplicate_state_change",
-			useDBTx:      false,
-			stateChanges: []types.StateChange{sc1, sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d-%d", sc1.ToID, sc1.OperationID, sc1.StateChangeOrder)},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
-			require.NoError(t, err)
-
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "BatchInsert", "state_changes", mock.Anything).Return().Once()
-			mockMetricsService.
-				On("ObserveDBBatchSize", "BatchInsert", "state_changes", mock.Anything).Return().Once()
-			mockMetricsService.
-				On("IncDBQuery", "BatchInsert", "state_changes").Return().Once()
-
-			m := &StateChangeModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
-			}
-
-			var sqlExecuter db.SQLExecuter = dbConnectionPool
-			if tc.useDBTx {
-				tx, err := dbConnectionPool.BeginTxx(ctx, nil)
-				require.NoError(t, err)
-				defer tx.Rollback() // nolint: errcheck
-				sqlExecuter = tx
-			}
-
-			gotInsertedIDs, err := m.BatchInsert(ctx, sqlExecuter, tc.stateChanges)
-
-			if tc.wantErrContains != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErrContains)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.ElementsMatch(t, tc.wantIDs, gotInsertedIDs)
-
-			// Verify from DB
-			var dbInsertedIDs []string
-			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes")
-			require.NoError(t, err)
-			assert.ElementsMatch(t, tc.wantIDs, dbInsertedIDs)
-
-			mockMetricsService.AssertExpectations(t)
-		})
-	}
-}
-
 func TestStateChangeModel_BatchCopy(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -263,13 +106,12 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		LedgerCreatedAt: now,
 		IsFeeBump:       true,
 	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	require.NoError(t, err)
-	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []*types.Transaction{&tx1, &tx2}, map[int64]set.Set[string]{
-		tx1.ToID: set.NewSet(kp1.Address()),
-		tx2.ToID: set.NewSet(kp2.Address()),
-	})
+	// Insert transactions using direct SQL
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)
+	`, tx1.Hash, tx1.ToID, *tx1.EnvelopeXDR, tx1.FeeCharged, tx1.ResultCode, *tx1.MetaXDR, tx1.LedgerNumber, tx1.LedgerCreatedAt, tx1.IsFeeBump,
+		tx2.Hash, tx2.ToID, *tx2.EnvelopeXDR, tx2.FeeCharged, tx2.ResultCode, *tx2.MetaXDR, tx2.LedgerNumber, tx2.LedgerCreatedAt, tx2.IsFeeBump)
 	require.NoError(t, err)
 
 	reason := types.StateChangeReasonAdd
@@ -392,82 +234,6 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
 	}
-}
-
-func TestStateChangeModel_BatchCopy_DuplicateFails(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Create test account
-	kp1 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()))
-	require.NoError(t, err)
-
-	// Create parent transaction
-	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ('tx_for_sc_dup_test', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $1, false)
-	`, now)
-	require.NoError(t, err)
-
-	reason := types.StateChangeReasonCredit
-	sc1 := types.StateChange{
-		ToID:                1, // Must reference the transaction created above with to_id=1
-		StateChangeOrder:    1,
-		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
-		LedgerCreatedAt:     now,
-		LedgerNumber:        1,
-		AccountID:           types.AddressBytea(kp1.Address()),
-		OperationID:         123,
-	}
-
-	// Pre-insert the state change using BatchInsert (which uses ON CONFLICT DO NOTHING)
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	require.NoError(t, err)
-	scModel := &StateChangeModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = scModel.BatchInsert(ctx, nil, []types.StateChange{sc1})
-	require.NoError(t, err)
-
-	// Verify the state change was inserted
-	var count int
-	err = dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM state_changes WHERE to_id = $1 AND state_change_order = $2", sc1.ToID, sc1.StateChangeOrder)
-	require.NoError(t, err)
-	require.Equal(t, 1, count)
-
-	// Now try to insert the same state change using BatchCopy - this should FAIL
-	// because COPY does not support ON CONFLICT handling
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("IncDBQueryError", "BatchCopy", "state_changes", mock.Anything).Return().Once()
-	defer mockMetricsService.AssertExpectations(t)
-
-	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
-	conn, err := pgx.Connect(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer conn.Close(ctx)
-
-	pgxTx, err := conn.Begin(ctx)
-	require.NoError(t, err)
-
-	_, err = m.BatchCopy(ctx, pgxTx, []types.StateChange{sc1})
-
-	// BatchCopy should fail with a unique constraint violation
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgx CopyFrom state_changes: ERROR: duplicate key value violates unique constraint \"state_changes_pkey\"")
-
-	// Rollback the failed transaction
-	require.NoError(t, pgxTx.Rollback(ctx))
 }
 
 func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
@@ -1149,69 +915,6 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
-}
-
-func BenchmarkStateChangeModel_BatchInsert(b *testing.B) {
-	dbt := dbtest.OpenB(b)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	if err != nil {
-		b.Fatalf("failed to open db connection pool: %v", err)
-	}
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
-
-	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: metricsService,
-	}
-
-	// Create a parent transaction that state changes will reference
-	const txHash = "benchmark_tx_hash"
-	accountID := keypair.MustRandom().Address()
-	now := time.Now()
-	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ($1, 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2, false)
-	`, txHash, now)
-	if err != nil {
-		b.Fatalf("failed to create parent transaction: %v", err)
-	}
-
-	// Pre-generate auxiliary addresses for nullable account_id fields
-	auxAddresses := make([]string, 10)
-	for i := range auxAddresses {
-		auxAddresses[i] = keypair.MustRandom().Address()
-	}
-
-	batchSizes := []int{1000, 5000, 10000, 50000, 100000}
-
-	for _, size := range batchSizes {
-		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				// Clean up state changes before each iteration (keep the parent transaction)
-				//nolint:errcheck // truncate is best-effort cleanup in benchmarks
-				dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
-				// Generate fresh test data for each iteration
-				scs := generateTestStateChanges(size, accountID, int64(i*size), auxAddresses)
-				b.StartTimer()
-
-				_, err := m.BatchInsert(ctx, nil, scs)
-				if err != nil {
-					b.Fatalf("BatchInsert failed: %v", err)
-				}
-			}
-		})
-	}
 }
 
 // BenchmarkStateChangeModel_BatchCopy benchmarks bulk insert using pgx's binary COPY protocol.

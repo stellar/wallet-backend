@@ -615,6 +615,7 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				Network:        network.TestNetworkPassphrase,
 				Transaction:    ingestTx,
 				LedgerSequence: 4873,
+				LedgerClosed:   ingestTx.Ledger.ClosedAt(),
 			}
 			assert.Equal(t, tc.wantParticipantsFn(t, opWrapper), gotParticipants)
 		})
