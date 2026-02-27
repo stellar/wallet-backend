@@ -49,6 +49,13 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 			return fmt.Errorf("removing retention policy on %s: %w", table, err)
 		}
 	}
+	// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
+	// Remove any existing job first (idempotent re-registration on every restart).
+	if _, err := pool.ExecContext(ctx,
+		"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
+	); err != nil {
+		return fmt.Errorf("removing existing reconciliation job: %w", err)
+	}
 	if retentionPeriod != "" {
 		// Add new retention period policy
 		for _, table := range hypertables {
@@ -59,14 +66,6 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 				return fmt.Errorf("adding retention policy on %s: %w", table, err)
 			}
 			log.Ctx(ctx).Infof("Set retention policy %q on %s", retentionPeriod, table)
-		}
-
-		// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
-		// Remove any existing job first (idempotent re-registration on every restart).
-		if _, err := pool.ExecContext(ctx,
-			"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
-		); err != nil {
-			return fmt.Errorf("removing existing reconciliation job: %w", err)
 		}
 
 		// Create or replace the PL/pgSQL function that advances the cursor.
@@ -89,43 +88,25 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 			return fmt.Errorf("creating reconcile_oldest_cursor function: %w", err)
 		}
 
-		// Schedule the reconciliation job to run 1 hour after the retention policy fires.
+		// Schedule the reconciliation job to run every 1 hour.
 		//
-		// How this works:
-		//   - schedule_interval: copied from the transactions retention job so both
-		//     jobs run at the same frequency (defaults to the chunk interval).
-		//   - initial_start: set to the retention job's next scheduled run + 1 hour,
-		//     so reconciliation always fires shortly after retention drops chunks.
-		//   - fixed_schedule: true keeps runs aligned to the initial_start origin,
-		//     preventing drift over time.
-		//
-		// We reference the transactions table's retention job because the
-		// reconcile_oldest_cursor function queries that table for the actual
-		// minimum ledger.
+		// The job checks whether retention has dropped chunks and advances the
+		// oldest ledger cursor if so. It is idempotent — a no-op when the cursor
+		// is already correct — and the query is microsecond-cheap (reads oldest
+		// chunk metadata + 1 row from ingest_store). Running on a fixed 1-hour
+		// interval keeps the cursor at most 1 hour stale after retention fires,
+		// with no coordination required with the retention job schedule.
 		if _, err := pool.ExecContext(ctx, `
 			SELECT add_job(
 				'reconcile_oldest_cursor',
-				-- Run at the same frequency as the retention job
-				(SELECT schedule_interval
-				   FROM timescaledb_information.jobs
-				  WHERE proc_name = 'policy_retention'
-				    AND hypertable_name = 'transactions'),
-				-- Start 1 hour after the retention job's next run.
-				-- COALESCE handles the case where next_start is NULL immediately
-				-- after job creation (scheduler hasn't picked it up yet).
-				initial_start => (
-					SELECT COALESCE(js.next_start, NOW()) + '1 hour'::interval
-					  FROM timescaledb_information.job_stats js
-					  JOIN timescaledb_information.jobs j ON j.job_id = js.job_id
-					 WHERE j.proc_name = 'policy_retention'
-					   AND j.hypertable_name = 'transactions'),
+				'1 hour',
 				fixed_schedule => true,
 				config => $1::jsonb)`,
 			fmt.Sprintf(`{"cursor_name":"%s"}`, oldestCursorName),
 		); err != nil {
 			return fmt.Errorf("scheduling reconciliation job: %w", err)
 		}
-		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job (offset 1h after transactions retention) for cursor %q", oldestCursorName)
+		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job (1h fixed interval) for cursor %q", oldestCursorName)
 	}
 
 	if compressionScheduleInterval != "" {
