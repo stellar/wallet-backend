@@ -118,11 +118,11 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.checkpointService.PopulateFromCheckpoint(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
-			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
+			return fmt.Errorf("populating from checkpoint and initializing cursors: %w", err)
 		}
 	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.

@@ -89,7 +89,6 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionServiceForLoadtest(
-		dbPool,
 		cfg.NetworkPassphrase,
 		models.TrustlineBalance,
 		models.NativeBalance,

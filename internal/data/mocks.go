@@ -194,3 +194,29 @@ func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx p
 	args := m.Called(ctx, dbTx, contractsByAccount)
 	return args.Error(0)
 }
+
+// ProtocolWasmModelMock is a mock implementation of ProtocolWasmModelInterface.
+type ProtocolWasmModelMock struct {
+	mock.Mock
+}
+
+var _ ProtocolWasmModelInterface = (*ProtocolWasmModelMock)(nil)
+
+// NewProtocolWasmModelMock creates a new instance of ProtocolWasmModelMock.
+func NewProtocolWasmModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolWasmModelMock {
+	mockModel := &ProtocolWasmModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
+	args := m.Called(ctx, dbTx, wasms)
+	return args.Error(0)
+}

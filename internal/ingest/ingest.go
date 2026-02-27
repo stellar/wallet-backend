@@ -177,7 +177,11 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
+	wasmIngestionService := services.NewWasmIngestionService(models.ProtocolWasm)
+
+	tokenIngestionService := services.NewTokenIngestionService(contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract, cfg.NetworkPassphrase)
+
+	checkpointService := services.NewCheckpointService(models.DB, archive, tokenIngestionService, wasmIngestionService, contractValidator)
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -195,6 +199,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackendFactory:       ledgerBackendFactory,
 		ChannelAccountStore:        chAccStore,
 		TokenIngestionService:      tokenIngestionService,
+		CheckpointService:          checkpointService,
 		ContractMetadataService:    contractMetadataService,
 		MetricsService:             metricsService,
 		GetLedgersLimit:            cfg.GetLedgersLimit,
