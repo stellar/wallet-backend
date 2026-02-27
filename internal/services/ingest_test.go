@@ -28,8 +28,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
-// Test addresses generated from valid keypairs for use in tests.
-// These are deterministic seeds to ensure consistent test addresses.
 var (
 	testKP1   = keypair.MustRandom()
 	testKP2   = keypair.MustRandom()

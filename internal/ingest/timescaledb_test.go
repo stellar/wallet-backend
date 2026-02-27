@@ -369,4 +369,37 @@ func TestConfigureHypertableSettings(t *testing.T) {
 			assert.Equal(t, defaultIntervals[table], intervalSecs, "compression schedule interval should remain unchanged for %s", table)
 		}
 	})
+
+	t.Run("reconciliation_job_scheduled_after_retention", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		ctx := context.Background()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "")
+		require.NoError(t, err)
+
+		// Reconciliation runs every 1 hour, independent of the retention schedule.
+		var reconScheduleSecs float64
+		err = dbConnectionPool.GetContext(ctx, &reconScheduleSecs,
+			`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+		require.NoError(t, err)
+
+		var reconFixedSchedule bool
+		err = dbConnectionPool.GetContext(ctx, &reconFixedSchedule,
+			`SELECT j.fixed_schedule
+			 FROM timescaledb_information.jobs j
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+		require.NoError(t, err)
+
+		assert.Equal(t, float64(3600), reconScheduleSecs,
+			"reconciliation schedule_interval should be 1 hour (3600s)")
+		assert.True(t, reconFixedSchedule,
+			"reconciliation job should use fixed_schedule")
+	})
 }
