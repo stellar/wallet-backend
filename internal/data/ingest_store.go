@@ -98,3 +98,18 @@ func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, er
 	m.MetricsService.IncDBQuery("GetLedgerGaps", "transactions")
 	return ledgerGaps, nil
 }
+
+func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) {
+	oldest := uint32(0)
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &oldest,
+		`SELECT ledger_number FROM transactions ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1`)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetOldestLedger", "transactions", duration)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		m.MetricsService.IncDBQueryError("GetOldestLedger", "transactions", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("getting actual oldest ledger from transactions: %w", err)
+	}
+	m.MetricsService.IncDBQuery("GetOldestLedger", "transactions")
+	return oldest, nil
+}
