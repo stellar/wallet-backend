@@ -234,7 +234,10 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType EffectType, effec
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
 	// Apply entity-specific fields to the builder for non-account sponsorships
-	baseBuilder = p.applySponsorshipEntityFields(effectType, effect.Details, baseBuilder)
+	baseBuilder, err := p.applySponsorshipEntityFields(effectType, effect.Details, baseBuilder)
+	if err != nil {
+		return nil, fmt.Errorf("applying sponsorship entity fields: %w", err)
+	}
 
 	var sponsorChanges []types.StateChange
 
@@ -353,7 +356,7 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.S
 // applySponsorshipEntityFields applies entity-specific fields to the builder for sponsorship effects.
 // Uses explicit columns instead of keyValue: token_id (for asset), liquidity_pool_id, sponsored_data,
 // claimable_balance_id, and signer_account_id.
-func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, details map[string]interface{}, builder *StateChangeBuilder) *StateChangeBuilder {
+func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, details map[string]interface{}, builder *StateChangeBuilder) (*StateChangeBuilder, error) {
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineSponsorshipCreated, EffectTrustlineSponsorshipRemoved, EffectTrustlineSponsorshipUpdated:
@@ -366,9 +369,10 @@ func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, d
 			// For trustline sponsorship, we convert the asset to contract ID and store in token_id
 			// The asset format is typically "CODE:ISSUER"
 			assetContractID, err := getContractIDFromAssetString(p.networkPassphrase, asset)
-			if err == nil {
-				builder = builder.WithToken(assetContractID)
+			if err != nil {
+				return nil, fmt.Errorf("calculating contract ID from from asset %q for trustline sponsorship: %w", asset, err)
 			}
+			builder = builder.WithToken(assetContractID)
 		}
 
 	case EffectDataSponsorshipCreated, EffectDataSponsorshipRemoved, EffectDataSponsorshipUpdated:
@@ -388,7 +392,7 @@ func (p *EffectsProcessor) applySponsorshipEntityFields(effectType EffectType, d
 		}
 	}
 
-	return builder
+	return builder, nil
 }
 
 func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) (types.StateChange, error) {

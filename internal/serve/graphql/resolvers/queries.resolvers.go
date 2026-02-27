@@ -24,6 +24,15 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
+	if !utils.IsValidTransactionHash(hash) {
+		return nil, &gqlerror.Error{
+			Message: ErrMsgInvalidTransactionHash,
+			Extensions: map[string]interface{}{
+				"code": "INVALID_TRANSACTION_HASH",
+				"hash": hash,
+			},
+		}
+	}
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
