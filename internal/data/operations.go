@@ -38,36 +38,44 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	return &operation, nil
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
+	var args []interface{}
+	argIndex := 1
 
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM operations`, columns))
+
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
-		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(" WHERE id < %d", *cursor))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" WHERE id > %d", *cursor))
-		}
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "id", Value: cursor.ID},
+		}, sortOrder, argIndex)
+		queryBuilder.WriteString(" WHERE " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY id DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY id ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, id ASC")
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
 	}
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
 	}
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query)
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "operations", duration)
 	if err != nil {
@@ -131,7 +139,7 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 				JOIN
 					inputs i ON o.id > i.to_id AND o.id < i.to_id + 4096
 			)
-		SELECT %s, id as cursor FROM ranked_operations_per_to_id
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM ranked_operations_per_to_id
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -139,7 +147,7 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 	}
 	query = queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
 	}
 
 	var operations []*types.OperationWithCursor
@@ -162,7 +170,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
 
 	args := []interface{}{toID}
 	argIndex := 2
@@ -190,7 +198,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
 	}
 
 	var operations []*types.OperationWithCursor
@@ -207,21 +215,72 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 }
 
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
-func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
+// Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
+// on the operations_accounts hypertable by ordering on ledger_created_at first.
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 
-	// Build paginated query using shared utility
-	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
-		TableName:      "operations",
-		CursorColumn:   "id",
-		JoinTable:      "operations_accounts",
-		JoinCondition:  "operations_accounts.operation_id = operations.id",
-		Columns:        columns,
-		AccountAddress: accountAddress,
-		Limit:          limit,
-		Cursor:         cursor,
-		OrderBy:        orderBy,
-	})
+	var queryBuilder strings.Builder
+	args := []interface{}{types.AddressBytea(accountAddress)}
+	argIndex := 2
+
+	// MATERIALIZED CTE scans operations_accounts with ledger_created_at leading the ORDER BY,
+	// enabling TimescaleDB ChunkAppend on the hypertable.
+	queryBuilder.WriteString(`
+		WITH account_ops AS MATERIALIZED (
+			SELECT operation_id, ledger_created_at
+			FROM operations_accounts
+			WHERE account_id = $1`)
+
+	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
+
+	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
+	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
+	if cursor != nil {
+		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
+			{Name: "operation_id", Value: cursor.ID},
+		}, orderBy, argIndex)
+		queryBuilder.WriteString("\n\t\t\tAND " + clause)
+		args = append(args, cursorArgs...)
+		argIndex = nextIdx
+	}
+
+	if orderBy == DESC {
+		queryBuilder.WriteString(`
+			ORDER BY ledger_created_at DESC, operation_id DESC`)
+	} else {
+		queryBuilder.WriteString(`
+			ORDER BY ledger_created_at ASC, operation_id ASC`)
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
+		args = append(args, *limit)
+	}
+
+	// Close CTE and LATERAL join to fetch full operation rows
+	queryBuilder.WriteString(fmt.Sprintf(`
+		)
+		SELECT %s, o.ledger_created_at as "cursor.cursor_ledger_created_at", o.id as "cursor.cursor_id"
+		FROM account_ops ao,
+		LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o`, columns))
+
+	if orderBy == DESC {
+		queryBuilder.WriteString(`
+		ORDER BY o.ledger_created_at DESC, o.id DESC`)
+	} else {
+		queryBuilder.WriteString(`
+		ORDER BY o.ledger_created_at ASC, o.id ASC`)
+	}
+
+	query := queryBuilder.String()
+
+	// For backward pagination, wrap query to reverse the final order
+	if orderBy == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
+	}
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()

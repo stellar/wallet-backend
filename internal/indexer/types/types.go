@@ -314,9 +314,17 @@ type Transaction struct {
 	InnerTransactionHash string `json:"innerTransactionHash,omitempty" db:"-"`
 }
 
+// CompositeCursor encodes both ledger_created_at and an entity ID for TimescaleDB-friendly
+// cursor-based pagination. Using ledger_created_at as the leading sort column allows
+// TimescaleDB to use ChunkAppend optimization on hypertables.
+type CompositeCursor struct {
+	LedgerCreatedAt time.Time `db:"cursor_ledger_created_at"`
+	ID              int64     `db:"cursor_id"`
+}
+
 type TransactionWithCursor struct {
 	Transaction
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
 }
 
 type TransactionWithStateChangeID struct {
@@ -422,16 +430,11 @@ type Operation struct {
 
 type OperationWithCursor struct {
 	Operation
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
 }
 
 type OperationWithStateChangeID struct {
 	Operation
-	StateChangeID string `db:"state_change_id"`
-}
-
-type AccountWithStateChangeID struct {
-	Account
 	StateChangeID string `db:"state_change_id"`
 }
 
@@ -618,9 +621,10 @@ type StateChangeWithCursor struct {
 }
 
 type StateChangeCursor struct {
-	ToID             int64 `db:"cursor_to_id"`
-	OperationID      int64 `db:"cursor_operation_id"`
-	StateChangeOrder int64 `db:"cursor_state_change_order"`
+	LedgerCreatedAt  time.Time `db:"cursor_ledger_created_at"`
+	ToID             int64     `db:"cursor_to_id"`
+	OperationID      int64     `db:"cursor_operation_id"`
+	StateChangeOrder int64     `db:"cursor_state_change_order"`
 }
 
 type StateChangeCursorGetter interface {
@@ -731,6 +735,7 @@ func (sc StateChange) GetTransaction() *Transaction {
 // GetCursor returns the cursor for this state change.
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
+		LedgerCreatedAt:  sc.LedgerCreatedAt,
 		ToID:             sc.ToID,
 		OperationID:      sc.OperationID,
 		StateChangeOrder: sc.StateChangeOrder,
