@@ -38,7 +38,7 @@ func ConvertOperationsToBase64XDR(operations []txnbuild.Operation) ([]string, er
 }
 
 // WaitForRPCHealthAndRun waits for the RPC service to become healthy and then runs the given function.
-func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration, onReady func() error) error {
+func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -60,7 +60,7 @@ func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService,
 			healthRes, err := rpcService.GetHealth()
 			if err == nil {
 				if healthRes.Status == "healthy" {
-					return onReady()
+					return nil
 				}
 			}
 		}
