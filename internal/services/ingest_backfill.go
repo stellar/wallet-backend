@@ -735,16 +735,17 @@ func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time
 		log.Ctx(r.ctx).Warnf("Failed to get chunks for %s: %v", table, err)
 		return 0
 	}
+	defer rows.Close()
 
 	var chunks []string
 	for rows.Next() {
 		var chunk string
 		if err := rows.Scan(&chunk); err != nil {
+			log.Ctx(r.ctx).Warnf("Failed to scan chunk row for table %s: %v", table, err)
 			continue
 		}
 		chunks = append(chunks, chunk)
 	}
-	rows.Close()
 
 	compressed := 0
 	for _, chunk := range chunks {
