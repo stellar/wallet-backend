@@ -425,10 +425,6 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		}
 
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			filteredData, err := m.filterParticipantData(ctx, dbTx, buffer)
-			if err != nil {
-				return fmt.Errorf("filtering participant data: %w", err)
-			}
 			// Collect changes for post-catchup processing if requested
 			if batchChanges != nil {
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
@@ -448,7 +444,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 					}
 				}
 			}
-			if err := m.insertIntoDB(ctx, dbTx, filteredData); err != nil {
+			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
 			}
 			// Unlock channel accounts using all transactions (not filtered)

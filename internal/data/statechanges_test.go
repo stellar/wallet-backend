@@ -74,12 +74,8 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
-	require.NoError(t, err)
 
 	// Create referenced transactions first
 	meta1, meta2 := "meta1", "meta2"
@@ -246,12 +242,8 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.AddressBytea(address1), types.AddressBytea(address2))
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -313,10 +305,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions (hash is BYTEA)
 	testHash1 := "0000000000000000000000000000000000000000000000000000000000000001"
@@ -562,10 +551,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -612,10 +598,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -771,10 +754,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -834,10 +814,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")

@@ -344,89 +344,6 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 	})
 }
 
-func TestIndexerBuffer_GetAllParticipants(t *testing.T) {
-	t.Run("🟢 returns empty for new buffer", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-		participants := indexerBuffer.GetAllParticipants()
-		assert.Empty(t, participants)
-	})
-
-	t.Run("🟢 collects participants from transactions", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-
-		indexerBuffer.PushTransaction("alice", tx1)
-		indexerBuffer.PushTransaction("bob", tx2)
-		indexerBuffer.PushTransaction("alice", tx2) // duplicate participant
-
-		participants := indexerBuffer.GetAllParticipants()
-		assert.ElementsMatch(t, []string{"alice", "bob"}, participants)
-	})
-
-	t.Run("🟢 collects participants from operations", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		op1 := types.Operation{ID: 1}
-		op2 := types.Operation{ID: 2}
-
-		indexerBuffer.PushOperation("alice", op1, tx)
-		indexerBuffer.PushOperation("bob", op2, tx)
-		indexerBuffer.PushOperation("charlie", op2, tx)
-
-		participants := indexerBuffer.GetAllParticipants()
-		assert.ElementsMatch(t, []string{"alice", "bob", "charlie"}, participants)
-	})
-
-	t.Run("🟢 collects participants from state changes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		op := types.Operation{ID: 1}
-
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob", OperationID: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie", OperationID: 0} // fee change
-
-		indexerBuffer.PushStateChange(tx, op, sc1)
-		indexerBuffer.PushStateChange(tx, op, sc2)
-		indexerBuffer.PushStateChange(tx, types.Operation{}, sc3)
-
-		participants := indexerBuffer.GetAllParticipants()
-		assert.ElementsMatch(t, []string{"alice", "bob", "charlie"}, participants)
-	})
-
-	t.Run("🟢 collects unique participants from all sources", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		op := types.Operation{ID: 1}
-		sc := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "dave", OperationID: 1}
-
-		// Add participants from different sources
-		indexerBuffer.PushTransaction("alice", tx)
-		indexerBuffer.PushOperation("bob", op, tx)
-		indexerBuffer.PushStateChange(tx, op, sc)
-
-		participants := indexerBuffer.GetAllParticipants()
-		// alice (tx), bob (op which also adds to tx), dave (state change which also adds to tx and op)
-		assert.ElementsMatch(t, []string{"alice", "bob", "dave"}, participants)
-	})
-
-	t.Run("🟢 ignores empty participants", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		indexerBuffer.PushTransaction("", tx) // empty participant
-		indexerBuffer.PushTransaction("alice", tx)
-
-		participants := indexerBuffer.GetAllParticipants()
-		assert.ElementsMatch(t, []string{"alice"}, participants)
-	})
-}
-
 func TestIndexerBuffer_Merge(t *testing.T) {
 	t.Run("🟢 merge empty buffers", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
@@ -647,25 +564,6 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		opParticipants := buffer1.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
-	})
-
-	t.Run("🟢 merge all participants", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-
-		buffer1.PushTransaction("alice", tx1)
-		buffer1.PushTransaction("bob", tx1)
-		buffer2.PushTransaction("charlie", tx2)
-		buffer2.PushTransaction("dave", tx2)
-
-		buffer1.Merge(buffer2)
-
-		// Verify all participants merged
-		allParticipants := buffer1.GetAllParticipants()
-		assert.ElementsMatch(t, []string{"alice", "bob", "charlie", "dave"}, allParticipants)
 	})
 }
 

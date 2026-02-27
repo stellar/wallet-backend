@@ -27,7 +27,6 @@ type IndexerBufferInterface interface {
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
 	GetTransactionsParticipants() map[int64]set.Set[string]
 	GetOperationsParticipants() map[int64]set.Set[string]
-	GetAllParticipants() []string
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction

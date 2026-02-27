@@ -53,7 +53,7 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 	require.NoError(t, err)
 	wantIDs := []string{
 		"2024-04-29.0-initial.sql",
-		"2024-04-29.1-accounts.sql",
+		"2024-05-22.0-ingest.sql",
 	}
 	assert.Equal(t, wantIDs, ids)
 

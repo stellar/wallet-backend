@@ -361,28 +361,6 @@ type StateChangeConnection struct {
 	PageInfo *PageInfo          `json:"pageInfo"`
 }
 
-// RegisterAccountInput is the input for registering an account
-type RegisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-// RegisterAccountPayload is the response for registering an account
-type RegisterAccountPayload struct {
-	Success bool     `json:"success"`
-	Account *Account `json:"account,omitempty"`
-}
-
-// DeregisterAccountInput is the input for deregistering an account
-type DeregisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-// DeregisterAccountPayload is the response for deregistering an account
-type DeregisterAccountPayload struct {
-	Success bool    `json:"success"`
-	Message *string `json:"message,omitempty"`
-}
-
 type BuildTransactionsRequest struct {
 	Transactions []Transaction `json:"transactions" validate:"required,gt=0"`
 }
