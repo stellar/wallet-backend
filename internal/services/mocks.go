@@ -201,7 +201,6 @@ func NewTokenProcessorMock(t interface {
 	return mock
 }
 
-
 // WasmIngestionServiceMock is a mock implementation of the WasmIngestionService interface
 type WasmIngestionServiceMock struct {
 	mock.Mock
@@ -364,37 +363,6 @@ func NewContractValidatorMock(t interface {
 },
 ) *ContractValidatorMock {
 	mock := &ContractValidatorMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// ProtocolValidatorMock is a mock implementation of the ProtocolValidator interface
-type ProtocolValidatorMock struct {
-	mock.Mock
-}
-
-var _ ProtocolValidator = (*ProtocolValidatorMock)(nil)
-
-func (m *ProtocolValidatorMock) ProtocolID() string {
-	args := m.Called()
-	return args.String(0)
-}
-
-func (m *ProtocolValidatorMock) Validate(ctx context.Context, wasmCode []byte) (bool, error) {
-	args := m.Called(ctx, wasmCode)
-	return args.Bool(0), args.Error(1)
-}
-
-// NewProtocolValidatorMock creates a new instance of ProtocolValidatorMock.
-func NewProtocolValidatorMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ProtocolValidatorMock {
-	mock := &ProtocolValidatorMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })
