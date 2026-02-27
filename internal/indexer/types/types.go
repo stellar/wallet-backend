@@ -735,6 +735,7 @@ func (sc StateChange) GetTransaction() *Transaction {
 // GetCursor returns the cursor for this state change.
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
+		LedgerCreatedAt:  sc.LedgerCreatedAt,
 		ToID:             sc.ToID,
 		OperationID:      sc.OperationID,
 		StateChangeOrder: sc.StateChangeOrder,

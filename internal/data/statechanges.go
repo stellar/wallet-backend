@@ -296,7 +296,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 		WHERE to_id = $1
 	`, columns))
@@ -308,6 +308,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
 		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
 			{Name: "to_id", Value: cursor.ToID},
 			{Name: "operation_id", Value: cursor.OperationID},
 			{Name: "state_change_order", Value: cursor.StateChangeOrder},
@@ -318,9 +319,9 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
@@ -331,10 +332,10 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -368,14 +369,14 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 			ranked_state_changes_per_to_id AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.to_id %s, sc.operation_id %s, sc.state_change_order %s) AS rn
+					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.ledger_created_at %s, sc.to_id %s, sc.operation_id %s, sc.state_change_order %s) AS rn
 				FROM
 					state_changes sc
 				JOIN
 					inputs i ON sc.to_id = i.to_id
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_to_id
-	`, sortOrder, sortOrder, sortOrder, columns))
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_to_id
+	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
 	}
@@ -385,7 +386,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -407,7 +408,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes
 		WHERE operation_id = $1
 	`, columns))
@@ -419,6 +420,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
 	if cursor != nil {
 		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
+			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
 			{Name: "to_id", Value: cursor.ToID},
 			{Name: "operation_id", Value: cursor.OperationID},
 			{Name: "state_change_order", Value: cursor.StateChangeOrder},
@@ -429,9 +431,9 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	}
 
 	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY to_id DESC, operation_id DESC, state_change_order DESC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY to_id ASC, operation_id ASC, state_change_order ASC")
+		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_order ASC")
 	}
 
 	if limit != nil && *limit > 0 {
@@ -442,10 +444,10 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
@@ -479,14 +481,14 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 			ranked_state_changes_per_operation_id AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.to_id %s, sc.operation_id %s, sc.state_change_order %s) AS rn
+					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.ledger_created_at %s, sc.to_id %s, sc.operation_id %s, sc.state_change_order %s) AS rn
 				FROM
 					state_changes sc
 				JOIN
 					inputs i ON sc.operation_id = i.operation_id
 			)
-		SELECT %s, to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
-	`, sortOrder, sortOrder, sortOrder, columns))
+		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
 	}
@@ -496,7 +498,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
