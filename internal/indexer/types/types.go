@@ -192,7 +192,9 @@ func (x XDRBytea) Value() (driver.Value, error) {
 	if len(x) == 0 {
 		return nil, nil
 	}
-	return []byte(x), nil
+	buf := make([]byte, len(x))
+	copy(buf, x)
+	return buf, nil
 }
 
 // String returns the XDR as a base64 string.
@@ -487,7 +489,6 @@ const (
 )
 
 // flagNameToBit maps flag names to their bitmask values.
-// Includes both correct spelling and legacy typo for backward compatibility.
 var flagNameToBit = map[string]int16{
 	"authorized":                         FlagBitAuthorized,
 	"auth_required":                      FlagBitAuthRequired,
@@ -540,7 +541,7 @@ func DecodeBitmaskToFlags(bitmask int16) []string {
 //
 // FIELD USAGE BY CATEGORY:
 // - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, DataName
+// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, SponsoredData
 // - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - Threshold changes: ThresholdOld, ThresholdNew
 // - Flag changes: Flags (bitmask)

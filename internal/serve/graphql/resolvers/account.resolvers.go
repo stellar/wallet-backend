@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vektah/gqlparser/v2/gqlerror"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // Address is the resolver for the address field.
@@ -112,6 +115,15 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	var reason *string
 	if filter != nil {
 		if filter.TransactionHash != nil {
+			if !utils.IsValidTransactionHash(*filter.TransactionHash) {
+				return nil, &gqlerror.Error{
+					Message: ErrMsgInvalidTransactionHash,
+					Extensions: map[string]interface{}{
+						"code": "INVALID_TRANSACTION_HASH",
+						"hash": *filter.TransactionHash,
+					},
+				}
+			}
 			txHash = filter.TransactionHash
 		}
 		if filter.OperationID != nil {

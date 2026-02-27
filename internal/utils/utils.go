@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"reflect"
@@ -73,6 +74,15 @@ func IsValidStellarAddress(address string) bool {
 	_, errAccount := strkey.Decode(strkey.VersionByteAccountID, address)
 	_, errContract := strkey.Decode(strkey.VersionByteContract, address)
 	return errAccount == nil || errContract == nil
+}
+
+// IsValidTransactionHash checks if the string is a valid 64-character hex-encoded transaction hash.
+func IsValidTransactionHash(hash string) bool {
+	if len(hash) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(hash)
+	return err == nil
 }
 
 // DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.

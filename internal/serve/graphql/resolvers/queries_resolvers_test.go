@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -55,10 +56,21 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 
 	t.Run("non-existent hash", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		tx, err := resolver.TransactionByHash(ctx, "non-existent-hash")
+		tx, err := resolver.TransactionByHash(ctx, "0000000000000000000000000000000000000000000000000000000000000000")
 
 		require.Error(t, err)
 		assert.Nil(t, tx)
+	})
+
+	t.Run("invalid hash format", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		tx, err := resolver.TransactionByHash(ctx, "not-a-valid-hash")
+
+		require.Error(t, err)
+		assert.Nil(t, tx)
+		var gqlErr *gqlerror.Error
+		require.ErrorAs(t, err, &gqlErr)
+		assert.Equal(t, ErrMsgInvalidTransactionHash, gqlErr.Message)
 	})
 
 	t.Run("empty hash", func(t *testing.T) {
