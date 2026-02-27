@@ -866,7 +866,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
-		cursor := &types.StateChangeCursor{ToID: 1, OperationID: 123, StateChangeOrder: 1}
+		cursor := &types.StateChangeCursor{LedgerCreatedAt: now, ToID: 1, OperationID: 123, StateChangeOrder: 1}
 		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)

@@ -118,6 +118,19 @@ func IsSorobanXDROp(opXDR xdr.Operation) bool {
 	return slices.Contains(SorobanOpTypes, opXDR.Body.Type)
 }
 
+// ResolveToGAddress resolves a Stellar address (G-address or M-address) to its underlying G-address.
+// For G-addresses, it returns the address unchanged. For M-addresses (SEP-23), it strips the memo ID.
+func ResolveToGAddress(address string) (string, error) {
+	if address == "" {
+		return "", nil
+	}
+	muxed, err := xdr.AddressToMuxedAccount(address)
+	if err != nil {
+		return "", fmt.Errorf("parsing address %q: %w", address, err)
+	}
+	return muxed.ToAccountId().Address(), nil
+}
+
 func IsSorobanTxnbuildOp(op txnbuild.Operation) bool {
 	switch op.(type) {
 	case *txnbuild.InvokeHostFunction,

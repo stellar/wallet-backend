@@ -40,15 +40,25 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 		log.Ctx(ctx).Infof("Set chunk interval %q on %s", chunkInterval, table)
 	}
 
+	// We first remove existing retention policy
+	for _, table := range hypertables {
+		if _, err := pool.ExecContext(ctx,
+			"SELECT remove_retention_policy($1::regclass, if_exists => true)",
+			table,
+		); err != nil {
+			return fmt.Errorf("removing retention policy on %s: %w", table, err)
+		}
+	}
+	// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
+	// Remove any existing job first (idempotent re-registration on every restart).
+	if _, err := pool.ExecContext(ctx,
+		"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
+	); err != nil {
+		return fmt.Errorf("removing existing reconciliation job: %w", err)
+	}
 	if retentionPeriod != "" {
+		// Add new retention period policy
 		for _, table := range hypertables {
-			if _, err := pool.ExecContext(ctx,
-				"SELECT remove_retention_policy($1::regclass, if_exists => true)",
-				table,
-			); err != nil {
-				return fmt.Errorf("removing retention policy on %s: %w", table, err)
-			}
-
 			if _, err := pool.ExecContext(ctx,
 				"SELECT add_retention_policy($1::regclass, drop_after => $2::interval)",
 				table, retentionPeriod,
@@ -56,14 +66,6 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 				return fmt.Errorf("adding retention policy on %s: %w", table, err)
 			}
 			log.Ctx(ctx).Infof("Set retention policy %q on %s", retentionPeriod, table)
-		}
-
-		// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
-		// Remove any existing job first (idempotent re-registration on every restart).
-		if _, err := pool.ExecContext(ctx,
-			"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
-		); err != nil {
-			return fmt.Errorf("removing existing reconciliation job: %w", err)
 		}
 
 		// Create or replace the PL/pgSQL function that advances the cursor.
@@ -86,14 +88,25 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 			return fmt.Errorf("creating reconcile_oldest_cursor function: %w", err)
 		}
 
-		// Schedule the reconciliation job with the same cadence as the chunk interval.
-		if _, err := pool.ExecContext(ctx,
-			"SELECT add_job('reconcile_oldest_cursor', $1::interval, config => $2::jsonb)",
-			chunkInterval, fmt.Sprintf(`{"cursor_name":"%s"}`, oldestCursorName),
+		// Schedule the reconciliation job to run every 1 hour.
+		//
+		// The job checks whether retention has dropped chunks and advances the
+		// oldest ledger cursor if so. It is idempotent — a no-op when the cursor
+		// is already correct — and the query is microsecond-cheap (reads oldest
+		// chunk metadata + 1 row from ingest_store). Running on a fixed 1-hour
+		// interval keeps the cursor at most 1 hour stale after retention fires,
+		// with no coordination required with the retention job schedule.
+		if _, err := pool.ExecContext(ctx, `
+			SELECT add_job(
+				'reconcile_oldest_cursor',
+				'1 hour',
+				fixed_schedule => true,
+				config => $1::jsonb)`,
+			fmt.Sprintf(`{"cursor_name":"%s"}`, oldestCursorName),
 		); err != nil {
 			return fmt.Errorf("scheduling reconciliation job: %w", err)
 		}
-		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job every %s for cursor %q", chunkInterval, oldestCursorName)
+		log.Ctx(ctx).Infof("Scheduled reconcile_oldest_cursor job (1h fixed interval) for cursor %q", oldestCursorName)
 	}
 
 	if compressionScheduleInterval != "" {
