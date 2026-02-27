@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -467,5 +468,77 @@ func TestProcessTokenChanges(t *testing.T) {
 		assert.NoError(t, err)
 		require.Len(t, contracts, 1)
 		assert.Equal(t, contractID, contracts[0].ContractID)
+	})
+}
+
+func TestTokenProcessor_ProcessContractCode(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("valid_sep41_contract", func(t *testing.T) {
+		contractValidatorMock := NewContractValidatorMock(t)
+		tp := &tokenProcessor{
+			contractValidator: contractValidatorMock,
+			data: checkpointData{
+				contractTypesByWasmHash: make(map[xdr.Hash]types.ContractType),
+			},
+		}
+
+		hash := xdr.Hash{1, 2, 3}
+		code := []byte{0xDE, 0xAD}
+		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code).
+			Return(types.ContractTypeSEP41, nil).Once()
+
+		err := tp.ProcessContractCode(ctx, hash, code)
+		require.NoError(t, err)
+		assert.Equal(t, types.ContractTypeSEP41, tp.data.contractTypesByWasmHash[hash])
+		assert.Equal(t, 1, tp.entries)
+	})
+
+	t.Run("validator_error_skips_entry", func(t *testing.T) {
+		contractValidatorMock := NewContractValidatorMock(t)
+		tp := &tokenProcessor{
+			contractValidator: contractValidatorMock,
+			data: checkpointData{
+				contractTypesByWasmHash: make(map[xdr.Hash]types.ContractType),
+			},
+		}
+
+		hash := xdr.Hash{4, 5, 6}
+		code := []byte{0xBA, 0xD0}
+		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code).
+			Return(types.ContractTypeUnknown, errors.New("invalid WASM")).Once()
+
+		err := tp.ProcessContractCode(ctx, hash, code)
+		require.NoError(t, err, "validator error should not propagate")
+		assert.Empty(t, tp.data.contractTypesByWasmHash, "no entry should be stored on error")
+		assert.Equal(t, 0, tp.entries, "entries counter should not be incremented")
+	})
+
+	t.Run("multiple_contract_codes", func(t *testing.T) {
+		contractValidatorMock := NewContractValidatorMock(t)
+		tp := &tokenProcessor{
+			contractValidator: contractValidatorMock,
+			data: checkpointData{
+				contractTypesByWasmHash: make(map[xdr.Hash]types.ContractType),
+			},
+		}
+
+		hash1 := xdr.Hash{10}
+		code1 := []byte{0x01}
+		hash2 := xdr.Hash{20}
+		code2 := []byte{0x02}
+
+		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code1).
+			Return(types.ContractTypeSEP41, nil).Once()
+		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code2).
+			Return(types.ContractTypeSEP41, nil).Once()
+
+		require.NoError(t, tp.ProcessContractCode(ctx, hash1, code1))
+		require.NoError(t, tp.ProcessContractCode(ctx, hash2, code2))
+
+		assert.Len(t, tp.data.contractTypesByWasmHash, 2)
+		assert.Equal(t, types.ContractTypeSEP41, tp.data.contractTypesByWasmHash[hash1])
+		assert.Equal(t, types.ContractTypeSEP41, tp.data.contractTypesByWasmHash[hash2])
+		assert.Equal(t, 2, tp.entries)
 	})
 }
