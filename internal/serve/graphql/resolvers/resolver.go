@@ -223,5 +223,16 @@ func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInp
 		simulationResult.TransactionData = txData
 	}
 
+	// Handle Results if provided — each result is a JSON-encoded string
+	// containing base64-encoded XDR auth entries and return value.
+	if len(simulationResultInput.Results) > 0 {
+		simulationResult.Results = make([]entities.RPCSimulateHostFunctionResult, len(simulationResultInput.Results))
+		for i, resultStr := range simulationResultInput.Results {
+			if err := json.Unmarshal([]byte(resultStr), &simulationResult.Results[i]); err != nil {
+				return entities.RPCSimulateTransactionResult{}, fmt.Errorf("unmarshalling simulation result at index %d: %w", i, err)
+			}
+		}
+	}
+
 	return simulationResult, nil
 }
