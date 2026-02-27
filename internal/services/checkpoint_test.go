@@ -58,7 +58,6 @@ func setupCheckpointTest(t *testing.T) (
 	*TokenProcessorMock,
 	*WasmIngestionServiceMock,
 	*ContractValidatorMock,
-	db.ConnectionPool,
 ) {
 	t.Helper()
 
@@ -85,7 +84,7 @@ func setupCheckpointTest(t *testing.T) (
 		},
 	}
 
-	return svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, dbPool
+	return svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_NilArchive(t *testing.T) {
@@ -123,7 +122,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ReaderCreationFails(t *testing
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock := setupCheckpointTest(t)
 
 	// Reader returns EOF immediately
 	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
@@ -150,7 +149,7 @@ func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) 
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock := setupCheckpointTest(t)
 
 	hash := xdr.Hash{1, 2, 3}
 	code := []byte{0xDE, 0xAD}
@@ -182,7 +181,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_NonContractCodeEntry(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock := setupCheckpointTest(t)
 
 	accountChange := makeAccountChange()
 
@@ -211,7 +210,7 @@ func TestCheckpointService_PopulateFromCheckpoint_NonContractCodeEntry(t *testin
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_MixedEntries(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock := setupCheckpointTest(t)
 
 	hash1 := xdr.Hash{1}
 	hash2 := xdr.Hash{2}
@@ -382,7 +381,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock, _ := setupCheckpointTest(t)
+			svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock := setupCheckpointTest(t)
 			initializeCursors := tt.setupMocks(readerMock, tokenIngestionServiceMock, tokenProcessorMock, wasmIngestionServiceMock, contractValidatorMock)
 
 			err := svc.PopulateFromCheckpoint(context.Background(), 100, initializeCursors)
@@ -393,7 +392,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_ContextCancellation(t *testing.T) {
-	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, _, contractValidatorMock, _ := setupCheckpointTest(t)
+	svc, readerMock, tokenIngestionServiceMock, tokenProcessorMock, _, contractValidatorMock := setupCheckpointTest(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

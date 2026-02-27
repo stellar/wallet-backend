@@ -199,7 +199,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackendFactory:       ledgerBackendFactory,
 		ChannelAccountStore:        chAccStore,
 		TokenIngestionService:      tokenIngestionService,
-		CheckpointService:         checkpointService,
+		CheckpointService:          checkpointService,
 		ContractMetadataService:    contractMetadataService,
 		MetricsService:             metricsService,
 		GetLedgersLimit:            cfg.GetLedgersLimit,

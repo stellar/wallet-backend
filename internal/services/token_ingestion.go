@@ -350,7 +350,7 @@ func (p *tokenProcessor) ProcessEntry(ctx context.Context, change ingest.Change)
 func (p *tokenProcessor) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
 	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
 	if err != nil {
-		return nil // Skip invalid entries
+		return nil //nolint:nilerr // intentionally skip invalid entries
 	}
 	p.data.contractTypesByWasmHash[wasmHash] = contractType
 	p.entries++
@@ -693,7 +693,6 @@ func (s *tokenIngestionService) processContractInstanceChange(
 
 	return nil, nil, false, true
 }
-
 
 // fetchSep41Metadata validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
 func (s *tokenIngestionService) fetchSep41Metadata(
