@@ -18,7 +18,7 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 	hash := xdr.Hash{1, 2, 3}
 	code := []byte{0xDE, 0xAD}
 
-	t.Run("no_validators_tracks_hash", func(t *testing.T) {
+	t.Run("tracks_hash", func(t *testing.T) {
 		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
 		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
 
@@ -27,67 +27,6 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 
 		_, tracked := svc.wasmHashes[hash]
 		assert.True(t, tracked, "hash should be tracked")
-	})
-
-	t.Run("validator_match", func(t *testing.T) {
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(true, nil).Once()
-		validatorMock.On("ProtocolID").Return("test-protocol").Once()
-
-		svc := NewWasmIngestionService(protocolWasmModelMock, validatorMock).(*wasmIngestionService)
-
-		err := svc.ProcessContractCode(ctx, hash, code)
-		require.NoError(t, err)
-
-		_, tracked := svc.wasmHashes[hash]
-		assert.True(t, tracked)
-	})
-
-	t.Run("validator_no_match", func(t *testing.T) {
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(false, nil).Once()
-
-		svc := NewWasmIngestionService(protocolWasmModelMock, validatorMock).(*wasmIngestionService)
-
-		err := svc.ProcessContractCode(ctx, hash, code)
-		require.NoError(t, err)
-
-		_, tracked := svc.wasmHashes[hash]
-		assert.True(t, tracked, "hash should still be tracked even without match")
-	})
-
-	t.Run("validator_error_continues", func(t *testing.T) {
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(false, errors.New("validation failed")).Once()
-		validatorMock.On("ProtocolID").Return("test-protocol").Once()
-
-		svc := NewWasmIngestionService(protocolWasmModelMock, validatorMock).(*wasmIngestionService)
-
-		err := svc.ProcessContractCode(ctx, hash, code)
-		require.NoError(t, err, "validator error should not propagate")
-
-		_, tracked := svc.wasmHashes[hash]
-		assert.True(t, tracked, "hash should still be tracked despite validator error")
-	})
-
-	t.Run("multiple_validators_all_run", func(t *testing.T) {
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		v1 := NewProtocolValidatorMock(t)
-		v1.On("Validate", mock.Anything, code).Return(true, nil).Once()
-		v1.On("ProtocolID").Return("protocol-1").Once()
-
-		v2 := NewProtocolValidatorMock(t)
-		v2.On("Validate", mock.Anything, code).Return(true, nil).Once()
-		v2.On("ProtocolID").Return("protocol-2").Once()
-
-		svc := NewWasmIngestionService(protocolWasmModelMock, v1, v2).(*wasmIngestionService)
-
-		err := svc.ProcessContractCode(ctx, hash, code)
-		require.NoError(t, err)
-		// Both validator expectations are asserted via t.Cleanup
 	})
 
 	t.Run("duplicate_hash_deduplicated", func(t *testing.T) {
