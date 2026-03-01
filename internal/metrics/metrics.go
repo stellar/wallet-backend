@@ -374,9 +374,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 }
 
 func (m *metricsService) registerMetrics() {
-	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
-	m.registry.MustRegister(
-		collector,
+	collectors := []prometheus.Collector{
 		m.latestLedgerIngested,
 		m.oldestLedgerIngested,
 		m.ingestionDuration,
@@ -410,7 +408,13 @@ func (m *metricsService) registerMetrics() {
 		m.graphqlFieldsTotal,
 		m.graphqlComplexity,
 		m.graphqlErrorsTotal,
-	)
+	}
+
+	if m.db != nil {
+		collectors = append(collectors, sqlstats.NewStatsCollector("wallet-backend-db", m.db))
+	}
+
+	m.registry.MustRegister(collectors...)
 }
 
 // RegisterPool registers a worker pool for metrics collection

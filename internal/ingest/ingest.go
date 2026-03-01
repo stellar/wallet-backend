@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -118,30 +119,24 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	var dbConnectionPool db.ConnectionPool
 	var err error
+	var sqlxDB *sqlx.DB
 	switch cfg.IngestionMode {
-	// Use optimized connection pool for backfill mode with async commit and increased work_mem
+	// Use pgx-only connection pool for backfill mode (async commit, FK checks disabled via AfterConnect)
 	case services.IngestionModeBackfill:
-		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
+		dbConnectionPool, err = db.OpenBackfillPgxPool(ctx, cfg.DatabaseURL, db.BackfillMaxPgxConns)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
 		}
-
-		// Disable FK constraint checking for faster inserts (requires elevated privileges)
-		if fkErr := db.ConfigureBackfillSession(ctx, dbConnectionPool); fkErr != nil {
-			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
-			// Continue anyway - other optimizations (async commit, work_mem) still apply
-		} else {
-			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
-		}
+		log.Ctx(ctx).Infof("Backfill pool opened: %d max pgx conns, async commit, FK checks disabled", db.BackfillMaxPgxConns)
 	default:
 		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database: %w", err)
 		}
-	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting sqlx db: %w", err)
+		sqlxDB, err = dbConnectionPool.SqlxDB(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("getting sqlx db: %w", err)
+		}
 	}
 
 	if cfg.IngestionMode == services.IngestionModeLive {
@@ -150,6 +145,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		}
 	}
 
+	// sqlxDB is nil in backfill mode — NewMetricsService and registerMetrics handle nil gracefully
 	metricsService := metrics.NewMetricsService(sqlxDB)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {

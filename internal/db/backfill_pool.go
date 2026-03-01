@@ -1,0 +1,143 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jmoiron/sqlx"
+)
+
+// BackfillMaxPgxConns is the maximum number of pgx connections for the backfill pool.
+// This replaces the dual-pool setup (~38 conns) with a single pgx pool (15 conns).
+const BackfillMaxPgxConns int32 = 15
+
+// BackfillConnectionPool is a pgx-only ConnectionPool implementation for backfill mode.
+// It eliminates the sqlx pool entirely since backfill only needs pgx for its hot path
+// (COPY inserts, cursor updates, compression). The sqlx methods are stubbed out and
+// will return errors if called unexpectedly.
+// Must be created with OpenBackfillPgxPool — zero value is not usable.
+type BackfillConnectionPool struct {
+	pool *pgxpool.Pool
+}
+
+// Compile-time check that BackfillConnectionPool implements ConnectionPool.
+var _ ConnectionPool = (*BackfillConnectionPool)(nil)
+
+// OpenBackfillPgxPool creates a pgx-only connection pool optimized for backfill ingestion.
+// It appends synchronous_commit=off to the DSN and configures each connection with
+// session_replication_role='replica' to disable FK constraint checking.
+func OpenBackfillPgxPool(ctx context.Context, dataSourceName string, maxConns int32) (ConnectionPool, error) {
+	// Append synchronous_commit=off for faster writes (same as the old backfill pool)
+	backfillParams := "options=-c%20synchronous_commit%3Doff"
+	separator := "?"
+	if strings.Contains(dataSourceName, "?") {
+		separator = "&"
+	}
+	backfillDSN := dataSourceName + separator + backfillParams
+
+	config, err := pgxpool.ParseConfig(backfillDSN)
+	if err != nil {
+		return nil, fmt.Errorf("parsing backfill pgx pool config: %w", err)
+	}
+	config.MaxConns = maxConns
+
+	// Set session_replication_role on every connection, fixing the bug where
+	// the old code set it on sqlx but all inserts went through pgx.
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET session_replication_role = 'replica'")
+		if err != nil {
+			return fmt.Errorf("setting session_replication_role: %w", err)
+		}
+		return nil
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("creating backfill pgx pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("pinging backfill pgx pool: %w", err)
+	}
+
+	return &BackfillConnectionPool{pool: pool}, nil
+}
+
+// PgxPool returns the underlying pgx connection pool.
+func (b *BackfillConnectionPool) PgxPool() *pgxpool.Pool {
+	return b.pool
+}
+
+// Close closes the pgx pool.
+func (b *BackfillConnectionPool) Close() error {
+	b.pool.Close()
+	return nil
+}
+
+// Ping checks pool connectivity.
+func (b *BackfillConnectionPool) Ping(ctx context.Context) error {
+	//nolint:wrapcheck // thin wrapper
+	return b.pool.Ping(ctx)
+}
+
+// --- Stubbed sqlx methods (never called in backfill path) ---
+
+var errNoSqlx = errors.New("BackfillConnectionPool: sqlx not available in backfill mode")
+
+func (b *BackfillConnectionPool) DriverName() string { return "pgx" }
+
+func (b *BackfillConnectionPool) ExecContext(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) NamedExecContext(_ context.Context, _ string, _ interface{}) (sql.Result, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) GetContext(_ context.Context, _ interface{}, _ string, _ ...interface{}) error {
+	return errNoSqlx
+}
+
+func (b *BackfillConnectionPool) SelectContext(_ context.Context, _ interface{}, _ string, _ ...interface{}) error {
+	return errNoSqlx
+}
+
+func (b *BackfillConnectionPool) Rebind(query string) string { return query }
+
+func (b *BackfillConnectionPool) PrepareContext(_ context.Context, _ string) (*sql.Stmt, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) QueryContext(_ context.Context, _ string, _ ...interface{}) (*sql.Rows, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) QueryRowContext(_ context.Context, _ string, _ ...interface{}) *sql.Row {
+	return nil // caller must handle nil
+}
+
+func (b *BackfillConnectionPool) QueryxContext(_ context.Context, _ string, _ ...interface{}) (*sqlx.Rows, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) QueryRowxContext(_ context.Context, _ string, _ ...interface{}) *sqlx.Row {
+	return nil // caller must handle nil
+}
+
+func (b *BackfillConnectionPool) BeginTxx(_ context.Context, _ *sql.TxOptions) (Transaction, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) SqlDB(_ context.Context) (*sql.DB, error) {
+	return nil, errNoSqlx
+}
+
+func (b *BackfillConnectionPool) SqlxDB(_ context.Context) (*sqlx.DB, error) {
+	return nil, errNoSqlx
+}
