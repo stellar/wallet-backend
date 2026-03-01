@@ -68,7 +68,7 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 		WHERE asb.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	rows, err := m.DB.Pool().Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)

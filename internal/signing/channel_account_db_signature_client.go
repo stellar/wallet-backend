@@ -105,7 +105,7 @@ func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Conte
 		return nil, fmt.Errorf("no accounts provided")
 	}
 
-	channelAccounts, err := sc.channelAccountStore.GetAllByPublicKey(ctx, sc.dbConnectionPool, stellarAccounts...)
+	channelAccounts, err := sc.channelAccountStore.GetAllByPublicKey(ctx, stellarAccounts...)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel accounts %v: %w", stellarAccounts, err)
 	}

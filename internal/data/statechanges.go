@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -102,9 +101,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "state_changes", duration)
 	if err != nil {
@@ -161,9 +159,8 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
@@ -338,9 +335,8 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "state_changes", duration)
 	if err != nil {
@@ -389,9 +385,8 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(toIDs))
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "state_changes", len(toIDs))
@@ -450,9 +445,8 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationID", "state_changes", duration)
 	if err != nil {
@@ -501,9 +495,8 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
+	stateChanges, err := db.QueryAll[types.StateChangeWithCursor](ctx, m.DB.Pool(), query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "state_changes", len(operationIDs))

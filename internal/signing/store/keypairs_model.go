@@ -2,11 +2,11 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/stellar/wallet-backend/internal/db"
 )
@@ -26,10 +26,10 @@ func (k *KeypairModel) Insert(ctx context.Context, publicKey string, encryptedPr
 	const query = `
 		INSERT INTO keypairs (public_key, encrypted_private_key) VALUES ($1, $2)
 	`
-	_, err := k.DB.ExecContext(ctx, query, publicKey, encryptedPrivateKey)
+	_, err := k.DB.Pool().Exec(ctx, query, publicKey, encryptedPrivateKey)
 	if err != nil {
-		var pqError *pq.Error
-		if ok := errors.As(err, &pqError); ok && pqError.Constraint == "keypairs_pkey" {
+		var pgErr *pgconn.PgError
+		if ok := errors.As(err, &pgErr); ok && pgErr.ConstraintName == "keypairs_pkey" {
 			return ErrPublicKeyAlreadyExists
 		}
 		return fmt.Errorf("inserting keypair for public key %s: %w", publicKey, err)
@@ -50,16 +50,15 @@ func (k *KeypairModel) GetByPublicKey(ctx context.Context, publicKey string) (*K
 		WHERE
 			public_key = $1
 	`
-	var kp Keypair
-	err := k.DB.GetContext(ctx, &kp, query, publicKey)
+	kp, err := db.QueryOne[Keypair](ctx, k.DB.Pool(), query, publicKey)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrKeypairNotFound
 		}
 		return nil, fmt.Errorf("getting keypair for public key %s: %w", publicKey, err)
 	}
 
-	return &kp, nil
+	return kp, nil
 }
 
 func NewKeypairModel(dbConnectionPool db.ConnectionPool) *KeypairModel {

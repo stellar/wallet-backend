@@ -362,8 +362,8 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 
 			// Get backend's latest ledger from database
 			var backendLatestLedger uint32
-			err = dbConnectionPool.GetContext(ctx, &backendLatestLedger,
-				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName)
+			err = dbConnectionPool.Pool().QueryRow(ctx,
+				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName).Scan(&backendLatestLedger)
 			if err != nil {
 				log.Ctx(ctx).Warnf("Failed to get backend latest ledger: %v", err)
 				continue
@@ -560,14 +560,9 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection pool: %w", err)
 	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sqlx db: %w", err)
-	}
-
 	// Initialize RPC service
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService(dbConnectionPool.Pool())
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)

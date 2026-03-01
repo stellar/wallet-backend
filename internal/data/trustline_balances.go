@@ -63,7 +63,7 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 		WHERE atb.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	rows, err := m.DB.Pool().Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "trustline_balances", "query_error")
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)

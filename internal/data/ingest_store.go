@@ -27,7 +27,7 @@ type IngestStoreModel struct {
 func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, error) {
 	start := time.Now()
 	var valueStr string
-	err := m.DB.PgxPool().QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&valueStr)
+	err := m.DB.Pool().QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&valueStr)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Get", "ingest_store", duration)
 	// First run, key does not exist yet
@@ -90,7 +90,7 @@ func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, er
 		ORDER BY gap_start
 	`
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query)
+	rows, err := m.DB.Pool().Query(ctx, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetLedgerGaps", "transactions", duration)
 	if err != nil {
@@ -120,7 +120,7 @@ func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, er
 func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) {
 	var oldest uint32
 	start := time.Now()
-	err := m.DB.PgxPool().QueryRow(ctx,
+	err := m.DB.Pool().QueryRow(ctx,
 		`SELECT ledger_number FROM transactions ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1`).Scan(&oldest)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetOldestLedger", "transactions", duration)

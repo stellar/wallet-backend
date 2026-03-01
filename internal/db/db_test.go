@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/support/db/dbtest"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,8 +15,6 @@ func TestOpenDBConnectionPool(t *testing.T) {
 	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	assert.Equal(t, "postgres", dbConnectionPool.DriverName())
 
 	ctx := context.Background()
 	err = dbConnectionPool.Ping(ctx)

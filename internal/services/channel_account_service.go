@@ -11,6 +11,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -140,7 +142,7 @@ func (s *channelAccountService) createChannelAccounts(ctx context.Context, amoun
 	}
 	log.Ctx(ctx).Infof("🎉 Successfully created %d channel account(s) on chain", amount)
 
-	if err = s.ChannelAccountStore.BatchInsert(ctx, s.DB, channelAccountsToInsert); err != nil {
+	if err = s.ChannelAccountStore.BatchInsert(ctx, channelAccountsToInsert); err != nil {
 		return fmt.Errorf("inserting channel account(s): %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ Successfully stored %d channel account(s) into the store", amount)
@@ -167,9 +169,9 @@ func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Conte
 // deleteChannelAccounts deletes channel accounts in a single transaction. The maximum amount of channel accounts that
 // can be deleted in a single transaction is MaximumCreateAccountOperationsPerStellarTx (19), due to payload size limit.
 func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAccountsToDelete int) error {
-	dbTxErr := db.RunInTransaction(ctx, s.DB, nil, func(dbTx db.Transaction) error {
+	dbTxErr := db.RunInPgxTransaction(ctx, s.DB, func(pgxTx pgx.Tx) error {
 		// Get a channel account to delete
-		chAccounts, err := s.ChannelAccountStore.GetAll(ctx, dbTx, numAccountsToDelete)
+		chAccounts, err := s.ChannelAccountStore.GetAllInTx(ctx, pgxTx, numAccountsToDelete)
 		if err != nil {
 			return fmt.Errorf("retrieving channel account to delete: %w", err)
 		}
@@ -213,7 +215,7 @@ func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAc
 				return fmt.Errorf("submitting delete account transaction: %w", err)
 			}
 
-			if _, err = s.ChannelAccountStore.Delete(ctx, dbTx, publicKeys...); err != nil {
+			if _, err = s.ChannelAccountStore.DeleteInTx(ctx, pgxTx, publicKeys...); err != nil {
 				return fmt.Errorf("deleting channel accounts from database: %w", err)
 			}
 			log.Ctx(ctx).Infof("✅ Successfully deleted channel accounts from the database %v", publicKeys)

@@ -45,7 +45,7 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		WHERE ac.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	rows, err := m.DB.Pool().Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "account_contract_tokens", "query_error")
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)

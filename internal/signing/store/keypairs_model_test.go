@@ -15,12 +15,12 @@ import (
 func createKeypairFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, kp Keypair) {
 	t.Helper()
 	const q = `
-		INSERT INTO 
+		INSERT INTO
 			keypairs (public_key, encrypted_private_key)
 		VALUES
-			(:public_key, :encrypted_private_key)
+			($1, $2)
 	`
-	_, err := dbConnectionPool.NamedExecContext(ctx, q, kp)
+	_, err := dbConnectionPool.Pool().Exec(ctx, q, kp.PublicKey, kp.EncryptedPrivateKey)
 	require.NoError(t, err)
 }
 

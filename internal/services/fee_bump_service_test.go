@@ -80,7 +80,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Pool().Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -115,7 +115,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Pool().Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -151,7 +151,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Pool().Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		destinationAccount := keypair.MustRandom().Address()

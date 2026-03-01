@@ -6,8 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
-
-	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type ChannelAccountStoreMock struct {
@@ -24,16 +22,16 @@ func (s *ChannelAccountStoreMock) GetAndLockIdleChannelAccount(ctx context.Conte
 	return args.Get(0).(*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error) {
-	args := s.Called(ctx, sqlExec, publicKey)
+func (s *ChannelAccountStoreMock) Get(ctx context.Context, publicKey string) (*ChannelAccount, error) {
+	args := s.Called(ctx, publicKey)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error) {
-	args := s.Called(ctx, sqlExec, publicKeys)
+func (s *ChannelAccountStoreMock) GetAllByPublicKey(ctx context.Context, publicKeys ...string) ([]*ChannelAccount, error) {
+	args := s.Called(ctx, publicKeys)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -54,21 +52,21 @@ func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {
-	args := s.Called(ctx, sqlExec, channelAccounts)
+func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, channelAccounts []*ChannelAccount) error {
+	args := s.Called(ctx, channelAccounts)
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error) {
-	args := s.Called(ctx, sqlExec, limit)
+func (s *ChannelAccountStoreMock) GetAllInTx(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
+	args := s.Called(ctx, pgxTx, limit)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
-	args := s.Called(ctx, sqlExec, publicKeys)
+func (s *ChannelAccountStoreMock) DeleteInTx(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error) {
+	args := s.Called(ctx, pgxTx, publicKeys)
 	return args.Get(0).(int64), args.Error(1)
 }
 

@@ -29,12 +29,12 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify chunk interval was updated for all hypertables
 		for _, table := range hypertables {
 			var intervalSecs float64
-			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT EXTRACT(EPOCH FROM d.time_interval)
 				 FROM timescaledb_information.dimensions d
 				 WHERE d.hypertable_name = $1 AND d.column_name = 'ledger_created_at'`,
 				table,
-			)
+			).Scan(&intervalSecs)
 			require.NoError(t, err, "querying dimensions for %s", table)
 			// 7 days in seconds = 7 * 24 * 60 * 60
 			assert.Equal(t, float64(7*24*60*60), intervalSecs, "chunk interval for %s", table)
@@ -56,13 +56,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify retention policy was created for all hypertables
 		for _, table := range hypertables {
 			var count int
-			err := dbConnectionPool.GetContext(ctx, &count,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT COUNT(*)
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_retention'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&count)
 			require.NoError(t, err, "querying retention policy for %s", table)
 			assert.Equal(t, 1, count, "expected exactly 1 retention policy for %s", table)
 		}
@@ -82,11 +82,11 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Verify no retention policies were created
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT COUNT(*)
 			 FROM timescaledb_information.jobs
 			 WHERE proc_name = 'policy_retention'`,
-		)
+		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 0, count, "expected no retention policies when retention period is empty")
 	})
@@ -110,13 +110,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify exactly 1 retention policy per table (not duplicated)
 		for _, table := range hypertables {
 			var count int
-			err := dbConnectionPool.GetContext(ctx, &count,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT COUNT(*)
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_retention'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&count)
 			require.NoError(t, err, "querying retention policy for %s", table)
 			assert.Equal(t, 1, count, "expected exactly 1 retention policy for %s after re-application", table)
 		}
@@ -136,11 +136,11 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Verify reconciliation job was created
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT COUNT(*)
 			 FROM timescaledb_information.jobs
 			 WHERE proc_name = 'reconcile_oldest_cursor'`,
-		)
+		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job")
 	})
@@ -163,11 +163,11 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Verify exactly 1 reconciliation job (not duplicated)
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT COUNT(*)
 			 FROM timescaledb_information.jobs
 			 WHERE proc_name = 'reconcile_oldest_cursor'`,
-		)
+		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job after re-application")
 	})
@@ -186,11 +186,11 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Verify no reconciliation job was created
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT COUNT(*)
 			 FROM timescaledb_information.jobs
 			 WHERE proc_name = 'reconcile_oldest_cursor'`,
-		)
+		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 0, count, "expected no reconciliation job when retention is disabled")
 	})
@@ -240,13 +240,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify schedule_interval was updated for all compression policy jobs
 		for _, table := range hypertables {
 			var intervalSecs float64
-			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&intervalSecs)
 			require.NoError(t, err, "querying compression schedule for %s", table)
 			// 4 hours in seconds = 4 * 60 * 60
 			assert.Equal(t, float64(4*60*60), intervalSecs, "compression schedule interval for %s", table)
@@ -270,13 +270,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify compress_after was updated in the config JSONB for all compression policy jobs
 		for _, table := range hypertables {
 			var compressAfter string
-			err := dbConnectionPool.GetContext(ctx, &compressAfter,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&compressAfter)
 			require.NoError(t, err, "querying compress_after for %s", table)
 			assert.Equal(t, "12 hours", compressAfter, "compress_after for %s", table)
 		}
@@ -296,13 +296,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		defaultValues := make(map[string]string)
 		for _, table := range hypertables {
 			var compressAfter string
-			err := dbConnectionPool.GetContext(ctx, &compressAfter,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&compressAfter)
 			require.NoError(t, err, "querying default compress_after for %s", table)
 			defaultValues[table] = compressAfter
 		}
@@ -314,13 +314,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify compress_after was NOT changed
 		for _, table := range hypertables {
 			var compressAfter string
-			err := dbConnectionPool.GetContext(ctx, &compressAfter,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&compressAfter)
 			require.NoError(t, err, "querying compress_after for %s", table)
 			assert.Equal(t, defaultValues[table], compressAfter, "compress_after should remain unchanged for %s", table)
 		}
@@ -340,13 +340,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		defaultIntervals := make(map[string]float64)
 		for _, table := range hypertables {
 			var intervalSecs float64
-			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&intervalSecs)
 			require.NoError(t, err, "querying default compression schedule for %s", table)
 			defaultIntervals[table] = intervalSecs
 		}
@@ -358,13 +358,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify schedule_interval was NOT changed
 		for _, table := range hypertables {
 			var intervalSecs float64
-			err := dbConnectionPool.GetContext(ctx, &intervalSecs,
+			err := dbConnectionPool.Pool().QueryRow(ctx,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&intervalSecs)
 			require.NoError(t, err, "querying compression schedule for %s", table)
 			assert.Equal(t, defaultIntervals[table], intervalSecs, "compression schedule interval should remain unchanged for %s", table)
 		}
@@ -384,17 +384,17 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Reconciliation runs every 1 hour, independent of the retention schedule.
 		var reconScheduleSecs float64
-		err = dbConnectionPool.GetContext(ctx, &reconScheduleSecs,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 			 FROM timescaledb_information.jobs j
-			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`).Scan(&reconScheduleSecs)
 		require.NoError(t, err)
 
 		var reconFixedSchedule bool
-		err = dbConnectionPool.GetContext(ctx, &reconFixedSchedule,
+		err = dbConnectionPool.Pool().QueryRow(ctx,
 			`SELECT j.fixed_schedule
 			 FROM timescaledb_information.jobs j
-			 WHERE j.proc_name = 'reconcile_oldest_cursor'`)
+			 WHERE j.proc_name = 'reconcile_oldest_cursor'`).Scan(&reconFixedSchedule)
 		require.NoError(t, err)
 
 		assert.Equal(t, float64(3600), reconScheduleSecs,

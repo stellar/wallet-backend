@@ -5,33 +5,18 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3" // SQLite driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestDB(t *testing.T) *sqlx.DB {
-	// For testing, we can use a mock DB or sqlite in-memory
-	db, err := sqlx.Connect("sqlite3", ":memory:")
-	require.NoError(t, err)
-	return db
-}
-
 func TestNewMetricsService(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 	assert.NotNil(t, ms)
 	assert.NotNil(t, ms.GetRegistry())
 }
 
 func TestIngestMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("latest ledger metrics", func(t *testing.T) {
 		ms.SetLatestLedgerIngested(1234)
@@ -67,10 +52,7 @@ func TestIngestMetrics(t *testing.T) {
 }
 
 func TestRPCMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("RPC request metrics", func(t *testing.T) {
 		endpoint := "test_endpoint"
@@ -148,10 +130,7 @@ func TestRPCMetrics(t *testing.T) {
 }
 
 func TestHTTPMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 	endpoint := "/api/v1/test"
 	method := "POST"
 	statusCode := 200
@@ -199,10 +178,7 @@ func TestHTTPMetrics(t *testing.T) {
 }
 
 func TestDBMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 	queryType := "SELECT"
 	table := "accounts"
 
@@ -248,10 +224,7 @@ func TestDBMetrics(t *testing.T) {
 }
 
 func TestDBErrorMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 	queryType := "SELECT"
 	table := "accounts"
 	errorType := "no_rows"
@@ -282,10 +255,7 @@ func TestDBErrorMetrics(t *testing.T) {
 }
 
 func TestDBTransactionMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("transaction commit metrics", func(t *testing.T) {
 		ms.IncDBTransaction("commit")
@@ -355,10 +325,7 @@ func TestDBTransactionMetrics(t *testing.T) {
 }
 
 func TestDBBatchSizeMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("batch insert size tracking", func(t *testing.T) {
 		operation := "INSERT"
@@ -430,10 +397,7 @@ func TestDBBatchSizeMetrics(t *testing.T) {
 }
 
 func TestIngestionPhaseMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("ingestion phase duration metrics", func(t *testing.T) {
 		// Record durations for different phases
@@ -578,9 +542,7 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 
 func TestPoolMetrics(t *testing.T) {
 	t.Run("worker pool metrics - success case", func(t *testing.T) {
-		db := setupTestDB(t)
-		defer db.Close()
-		ms := NewMetricsService(db)
+		ms := NewMetricsService(nil)
 		channel := "test_channel"
 		pool := pond.NewPool(5)
 
@@ -641,9 +603,7 @@ func TestPoolMetrics(t *testing.T) {
 	})
 
 	t.Run("worker pool metrics - with failures", func(t *testing.T) {
-		db := setupTestDB(t)
-		defer db.Close()
-		ms := NewMetricsService(db)
+		ms := NewMetricsService(nil)
 
 		channel := "test_channel_failures"
 		pool := pond.NewPool(2)
@@ -698,10 +658,7 @@ func TestPoolMetrics(t *testing.T) {
 }
 
 func TestRPCMethodMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("RPC method calls counter", func(t *testing.T) {
 		method := "GetTransaction"
@@ -833,7 +790,7 @@ func TestRPCMethodMetrics(t *testing.T) {
 
 	t.Run("Multiple methods tracked independently", func(t *testing.T) {
 		// Create a new metrics service to avoid interference from previous tests
-		msNew := NewMetricsService(db)
+		msNew := NewMetricsService(nil)
 		methods := []string{"GetHealth", "GetLedgerEntries", "GetAccountLedgerSequence"}
 
 		for i, method := range methods {
@@ -871,10 +828,7 @@ func TestRPCMethodMetrics(t *testing.T) {
 }
 
 func TestStateChangeMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService(nil)
 
 	t.Run("State change processing duration", func(t *testing.T) {
 		processor := "TokenTransferProcessor"
@@ -952,7 +906,7 @@ func TestStateChangeMetrics(t *testing.T) {
 	})
 
 	t.Run("All state change types and categories tracked independently", func(t *testing.T) {
-		msNew := NewMetricsService(db)
+		msNew := NewMetricsService(nil)
 
 		testCases := []struct {
 			scType   string

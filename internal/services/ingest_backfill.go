@@ -183,7 +183,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			"transactions", "transactions_accounts", "operations",
 			"operations_accounts", "state_changes",
 		}
-		recompressor = newProgressiveRecompressor(ctx, m.models.DB.PgxPool(), tables, len(backfillBatches))
+		recompressor = newProgressiveRecompressor(ctx, m.models.DB.Pool(), tables, len(backfillBatches))
 	}
 
 	startTime := time.Now()

@@ -56,7 +56,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 		WHERE account_address = $1`
 
 	start := time.Now()
-	row := m.DB.PgxPool().QueryRow(ctx, query, accountAddress)
+	row := m.DB.Pool().QueryRow(ctx, query, accountAddress)
 
 	var nb NativeBalance
 	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)

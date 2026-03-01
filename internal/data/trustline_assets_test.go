@@ -32,7 +32,7 @@ func TestDeterministicAssetID(t *testing.T) {
 // Helper function to verify asset exists in database
 func verifyAssetExists(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, id uuid.UUID, expectedCode, expectedIssuer string) {
 	var code, issuer string
-	err := dbPool.PgxPool().QueryRow(ctx, `SELECT code, issuer FROM trustline_assets WHERE id = $1`, id).Scan(&code, &issuer)
+	err := dbPool.Pool().QueryRow(ctx, `SELECT code, issuer FROM trustline_assets WHERE id = $1`, id).Scan(&code, &issuer)
 	require.NoError(t, err)
 	require.Equal(t, expectedCode, code)
 	require.Equal(t, expectedIssuer, issuer)
@@ -41,7 +41,7 @@ func verifyAssetExists(t *testing.T, ctx context.Context, dbPool db.ConnectionPo
 // Helper function to count assets by IDs
 func countAssets(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, ids []uuid.UUID) int {
 	var count int
-	err := dbPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_assets WHERE id = ANY($1)`, ids).Scan(&count)
+	err := dbPool.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_assets WHERE id = ANY($1)`, ids).Scan(&count)
 	require.NoError(t, err)
 	return count
 }
@@ -56,7 +56,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -69,7 +69,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -89,7 +89,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 
 		expectedID := DeterministicAssetID("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
@@ -119,7 +119,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 
 		id1 := DeterministicAssetID("USDC", "ISSUER1")
@@ -166,14 +166,14 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 		err = m.BatchInsert(ctx, pgxTx1, assets)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Second insert - should succeed with ON CONFLICT DO NOTHING
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 		err = m.BatchInsert(ctx, pgxTx2, assets)
 		require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 			{ID: id2, Code: "USDC", Issuer: "ISSUER2"},
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Pool().Begin(ctx)
 		require.NoError(t, err)
 		err = m.BatchInsert(ctx, pgxTx, assets)
 		require.NoError(t, err)

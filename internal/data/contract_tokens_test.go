@@ -26,7 +26,7 @@ func TestContractModel_GetExisting(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -165,7 +165,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -249,9 +249,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify contracts were inserted using direct SQL
-		var contract1 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
+		contract1Ptr, err := db.QueryOne[Contract](ctx, dbConnectionPool.Pool(), `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
+		contract1 := *contract1Ptr
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
 		require.Equal(t, "GTEST123", *contract1.Issuer)
@@ -259,14 +259,14 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "TST1", *contract1.Symbol)
 		require.Equal(t, uint32(7), contract1.Decimals)
 
-		var contract2 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract2, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
+		contract2Ptr, err := db.QueryOne[Contract](ctx, dbConnectionPool.Pool(), `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
 		require.NoError(t, err)
+		contract2 := *contract2Ptr
 		require.Equal(t, "sep41", contract2.Type)
 
-		var contract3 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract3, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
+		contract3Ptr, err := db.QueryOne[Contract](ctx, dbConnectionPool.Pool(), `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
 		require.NoError(t, err)
+		contract3 := *contract3Ptr
 		require.Nil(t, contract3.Code)
 		require.Nil(t, contract3.Issuer)
 
@@ -340,9 +340,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify original contract was not updated using direct SQL
-		var contract1 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
+		contract1Ptr, err := db.QueryOne[Contract](ctx, dbConnectionPool.Pool(), `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
+		contract1 := *contract1Ptr
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "Original Name", *contract1.Name)
 		require.Equal(t, "ORIG", *contract1.Symbol)

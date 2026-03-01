@@ -5,8 +5,7 @@ import (
 	"strconv"
 
 	"github.com/alitto/pond/v2"
-	"github.com/dlmiddlecote/sqlstats"
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -55,7 +54,7 @@ type MetricsService interface {
 // MetricsService handles all metrics for the wallet-backend
 type metricsService struct {
 	registry *prometheus.Registry
-	db       *sqlx.DB
+	pool     *pgxpool.Pool
 
 	// Ingest Service Metrics
 	latestLedgerIngested prometheus.Gauge
@@ -110,10 +109,10 @@ type metricsService struct {
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
-func NewMetricsService(db *sqlx.DB) MetricsService {
+func NewMetricsService(pool *pgxpool.Pool) MetricsService {
 	m := &metricsService{
 		registry: prometheus.NewRegistry(),
-		db:       db,
+		pool:     pool,
 	}
 
 	// Ingest Service Metrics
@@ -410,11 +409,48 @@ func (m *metricsService) registerMetrics() {
 		m.graphqlErrorsTotal,
 	}
 
-	if m.db != nil {
-		collectors = append(collectors, sqlstats.NewStatsCollector("wallet-backend-db", m.db))
-	}
-
 	m.registry.MustRegister(collectors...)
+
+	if m.pool != nil {
+		m.registerPoolStats()
+	}
+}
+
+func (m *metricsService) registerPoolStats() {
+	stat := func() *pgxpool.Stat { return m.pool.Stat() }
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        "db_pool_acquired_conns",
+			Help:        "Number of currently acquired connections",
+			ConstLabels: prometheus.Labels{"db_name": "wallet-backend-db"},
+		},
+		func() float64 { return float64(stat().AcquiredConns()) },
+	))
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        "db_pool_idle_conns",
+			Help:        "Number of currently idle connections",
+			ConstLabels: prometheus.Labels{"db_name": "wallet-backend-db"},
+		},
+		func() float64 { return float64(stat().IdleConns()) },
+	))
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        "db_pool_total_conns",
+			Help:        "Total number of connections in the pool",
+			ConstLabels: prometheus.Labels{"db_name": "wallet-backend-db"},
+		},
+		func() float64 { return float64(stat().TotalConns()) },
+	))
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        "db_pool_max_conns",
+			Help:        "Maximum number of connections allowed",
+			ConstLabels: prometheus.Labels{"db_name": "wallet-backend-db"},
+		},
+		func() float64 { return float64(stat().MaxConns()) },
+	))
 }
 
 // RegisterPool registers a worker pool for metrics collection

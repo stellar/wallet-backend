@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,8 +28,9 @@ func TestMigrate_up_1(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
-	ids := []string{}
-	err = dbConnectionPool.SelectContext(ctx, &ids, "SELECT id FROM gorp_migrations")
+	rows, err := dbConnectionPool.Pool().Query(ctx, "SELECT id FROM gorp_migrations")
+	require.NoError(t, err)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
 	wantIDs := []string{"2024-04-29.0-initial.sql"}
 	assert.Equal(t, wantIDs, ids)
@@ -48,8 +50,9 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 
-	ids := []string{}
-	err = dbConnectionPool.SelectContext(ctx, &ids, "SELECT id FROM gorp_migrations")
+	rows, err := dbConnectionPool.Pool().Query(ctx, "SELECT id FROM gorp_migrations")
+	require.NoError(t, err)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
 	wantIDs := []string{
 		"2024-04-29.0-initial.sql",
@@ -61,7 +64,9 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
-	err = dbConnectionPool.SelectContext(ctx, &ids, "SELECT id FROM gorp_migrations")
+	rows, err = dbConnectionPool.Pool().Query(ctx, "SELECT id FROM gorp_migrations")
+	require.NoError(t, err)
+	ids, err = pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
 	wantIDs = []string{
 		"2024-04-29.0-initial.sql",
@@ -95,7 +100,7 @@ func TestMigrate_upall_down_all(t *testing.T) {
 	require.Equal(t, count, n)
 
 	var migrationsCount int
-	err = dbConnectionPool.GetContext(ctx, &migrationsCount, "SELECT COUNT(*) FROM gorp_migrations")
+	err = dbConnectionPool.Pool().QueryRow(ctx, "SELECT COUNT(*) FROM gorp_migrations").Scan(&migrationsCount)
 	require.NoError(t, err)
 	assert.Equal(t, count, migrationsCount)
 
@@ -103,7 +108,7 @@ func TestMigrate_upall_down_all(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, count, n)
 
-	err = dbConnectionPool.GetContext(ctx, &migrationsCount, "SELECT COUNT(*) FROM gorp_migrations")
+	err = dbConnectionPool.Pool().QueryRow(ctx, "SELECT COUNT(*) FROM gorp_migrations").Scan(&migrationsCount)
 	require.NoError(t, err)
 	assert.Equal(t, 0, migrationsCount)
 }

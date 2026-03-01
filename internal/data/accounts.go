@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
-
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -26,7 +24,7 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	const query = `SELECT EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $1)`
 	var exists bool
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &exists, query, address)
+	err := m.DB.Pool().QueryRow(ctx, query, address).Scan(&exists)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "channel_accounts", duration)
 	if err != nil {
@@ -43,9 +41,8 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 		SELECT account_id AS stellar_address, tx_to_id
 		FROM transactions_accounts
 		WHERE tx_to_id = ANY($1)`
-	var accounts []*types.AccountWithToID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(toIDs))
+	accounts, err := db.QueryAll[types.AccountWithToID](ctx, m.DB.Pool(), query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
@@ -63,9 +60,8 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		SELECT account_id AS stellar_address, operation_id
 		FROM operations_accounts
 		WHERE operation_id = ANY($1)`
-	var accounts []*types.AccountWithOperationID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
+	accounts, err := db.QueryAll[types.AccountWithOperationID](ctx, m.DB.Pool(), query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))

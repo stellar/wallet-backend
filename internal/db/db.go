@@ -2,34 +2,30 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jmoiron/sqlx"
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
+// ConnectionPool is the minimal interface for database access.
+// All query execution goes through Pool() directly.
 type ConnectionPool interface {
-	SQLExecuter
-	BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error)
+	Pool() *pgxpool.Pool
 	Close() error
 	Ping(ctx context.Context) error
-	SqlDB(ctx context.Context) (*sql.DB, error)
-	SqlxDB(ctx context.Context) (*sqlx.DB, error)
-	PgxPool() *pgxpool.Pool
 }
 
-// Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
-var _ ConnectionPool = (*ConnectionPoolImplementation)(nil)
-
-type ConnectionPoolImplementation struct {
-	*sqlx.DB
-	pgxPool *pgxpool.Pool
+// PgxPool is the primary ConnectionPool implementation wrapping a pgxpool.Pool.
+type PgxPool struct {
+	pool *pgxpool.Pool
 }
+
+// Make sure *PgxPool implements ConnectionPool:
+var _ ConnectionPool = (*PgxPool)(nil)
 
 const (
 	MaxDBConnIdleTime = 10 * time.Second
@@ -39,141 +35,45 @@ const (
 )
 
 func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
-	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
+	config, err := pgxpool.ParseConfig(dataSourceName)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pgx pool config: %w", err)
+	}
+	config.MaxConns = int32(MaxOpenDBConns)
+	config.MinConns = int32(MaxIdleDBConns)
+	config.MaxConnIdleTime = MaxDBConnIdleTime
+	config.MaxConnLifetime = MaxDBConnLifetime
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("error creating app DB connection pool: %w", err)
 	}
-	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
-	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
-	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
-	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
 
-	err = sqlxDB.Ping()
-	if err != nil {
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
-	// Create pgx pool for binary COPY operations
-	pgxPool, err := pgxpool.New(context.Background(), dataSourceName)
-	if err != nil {
-		_ = sqlxDB.Close() //nolint:errcheck // Best effort cleanup; primary error is pgx pool creation
-		return nil, fmt.Errorf("error creating pgx pool: %w", err)
-	}
-
-	return &ConnectionPoolImplementation{DB: sqlxDB, pgxPool: pgxPool}, nil
+	return &PgxPool{pool: pool}, nil
 }
 
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.BeginTxx method
-func (db *ConnectionPoolImplementation) BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error) {
-	return db.DB.BeginTxx(ctx, opts)
+func (db *PgxPool) Pool() *pgxpool.Pool {
+	return db.pool
 }
 
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.PingContext method
-func (db *ConnectionPoolImplementation) Ping(ctx context.Context) error {
-	return db.DB.PingContext(ctx)
+//nolint:wrapcheck // thin wrapper
+func (db *PgxPool) Ping(ctx context.Context) error {
+	return db.pool.Ping(ctx)
 }
 
-func (db *ConnectionPoolImplementation) SqlDB(ctx context.Context) (*sql.DB, error) {
-	return db.DB.DB, nil
+func (db *PgxPool) Close() error {
+	db.pool.Close()
+	return nil
 }
 
-func (db *ConnectionPoolImplementation) SqlxDB(ctx context.Context) (*sqlx.DB, error) {
-	return db.DB, nil
-}
-
-func (db *ConnectionPoolImplementation) PgxPool() *pgxpool.Pool {
-	return db.pgxPool
-}
-
-// Close closes both the sqlx and pgx pools.
-//
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.Close method
-func (db *ConnectionPoolImplementation) Close() error {
-	if db.pgxPool != nil {
-		db.pgxPool.Close()
-	}
-	return db.DB.Close()
-}
-
-// Transaction is an interface that wraps the sqlx.Tx structs methods.
-type Transaction interface {
-	SQLExecuter
-	Rollback() error
-	Commit() error
-}
-
-// Make sure *sqlx.Tx implements DBTransaction:
-var _ Transaction = (*sqlx.Tx)(nil)
-
-// SQLExecuter is an interface that wraps the *sqlx.DB and *sqlx.Tx structs methods.
-type SQLExecuter interface {
-	DriverName() string
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	NamedExecContext(ctx context.Context, query string, arg interface{}) (sql.Result, error)
-	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
-	sqlx.PreparerContext
-	sqlx.QueryerContext
-	Rebind(query string) string
-	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
-}
-
-// Make sure *sqlx.DB implements SQLExecuter:
-var _ SQLExecuter = (*sqlx.DB)(nil)
-
-// Make sure DBConnectionPool implements SQLExecuter:
-var _ SQLExecuter = (ConnectionPool)(nil)
-
-// Make sure *sqlx.Tx implements SQLExecuter:
-var _ SQLExecuter = (*sqlx.Tx)(nil)
-
-// Make sure DBTransaction implements SQLExecuter:
-var _ SQLExecuter = (Transaction)(nil)
-
-// RunInTransaction runs the given atomic function in an atomic database transaction and returns an error. Boilerplate
-// code for database transactions.
-func RunInTransaction(ctx context.Context, dbConnectionPool ConnectionPool, opts *sql.TxOptions, atomicFunction func(dbTx Transaction) error) error {
-	// wrap the atomic function with a function that returns nil and an error so we can call RunInTransactionWithResult
-	wrappedFunction := func(dbTx Transaction) (interface{}, error) {
-		return nil, atomicFunction(dbTx)
-	}
-
-	_, err := RunInTransactionWithResult(ctx, dbConnectionPool, opts, wrappedFunction)
-	return err
-}
-
-// RunInTransactionWithResult runs the given atomic function in an atomic database transaction and returns a result and
-// an error. Boilerplate code for database transactions.
-func RunInTransactionWithResult[T any](ctx context.Context, dbConnectionPool ConnectionPool, opts *sql.TxOptions, atomicFunction func(dbTx Transaction) (T, error)) (result T, err error) {
-	dbTx, err := dbConnectionPool.BeginTxx(ctx, opts)
-	if err != nil {
-		return *new(T), fmt.Errorf("creating db transaction for RunInTransactionWithResult: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			log.Ctx(ctx).Errorf("Rolling back transaction due to error: %v", err)
-			errRollBack := dbTx.Rollback()
-			if errRollBack != nil {
-				log.Ctx(ctx).Errorf("Error in database transaction rollback: %v", errRollBack)
-			}
-		}
-	}()
-
-	result, err = atomicFunction(dbTx)
-	if err != nil {
-		return *new(T), fmt.Errorf("running atomic function in RunInTransactionWithResult: %w", err)
-	}
-
-	err = dbTx.Commit()
-	if err != nil {
-		return *new(T), fmt.Errorf("committing transaction in RunInTransactionWithResult: %w", err)
-	}
-
-	return result, nil
-}
-
+// RunInPgxTransaction runs the given atomic function in an atomic database transaction.
 func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, atomicFunction func(pgxTx pgx.Tx) error) error {
-	pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+	pgxTx, err := dbConnectionPool.Pool().Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning pgx transaction: %w", err)
 	}

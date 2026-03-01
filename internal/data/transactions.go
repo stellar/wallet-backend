@@ -9,7 +9,6 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -25,10 +24,9 @@ type TransactionModel struct {
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
-	var transaction types.Transaction
 	start := time.Now()
 	hashBytea := types.HashBytea(hash)
-	err := m.DB.GetContext(ctx, &transaction, query, hashBytea)
+	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB.Pool(), query, hashBytea)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByHash", "transactions", duration)
 	if err != nil {
@@ -36,7 +34,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
 	}
 	m.MetricsService.IncDBQuery("GetByHash", "transactions")
-	return &transaction, nil
+	return transaction, nil
 }
 
 func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
@@ -75,9 +73,8 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
 	}
 
-	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	transactions, err := db.QueryAll[types.TransactionWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "transactions", duration)
 	if err != nil {
@@ -156,9 +153,8 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
 	}
 
-	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	transactions, err := db.QueryAll[types.TransactionWithCursor](ctx, m.DB.Pool(), query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "transactions", duration)
 	if err != nil {
@@ -191,9 +187,8 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		INNER JOIN transactions
 		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
-	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
+	transactions, err := db.QueryAll[types.TransactionWithOperationID](ctx, m.DB.Pool(), query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "transactions", len(operationIDs))
@@ -223,9 +218,8 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		WHERE (sc.to_id, sc.operation_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
-	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query)
+	transactions, err := db.QueryAll[types.TransactionWithStateChangeID](ctx, m.DB.Pool(), query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "transactions", len(scOrders))

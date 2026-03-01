@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -213,7 +212,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			endLedger:   80,
 			setupDB: func(t *testing.T) {
 				// Actual oldest ledger in transactions is 100
-				_, err := dbConnectionPool.ExecContext(ctx,
+				_, err := dbConnectionPool.Pool().Exec(ctx,
 					`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 					VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 100, NOW())`)
 				require.NoError(t, err)
@@ -229,7 +228,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Pool().Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
@@ -247,7 +246,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Pool().Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
@@ -263,14 +262,14 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149); oldest is 100
 				for ledger := uint32(100); ledger <= 120; ledger++ {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Pool().Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
 				for ledger := uint32(150); ledger <= 200; ledger++ {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Pool().Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
@@ -291,11 +290,11 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
 				// Cursor claims oldest is 50 (stale — retention dropped ledgers 50-99)
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 50)`)
+				_, err := dbConnectionPool.Pool().Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 50)`)
 				require.NoError(t, err)
 				// Actual transactions only exist from 100 onwards
 				for ledger := uint32(100); ledger <= 200; ledger++ {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Pool().Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
@@ -312,9 +311,9 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			_, err := dbConnectionPool.Pool().Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			_, err = dbConnectionPool.Pool().Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
@@ -421,17 +420,17 @@ func Test_BackfillMode_Validation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			_, err := dbConnectionPool.Pool().Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			_, err = dbConnectionPool.Pool().Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
 			// Set up latest ingested ledger cursor
-			_, err = dbConnectionPool.ExecContext(ctx,
+			_, err = dbConnectionPool.Pool().Exec(ctx,
 				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
 				tc.latestIngested)
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx,
+			_, err = dbConnectionPool.Pool().Exec(ctx,
 				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
 				tc.latestIngested)
 			require.NoError(t, err)
@@ -508,14 +507,14 @@ func Test_BackfillMode_Validation(t *testing.T) {
 
 // setupDBCursors sets up ingest_store cursors for testing
 func setupDBCursors(t *testing.T, ctx context.Context, pool db.ConnectionPool, latestLedger, oldestLedger uint32) {
-	_, err := pool.ExecContext(ctx, `DELETE FROM ingest_store`)
+	_, err := pool.Pool().Exec(ctx, `DELETE FROM ingest_store`)
 	require.NoError(t, err)
 	if latestLedger > 0 {
-		_, err = pool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`, latestLedger)
+		_, err = pool.Pool().Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`, latestLedger)
 		require.NoError(t, err)
 	}
 	if oldestLedger > 0 {
-		_, err = pool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`, oldestLedger)
+		_, err = pool.Pool().Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`, oldestLedger)
 		require.NoError(t, err)
 	}
 }
@@ -959,7 +958,7 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			name:        "initializes_both_cursors_from_empty",
 			startLedger: 1000,
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM ingest_store`)
+				_, err := dbConnectionPool.Pool().Exec(ctx, `DELETE FROM ingest_store`)
 				require.NoError(t, err)
 			},
 		},
@@ -1177,13 +1176,13 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs (using HashBytea for BYTEA column)
 			for _, hash := range []string{flushTxHash1, flushTxHash2, flushTxHash3, flushTxHash4} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
+				_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
+				_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
-			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			_, err = dbConnectionPool.Pool().Exec(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
 			require.NoError(t, err)
 
 			// Set up initial cursor
@@ -1250,9 +1249,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 					hashBytes[i] = val.([]byte)
 				}
 				var txCount int
-				err = dbConnectionPool.GetContext(ctx, &txCount,
+				err = dbConnectionPool.Pool().QueryRow(ctx,
 					`SELECT COUNT(*) FROM transactions WHERE hash = ANY($1)`,
-					pq.Array(hashBytes))
+					hashBytes).Scan(&txCount)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantTxCount, txCount, "transaction count mismatch")
 			}
@@ -1260,8 +1259,8 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			// Verify operation count in database
 			if tc.wantOpCount > 0 {
 				var opCount int
-				err = dbConnectionPool.GetContext(ctx, &opCount,
-					`SELECT COUNT(*) FROM operations`)
+				err = dbConnectionPool.Pool().QueryRow(ctx,
+					`SELECT COUNT(*) FROM operations`).Scan(&opCount)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantOpCount, opCount, "operation count mismatch")
 			}
@@ -1275,9 +1274,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 					scHashBytes[i] = val.([]byte)
 				}
 				var scCount int
-				err = dbConnectionPool.GetContext(ctx, &scCount,
+				err = dbConnectionPool.Pool().QueryRow(ctx,
 					`SELECT COUNT(*) FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = ANY($1))`,
-					pq.Array(scHashBytes))
+					scHashBytes).Scan(&scCount)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
 			}
@@ -1476,18 +1475,18 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up database
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+			_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+			_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM operations`)
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes`)
+			_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM state_changes`)
 			require.NoError(t, err)
 
 			// Set up initial cursors
 			setupDBCursors(t, ctx, dbConnectionPool, tc.initialLatest, tc.initialOldest)
 
 			// Insert anchor transaction so GetOldestLedger() returns initialOldest
-			_, err = dbConnectionPool.ExecContext(ctx,
+			_, err = dbConnectionPool.Pool().Exec(ctx,
 				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 				VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $1, NOW())`,
 				tc.initialOldest)
@@ -1589,11 +1588,11 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	ctx := context.Background()
 
 	// Clean up database
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+	_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 	require.NoError(t, err)
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+	_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM operations`)
 	require.NoError(t, err)
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes`)
+	_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM state_changes`)
 	require.NoError(t, err)
 
 	// Set up initial cursors
@@ -1682,9 +1681,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 
 	// Verify no transactions were persisted for failed batch (ledger 100)
 	var failedBatchTxCount int
-	sqlxDB, sqlxErr := dbConnectionPool.SqlxDB(ctx)
-	require.NoError(t, sqlxErr)
-	err = sqlxDB.QueryRowContext(ctx,
+	err = dbConnectionPool.Pool().QueryRow(ctx,
 		`SELECT COUNT(*) FROM transactions WHERE ledger_number BETWEEN $1 AND $2`,
 		100, 109).Scan(&failedBatchTxCount)
 	require.NoError(t, err)
@@ -1694,7 +1691,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	// The ledgerMetadataWith1Tx fixture has a fixed ledger sequence of 4478
 	// so we query for that ledger number (the XDR metadata determines the stored ledger)
 	var successBatchTxCount int
-	err = sqlxDB.QueryRowContext(ctx,
+	err = dbConnectionPool.Pool().QueryRow(ctx,
 		`SELECT COUNT(*) FROM transactions WHERE ledger_number = $1`,
 		4478).Scan(&successBatchTxCount)
 	require.NoError(t, err)
@@ -1713,7 +1710,7 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	ctx := context.Background()
 
 	// Clean up database
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+	_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 	require.NoError(t, err)
 
 	// Set up initial cursors: latest = 99, so catchup starts at 100
@@ -1803,7 +1800,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	ctx := context.Background()
 
 	// Clean up database
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+	_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 	require.NoError(t, err)
 
 	// Set up initial cursors
@@ -1877,9 +1874,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		ctx := context.Background()
 
 		// Clean up database
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM operations`)
 		require.NoError(t, err)
 
 		// Set initial cursor to 99
@@ -1967,9 +1964,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		ctx := context.Background()
 
 		// Clean up database
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM operations`)
 		require.NoError(t, err)
 
 		// Set initial cursor to 99
@@ -2057,9 +2054,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		ctx := context.Background()
 
 		// Clean up database
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM operations`)
 		require.NoError(t, err)
 
 		// Set initial cursor to 99
@@ -2490,13 +2487,13 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs (using HashBytea for BYTEA column)
 			for _, hash := range []string{catchupTxHash1, catchupTxHash2, catchupTxHash3, catchupTxHash4, catchupTxHash5, catchupTxHash6, prevTxHash} {
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
+				_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
-				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
+				_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
 				require.NoError(t, err)
 			}
 			// Also clean up any orphan operations
-			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
+			_, err = dbConnectionPool.Pool().Exec(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
 			require.NoError(t, err)
 
 			// Set up cursors

@@ -109,11 +109,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("resolving channel account signature client: %w", err)
 			}
 
-			db, err := dbConnectionPool.SqlxDB(ctx)
-			if err != nil {
-				return fmt.Errorf("getting sqlx db: %w", err)
-			}
-			metricsService := metrics.NewMetricsService(db)
+			metricsService := metrics.NewMetricsService(dbConnectionPool.Pool())
 			httpClient := http.Client{Timeout: 30 * time.Second}
 			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
 			if err != nil {

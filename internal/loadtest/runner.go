@@ -53,12 +53,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 	defer dbPool.Close() // nolint:errcheck
 
-	sqlxDB, err := dbPool.SqlxDB(ctx)
-	if err != nil {
-		return fmt.Errorf("getting sqlx db: %w", err)
-	}
-
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService(dbPool.Pool())
 	models, err := data.NewModels(dbPool, metricsService)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)

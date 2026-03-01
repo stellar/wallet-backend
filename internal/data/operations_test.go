@@ -43,6 +43,11 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 	return ops, addressesByOpID
 }
 
+type opAccountLink struct {
+	OperationID int64              `db:"operation_id"`
+	AccountID   types.AddressBytea `db:"account_id"`
+}
+
 func Test_OperationModel_BatchCopy(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -84,7 +89,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	}
 
 	// Insert transactions using direct SQL
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)
 	`, tx1.Hash, tx1.ToID, *tx1.EnvelopeXDR, tx1.FeeCharged, tx1.ResultCode, *tx1.MetaXDR, tx1.LedgerNumber, tx1.LedgerCreatedAt, tx1.IsFeeBump,
@@ -140,7 +145,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clear the database before each test
-			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE operations, operations_accounts CASCADE")
+			_, err = dbConnectionPool.Pool().Exec(ctx, "TRUNCATE operations, operations_accounts CASCADE")
 			require.NoError(t, err)
 
 			// Create fresh mock for each test case
@@ -183,18 +188,17 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
-			var dbInsertedIDs []int64
-			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT id FROM operations ORDER BY id")
+			rows, err := dbConnectionPool.Pool().Query(ctx, "SELECT id FROM operations ORDER BY id")
+			require.NoError(t, err)
+			dbInsertedIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 
 			// Verify account links if expected
 			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
-				var accountLinks []struct {
-					OperationID int64              `db:"operation_id"`
-					AccountID   types.AddressBytea `db:"account_id"`
-				}
-				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
+				linkRows, err := dbConnectionPool.Pool().Query(ctx, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
+				require.NoError(t, err)
+				accountLinks, err := pgx.CollectRows(linkRows, pgx.RowToStructByName[opAccountLink])
 				require.NoError(t, err)
 
 				// Create a map of operation_id -> set of account_ids
@@ -237,7 +241,7 @@ func TestOperationModel_GetAll(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -250,7 +254,7 @@ func TestOperationModel_GetAll(t *testing.T) {
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
 	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(2, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -292,7 +296,7 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -311,7 +315,7 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	xdr4 := types.XDRBytea([]byte("xdr4"))
 	xdr5 := types.XDRBytea([]byte("xdr5"))
 	xdr6 := types.XDRBytea([]byte("xdr6"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -491,7 +495,7 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	// Create test transactions first with specific ToIDs (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -505,7 +509,7 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
 	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -549,7 +553,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -562,7 +566,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
 	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -572,7 +576,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test operations_accounts links
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
 		VALUES
 			($3, 4097, $1),
@@ -602,7 +606,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -613,7 +617,7 @@ func TestOperationModel_GetByID(t *testing.T) {
 	// Create test operations (IDs must be in TOID range for each transaction)
 	opXdr1 := types.XDRBytea([]byte("xdr1"))
 	opXdr2 := types.XDRBytea([]byte("xdr2"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -666,7 +670,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -679,7 +683,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
 	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -689,7 +693,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Pool().Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(4096, 1, 'BALANCE', $1, 1, $2, 4097),
@@ -724,11 +728,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService(dbConnectionPool.Pool())
 
 	m := &OperationModel{
 		DB:             dbConnectionPool,

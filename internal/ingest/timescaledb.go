@@ -31,7 +31,7 @@ var hypertables = []string{
 // eligible for compression.
 func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string) error {
 	for _, table := range hypertables {
-		if _, err := pool.ExecContext(ctx,
+		if _, err := pool.Pool().Exec(ctx,
 			"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
 			table, chunkInterval,
 		); err != nil {
@@ -42,7 +42,7 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 
 	// We first remove existing retention policy
 	for _, table := range hypertables {
-		if _, err := pool.ExecContext(ctx,
+		if _, err := pool.Pool().Exec(ctx,
 			"SELECT remove_retention_policy($1::regclass, if_exists => true)",
 			table,
 		); err != nil {
@@ -51,7 +51,7 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 	}
 	// Reconciliation job: keeps oldestCursorName in sync after retention drops chunks.
 	// Remove any existing job first (idempotent re-registration on every restart).
-	if _, err := pool.ExecContext(ctx,
+	if _, err := pool.Pool().Exec(ctx,
 		"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'",
 	); err != nil {
 		return fmt.Errorf("removing existing reconciliation job: %w", err)
@@ -59,7 +59,7 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 	if retentionPeriod != "" {
 		// Add new retention period policy
 		for _, table := range hypertables {
-			if _, err := pool.ExecContext(ctx,
+			if _, err := pool.Pool().Exec(ctx,
 				"SELECT add_retention_policy($1::regclass, drop_after => $2::interval)",
 				table, retentionPeriod,
 			); err != nil {
@@ -69,7 +69,7 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 		}
 
 		// Create or replace the PL/pgSQL function that advances the cursor.
-		if _, err := pool.ExecContext(ctx, `
+		if _, err := pool.Pool().Exec(ctx, `
 			CREATE OR REPLACE FUNCTION reconcile_oldest_cursor(job_id INT, config JSONB)
 			RETURNS VOID LANGUAGE plpgsql AS $$
 			DECLARE
@@ -96,7 +96,7 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 		// chunk metadata + 1 row from ingest_store). Running on a fixed 1-hour
 		// interval keeps the cursor at most 1 hour stale after retention fires,
 		// with no coordination required with the retention job schedule.
-		if _, err := pool.ExecContext(ctx, `
+		if _, err := pool.Pool().Exec(ctx, `
 			SELECT add_job(
 				'reconcile_oldest_cursor',
 				'1 hour',
@@ -112,18 +112,18 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 	if compressionScheduleInterval != "" {
 		for _, table := range hypertables {
 			var jobID int
-			err := pool.GetContext(ctx, &jobID,
+			err := pool.Pool().QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs
 				 WHERE proc_name = 'policy_compression'
 				   AND hypertable_name = $1`,
 				table,
-			)
+			).Scan(&jobID)
 			if err != nil {
 				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping schedule update", table)
 				continue
 			}
 
-			if _, err := pool.ExecContext(ctx,
+			if _, err := pool.Pool().Exec(ctx,
 				"SELECT alter_job($1, schedule_interval => $2::interval)",
 				jobID, compressionScheduleInterval,
 			); err != nil {
@@ -136,18 +136,18 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 	if compressAfter != "" {
 		for _, table := range hypertables {
 			var jobID int
-			err := pool.GetContext(ctx, &jobID,
+			err := pool.Pool().QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs
 				 WHERE proc_name = 'policy_compression'
 				   AND hypertable_name = $1`,
 				table,
-			)
+			).Scan(&jobID)
 			if err != nil {
 				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping compress_after update", table)
 				continue
 			}
 
-			if _, err := pool.ExecContext(ctx,
+			if _, err := pool.Pool().Exec(ctx,
 				`SELECT alter_job($1, config => jsonb_set(
 					(SELECT config FROM timescaledb_information.jobs WHERE job_id = $1),
 					'{compress_after}', to_jsonb($2::text)))`,

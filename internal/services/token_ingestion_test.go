@@ -251,9 +251,9 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -318,7 +318,7 @@ func TestGetAccountContracts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -338,7 +338,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 	t.Run("account with contracts returns contract IDs", func(t *testing.T) {
 		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
@@ -390,11 +390,11 @@ func TestProcessTokenChanges(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -420,7 +420,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
 		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Pool().Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
