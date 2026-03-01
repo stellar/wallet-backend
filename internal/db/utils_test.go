@@ -26,7 +26,11 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 	t.Run("lock_acquired_can_be_released_on_dbConnClose", func(t *testing.T) {
 		pool1, err := OpenDBConnectionPool(ctx, dbt.DSN)
 		require.NoError(t, err)
-		lockAcquired, err := AcquireAdvisoryLock(ctx, pool1, lockKey)
+
+		// Acquire on a pinned connection so the lock is tied to a specific session.
+		conn1, err := pool1.Acquire(ctx)
+		require.NoError(t, err)
+		lockAcquired, err := AcquireAdvisoryLock(ctx, conn1, lockKey)
 		require.NoError(t, err)
 		require.True(t, lockAcquired, "should be able to acquire the lock")
 
@@ -38,7 +42,8 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, lockAcquired2, "should not be able to acquire the lock since its already been acquired by pool1")
 
-		// Close the original pool which releases the lock
+		// Return and close — closing the underlying connection releases the advisory lock.
+		conn1.Release()
 		pool1.Close()
 		time.Sleep(500 * time.Millisecond)
 
@@ -52,7 +57,13 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 		pool1, err := OpenDBConnectionPool(ctx, dbt.DSN)
 		require.NoError(t, err)
 		defer pool1.Close()
-		lockAcquired, err := AcquireAdvisoryLock(ctx, pool1, lockKey)
+
+		// Acquire on a pinned connection so we can release on the same session.
+		conn1, err := pool1.Acquire(ctx)
+		require.NoError(t, err)
+		defer conn1.Release()
+
+		lockAcquired, err := AcquireAdvisoryLock(ctx, conn1, lockKey)
 		require.NoError(t, err)
 		require.True(t, lockAcquired, "should be able to acquire the lock")
 
@@ -64,8 +75,8 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, lockAcquired2, "should not be able to acquire the lock since its already been acquired by pool1")
 
-		// Release the lock
-		err = ReleaseAdvisoryLock(ctx, pool1, lockKey)
+		// Release the lock on the same pinned connection that acquired it.
+		err = ReleaseAdvisoryLock(ctx, conn1, lockKey)
 		require.NoError(t, err)
 
 		// try to acquire the lock again

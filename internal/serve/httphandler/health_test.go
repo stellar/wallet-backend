@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,7 +44,7 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		ctx := context.Background()
 		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(98))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(98, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -113,7 +114,7 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		ctx := context.Background()
 		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(98))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(98, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -147,7 +148,7 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		ctx := context.Background()
 		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(900))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(900, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}

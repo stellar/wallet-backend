@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -39,7 +40,7 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 			name: "returns_value_if_key_exists",
 			key:  "ingest_store_key",
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", 123)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", "123")
 				require.NoError(t, err)
 			},
 			expectedLedger: 123,
@@ -95,7 +96,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			name: "updates_if_key_exists",
 			key:  "ingest_store_key",
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", 123)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", "123")
 				require.NoError(t, err)
 			},
 			ledgerToUpsert: 456,
@@ -130,7 +131,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
+			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value::int FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.ledgerToUpsert, dbStoredLedger)
 		})
@@ -180,8 +181,8 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			// Insert initial value
-			_, err = dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, tc.initialValue)
+			// Insert initial value — ingest_store.value is varchar, must pass string
+			_, err = dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, strconv.FormatUint(uint64(tc.initialValue), 10))
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
