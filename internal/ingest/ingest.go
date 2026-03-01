@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -116,12 +117,12 @@ func Ingest(cfg Configs) error {
 func setupDeps(cfg Configs) (services.IngestService, error) {
 	ctx := context.Background()
 
-	var dbConnectionPool db.ConnectionPool
+	var dbConnectionPool *pgxpool.Pool
 	var err error
 	switch cfg.IngestionMode {
 	// Use optimized connection pool for backfill mode with async commit and increased work_mem
 	case services.IngestionModeBackfill:
-		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
+		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(ctx, cfg.DatabaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
 		}
@@ -134,14 +135,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
 		}
 	default:
-		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
+		dbConnectionPool, err = db.OpenDBConnectionPool(ctx, cfg.DatabaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database: %w", err)
 		}
-	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
 
 	if cfg.IngestionMode == services.IngestionModeLive {
@@ -150,7 +147,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		}
 	}
 
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)

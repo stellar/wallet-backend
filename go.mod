@@ -11,7 +11,6 @@ require (
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/basemachina/gqlgen-complexity-reporter v0.1.2
 	github.com/deckarep/golang-set/v2 v2.8.0
-	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/docker/go-connections v0.5.0
 	github.com/getsentry/sentry-go v0.34.1
 	github.com/go-chi/chi v4.1.2+incompatible

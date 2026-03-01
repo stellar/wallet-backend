@@ -31,8 +31,10 @@ type Querier interface {
 }
 
 // Compile-time checks that *pgxpool.Pool and pgx.Tx satisfy Querier.
-var _ Querier = (*pgxpool.Pool)(nil)
-var _ Querier = (pgx.Tx)(nil)
+var (
+	_ Querier = (*pgxpool.Pool)(nil)
+	_ Querier = (pgx.Tx)(nil)
+)
 
 func OpenDBConnectionPool(ctx context.Context, dataSourceName string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dataSourceName)

@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	internalUtils "github.com/stellar/wallet-backend/internal/utils"
 )
 
 // ChAccCmdServiceInterface is the interface for the channel account command service. It is used to allow mocking the
@@ -86,7 +85,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL)
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
@@ -109,11 +108,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("resolving channel account signature client: %w", err)
 			}
 
-			db, err := dbConnectionPool.SqlxDB(ctx)
-			if err != nil {
-				return fmt.Errorf("getting sqlx db: %w", err)
-			}
-			metricsService := metrics.NewMetricsService(db)
+			metricsService := metrics.NewMetricsService()
 			httpClient := http.Client{Timeout: 30 * time.Second}
 			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
 			if err != nil {
@@ -139,7 +134,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			defer internalUtils.DeferredClose(cmd.Context(), distAccSigClientOpts.DBConnectionPool, "closing distAccSigClient's db connection pool")
+			defer distAccSigClientOpts.DBConnectionPool.Close()
 			amount, err := strconv.Atoi(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid [amount] argument=%s", args[0])
