@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -28,6 +29,12 @@ func (k *KeypairModel) Insert(ctx context.Context, publicKey string, encryptedPr
 	`
 	_, err := k.DB.ExecContext(ctx, query, publicKey, encryptedPrivateKey)
 	if err != nil {
+		// Check pgx/v5 error first (pgconn.PgError.ConstraintName differs from pq.Error.Constraint)
+		var pgxError *pgconn.PgError
+		if ok := errors.As(err, &pgxError); ok && pgxError.ConstraintName == "keypairs_pkey" {
+			return ErrPublicKeyAlreadyExists
+		}
+		// Fallback: lib/pq error during sqlx transition
 		var pqError *pq.Error
 		if ok := errors.As(err, &pqError); ok && pqError.Constraint == "keypairs_pkey" {
 			return ErrPublicKeyAlreadyExists
