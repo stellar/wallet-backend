@@ -4,22 +4,23 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stellar/go-stellar-sdk/support/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
 func TestOpenDBConnectionPool(t *testing.T) {
-	dbt := dbtest.Postgres(t)
+	ctx := context.Background()
+	dbt := dbtest.OpenWithoutMigrations(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
+	pool, err := OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
-	defer dbConnectionPool.Close()
+	defer pool.Close()
 
-	assert.Equal(t, "postgres", dbConnectionPool.DriverName())
+	assert.NotNil(t, pool)
 
-	ctx := context.Background()
-	err = dbConnectionPool.Ping(ctx)
+	err = pool.Ping(ctx)
 	require.NoError(t, err)
 }
