@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -138,7 +139,9 @@ func RunInTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) e
 	return nil
 }
 
-// QueryOne executes a query and scans the single result row into T using pgx struct tag scanning.
+// QueryOne executes a query and scans the single result row into T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
 // Returns pgx.ErrNoRows if no row is found.
 func QueryOne[T any](ctx context.Context, q Querier, query string, args ...any) (T, error) {
 	rows, err := q.Query(ctx, query, args...)
@@ -146,7 +149,14 @@ func QueryOne[T any](ctx context.Context, q Querier, query string, args ...any) 
 		var zero T
 		return zero, fmt.Errorf("executing query: %w", err)
 	}
-	result, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[T])
+	var scanner func(pgx.CollectableRow) (T, error)
+	var t T
+	if reflect.TypeOf(t).Kind() == reflect.Struct {
+		scanner = pgx.RowToStructByNameLax[T]
+	} else {
+		scanner = pgx.RowTo[T]
+	}
+	result, err := pgx.CollectOneRow(rows, scanner)
 	if err != nil {
 		var zero T
 		return zero, err //nolint:wrapcheck // pgx.ErrNoRows must propagate unwrapped for errors.Is checks
@@ -154,14 +164,23 @@ func QueryOne[T any](ctx context.Context, q Querier, query string, args ...any) 
 	return result, nil
 }
 
-// QueryMany executes a query and scans all result rows into []T using pgx struct tag scanning.
+// QueryMany executes a query and scans all result rows into []T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
 // Returns an empty slice (not nil) if no rows are found.
 func QueryMany[T any](ctx context.Context, q Querier, query string, args ...any) ([]T, error) {
 	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
-	results, err := pgx.CollectRows(rows, pgx.RowToStructByName[T])
+	var scanner func(pgx.CollectableRow) (T, error)
+	var t T
+	if reflect.TypeOf(t).Kind() == reflect.Struct {
+		scanner = pgx.RowToStructByNameLax[T]
+	} else {
+		scanner = pgx.RowTo[T]
+	}
+	results, err := pgx.CollectRows(rows, scanner)
 	if err != nil {
 		return nil, fmt.Errorf("collecting rows: %w", err)
 	}

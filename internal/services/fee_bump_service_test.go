@@ -21,7 +21,8 @@ import (
 func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -32,8 +33,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 
 	signatureClient := signing.SignatureClientMock{}
 	defer signatureClient.AssertExpectations(t)
-
-	ctx := context.Background()
 	s, err := NewFeeBumpService(FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: &signatureClient,
 		BaseFee:                            txnbuild.MinBaseFee,
@@ -80,7 +79,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -115,7 +114,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -151,7 +150,7 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
 
 		destinationAccount := keypair.MustRandom().Address()

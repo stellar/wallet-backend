@@ -27,7 +27,7 @@ type IngestStoreModel struct {
 
 func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, error) {
 	start := time.Now()
-	lastSyncedLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
+	valueStr, err := db.QueryOne[string](ctx, m.DB, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("Get", "ingest_store", duration)
 	// First run, key does not exist yet
@@ -41,7 +41,11 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	}
 	m.MetricsService.IncDBQuery("Get", "ingest_store")
 
-	return lastSyncedLedger, nil
+	v, err := strconv.ParseUint(valueStr, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parsing ingest_store value %q for cursor %s: %w", valueStr, cursorName, err)
+	}
+	return uint32(v), nil
 }
 
 func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {

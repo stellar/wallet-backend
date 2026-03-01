@@ -22,7 +22,8 @@ func AcquireAdvisoryLock(ctx context.Context, pool *pgxpool.Pool, lockKey int) (
 // ReleaseAdvisoryLock releases an advisory lock on the provided lockKey.
 func ReleaseAdvisoryLock(ctx context.Context, pool *pgxpool.Pool, lockKey int) error {
 	sqlQuery := "SELECT pg_advisory_unlock($1)"
-	_, err := pool.Exec(ctx, sqlQuery, lockKey)
+	var released bool
+	err := pool.QueryRow(ctx, sqlQuery, lockKey).Scan(&released)
 	if err != nil {
 		return fmt.Errorf("executing pg_advisory_unlock(%v): %w", lockKey, err)
 	}

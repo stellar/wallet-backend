@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-func createChannelAccountFixture(t *testing.T, ctx context.Context, sqlExec db.SQLExecuter, channelAccounts ...ChannelAccount) {
+func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnectionPool *pgxpool.Pool, channelAccounts ...ChannelAccount) {
 	t.Helper()
 	if len(channelAccounts) == 0 {
 		return
@@ -24,21 +24,23 @@ func createChannelAccountFixture(t *testing.T, ctx context.Context, sqlExec db.S
 		INSERT INTO
 			channel_accounts (public_key, encrypted_private_key, locked_tx_hash, locked_at, locked_until)
 		VALUES
-			(:public_key, :encrypted_private_key, :locked_tx_hash, :locked_at, :locked_until)
+			($1, $2, $3, $4, $5)
 	`
-	_, err := sqlExec.NamedExecContext(ctx, q, channelAccounts)
-	require.NoError(t, err)
+	for _, ca := range channelAccounts {
+		_, err := dbConnectionPool.Exec(ctx, q, ca.PublicKey, ca.EncryptedPrivateKey, ca.LockedTxHash, ca.LockedAt, ca.LockedUntil)
+		require.NoError(t, err)
+	}
 }
 
 func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	kp1 := keypair.MustRandom()
@@ -58,7 +60,7 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 			WHERE
 				public_key = ANY($1)
 		`
-		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.PublicKey, channelAccount2.PublicKey}))
+		_, err := dbConnectionPool.Exec(ctx, lockChannelAccountQuery, []string{channelAccount1.PublicKey, channelAccount2.PublicKey})
 		require.NoError(t, err)
 
 		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
@@ -75,7 +77,7 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 					locked_until = NULL,
 					locked_tx_hash = NULL
 			`
-		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery)
+		_, err := dbConnectionPool.Exec(ctx, lockChannelAccountQuery)
 		require.NoError(t, err)
 
 		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
@@ -94,7 +96,7 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 				WHERE
 					public_key = $1
 			`
-		_, err := dbConnectionPool.ExecContext(ctx, unlockAllChannelAccountsQuery, channelAccount1.PublicKey)
+		_, err := dbConnectionPool.Exec(ctx, unlockAllChannelAccountsQuery, channelAccount1.PublicKey)
 		require.NoError(t, err)
 
 		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
@@ -107,20 +109,20 @@ func TestChannelAccountModelGet(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	channelAccount := keypair.MustRandom()
-	ca, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	ca, err := m.Get(ctx, channelAccount.Address())
 	assert.ErrorIs(t, err, ErrChannelAccountNotFound)
 	assert.Nil(t, ca)
 
 	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
-	ca, err = m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	ca, err = m.Get(ctx, channelAccount.Address())
 	require.NoError(t, err)
 	assert.Equal(t, ca.PublicKey, channelAccount.Address())
 	assert.Equal(t, ca.EncryptedPrivateKey, channelAccount.Seed())
@@ -130,18 +132,18 @@ func TestChannelAccountModelGetAllByPublicKey(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	channelAccount1 := keypair.MustRandom()
 	channelAccount2 := keypair.MustRandom()
 	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
 
-	channelAccounts, err := m.GetAllByPublicKey(ctx, dbConnectionPool, channelAccount1.Address(), channelAccount2.Address())
+	channelAccounts, err := m.GetAllByPublicKey(ctx, channelAccount1.Address(), channelAccount2.Address())
 	require.NoError(t, err)
 
 	assert.Len(t, channelAccounts, 2)
@@ -153,11 +155,11 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	channelAccount := keypair.MustRandom()
@@ -165,7 +167,7 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 
 	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
 	assert.NoError(t, err)
-	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	channelAccountFromDB, err := m.Get(ctx, channelAccount.Address())
 	assert.NoError(t, err)
 	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
 }
@@ -173,11 +175,12 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+
+	ctx := context.Background()
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	testCases := []struct {
@@ -227,7 +230,7 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
-				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
 				require.NoError(t, err)
 			}()
 
@@ -248,7 +251,7 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 
 			// 🔒 Channel accounts start locked
 			for _, fixture := range fixtures {
-				chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())
+				chAccFromDB, err := m.Get(ctx, fixture.Address())
 				require.NoError(t, err)
 				require.True(t, chAccFromDB.LockedTxHash.Valid)
 				require.True(t, chAccFromDB.LockedAt.Valid)
@@ -256,7 +259,7 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 			}
 
 			// Start pgx transaction for the unlock call
-			pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+			pgxTx, err := dbConnectionPool.Begin(ctx)
 			require.NoError(t, err)
 			defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -270,7 +273,7 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 				require.NoError(t, pgxTx.Commit(ctx))
 				// 🔓 Channel accounts get unlocked
 				for _, fixture := range fixtures {
-					chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())
+					chAccFromDB, err := m.Get(ctx, fixture.Address())
 					require.NoError(t, err)
 					require.False(t, chAccFromDB.LockedTxHash.Valid)
 					require.False(t, chAccFromDB.LockedAt.Valid)
@@ -284,15 +287,16 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 func TestChannelAccountModelBatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	t.Run("channel_accounts_empty", func(t *testing.T) {
-		err = m.BatchInsert(ctx, dbConnectionPool, []*ChannelAccount{})
+		err = m.BatchInsert(ctx, []*ChannelAccount{})
 		require.NoError(t, err)
 	})
 
@@ -302,7 +306,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 				PublicKey: "",
 			},
 		}
-		err = m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
+		err = m.BatchInsert(ctx, channelAccounts)
 		assert.EqualError(t, err, "public key cannot be empty")
 
 		channelAccounts = []*ChannelAccount{
@@ -310,7 +314,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 				PublicKey: keypair.MustRandom().Address(),
 			},
 		}
-		err = m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
+		err = m.BatchInsert(ctx, channelAccounts)
 		assert.EqualError(t, err, "private key cannot be empty")
 	})
 
@@ -327,7 +331,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 				EncryptedPrivateKey: channelAccount2.Seed(),
 			},
 		}
-		err = m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
+		err = m.BatchInsert(ctx, channelAccounts)
 		require.NoError(t, err)
 
 		n, err := m.Count(ctx)
@@ -340,11 +344,11 @@ func TestChannelAccountModelCount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	n, err := m.Count(ctx)
@@ -362,11 +366,12 @@ func TestChannelAccountModelCount(t *testing.T) {
 func TestChannelAccountModelGetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	testCases := []struct {
@@ -404,7 +409,7 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
-				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
 				require.NoError(t, err)
 			}()
 
@@ -417,8 +422,12 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 				})
 			}
 
-			accounts, err := m.GetAll(ctx, dbConnectionPool, tc.limit)
+			pgxTx, err := dbConnectionPool.Begin(ctx)
 			require.NoError(t, err)
+			defer pgxTx.Rollback(ctx) //nolint:errcheck
+			accounts, err := m.GetAll(ctx, pgxTx, tc.limit)
+			require.NoError(t, err)
+			require.NoError(t, pgxTx.Commit(ctx))
 			assert.Len(t, accounts, tc.expectedCount)
 		})
 	}
@@ -427,11 +436,12 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 func TestChannelAccountModelDelete(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	testCases := []struct {
@@ -470,7 +480,7 @@ func TestChannelAccountModelDelete(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
-				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
 				require.NoError(t, err)
 			}()
 
@@ -486,8 +496,12 @@ func TestChannelAccountModelDelete(t *testing.T) {
 				accountsToCreate--
 			}
 
-			rowsAffected, err := m.Delete(ctx, dbConnectionPool, publicKeys[:tc.wantAccountsToDelete]...)
+			pgxTx, err := dbConnectionPool.Begin(ctx)
 			require.NoError(t, err)
+			defer pgxTx.Rollback(ctx) //nolint:errcheck
+			rowsAffected, err := m.Delete(ctx, pgxTx, publicKeys[:tc.wantAccountsToDelete]...)
+			require.NoError(t, err)
+			require.NoError(t, pgxTx.Commit(ctx))
 			require.Equal(t, tc.wantAccountsToDelete, int(rowsAffected))
 
 			if tc.wantAccountsToDelete > 0 {
