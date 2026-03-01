@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -36,7 +36,7 @@ type ContractModelInterface interface {
 
 // ContractModel implements ContractModelInterface.
 type ContractModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 

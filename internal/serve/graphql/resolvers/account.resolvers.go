@@ -45,7 +45,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 	}
 
 	conn := NewConnectionWithRelayPagination(transactions, params, func(tx *types.TransactionWithCursor) string {
-		return fmt.Sprintf("%d:%d", tx.Cursor.LedgerCreatedAt.UnixNano(), tx.Cursor.ID)
+		return fmt.Sprintf("%d:%d", tx.CompositeCursor.LedgerCreatedAt.UnixNano(), tx.CompositeCursor.ID)
 	})
 
 	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
@@ -83,7 +83,7 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, si
 	}
 
 	conn := NewConnectionWithRelayPagination(operations, params, func(op *types.OperationWithCursor) string {
-		return fmt.Sprintf("%d:%d", op.Cursor.LedgerCreatedAt.UnixNano(), op.Cursor.ID)
+		return fmt.Sprintf("%d:%d", op.CompositeCursor.LedgerCreatedAt.UnixNano(), op.CompositeCursor.ID)
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))

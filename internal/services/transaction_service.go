@@ -7,10 +7,10 @@ import (
 	"math"
 	"slices"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -40,7 +40,7 @@ type TransactionService interface {
 }
 
 type transactionService struct {
-	DB                                 db.ConnectionPool
+	DB                                 *pgxpool.Pool
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
@@ -51,7 +51,7 @@ type transactionService struct {
 var _ TransactionService = (*transactionService)(nil)
 
 type TransactionServiceOptions struct {
-	DB                                 db.ConnectionPool
+	DB                                 *pgxpool.Pool
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore

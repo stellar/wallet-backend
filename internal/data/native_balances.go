@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -38,7 +38,7 @@ type NativeBalanceModelInterface interface {
 
 // NativeBalanceModel implements NativeBalanceModelInterface.
 type NativeBalanceModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
@@ -56,7 +56,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 		WHERE account_address = $1`
 
 	start := time.Now()
-	row := m.DB.PgxPool().QueryRow(ctx, query, accountAddress)
+	row := m.DB.QueryRow(ctx, query, accountAddress)
 
 	var nb NativeBalance
 	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)

@@ -3,12 +3,13 @@ package data
 import (
 	"errors"
 
-	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type Models struct {
-	DB                    db.ConnectionPool
+	DB                    *pgxpool.Pool
 	Account               *AccountModel
 	Contract              ContractModelInterface
 	TrustlineAsset        TrustlineAssetModelInterface
@@ -22,23 +23,23 @@ type Models struct {
 	StateChanges          *StateChangeModel
 }
 
-func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Models, error) {
-	if db == nil {
-		return nil, errors.New("ConnectionPool must be initialized")
+func NewModels(pool *pgxpool.Pool, metricsService metrics.MetricsService) (*Models, error) {
+	if pool == nil {
+		return nil, errors.New("DB pool must be initialized")
 	}
 
 	return &Models{
-		DB:                    db,
-		Account:               &AccountModel{DB: db, MetricsService: metricsService},
-		Contract:              &ContractModel{DB: db, MetricsService: metricsService},
-		TrustlineAsset:        &TrustlineAssetModel{DB: db, MetricsService: metricsService},
-		TrustlineBalance:      &TrustlineBalanceModel{DB: db, MetricsService: metricsService},
-		NativeBalance:         &NativeBalanceModel{DB: db, MetricsService: metricsService},
-		SACBalance:            &SACBalanceModel{DB: db, MetricsService: metricsService},
-		AccountContractTokens: &AccountContractTokensModel{DB: db, MetricsService: metricsService},
-		IngestStore:           &IngestStoreModel{DB: db, MetricsService: metricsService},
-		Operations:            &OperationModel{DB: db, MetricsService: metricsService},
-		Transactions:          &TransactionModel{DB: db, MetricsService: metricsService},
-		StateChanges:          &StateChangeModel{DB: db, MetricsService: metricsService},
+		DB:                    pool,
+		Account:               &AccountModel{DB: pool, MetricsService: metricsService},
+		Contract:              &ContractModel{DB: pool, MetricsService: metricsService},
+		TrustlineAsset:        &TrustlineAssetModel{DB: pool, MetricsService: metricsService},
+		TrustlineBalance:      &TrustlineBalanceModel{DB: pool, MetricsService: metricsService},
+		NativeBalance:         &NativeBalanceModel{DB: pool, MetricsService: metricsService},
+		SACBalance:            &SACBalanceModel{DB: pool, MetricsService: metricsService},
+		AccountContractTokens: &AccountContractTokensModel{DB: pool, MetricsService: metricsService},
+		IngestStore:           &IngestStoreModel{DB: pool, MetricsService: metricsService},
+		Operations:            &OperationModel{DB: pool, MetricsService: metricsService},
+		Transactions:          &TransactionModel{DB: pool, MetricsService: metricsService},
+		StateChanges:          &StateChangeModel{DB: pool, MetricsService: metricsService},
 	}, nil
 }

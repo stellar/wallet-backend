@@ -3,10 +3,10 @@ package utils
 import (
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -29,7 +29,7 @@ type SignatureClientOptions struct {
 	Type                         signing.SignatureClientType
 	NetworkPassphrase            string
 	DistributionAccountPublicKey string
-	DBConnectionPool             db.ConnectionPool
+	DBConnectionPool             *pgxpool.Pool
 
 	// Env Options
 	DistributionAccountSecretKey string

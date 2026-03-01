@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -16,7 +17,7 @@ import (
 )
 
 type AccountModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
@@ -24,9 +25,8 @@ type AccountModel struct {
 // eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
 func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
 	const query = `SELECT EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $1)`
-	var exists bool
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &exists, query, address)
+	exists, err := db.QueryOne[bool](ctx, m.DB, query, address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "channel_accounts", duration)
 	if err != nil {
@@ -45,7 +45,12 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 		WHERE tx_to_id = ANY($1)`
 	var accounts []*types.AccountWithToID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(toIDs))
+	rows, err := m.DB.Query(ctx, query, toIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
+	}
+	accounts, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.AccountWithToID])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
@@ -65,7 +70,12 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		WHERE operation_id = ANY($1)`
 	var accounts []*types.AccountWithOperationID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
+	rows, err := m.DB.Query(ctx, query, operationIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
+	}
+	accounts, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.AccountWithOperationID])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))

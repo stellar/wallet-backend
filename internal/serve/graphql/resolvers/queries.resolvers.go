@@ -54,7 +54,7 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}
 
 	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) string {
-		return fmt.Sprintf("%d:%d", t.Cursor.LedgerCreatedAt.UnixNano(), t.Cursor.ID)
+		return fmt.Sprintf("%d:%d", t.CompositeCursor.LedgerCreatedAt.UnixNano(), t.CompositeCursor.ID)
 	})
 
 	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
@@ -95,7 +95,7 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}
 
 	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) string {
-		return fmt.Sprintf("%d:%d", o.Cursor.LedgerCreatedAt.UnixNano(), o.Cursor.ID)
+		return fmt.Sprintf("%d:%d", o.CompositeCursor.LedgerCreatedAt.UnixNano(), o.CompositeCursor.ID)
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))

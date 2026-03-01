@@ -30,7 +30,7 @@ const (
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
 	var numTxs, numOps int
 
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
 		uniqueAssets := buffer.GetUniqueTrustlineAssets()
 		if len(uniqueAssets) > 0 {

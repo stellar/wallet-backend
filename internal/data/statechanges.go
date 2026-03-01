@@ -8,16 +8,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type StateChangeModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
@@ -30,7 +29,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	argIndex := 2
 
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order
 		FROM state_changes
 		WHERE account_id = $1
 	`, columns))
@@ -96,20 +95,28 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	rows, err := m.DB.Query(ctx, query, args...)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting state changes by account address: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "state_changes", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by account address: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("BatchGetByAccountAddress", "state_changes")
 	return stateChanges, nil
@@ -122,7 +129,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	argIndex := 1
 
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order
 		FROM state_changes
 	`, columns))
 
@@ -155,20 +162,28 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	rows, err := m.DB.Query(ctx, query, args...)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetAll", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting all state changes: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetAll", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting all state changes: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("GetAll", "state_changes")
 	return stateChanges, nil
@@ -296,7 +311,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order
 		FROM state_changes
 		WHERE to_id = $1
 	`, columns))
@@ -332,20 +347,28 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	rows, err := m.DB.Query(ctx, query, args...)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByToID", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting paginated state changes by to_id: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "state_changes", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByToID", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by to_id: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("BatchGetByToID", "state_changes")
 	return stateChanges, nil
@@ -375,7 +398,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 				JOIN
 					inputs i ON sc.to_id = i.to_id
 			)
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_to_id
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order FROM ranked_state_changes_per_to_id
 	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
@@ -383,21 +406,29 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_to_id") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(toIDs))
+	rows, err := m.DB.Query(ctx, query, toIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting state changes by to_ids: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "state_changes", len(toIDs))
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by to_ids: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("BatchGetByToIDs", "state_changes")
 	return stateChanges, nil
@@ -408,7 +439,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_order", "account_id")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order"
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order
 		FROM state_changes
 		WHERE operation_id = $1
 	`, columns))
@@ -444,20 +475,28 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_ledger_created_at") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_ledger_created_at") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	rows, err := m.DB.Query(ctx, query, args...)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByOperationID", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationID", "state_changes", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByOperationID", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationID", "state_changes")
 	return stateChanges, nil
@@ -487,7 +526,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 				JOIN
 					inputs i ON sc.operation_id = i.operation_id
 			)
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_to_id", operation_id as "cursor.cursor_operation_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_order as cursor_state_change_order FROM ranked_state_changes_per_operation_id
 	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
 	if limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
@@ -495,21 +534,29 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor.cursor_to_id") in ORDER BY to avoid
+	// We use cursor alias columns (e.g., "cursor_to_id") in ORDER BY to avoid
 	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges."cursor.cursor_ledger_created_at" ASC, statechanges."cursor.cursor_to_id" ASC, statechanges."cursor.cursor_operation_id" ASC, statechanges."cursor.cursor_state_change_order" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_order ASC`, query)
 	}
 
-	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
+	rows, err := m.DB.Query(ctx, query, operationIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "state_changes", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
+	}
+	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "state_changes", len(operationIDs))
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
+	}
+	stateChanges := make([]*types.StateChangeWithCursor, len(scs))
+	for i := range scs {
+		stateChanges[i] = &scs[i]
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "state_changes")
 	return stateChanges, nil

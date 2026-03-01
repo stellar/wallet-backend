@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -25,7 +25,7 @@ type AccountContractTokensModelInterface interface {
 
 // AccountContractTokensModel implements AccountContractTokensModelInterface.
 type AccountContractTokensModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
@@ -45,7 +45,7 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		WHERE ac.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	rows, err := m.DB.Query(ctx, query, accountAddress)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "account_contract_tokens", "query_error")
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)

@@ -112,7 +112,7 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 	for i, stateChange := range stateChanges {
 		convertedStateChanges[i] = &baseStateChangeWithCursor{
 			stateChange: convertStateChangeTypes(stateChange.StateChange),
-			cursor:      stateChange.Cursor,
+			cursor:      stateChange.StateChangeCursor,
 		}
 	}
 
