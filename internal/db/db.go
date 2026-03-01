@@ -97,9 +97,9 @@ func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string)
 	return pool, nil
 }
 
-// SqlDBFromPool returns a *sql.DB backed by the given pgx pool.
+// SQLDBFromPool returns a *sql.DB backed by the given pgx pool.
 // This is only needed for libraries that require database/sql (e.g. sql-migrate).
-func SqlDBFromPool(pool *pgxpool.Pool) *sql.DB {
+func SQLDBFromPool(pool *pgxpool.Pool) *sql.DB {
 	return stdlib.OpenDBFromPool(pool)
 }
 

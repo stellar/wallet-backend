@@ -17,7 +17,7 @@ func Migrate(ctx context.Context, databaseURL string, direction migrate.Migratio
 	}
 	defer pool.Close()
 
-	sqlDB := SqlDBFromPool(pool)
+	sqlDB := SQLDBFromPool(pool)
 	defer sqlDB.Close() //nolint:errcheck // best-effort close of the sql.DB wrapper
 
 	m := migrate.HttpFileSystemMigrationSource{FileSystem: http.FS(migrations.FS)}
