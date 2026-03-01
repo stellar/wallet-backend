@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -48,67 +47,6 @@ func TestGetDBErrorType(t *testing.T) {
 			err:  context.DeadlineExceeded,
 			want: "context_deadline_exceeded",
 		},
-		{
-			name: "postgres unique_violation",
-			err:  &pq.Error{Code: "23505"},
-			want: "unique_violation",
-		},
-		{
-			name: "postgres foreign_key_violation",
-			err:  &pq.Error{Code: "23503"},
-			want: "foreign_key_violation",
-		},
-		{
-			name: "postgres not_null_violation",
-			err:  &pq.Error{Code: "23502"},
-			want: "not_null_violation",
-		},
-		{
-			name: "postgres check_violation",
-			err:  &pq.Error{Code: "23514"},
-			want: "check_violation",
-		},
-		{
-			name: "postgres serialization_failure",
-			err:  &pq.Error{Code: "40001"},
-			want: "serialization_failure",
-		},
-		{
-			name: "postgres deadlock_detected",
-			err:  &pq.Error{Code: "40P01"},
-			want: "deadlock",
-		},
-		{
-			name: "postgres query_canceled",
-			err:  &pq.Error{Code: "57014"},
-			want: "query_canceled",
-		},
-		{
-			name: "postgres admin_shutdown",
-			err:  &pq.Error{Code: "57P01"},
-			want: "admin_shutdown",
-		},
-		{
-			name: "postgres connection error 08000",
-			err:  &pq.Error{Code: "08000"},
-			want: "connection_error",
-		},
-		{
-			name: "postgres connection error 08003",
-			err:  &pq.Error{Code: "08003"},
-			want: "connection_error",
-		},
-		{
-			name: "postgres connection error 08006",
-			err:  &pq.Error{Code: "08006"},
-			want: "connection_error",
-		},
-		{
-			name: "postgres other error",
-			err:  &pq.Error{Code: "99999"},
-			want: "postgres_error",
-		},
-		// pgx/v5 pgconn.PgError test cases (should behave identically to pq.Error)
 		{
 			name: "pgconn unique_violation",
 			err:  &pgconn.PgError{Code: "23505"},

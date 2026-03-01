@@ -13,8 +13,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// Note: pq is still used by BatchGetByIDs for sqlx compatibility
-
 // assetNamespace is a custom namespace UUID derived deterministically from the
 // DNS namespace UUID and the "trustline_assets" table name. This ensures a
 // stable, reproducible namespace for generating asset IDs.
