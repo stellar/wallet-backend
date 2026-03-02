@@ -196,10 +196,9 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		INNER JOIN transactions
 		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
-	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
 	// QueryMany uses RowToStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	txs, err := db.QueryMany[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
+	txns, err := db.QueryMany[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "transactions", len(operationIDs))
@@ -208,6 +207,10 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "transactions")
+	transactions := make([]*types.TransactionWithOperationID, len(txns))
+	for i := range txns {
+		transactions[i] = &txns[i]
+	}
 	return transactions, nil
 }
 
