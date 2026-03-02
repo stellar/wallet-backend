@@ -61,8 +61,11 @@ func OpenDBConnectionPool(ctx context.Context, dataSourceName string) (*pgxpool.
 }
 
 // OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// It configures session-level settings (synchronous_commit=off) via the connection
-// string, which are applied to every new connection in the pool.
+// Two session-level settings are applied to every connection in the pool:
+//   - synchronous_commit=off (via DSN options, no privilege required)
+//   - session_replication_role='replica' (via AfterConnect, disables FK constraint checks;
+//     requires superuser or replication privilege on the DB user)
+//
 // This should ONLY be used for backfill instances, NOT for live ingestion.
 func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string) (*pgxpool.Pool, error) {
 	// Append session parameters to connection string for automatic configuration.
@@ -84,6 +87,18 @@ func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string)
 	cfg.MaxConnLifetime = MaxDBConnLifetime
 	cfg.MaxConnIdleTime = MaxDBConnIdleTime
 
+	// Set session_replication_role = 'replica' on every new connection to disable FK constraint
+	// checking for faster bulk inserts. This must be done via AfterConnect because the setting
+	// cannot be embedded in the DSN and pgxpool creates many connections — a one-shot pool.Exec
+	// would only configure a single connection.
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET session_replication_role = 'replica'")
+		if err != nil {
+			return fmt.Errorf("setting session_replication_role on backfill connection: %w", err)
+		}
+		return nil
+	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
@@ -101,17 +116,6 @@ func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string)
 // This is only needed for libraries that require database/sql (e.g. sql-migrate).
 func SQLDBFromPool(pool *pgxpool.Pool) *sql.DB {
 	return stdlib.OpenDBFromPool(pool)
-}
-
-// ConfigureBackfillSession sets session_replication_role to 'replica' which disables FK constraint
-// checking. This cannot be set via connection string and requires elevated privileges (superuser
-// or replication role). Call this ONCE at backfill startup after creating the connection pool.
-func ConfigureBackfillSession(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, "SET session_replication_role = 'replica'")
-	if err != nil {
-		return fmt.Errorf("setting session_replication_role: %w", err)
-	}
-	return nil
 }
 
 // RunInTransaction runs the given atomic function in a pgx transaction.

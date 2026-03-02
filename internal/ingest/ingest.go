@@ -127,13 +127,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
 		}
 
-		// Disable FK constraint checking for faster inserts (requires elevated privileges)
-		if fkErr := db.ConfigureBackfillSession(ctx, dbConnectionPool); fkErr != nil {
-			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
-			// Continue anyway - other optimizations (async commit, work_mem) still apply
-		} else {
-			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
-		}
+		log.Ctx(ctx).Info("Backfill pool configured: FK checks disabled on all connections, async commit enabled")
 	default:
 		dbConnectionPool, err = db.OpenDBConnectionPool(ctx, cfg.DatabaseURL)
 		if err != nil {
