@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -18,11 +19,11 @@ import (
 func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 
 	testCases := []struct {
 		name           string
@@ -39,7 +40,7 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 			name: "returns_value_if_key_exists",
 			key:  "ingest_store_key",
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", 123)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", "123")
 				require.NoError(t, err)
 			},
 			expectedLedger: 123,
@@ -48,7 +49,7 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
@@ -75,11 +76,10 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 
 	testCases := []struct {
 		name           string
@@ -96,7 +96,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			name: "updates_if_key_exists",
 			key:  "ingest_store_key",
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", 123)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "ingest_store_key", "123")
 				require.NoError(t, err)
 			},
 			ledgerToUpsert: 456,
@@ -105,7 +105,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
@@ -123,7 +123,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 				if err := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
 					return err
 				}
@@ -131,8 +131,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			var dbStoredLedger uint32
-			err = m.DB.GetContext(ctx, &dbStoredLedger, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
+			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value::int FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.ledgerToUpsert, dbStoredLedger)
 		})
@@ -142,11 +141,10 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 
 	testCases := []struct {
 		name           string
@@ -180,11 +178,11 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			// Insert initial value
-			_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, tc.initialValue)
+			// Insert initial value — ingest_store.value is varchar, must pass string
+			_, err = dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, strconv.FormatUint(uint64(tc.initialValue), 10))
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
@@ -194,13 +192,12 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 				MetricsService: mockMetricsService,
 			}
 
-			err = db.RunInPgxTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 				return m.UpdateMin(ctx, dbTx, tc.key, tc.newValue)
 			})
 			require.NoError(t, err)
 
-			var dbStoredLedger uint32
-			err = m.DB.GetContext(ctx, &dbStoredLedger, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
+			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value::int FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedResult, dbStoredLedger)
 		})
@@ -210,11 +207,10 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 
 	testCases := []struct {
 		name         string
@@ -223,28 +219,28 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 	}{
 		{
 			name:         "returns_empty_when_no_transactions",
-			expectedGaps: nil,
+			expectedGaps: []LedgerRange{},
 		},
 		{
 			name: "returns_empty_when_no_gaps",
 			setupDB: func(t *testing.T) {
 				// Insert consecutive ledgers: 100, 101, 102
 				for i, ledger := range []uint32{100, 101, 102} {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
 					require.NoError(t, err)
 				}
 			},
-			expectedGaps: nil,
+			expectedGaps: []LedgerRange{},
 		},
 		{
 			name: "returns_single_gap",
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100 and 105, creating gap 101-104
 				for i, ledger := range []uint32{100, 105} {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
@@ -260,7 +256,7 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100, 105, 110, creating gaps 101-104 and 106-109
 				for i, ledger := range []uint32{100, 105, 110} {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
@@ -277,7 +273,7 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Insert ledgers 100 and 102, creating gap of just 101
 				for i, ledger := range []uint32{100, 102} {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
 						fmt.Sprintf("hash%d", i), i+1, ledger)
@@ -292,7 +288,7 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()
@@ -320,11 +316,10 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 
 	testCases := []struct {
 		name           string
@@ -341,7 +336,7 @@ func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 				// Insert ledgers with distinct timestamps so ORDER BY ledger_created_at
 				// returns the correct oldest regardless of to_id ordering.
 				for i, ledger := range []uint32{150, 100, 200} {
-					_, err := dbConnectionPool.ExecContext(ctx,
+					_, err := dbConnectionPool.Exec(ctx,
 						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW() - INTERVAL '1 day' * $4)`,
 						fmt.Sprintf("hash%d", i), i+1, ledger, 300-int(ledger))
@@ -354,7 +349,7 @@ func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
 
 			mockMetricsService := metrics.NewMockMetricsService()

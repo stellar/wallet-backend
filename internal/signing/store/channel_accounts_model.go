@@ -2,13 +2,12 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
 )
@@ -20,7 +19,7 @@ var (
 )
 
 type ChannelAccountModel struct {
-	DB db.ConnectionPool
+	DB *pgxpool.Pool
 }
 
 var _ ChannelAccountStore = (*ChannelAccountModel)(nil)
@@ -46,10 +45,9 @@ func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context,
 		RETURNING *;
 	`, int64(lockedUntil.Seconds()))
 
-	var channelAccount ChannelAccount
-	err := ca.DB.GetContext(ctx, &channelAccount, query)
+	channelAccount, err := db.QueryOne[ChannelAccount](ctx, ca.DB, query)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNoIdleChannelAccountAvailable
 		}
 
@@ -58,13 +56,12 @@ func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context,
 	return &channelAccount, nil
 }
 
-func (ca *ChannelAccountModel) Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error) {
+func (ca *ChannelAccountModel) Get(ctx context.Context, publicKey string) (*ChannelAccount, error) {
 	const query = `SELECT * FROM channel_accounts WHERE public_key = $1`
 
-	var channelAccount ChannelAccount
-	err := sqlExec.GetContext(ctx, &channelAccount, query, publicKey)
+	channelAccount, err := db.QueryOne[ChannelAccount](ctx, ca.DB, query, publicKey)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrChannelAccountNotFound
 		}
 		return nil, fmt.Errorf("getting channel account %s: %w", publicKey, err)
@@ -73,21 +70,24 @@ func (ca *ChannelAccountModel) Get(ctx context.Context, sqlExec db.SQLExecuter, 
 	return &channelAccount, nil
 }
 
-func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error) {
+func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, publicKeys ...string) ([]*ChannelAccount, error) {
 	const query = `SELECT * FROM channel_accounts WHERE public_key = ANY($1)`
 
-	var channelAccounts []*ChannelAccount
-	err := sqlExec.SelectContext(ctx, &channelAccounts, query, pq.Array(publicKeys))
+	cas, err := db.QueryMany[ChannelAccount](ctx, ca.DB, query, publicKeys)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel accounts %v: %w", publicKeys, err)
 	}
 
-	return channelAccounts, nil
+	result := make([]*ChannelAccount, len(cas))
+	for i := range cas {
+		result[i] = &cas[i]
+	}
+	return result, nil
 }
 
 func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error {
 	const query = `UPDATE channel_accounts SET locked_tx_hash = $1 WHERE public_key = $2`
-	_, err := ca.DB.ExecContext(ctx, query, txHash, publicKey)
+	_, err := ca.DB.Exec(ctx, query, txHash, publicKey)
 	if err != nil {
 		return fmt.Errorf("assigning channel account: %w", err)
 	}
@@ -116,13 +116,9 @@ func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Co
 	return result.RowsAffected(), nil
 }
 
-func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {
+func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, channelAccounts []*ChannelAccount) error {
 	if len(channelAccounts) == 0 {
 		return nil
-	}
-
-	if sqlExec == nil {
-		sqlExec = ca.DB
 	}
 
 	publicKeys := make([]string, len(channelAccounts))
@@ -140,13 +136,13 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 	}
 
 	const q = `
-		INSERT INTO 
+		INSERT INTO
 			channel_accounts (public_key, encrypted_private_key)
-		SELECT * 
+		SELECT *
 			FROM UNNEST($1::text[], $2::text[])
 	`
 
-	_, err := sqlExec.ExecContext(ctx, q, pq.Array(publicKeys), pq.Array(encryptedPrivateKeys))
+	_, err := ca.DB.Exec(ctx, q, publicKeys, encryptedPrivateKeys)
 	if err != nil {
 		return fmt.Errorf("inserting channel accounts: %w", err)
 	}
@@ -154,11 +150,7 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 	return nil
 }
 
-func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error) {
-	if sqlExec == nil {
-		sqlExec = ca.DB
-	}
-
+func (ca *ChannelAccountModel) GetAll(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
 	query := `
 		SELECT * FROM channel_accounts
 		ORDER BY created_at ASC
@@ -166,33 +158,27 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecute
 		FOR UPDATE SKIP LOCKED
 	`
 
-	var channelAccounts []*ChannelAccount
-	err := sqlExec.SelectContext(ctx, &channelAccounts, query, limit)
+	cas, err := db.QueryMany[ChannelAccount](ctx, pgxTx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("getting all channel accounts: %w", err)
 	}
 
-	return channelAccounts, nil
+	result := make([]*ChannelAccount, len(cas))
+	for i := range cas {
+		result[i] = &cas[i]
+	}
+	return result, nil
 }
 
-func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
-	if sqlExec == nil {
-		sqlExec = ca.DB
-	}
-
+func (ca *ChannelAccountModel) Delete(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error) {
 	query := `DELETE FROM channel_accounts WHERE public_key = ANY($1)`
 
-	result, err := sqlExec.ExecContext(ctx, query, pq.Array(publicKeys))
+	result, err := pgxTx.Exec(ctx, query, publicKeys)
 	if err != nil {
 		return 0, fmt.Errorf("deleting channel accounts %v: %w", publicKeys, err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("getting rows affected for delete: %w", err)
-	}
-
-	return rowsAffected, nil
+	return result.RowsAffected(), nil
 }
 
 func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {
@@ -200,11 +186,10 @@ func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {
 		SELECT
 			COUNT(*)
 		FROM
-			channel_accounts 
+			channel_accounts
 	`
 
-	var count int64
-	err := ca.DB.GetContext(ctx, &count, query)
+	count, err := db.QueryOne[int64](ctx, ca.DB, query)
 	if err != nil {
 		return 0, fmt.Errorf("counting channel accounts: %w", err)
 	}
@@ -212,6 +197,6 @@ func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-func NewChannelAccountModel(dbConnectionPool db.ConnectionPool) *ChannelAccountModel {
-	return &ChannelAccountModel{DB: dbConnectionPool}
+func NewChannelAccountModel(pool *pgxpool.Pool) *ChannelAccountModel {
+	return &ChannelAccountModel{DB: pool}
 }

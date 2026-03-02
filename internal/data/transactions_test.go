@@ -56,11 +56,11 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 func Test_TransactionModel_BatchCopy(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	now := time.Now()
 
 	kp1 := keypair.MustRandom()
@@ -144,7 +144,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clear the database before each test
-			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
+			_, err = dbConnectionPool.Exec(ctx, "TRUNCATE transactions, transactions_accounts CASCADE")
 			require.NoError(t, err)
 
 			// Create fresh mock for each test case
@@ -187,18 +187,17 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
-			var dbInsertedHashes []types.HashBytea
-			err = dbConnectionPool.SelectContext(ctx, &dbInsertedHashes, "SELECT hash FROM transactions ORDER BY hash")
+			dbInsertedHashes, err := db.QueryMany[types.HashBytea](ctx, dbConnectionPool, "SELECT hash FROM transactions ORDER BY hash")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
 
 			// Verify account links if expected
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
-				var accountLinks []struct {
+				type txAccountLink struct {
 					TxToID    int64              `db:"tx_to_id"`
 					AccountID types.AddressBytea `db:"account_id"`
 				}
-				err = dbConnectionPool.SelectContext(ctx, &accountLinks, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
+				accountLinks, err := db.QueryMany[txAccountLink](ctx, dbConnectionPool, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
 				require.NoError(t, err)
 
 				// Create a map of tx_to_id -> set of account_ids
@@ -220,7 +219,8 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 func TestTransactionModel_GetByHash(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -234,12 +234,11 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	// Create test transaction
 	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES ($1, 1, 'envelope', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2, false)
 	`, txHash, now)
@@ -257,7 +256,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 func TestTransactionModel_GetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -271,14 +271,13 @@ func TestTransactionModel_GetAll(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	// Create test transactions
 	testHash1 := types.HashBytea("1076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	testHash2 := types.HashBytea("2076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	testHash3 := types.HashBytea("3076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
@@ -291,23 +290,24 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
-	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
-	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
-	assert.Equal(t, int64(3), transactions[2].Cursor.ID)
+	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
+	assert.Equal(t, int64(3), transactions[2].CompositeCursor.ID)
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
 	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
-	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
-	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
+	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
 }
 
 func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -321,7 +321,6 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address1 := keypair.MustRandom().Address()
@@ -331,7 +330,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
@@ -341,7 +340,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test transactions_accounts links (account_id is BYTEA)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
 		VALUES
 			($3, 1, $1),
@@ -355,14 +354,15 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 
-	assert.Equal(t, int64(1), transactions[0].Cursor.ID)
-	assert.Equal(t, int64(2), transactions[1].Cursor.ID)
+	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
 }
 
 func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -377,7 +377,6 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	// Create test transactions with specific ToIDs
@@ -385,7 +384,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	opTestHash1 := types.HashBytea("7076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	opTestHash2 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	opTestHash3 := types.HashBytea("9076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($1, 4096, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
@@ -400,7 +399,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
 	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
 		VALUES
 			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
@@ -427,7 +426,8 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -442,7 +442,6 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -451,7 +450,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	scTestHash1 := types.HashBytea("a176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	scTestHash2 := types.HashBytea("b176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	scTestHash3 := types.HashBytea("c176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
@@ -461,7 +460,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 1),
@@ -490,18 +489,14 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 	dbt := dbtest.OpenB(b)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	if err != nil {
 		b.Fatalf("failed to open db connection pool: %v", err)
 	}
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 
 	m := &TransactionModel{
 		DB:             dbConnectionPool,

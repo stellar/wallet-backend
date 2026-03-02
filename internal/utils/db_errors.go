@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // GetDBErrorType categorizes database errors into types for metrics
@@ -14,8 +15,8 @@ func GetDBErrorType(err error) string {
 		return ""
 	}
 
-	// Check for standard SQL errors
-	if errors.Is(err, sql.ErrNoRows) {
+	// Check for standard SQL errors (both pgx and database/sql variants)
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 		return "no_rows"
 	}
 	if errors.Is(err, sql.ErrConnDone) {
@@ -25,10 +26,10 @@ func GetDBErrorType(err error) string {
 		return "transaction_done"
 	}
 
-	// Check for PostgreSQL errors
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		switch pqErr.Code {
+	// Check for pgx/v5 PostgreSQL errors
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
 		case "23505": // unique_violation
 			return "unique_violation"
 		case "23503": // foreign_key_violation

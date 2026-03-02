@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,15 +13,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
-func createKeypairFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, kp Keypair) {
+func createKeypairFixture(t *testing.T, ctx context.Context, dbConnectionPool *pgxpool.Pool, kp Keypair) {
 	t.Helper()
 	const q = `
-		INSERT INTO 
+		INSERT INTO
 			keypairs (public_key, encrypted_private_key)
 		VALUES
-			(:public_key, :encrypted_private_key)
+			($1, $2)
 	`
-	_, err := dbConnectionPool.NamedExecContext(ctx, q, kp)
+	_, err := dbConnectionPool.Exec(ctx, q, kp.PublicKey, kp.EncryptedPrivateKey)
 	require.NoError(t, err)
 }
 
@@ -28,11 +29,11 @@ func TestKeypairModelGetByPublicKey(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewKeypairModel(dbConnectionPool)
 
 	t.Run("keypair_not_found", func(t *testing.T) {
@@ -55,11 +56,11 @@ func TestKeypairModelInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	m := NewKeypairModel(dbConnectionPool)
 
 	t.Run("keypair_already_exists", func(t *testing.T) {

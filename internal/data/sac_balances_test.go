@@ -18,7 +18,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -27,7 +27,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 	contractAddr2 := "CCONTRACT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	contractID1 := DeterministicContractID(contractAddr1)
 	contractID2 := DeterministicContractID(contractAddr2)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals) VALUES
 		($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
 		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
@@ -35,7 +35,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM sac_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM sac_balances`)
 		require.NoError(t, err)
 	}
 
@@ -84,7 +84,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		}
 
 		accountAddr := "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-		_, err := dbConnectionPool.ExecContext(ctx, `
+		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
 			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			VALUES ($1, $2, '1000000000', true, false, 12345)
@@ -122,7 +122,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		}
 
 		accountAddr := "CACCOUNT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-		_, err := dbConnectionPool.ExecContext(ctx, `
+		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
 			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			VALUES
@@ -147,7 +147,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -156,7 +156,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 	contractAddr2 := "CCONTRACT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	contractID1 := DeterministicContractID(contractAddr1)
 	contractID2 := DeterministicContractID(contractAddr2)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals) VALUES
 		($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
 		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
@@ -164,7 +164,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM sac_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM sac_balances`)
 		require.NoError(t, err)
 	}
 
@@ -177,7 +177,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -197,7 +197,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []SACBalance{
@@ -217,7 +217,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify insert
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM sac_balances WHERE account_address = $1`,
 			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(&count)
 		require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
 			{
@@ -254,7 +254,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update with new values
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts[0].Balance = "2000"
 		upserts[0].IsAuthorized = false
@@ -267,7 +267,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		var balance string
 		var isAuthorized bool
 		var ledger uint32
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance, is_authorized, last_modified_ledger FROM sac_balances WHERE account_address = $1 AND contract_id = $2`,
 			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", contractID1).Scan(&balance, &isAuthorized, &ledger)
 		require.NoError(t, err)
@@ -289,7 +289,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
 			{
@@ -304,7 +304,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Delete
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		deletes := []SACBalance{
 			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1},
@@ -315,7 +315,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify delete
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM sac_balances WHERE account_address = $1`,
 			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(&count)
 		require.NoError(t, err)
@@ -335,7 +335,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// Insert two balances
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
 			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "1000", LedgerNumber: 100},
@@ -346,7 +346,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update one, delete one, add new one for different account
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []SACBalance{
 			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "1500", LedgerNumber: 200}, // update
@@ -361,12 +361,12 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify results
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM sac_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM sac_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 2, count) // CACCOUNT1:contractID1 (updated) + CACCOUNT2:contractID1 (new)
 
 		var balance string
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance FROM sac_balances WHERE account_address = $1 AND contract_id = $2`,
 			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", contractID1).Scan(&balance)
 		require.NoError(t, err)
@@ -379,7 +379,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -388,7 +388,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 	contractAddr2 := "CCONTRACT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	contractID1 := DeterministicContractID(contractAddr1)
 	contractID2 := DeterministicContractID(contractAddr2)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals) VALUES
 		($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
 		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
@@ -396,7 +396,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM sac_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM sac_balances`)
 		require.NoError(t, err)
 	}
 
@@ -409,7 +409,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -429,7 +429,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []SACBalance{
@@ -449,7 +449,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify all fields
 		var b SACBalance
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `
+		err = dbConnectionPool.QueryRow(ctx, `
 			SELECT account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
 			FROM sac_balances WHERE account_address = $1
 		`, "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(
@@ -475,7 +475,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []SACBalance{
@@ -490,7 +490,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify count
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM sac_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM sac_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 3, count)
 	})

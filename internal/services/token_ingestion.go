@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -167,7 +168,7 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	db                         db.ConnectionPool
+	db                         *pgxpool.Pool
 	archive                    historyarchive.ArchiveInterface
 	contractValidator          ContractValidator
 	contractMetadataService    ContractMetadataService
@@ -182,7 +183,7 @@ type tokenIngestionService struct {
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
 func NewTokenIngestionService(
-	dbPool db.ConnectionPool,
+	dbPool *pgxpool.Pool,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
 	contractValidator ContractValidator,
@@ -213,7 +214,7 @@ func NewTokenIngestionService(
 // that only supports ProcessTokenChanges (not PopulateAccountTokens).
 // This is used by the loadtest runner which doesn't need archive/validator/metadata services.
 func NewTokenIngestionServiceForLoadtest(
-	dbPool db.ConnectionPool,
+	dbPool *pgxpool.Pool,
 	networkPassphrase string,
 	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
 	nativeBalanceModel wbdata.NativeBalanceModelInterface,
@@ -261,7 +262,7 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 	}()
 
 	// Wrap ALL DB operations in a single transaction for atomicity
-	err = db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+	err = db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		// Disable synchronous commit for this transaction only - safe for checkpoint
 		// population since it's idempotent and can be re-run if crash occurs
 		if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {

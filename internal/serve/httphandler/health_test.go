@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,8 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -40,9 +42,9 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 
 	t.Run("healthy - RPC and backend in sync", func(t *testing.T) {
 		ctx := context.Background()
-		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(98))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(98, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -75,13 +77,13 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		assert.Equal(t, "ok", response["status"])
 		assert.Equal(t, float64(98), response["backend_latest_ledger"])
 
-		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, cleanupErr := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, cleanupErr)
 	})
 
 	t.Run("unhealthy - RPC service error", func(t *testing.T) {
 		ctx := context.Background()
-		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -104,15 +106,15 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "failed to get RPC health")
 
-		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, cleanupErr := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, cleanupErr)
 	})
 
 	t.Run("unhealthy - RPC status not healthy", func(t *testing.T) {
 		ctx := context.Background()
-		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(98))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(98, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -138,15 +140,15 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		handler.GetHealth(recorder, req)
 		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 
-		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, cleanupErr := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, cleanupErr)
 	})
 
 	t.Run("unhealthy - backend significantly behind", func(t *testing.T) {
 		ctx := context.Background()
-		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", uint32(900))
+		_, err = dbConnectionPool.Exec(ctx, "INSERT INTO ingest_store (key, value) VALUES ('latest_ingest_ledger', $1)", strconv.FormatUint(900, 10))
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
@@ -180,7 +182,7 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		assert.Equal(t, float64(1000), response["extras"].(map[string]any)["rpc_latest_ledger"])
 		assert.Equal(t, float64(900), response["extras"].(map[string]any)["backend_latest_ledger"])
 
-		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
+		_, cleanupErr := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store WHERE key = 'latest_ingest_ledger'")
 		require.NoError(t, cleanupErr)
 	})
 }

@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,7 +109,7 @@ func TestSendRPCRequest(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -236,7 +237,7 @@ func TestSendTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -320,7 +321,7 @@ func TestSendTransaction(t *testing.T) {
 func Test_rpcService_SimulateTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -508,7 +509,7 @@ func TestGetTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -608,7 +609,7 @@ func TestGetTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -695,7 +696,7 @@ func TestSendGetHealth(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
@@ -765,7 +766,7 @@ func TestSendGetHealth(t *testing.T) {
 func Test_rpcService_GetLedgers(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

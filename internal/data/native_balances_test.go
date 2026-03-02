@@ -18,12 +18,12 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM native_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM native_balances`)
 		require.NoError(t, err)
 	}
 
@@ -70,7 +70,7 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 		}
 
 		accountAddr := "GACCOUNT1"
-		_, err := dbConnectionPool.ExecContext(ctx, `
+		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO native_balances
 			(account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger)
 			VALUES ($1, 1000000000, 100, 200, 12345)
@@ -94,12 +94,12 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM native_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM native_balances`)
 		require.NoError(t, err)
 	}
 
@@ -112,7 +112,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -132,7 +132,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []NativeBalance{
@@ -151,7 +151,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify insert
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
 	})
@@ -169,7 +169,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
 			{
@@ -183,7 +183,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update with new values
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts[0].Balance = 2000
 		upserts[0].LedgerNumber = 200
@@ -194,7 +194,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		// Verify update
 		var balance int64
 		var ledger uint32
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance, last_modified_ledger FROM native_balances WHERE account_address = $1`,
 			"GACCOUNT1").Scan(&balance, &ledger)
 		require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
 			{AccountAddress: "GACCOUNT1", Balance: 1000, LedgerNumber: 100},
@@ -225,7 +225,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Delete
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		deletes := []string{"GACCOUNT1"}
 		err = m.BatchUpsert(ctx, pgxTx2, nil, deletes)
@@ -234,7 +234,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify delete
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 	})
@@ -252,7 +252,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// Insert two balances
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
 			{AccountAddress: "GACCOUNT1", Balance: 1000, LedgerNumber: 100},
@@ -263,7 +263,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update one, delete one, add new one
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []NativeBalance{
 			{AccountAddress: "GACCOUNT1", Balance: 1500, LedgerNumber: 200}, // update
@@ -276,12 +276,12 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify results
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM native_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 2, count) // GACCOUNT1 (updated) + GACCOUNT3 (new)
 
 		var balance int64
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance FROM native_balances WHERE account_address = $1`,
 			"GACCOUNT1").Scan(&balance)
 		require.NoError(t, err)
@@ -294,12 +294,12 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM native_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM native_balances`)
 		require.NoError(t, err)
 	}
 
@@ -312,7 +312,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -332,7 +332,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []NativeBalance{
@@ -351,7 +351,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify all fields
 		var b NativeBalance
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `
+		err = dbConnectionPool.QueryRow(ctx, `
 			SELECT account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger
 			FROM native_balances WHERE account_address = $1
 		`, "GACCOUNT1").Scan(&b.AccountAddress, &b.Balance, &b.BuyingLiabilities, &b.SellingLiabilities, &b.LedgerNumber)
@@ -375,7 +375,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []NativeBalance{
@@ -390,7 +390,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify count
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM native_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 3, count)
 	})

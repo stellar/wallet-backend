@@ -246,14 +246,14 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -285,7 +285,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 		// Insert trustline assets first using deterministic IDs
 		assetID := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
 				{ID: assetID, Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 			})
@@ -293,7 +293,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 		require.NoError(t, err)
 
 		// Insert account trustline balances
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return trustlineBalanceModel.BatchCopy(ctx, dbTx, []wbdata.TrustlineBalance{
 				{AccountAddress: accountAddress, AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
 			})
@@ -313,12 +313,12 @@ func TestGetAccountContracts(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -338,7 +338,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 	t.Run("account with contracts returns contract IDs", func(t *testing.T) {
 		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
@@ -354,7 +354,7 @@ func TestGetAccountContracts(t *testing.T) {
 
 		// Insert contract into contract_tokens using deterministic ID
 		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
 				{ID: numericID, ContractID: contractID, Type: "SAC"},
 			})
@@ -362,7 +362,7 @@ func TestGetAccountContracts(t *testing.T) {
 		require.NoError(t, err)
 
 		// Insert account contracts using deterministic UUID
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return accountContractTokensModel.BatchInsert(ctx, dbTx, map[string][]uuid.UUID{
 				accountAddress: {numericID},
 			})
@@ -385,16 +385,16 @@ func TestProcessTokenChanges(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM account_contract_tokens`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
 
@@ -412,7 +412,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
 
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})
 		assert.NoError(t, err)
@@ -420,7 +420,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
 		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
@@ -442,7 +442,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// First insert the contract into contract_tokens using deterministic ID (simulating FetchAndStoreMetadata)
 		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
 				{ID: numericID, ContractID: contractID, Type: "SEP41"},
 			})
@@ -451,7 +451,7 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		// ProcessTokenChanges processes SEP-41 contracts via contractChanges parameter
 		// SAC contracts are processed via sacBalanceChangesByKey parameter instead
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
 				{
 					AccountID:    accountAddress,

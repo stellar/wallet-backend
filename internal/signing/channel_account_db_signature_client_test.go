@@ -149,7 +149,7 @@ func TestChannelAccountDBSignatureClientSignStellarTransaction(t *testing.T) {
 			EncryptedPrivateKey: encryptedPrivateKey,
 		}
 		channelAccountStore.
-			On("GetAllByPublicKey", ctx, nil, []string{channelAccount.Address()}).
+			On("GetAllByPublicKey", ctx, []string{channelAccount.Address()}).
 			Return([]*store.ChannelAccount{&chAcc}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)

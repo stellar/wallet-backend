@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -18,17 +19,17 @@ import (
 // Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
 // Includes contract metadata from JOIN with contract_tokens table for API responses.
 type SACBalance struct {
-	AccountAddress    string    // Contract address (C...) of the holder
-	ContractID        uuid.UUID // Deterministic UUID for the SAC contract
-	Balance           string    // Balance as string (handles i128 values)
-	IsAuthorized      bool
-	IsClawbackEnabled bool
-	LedgerNumber      uint32
+	AccountAddress    string    `db:"account_address"` // Contract address (C...) of the holder
+	ContractID        uuid.UUID `db:"contract_id"`     // Deterministic UUID for the SAC contract
+	Balance           string    `db:"balance"`         // Balance as string (handles i128 values)
+	IsAuthorized      bool      `db:"is_authorized"`
+	IsClawbackEnabled bool      `db:"is_clawback_enabled"`
+	LedgerNumber      uint32    `db:"last_modified_ledger"`
 	// Contract metadata from JOIN with contract_tokens
-	TokenID  string // SAC contract address (C...) used as token identifier in API
-	Code     string // Asset code (e.g., "USDC")
-	Issuer   string // Asset issuer G-address
-	Decimals uint32 // Token decimals
+	TokenID  string `db:"token_id"` // SAC contract address (C...) used as token identifier in API; aliased from ct.contract_id
+	Code     string `db:"code"`     // Asset code (e.g., "USDC")
+	Issuer   string `db:"issuer"`   // Asset issuer G-address
+	Decimals uint32 `db:"decimals"` // Token decimals
 }
 
 // SACBalanceModelInterface defines the interface for SAC balance operations.
@@ -45,7 +46,7 @@ type SACBalanceModelInterface interface {
 
 // SACBalanceModel implements SACBalanceModelInterface.
 type SACBalanceModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
@@ -59,41 +60,21 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	}
 
 	const query = `
-		SELECT
-			asb.contract_id, asb.balance, asb.is_authorized,
-			asb.is_clawback_enabled, asb.last_modified_ledger,
-			ct.contract_id, ct.code, ct.issuer, ct.decimals
+		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
+		       asb.is_clawback_enabled, asb.last_modified_ledger,
+		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
 		FROM sac_balances asb
 		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
 		WHERE asb.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.PgxPool().Query(ctx, query, accountAddress)
+	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, accountAddress)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
 	}
-	defer rows.Close()
-
-	var balances []SACBalance
-	for rows.Next() {
-		var bal SACBalance
-		if err := rows.Scan(
-			&bal.ContractID, &bal.Balance, &bal.IsAuthorized,
-			&bal.IsClawbackEnabled, &bal.LedgerNumber,
-			&bal.TokenID, &bal.Code, &bal.Issuer, &bal.Decimals,
-		); err != nil {
-			return nil, fmt.Errorf("scanning SAC balance: %w", err)
-		}
-		bal.AccountAddress = accountAddress
-		balances = append(balances, bal)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating SAC balances: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByAccount", "sac_balances")
 	return balances, nil
 }

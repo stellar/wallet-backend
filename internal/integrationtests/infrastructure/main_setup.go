@@ -323,7 +323,7 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 		return fmt.Errorf("getting database port: %w", err)
 	}
 	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("opening database connection pool: %w", err)
 	}
@@ -362,8 +362,8 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 
 			// Get backend's latest ledger from database
 			var backendLatestLedger uint32
-			err = dbConnectionPool.GetContext(ctx, &backendLatestLedger,
-				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName)
+			err = dbConnectionPool.QueryRow(ctx,
+				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName).Scan(&backendLatestLedger)
 			if err != nil {
 				log.Ctx(ctx).Warnf("Failed to get backend latest ledger: %v", err)
 				continue
@@ -546,28 +546,9 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 		return nil, fmt.Errorf("failed to get RPC connection string: %w", err)
 	}
 
-	// Get database connection for metrics
-	dbHost, err := containers.WalletDBContainer.GetHost(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database host: %w", err)
-	}
-	dbPort, err := containers.WalletDBContainer.GetPort(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database port: %w", err)
-	}
-	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection pool: %w", err)
-	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sqlx db: %w", err)
-	}
-
 	// Initialize RPC service
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)

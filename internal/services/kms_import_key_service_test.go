@@ -21,11 +21,10 @@ func TestKMSImportServiceImportDistributionAccountKey(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 	kmsClient := awskms.KMSMock{}
 	keypairStore := store.KeypairStoreMock{}
 	distributionAccount := keypair.MustRandom()

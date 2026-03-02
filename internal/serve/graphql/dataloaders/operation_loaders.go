@@ -60,7 +60,7 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 			// Derive tx_to_id from operation ID using TOID bit masking
 			// Operation ID encodes (ledger, tx_order, op_index). Setting op_index to 0 gives tx_to_id.
 			// The op_index uses the lower 12 bits (0xFFF), so masking them out gives the tx_to_id.
-			return item.ID &^ 0xFFF
+			return item.Operation.ID &^ 0xFFF
 		},
 		func(key OperationColumnsKey) int64 {
 			return key.ToID
