@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -82,47 +81,6 @@ func OpenDBConnectionPool(ctx context.Context, dataSourceName string, poolConfig
 	if err = pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
-	}
-
-	return pool, nil
-}
-
-// OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// Two session-level settings are applied to every connection in the pool:
-//   - synchronous_commit=off (via DSN options, no privilege required)
-//   - session_replication_role='replica' (via AfterConnect, disables FK constraint checks;
-//     requires superuser or replication privilege on the DB user)
-//
-// This should ONLY be used for backfill instances, NOT for live ingestion.
-func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string, poolConfigs ...PoolConfig) (*pgxpool.Pool, error) {
-	poolCfg := resolvePoolConfig(poolConfigs)
-	// Append session parameters to connection string for automatic configuration.
-	// URL-encoded: -c synchronous_commit=off
-	backfillParams := "options=-c%20synchronous_commit%3Doff"
-
-	separator := "?"
-	if strings.Contains(dataSourceName, "?") {
-		separator = "&"
-	}
-	backfillDSN := dataSourceName + separator + backfillParams
-
-	cfg, err := pgxpool.ParseConfig(backfillDSN)
-	if err != nil {
-		return nil, fmt.Errorf("parsing backfill DB connection string: %w", err)
-	}
-	cfg.MaxConns = poolCfg.MaxConns
-	cfg.MinConns = poolCfg.MinConns
-	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
-	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
-	}
-
-	if err = pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("error pinging backfill DB connection pool: %w", err)
 	}
 
 	return pool, nil

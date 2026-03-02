@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -139,23 +138,10 @@ func Ingest(cfg Configs) error {
 func setupDeps(cfg Configs) (services.IngestService, error) {
 	ctx := context.Background()
 
-	var dbConnectionPool *pgxpool.Pool
-	var err error
 	poolCfg := cfg.BuildPoolConfig()
-	switch cfg.IngestionMode {
-	// Use optimized connection pool for backfill mode with async commit and increased work_mem
-	case services.IngestionModeBackfill:
-		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(ctx, cfg.DatabaseURL, poolCfg)
-		if err != nil {
-			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
-		}
-
-		log.Ctx(ctx).Info("Backfill pool configured: FK checks disabled on all connections, async commit enabled")
-	default:
-		dbConnectionPool, err = db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
-		if err != nil {
-			return nil, fmt.Errorf("connecting to the database: %w", err)
-		}
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
 
 	if cfg.IngestionMode == services.IngestionModeLive {
