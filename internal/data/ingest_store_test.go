@@ -197,7 +197,7 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value FROM ingest_store WHERE key = $1`, tc.key)
+			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value::int FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedResult, dbStoredLedger)
 		})
@@ -219,7 +219,7 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 	}{
 		{
 			name:         "returns_empty_when_no_transactions",
-			expectedGaps: nil,
+			expectedGaps: []LedgerRange{},
 		},
 		{
 			name: "returns_empty_when_no_gaps",
@@ -233,7 +233,7 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 					require.NoError(t, err)
 				}
 			},
-			expectedGaps: nil,
+			expectedGaps: []LedgerRange{},
 		},
 		{
 			name: "returns_single_gap",
