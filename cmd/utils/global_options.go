@@ -2,11 +2,13 @@ package utils
 
 import (
 	"go/types"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/support/config"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
@@ -267,4 +269,45 @@ func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) 
 	opts = append(opts, DistributionAccountPrivateKeyOption(&scOpts.DistributionAccountSecretKey))
 	opts = append(opts, AWSOptions(&scOpts.AWSRegion, &scOpts.KMSKeyARN, false)...)
 	return opts
+}
+
+// DBPoolOptions returns config options for tuning the pgxpool connection pool.
+// maxConns and minConns accept *int (cobra/viper stores ints); convert to int32 in buildPoolConfig.
+func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration, maxConnIdleTime *time.Duration) config.ConfigOptions {
+	return config.ConfigOptions{
+		{
+			Name:        "db-max-conns",
+			Usage:       "Maximum number of connections in the DB pool.",
+			OptType:     types.Int,
+			ConfigKey:   maxConns,
+			FlagDefault: int(db.DefaultMaxConns),
+			Required:    false,
+		},
+		{
+			Name:        "db-min-conns",
+			Usage:       "Minimum number of idle connections kept in the DB pool.",
+			OptType:     types.Int,
+			ConfigKey:   minConns,
+			FlagDefault: int(db.DefaultMinConns),
+			Required:    false,
+		},
+		{
+			Name:           "db-max-conn-lifetime",
+			Usage:          "Maximum lifetime of a DB connection (Go duration string, e.g. \"5m\").",
+			OptType:        types.String,
+			CustomSetValue: SetConfigOptionDuration,
+			ConfigKey:      maxConnLifetime,
+			FlagDefault:    db.DefaultMaxConnLifetime.String(),
+			Required:       false,
+		},
+		{
+			Name:           "db-max-conn-idle-time",
+			Usage:          "Maximum idle time for a DB connection (Go duration string, e.g. \"10s\").",
+			OptType:        types.String,
+			CustomSetValue: SetConfigOptionDuration,
+			ConfigKey:      maxConnIdleTime,
+			FlagDefault:    db.DefaultMaxConnIdleTime.String(),
+			Required:       false,
+		},
+	}
 }
