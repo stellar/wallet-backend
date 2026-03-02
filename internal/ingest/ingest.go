@@ -104,7 +104,7 @@ type Configs struct {
 	DBMaxConnIdleTime time.Duration
 }
 
-func (c Configs) buildPoolConfig() db.PoolConfig {
+func (c Configs) BuildPoolConfig() db.PoolConfig {
 	cfg := db.DefaultPoolConfig()
 	if c.DBMaxConns > 0 {
 		cfg.MaxConns = int32(c.DBMaxConns)
@@ -141,7 +141,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	var dbConnectionPool *pgxpool.Pool
 	var err error
-	poolCfg := cfg.buildPoolConfig()
+	poolCfg := cfg.BuildPoolConfig()
 	switch cfg.IngestionMode {
 	// Use optimized connection pool for backfill mode with async commit and increased work_mem
 	case services.IngestionModeBackfill:

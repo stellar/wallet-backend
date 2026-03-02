@@ -110,7 +110,7 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL, cfg.BuildPoolConfig())
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
