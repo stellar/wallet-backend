@@ -97,6 +97,28 @@ type Configs struct {
 	// CompressAfter controls how long after a chunk is closed before it becomes eligible for compression.
 	// Uses PostgreSQL INTERVAL syntax (e.g., "1 hour", "12 hours"). Empty string skips configuration.
 	CompressAfter string
+	// DB pool tuning — all default to db.Default* constants when zero.
+	DBMaxConns        int
+	DBMinConns        int
+	DBMaxConnLifetime time.Duration
+	DBMaxConnIdleTime time.Duration
+}
+
+func (c Configs) buildPoolConfig() db.PoolConfig {
+	cfg := db.DefaultPoolConfig()
+	if c.DBMaxConns > 0 {
+		cfg.MaxConns = int32(c.DBMaxConns)
+	}
+	if c.DBMinConns > 0 {
+		cfg.MinConns = int32(c.DBMinConns)
+	}
+	if c.DBMaxConnLifetime > 0 {
+		cfg.MaxConnLifetime = c.DBMaxConnLifetime
+	}
+	if c.DBMaxConnIdleTime > 0 {
+		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
+	}
+	return cfg
 }
 
 func Ingest(cfg Configs) error {
@@ -119,17 +141,18 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	var dbConnectionPool *pgxpool.Pool
 	var err error
+	poolCfg := cfg.buildPoolConfig()
 	switch cfg.IngestionMode {
 	// Use optimized connection pool for backfill mode with async commit and increased work_mem
 	case services.IngestionModeBackfill:
-		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(ctx, cfg.DatabaseURL)
+		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(ctx, cfg.DatabaseURL, poolCfg)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
 		}
 
 		log.Ctx(ctx).Info("Backfill pool configured: FK checks disabled on all connections, async commit enabled")
 	default:
-		dbConnectionPool, err = db.OpenDBConnectionPool(ctx, cfg.DatabaseURL)
+		dbConnectionPool, err = db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to the database: %w", err)
 		}
