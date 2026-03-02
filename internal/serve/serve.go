@@ -88,6 +88,7 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	if c.DBMaxConnIdleTime > 0 {
 		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
 	}
+	cfg.DisableStatementCache = true
 	return cfg
 }
 

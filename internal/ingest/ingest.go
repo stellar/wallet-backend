@@ -117,6 +117,9 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	if c.DBMaxConnIdleTime > 0 {
 		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
 	}
+	if c.IngestionMode == services.IngestionModeBackfill {
+		cfg.DisableStatementCache = true
+	}
 	return cfg
 }
 
