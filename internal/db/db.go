@@ -18,9 +18,9 @@ import (
 
 const (
 	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
-	DefaultMaxConns        int32         = 30
-	DefaultMinConns        int32         = 20              // Keep warm connections ready in the pool
-	DefaultMaxConnLifetime time.Duration = 5 * time.Minute // Recycle connections periodically
+	DefaultMaxConns        int32         = 10
+	DefaultMinConns        int32         = 5
+	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
 )
 
 // PoolConfig holds configurable pgxpool settings. Zero values fall back to Default* constants.
