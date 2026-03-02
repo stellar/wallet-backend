@@ -11,21 +11,22 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
 type TrustlineBalance struct {
-	AccountAddress     string
-	AssetID            uuid.UUID
-	Code               string // Asset code from trustline_assets table
-	Issuer             string // Asset issuer from trustline_assets table
-	Balance            int64
-	Limit              int64
-	BuyingLiabilities  int64
-	SellingLiabilities int64
-	Flags              uint32
-	LedgerNumber       uint32
+	AccountAddress     string    `db:"account_address"`
+	AssetID            uuid.UUID `db:"asset_id"`
+	Code               string    `db:"code"`   // Asset code from trustline_assets table
+	Issuer             string    `db:"issuer"` // Asset issuer from trustline_assets table
+	Balance            int64     `db:"balance"`
+	Limit              int64     `db:"trust_limit"`
+	BuyingLiabilities  int64     `db:"buying_liabilities"`
+	SellingLiabilities int64     `db:"selling_liabilities"`
+	Flags              uint32    `db:"flags"`
+	LedgerNumber       uint32    `db:"last_modified_ledger"`
 }
 
 // TrustlineBalanceModelInterface defines the interface for trustline balance operations.
@@ -55,7 +56,7 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	}
 
 	const query = `
-		SELECT atb.asset_id, ta.code, ta.issuer,
+		SELECT atb.account_address, atb.asset_id, ta.code, ta.issuer,
 		       atb.balance, atb.trust_limit, atb.buying_liabilities,
 		       atb.selling_liabilities, atb.flags, atb.last_modified_ledger
 		FROM trustline_balances atb
@@ -63,29 +64,13 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 		WHERE atb.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, accountAddress)
+	balances, err := db.QueryMany[TrustlineBalance](ctx, m.DB, query, accountAddress)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "trustline_balances", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "trustline_balances", "query_error")
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)
 	}
-	defer rows.Close()
-
-	var balances []TrustlineBalance
-	for rows.Next() {
-		var tl TrustlineBalance
-		if err := rows.Scan(&tl.AssetID, &tl.Code, &tl.Issuer, &tl.Balance, &tl.Limit,
-			&tl.BuyingLiabilities, &tl.SellingLiabilities, &tl.Flags, &tl.LedgerNumber); err != nil {
-			return nil, fmt.Errorf("scanning trustline balance: %w", err)
-		}
-		tl.AccountAddress = accountAddress
-		balances = append(balances, tl)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating trustline balances: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "trustline_balances", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByAccount", "trustline_balances")
 	return balances, nil
 }

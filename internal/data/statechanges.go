@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -102,12 +103,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting state changes by account address: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "state_changes", duration)
 	if err != nil {
@@ -169,12 +165,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetAll", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting all state changes: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
@@ -354,12 +345,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToID", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting paginated state changes by to_id: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "state_changes", duration)
 	if err != nil {
@@ -413,12 +399,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, toIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting state changes by to_ids: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "state_changes", len(toIDs))
@@ -482,12 +463,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationID", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationID", "state_changes", duration)
 	if err != nil {
@@ -541,12 +517,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, operationIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "state_changes", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
-	}
-	scs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.StateChangeWithCursor])
+	scs, err := db.QueryMany[types.StateChangeWithCursor](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "state_changes", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "state_changes", len(operationIDs))

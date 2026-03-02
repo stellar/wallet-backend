@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -65,29 +66,13 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	const query = `SELECT contract_id FROM contract_tokens WHERE contract_id = ANY($1)`
 
 	start := time.Now()
-	rows, err := dbTx.Query(ctx, query, contractIDs)
+	ids, err := db.QueryMany[string](ctx, dbTx, query, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
 	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
-			return nil, fmt.Errorf("scanning contract ID: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("iterating contract rows: %w", err)
-	}
-
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
 	m.MetricsService.IncDBQuery("GetExisting", "contract_tokens")
 	return ids, nil
 }

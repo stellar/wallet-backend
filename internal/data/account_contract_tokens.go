@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -45,29 +46,18 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		WHERE ac.account_address = $1`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, accountAddress)
+	cs, err := db.QueryMany[Contract](ctx, m.DB, query, accountAddress)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contract_tokens", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("GetByAccount", "account_contract_tokens", "query_error")
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
-	defer rows.Close()
-
-	var contracts []*Contract
-	for rows.Next() {
-		var c Contract
-		if err := rows.Scan(&c.ID, &c.ContractID, &c.Type, &c.Code, &c.Issuer,
-			&c.Name, &c.Symbol, &c.Decimals, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning contract: %w", err)
-		}
-		contracts = append(contracts, &c)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating contracts: %w", err)
-	}
-
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contract_tokens", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByAccount", "account_contract_tokens")
+	contracts := make([]*Contract, len(cs))
+	for i := range cs {
+		contracts[i] = &cs[i]
+	}
 	return contracts, nil
 }
 

@@ -75,12 +75,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("GetAll", "transactions", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting transactions: %w", err)
-	}
-	txs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.TransactionWithCursor])
+	txs, err := db.QueryMany[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "transactions", duration)
 	if err != nil {
@@ -164,12 +159,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "transactions", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting transactions by account address: %w", err)
-	}
-	txs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.TransactionWithCursor])
+	txs, err := db.QueryMany[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "transactions", duration)
 	if err != nil {
@@ -208,13 +198,8 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, operationIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "transactions", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
-	}
-	// RowToStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	txs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.TransactionWithOperationID])
+	// QueryMany uses RowToStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
+	txs, err := db.QueryMany[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "transactions", len(operationIDs))
@@ -245,12 +230,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		`, columns, strings.Join(tuples, ", "))
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "transactions", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
-	}
-	txs, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.TransactionWithStateChangeID])
+	txs, err := db.QueryMany[types.TransactionWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "transactions", len(scOrders))

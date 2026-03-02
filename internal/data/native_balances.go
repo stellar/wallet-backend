@@ -11,17 +11,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // NativeBalance contains native XLM balance data for an account.
 type NativeBalance struct {
-	AccountAddress     string
-	Balance            int64
-	MinimumBalance     int64
-	BuyingLiabilities  int64
-	SellingLiabilities int64
-	LedgerNumber       uint32
+	AccountAddress     string `db:"account_address"`
+	Balance            int64  `db:"balance"`
+	MinimumBalance     int64  `db:"minimum_balance"`
+	BuyingLiabilities  int64  `db:"buying_liabilities"`
+	SellingLiabilities int64  `db:"selling_liabilities"`
+	LedgerNumber       uint32 `db:"last_modified_ledger"`
 }
 
 // NativeBalanceModelInterface defines the interface for native balance operations.
@@ -56,10 +57,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 		WHERE account_address = $1`
 
 	start := time.Now()
-	row := m.DB.QueryRow(ctx, query, accountAddress)
-
-	var nb NativeBalance
-	err := row.Scan(&nb.AccountAddress, &nb.Balance, &nb.MinimumBalance, &nb.BuyingLiabilities, &nb.SellingLiabilities, &nb.LedgerNumber)
+	nb, err := db.QueryOne[NativeBalance](ctx, m.DB, query, accountAddress)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -67,7 +65,6 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 		m.MetricsService.IncDBQueryError("GetByAccount", "native_balances", "query_error")
 		return nil, fmt.Errorf("querying native balance for %s: %w", accountAddress, err)
 	}
-
 	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "native_balances", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByAccount", "native_balances")
 	return &nb, nil

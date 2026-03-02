@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -45,12 +44,7 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 		WHERE tx_to_id = ANY($1)`
 	var accounts []*types.AccountWithToID
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, toIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
-	}
-	accounts, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.AccountWithToID])
+	accounts, err := db.QueryMany[types.AccountWithToID](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
@@ -70,12 +64,7 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		WHERE operation_id = ANY($1)`
 	var accounts []*types.AccountWithOperationID
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, operationIDs)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err))
-		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
-	}
-	accounts, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[types.AccountWithOperationID])
+	accounts, err := db.QueryMany[types.AccountWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))
