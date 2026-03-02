@@ -87,18 +87,6 @@ func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string)
 	cfg.MaxConnLifetime = MaxDBConnLifetime
 	cfg.MaxConnIdleTime = MaxDBConnIdleTime
 
-	// Set session_replication_role = 'replica' on every new connection to disable FK constraint
-	// checking for faster bulk inserts. This must be done via AfterConnect because the setting
-	// cannot be embedded in the DSN and pgxpool creates many connections — a one-shot pool.Exec
-	// would only configure a single connection.
-	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		_, err := conn.Exec(ctx, "SET session_replication_role = 'replica'")
-		if err != nil {
-			return fmt.Errorf("setting session_replication_role on backfill connection: %w", err)
-		}
-		return nil
-	}
-
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
