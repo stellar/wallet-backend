@@ -377,11 +377,10 @@ func TestConfigureHypertableSettings(t *testing.T) {
 	t.Run("max_chunks_to_compress", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
-
-		ctx := context.Background()
 
 		// Compression policies already exist from columnstore hypertable creation.
 		// Configure with maxChunksToCompress = 10.
@@ -391,13 +390,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify maxchunks_to_compress was set in the config JSONB for all compression policy jobs
 		for _, table := range hypertables {
 			var maxChunks int
-			err := dbConnectionPool.GetContext(ctx, &maxChunks,
+			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&maxChunks)
 			require.NoError(t, err, "querying maxchunks_to_compress for %s", table)
 			assert.Equal(t, 10, maxChunks, "maxchunks_to_compress for %s", table)
 		}
@@ -406,23 +405,22 @@ func TestConfigureHypertableSettings(t *testing.T) {
 	t.Run("no_max_chunks_when_zero", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
-
-		ctx := context.Background()
 
 		// Record default maxchunks_to_compress before calling configureHypertableSettings.
 		defaultValues := make(map[string]*int)
 		for _, table := range hypertables {
 			var maxChunks *int
-			err := dbConnectionPool.GetContext(ctx, &maxChunks,
+			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&maxChunks)
 			require.NoError(t, err, "querying default maxchunks_to_compress for %s", table)
 			defaultValues[table] = maxChunks
 		}
@@ -434,13 +432,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Verify maxchunks_to_compress was NOT changed
 		for _, table := range hypertables {
 			var maxChunks *int
-			err := dbConnectionPool.GetContext(ctx, &maxChunks,
+			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int
 				 FROM timescaledb_information.jobs j
 				 WHERE j.proc_name = 'policy_compression'
 				   AND j.hypertable_name = $1`,
 				table,
-			)
+			).Scan(&maxChunks)
 			require.NoError(t, err, "querying maxchunks_to_compress for %s", table)
 			assert.Equal(t, defaultValues[table], maxChunks, "maxchunks_to_compress should remain unchanged for %s", table)
 		}
