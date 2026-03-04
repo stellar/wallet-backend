@@ -29,7 +29,7 @@ var hypertables = []string{
 // compression policy jobs run (does not create new policies).
 // Compress after updates how long after a chunk closes before it becomes
 // eligible for compression.
-func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string) error {
+func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string, maxChunksToCompress int) error {
 	for _, table := range hypertables {
 		if _, err := pool.ExecContext(ctx,
 			"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
@@ -156,6 +156,31 @@ func configureHypertableSettings(ctx context.Context, pool db.ConnectionPool, ch
 				return fmt.Errorf("updating compress_after on %s (job %d): %w", table, jobID, err)
 			}
 			log.Ctx(ctx).Infof("Set compress_after %q on %s (job %d)", compressAfter, table, jobID)
+		}
+	}
+
+	if maxChunksToCompress > 0 {
+		for _, table := range hypertables {
+			var jobID int
+			err := pool.GetContext(ctx, &jobID,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_compression'
+				   AND hypertable_name = $1`,
+				table,
+			)
+			if err != nil {
+				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping maxchunks_to_compress update", table)
+				continue
+			}
+
+			if _, err := pool.ExecContext(ctx,
+				`SELECT alter_job($1, config => config || jsonb_build_object('maxchunks_to_compress', $2::int))
+				 FROM timescaledb_information.jobs WHERE job_id = $1`,
+				jobID, maxChunksToCompress,
+			); err != nil {
+				return fmt.Errorf("updating maxchunks_to_compress on %s (job %d): %w", table, jobID, err)
+			}
+			log.Ctx(ctx).Infof("Set maxchunks_to_compress %d on %s (job %d)", maxChunksToCompress, table, jobID)
 		}
 	}
 
