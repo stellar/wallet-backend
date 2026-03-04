@@ -172,6 +172,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "",
 			Required:    false,
 		},
+		{
+			Name:        "compression-max-chunks",
+			Usage:       "Maximum chunks compressed per job run (maxchunks_to_compress). 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during backfill to prevent job run overlap.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.MaxChunksToCompress,
+			FlagDefault: 0,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
