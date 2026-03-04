@@ -97,6 +97,10 @@ type Configs struct {
 	// CompressAfter controls how long after a chunk is closed before it becomes eligible for compression.
 	// Uses PostgreSQL INTERVAL syntax (e.g., "1 hour", "12 hours"). Empty string skips configuration.
 	CompressAfter string
+	// MaxChunksToCompress limits how many chunks each compression policy job run processes.
+	// 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during
+	// backfill to prevent long-running jobs from blocking their next scheduled start.
+	MaxChunksToCompress int
 }
 
 func Ingest(cfg Configs) error {
@@ -136,7 +140,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	if cfg.IngestionMode == services.IngestionModeLive {
-		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter); err != nil {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, fmt.Errorf("configuring hypertable settings: %w", err)
 		}
 	}
