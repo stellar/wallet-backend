@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,11 +16,38 @@ import (
 )
 
 const (
-	MaxDBConnIdleTime = 10 * time.Second
-	MaxOpenDBConns    = 30
-	MaxIdleDBConns    = 20              // Keep warm connections ready in the pool
-	MaxDBConnLifetime = 5 * time.Minute // Recycle connections periodically
+	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
+	DefaultMaxConns        int32         = 10
+	DefaultMinConns        int32         = 5
+	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
 )
+
+// PoolConfig holds configurable pgxpool settings. Zero values fall back to Default* constants.
+type PoolConfig struct {
+	MaxConns              int32
+	MinConns              int32
+	MaxConnLifetime       time.Duration
+	MaxConnIdleTime       time.Duration
+	DisableStatementCache bool
+}
+
+// DefaultPoolConfig returns a PoolConfig populated with the default values.
+func DefaultPoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxConns:        DefaultMaxConns,
+		MinConns:        DefaultMinConns,
+		MaxConnLifetime: DefaultMaxConnLifetime,
+		MaxConnIdleTime: DefaultMaxConnIdleTime,
+	}
+}
+
+// resolvePoolConfig returns the first config provided, or DefaultPoolConfig() if none.
+func resolvePoolConfig(configs []PoolConfig) PoolConfig {
+	if len(configs) > 0 {
+		return configs[0]
+	}
+	return DefaultPoolConfig()
+}
 
 // Querier is the minimal interface shared by *pgxpool.Pool and pgx.Tx.
 // It allows QueryOne/QueryMany to work with both pool and transaction.
@@ -37,15 +63,20 @@ var (
 	_ Querier = (pgx.Tx)(nil)
 )
 
-func OpenDBConnectionPool(ctx context.Context, dataSourceName string) (*pgxpool.Pool, error) {
+func OpenDBConnectionPool(ctx context.Context, dataSourceName string, poolConfigs ...PoolConfig) (*pgxpool.Pool, error) {
+	poolCfg := resolvePoolConfig(poolConfigs)
 	cfg, err := pgxpool.ParseConfig(dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("parsing DB connection string: %w", err)
 	}
-	cfg.MaxConns = MaxOpenDBConns
-	cfg.MinConns = MaxIdleDBConns
-	cfg.MaxConnLifetime = MaxDBConnLifetime
-	cfg.MaxConnIdleTime = MaxDBConnIdleTime
+	cfg.MaxConns = poolCfg.MaxConns
+	cfg.MinConns = poolCfg.MinConns
+	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
+	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
+
+	if poolCfg.DisableStatementCache {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -55,46 +86,6 @@ func OpenDBConnectionPool(ctx context.Context, dataSourceName string) (*pgxpool.
 	if err = pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
-	}
-
-	return pool, nil
-}
-
-// OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// Two session-level settings are applied to every connection in the pool:
-//   - synchronous_commit=off (via DSN options, no privilege required)
-//   - session_replication_role='replica' (via AfterConnect, disables FK constraint checks;
-//     requires superuser or replication privilege on the DB user)
-//
-// This should ONLY be used for backfill instances, NOT for live ingestion.
-func OpenDBConnectionPoolForBackfill(ctx context.Context, dataSourceName string) (*pgxpool.Pool, error) {
-	// Append session parameters to connection string for automatic configuration.
-	// URL-encoded: -c synchronous_commit=off
-	backfillParams := "options=-c%20synchronous_commit%3Doff"
-
-	separator := "?"
-	if strings.Contains(dataSourceName, "?") {
-		separator = "&"
-	}
-	backfillDSN := dataSourceName + separator + backfillParams
-
-	cfg, err := pgxpool.ParseConfig(backfillDSN)
-	if err != nil {
-		return nil, fmt.Errorf("parsing backfill DB connection string: %w", err)
-	}
-	cfg.MaxConns = MaxOpenDBConns
-	cfg.MinConns = MaxIdleDBConns
-	cfg.MaxConnLifetime = MaxDBConnLifetime
-	cfg.MaxConnIdleTime = MaxDBConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
-	}
-
-	if err = pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("error pinging backfill DB connection pool: %w", err)
 	}
 
 	return pool, nil

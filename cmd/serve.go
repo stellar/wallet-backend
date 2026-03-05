@@ -98,6 +98,7 @@ func (c *serveCmd) Command() *cobra.Command {
 	// Distribution Account Signature Client options
 	signatureClientOpts := utils.SignatureClientOptions{}
 	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
+	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -110,7 +111,7 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL, cfg.BuildPoolConfig())
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}

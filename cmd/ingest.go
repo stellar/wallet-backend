@@ -180,6 +180,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 	}
 
+	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
+
 	cmd := &cobra.Command{
 		Use:   "ingest",
 		Short: "Run Ingestion service",
