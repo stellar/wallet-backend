@@ -1402,7 +1402,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
-			results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, tc.batches)
+			results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, tc.batches, nil)
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -1667,7 +1667,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
-	results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, batches)
+	results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, batches, nil)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -2642,7 +2642,7 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			require.NoError(t, err)
 
 			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, batchChanges, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
+			ledgersProcessed, batchChanges, _, _, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, ledgersProcessed)
@@ -2899,7 +2899,7 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 				{StartLedger: 101, EndLedger: 101},
 			}
 
-			results := svc.processBackfillBatchesParallel(ctx, tc.mode, batches)
+			results := svc.processBackfillBatchesParallel(ctx, tc.mode, batches, nil)
 
 			// All batches should succeed
 			require.Len(t, results, 2)
