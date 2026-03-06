@@ -197,7 +197,8 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
-	// COPY transactions using pgx binary format with native pgtype types
+	// COPY transactions using pgx binary format with native pgtype types. Upstream participants handling ensures that
+	// account address is not NULL here.
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},

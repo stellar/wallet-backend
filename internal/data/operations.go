@@ -314,7 +314,8 @@ func (m *OperationModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
 	}
 
-	// COPY operations_accounts using pgx binary format with native pgtype types
+	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures that
+	// account address is not NULL here.
 	if len(stellarAddressesByOpID) > 0 {
 		// Build OpID -> LedgerCreatedAt lookup from operations
 		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
