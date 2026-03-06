@@ -363,7 +363,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 	}
 }
 
-func Test_BackfillMode_Validation(t *testing.T) {
+func Test_HistoricalBackfill_Validation(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -373,7 +373,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 
 	testCases := []struct {
 		name                  string
-		mode                  BackfillMode
 		startLedger           uint32
 		endLedger             uint32
 		latestIngested        uint32
@@ -381,50 +380,29 @@ func Test_BackfillMode_Validation(t *testing.T) {
 		errorContains         string
 	}{
 		{
-			name:                  "historical_mode_valid_range",
-			mode:                  BackfillModeHistorical,
+			name:                  "valid_range",
 			startLedger:           50,
 			endLedger:             80,
 			latestIngested:        100,
 			expectValidationError: false,
 		},
 		{
-			name:                  "historical_mode_end_exceeds_latest",
-			mode:                  BackfillModeHistorical,
+			name:                  "end_exceeds_latest",
 			startLedger:           50,
 			endLedger:             150,
 			latestIngested:        100,
 			expectValidationError: true,
 			errorContains:         "end ledger 150 cannot be greater than latest ingested ledger 100",
 		},
-		{
-			name:                  "catchup_mode_valid_range",
-			mode:                  BackfillModeCatchup,
-			startLedger:           101,
-			endLedger:             150,
-			latestIngested:        100,
-			expectValidationError: false,
-		},
-		{
-			name:                  "catchup_mode_start_not_next_ledger",
-			mode:                  BackfillModeCatchup,
-			startLedger:           105,
-			endLedger:             150,
-			latestIngested:        100,
-			expectValidationError: true,
-			errorContains:         "catchup must start from ledger 101",
-		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Clean up
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
 			_, err = dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			// Set up latest ingested ledger cursor
 			_, err = dbConnectionPool.Exec(ctx,
 				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
 				fmt.Sprintf("%d", tc.latestIngested))
@@ -444,15 +422,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 			require.NoError(t, err)
 
-			mockAppTracker := apptracker.MockAppTracker{}
-			mockRPCService := RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			mockLedgerBackend := &LedgerBackendMock{}
-			mockArchive := &HistoryArchiveMock{}
-
-			// Create a mock ledger backend factory that returns an error immediately
-			// This allows validation to pass but stops batch processing early
 			mockBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
 				return nil, fmt.Errorf("mock backend factory error")
 			}
@@ -462,41 +431,127 @@ func Test_BackfillMode_Validation(t *testing.T) {
 				Models:                 models,
 				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &mockAppTracker,
-				RPCService:             &mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             &RPCServiceMock{},
+				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   mockBackendFactory,
-				ChannelAccountStore:    mockChAccStore,
+				ChannelAccountStore:    &store.ChannelAccountStoreMock{},
 				MetricsService:         mockMetricsService,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                mockArchive,
+				Archive:                &HistoryArchiveMock{},
 				SkipTxMeta:             false,
 				SkipTxEnvelope:         false,
 				BackfillBatchSize:      100,
 			})
 			require.NoError(t, err)
 
-			err = svc.startBackfilling(ctx, tc.startLedger, tc.endLedger, tc.mode)
+			err = svc.startHistoricalBackfill(ctx, tc.startLedger, tc.endLedger)
 			if tc.expectValidationError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errorContains)
 			} else {
-				// For valid cases, validation passes but batch processing fails.
-				// Behavior differs by mode:
-				// - Catchup mode: returns error "optimized catchup failed" when batches fail
-				// - Historical mode: logs failures but returns nil (continues processing)
-				if tc.mode.isCatchup() {
-					require.Error(t, err)
-					assert.Contains(t, err.Error(), "optimized catchup failed")
-					// Ensure it's NOT a validation error
-					assert.NotContains(t, err.Error(), "cannot be greater than latest ingested ledger")
-					assert.NotContains(t, err.Error(), "catchup must start from ledger")
-				} else {
-					// Historical mode does not return error on batch failures, just logs them
-					require.NoError(t, err)
-				}
+				// Historical mode does not return error on batch failures, just logs them
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_Catchup_Validation(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	testCases := []struct {
+		name                  string
+		startLedger           uint32
+		endLedger             uint32
+		latestIngested        uint32
+		expectValidationError bool
+		errorContains         string
+	}{
+		{
+			name:                  "valid_range",
+			startLedger:           101,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: false,
+		},
+		{
+			name:                  "start_not_next_ledger",
+			startLedger:           105,
+			endLedger:             150,
+			latestIngested:        100,
+			expectValidationError: true,
+			errorContains:         "catchup must start from ledger 101",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+			_, err = dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			_, err = dbConnectionPool.Exec(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
+				fmt.Sprintf("%d", tc.latestIngested))
+			require.NoError(t, err)
+			_, err = dbConnectionPool.Exec(ctx,
+				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
+				fmt.Sprintf("%d", tc.latestIngested))
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+			defer mockMetricsService.AssertExpectations(t)
+
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			mockBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+				return nil, fmt.Errorf("mock backend factory error")
+			}
+
+			svc, err := NewIngestService(IngestServiceConfig{
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             &RPCServiceMock{},
+				LedgerBackend:          &LedgerBackendMock{},
+				LedgerBackendFactory:   mockBackendFactory,
+				ChannelAccountStore:    &store.ChannelAccountStoreMock{},
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                &HistoryArchiveMock{},
+				SkipTxMeta:             false,
+				SkipTxEnvelope:         false,
+				BackfillBatchSize:      100,
+			})
+			require.NoError(t, err)
+
+			err = svc.startCatchup(ctx, tc.startLedger, tc.endLedger)
+			if tc.expectValidationError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				// Catchup mode returns error when batches fail
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "optimized catchup failed")
+				assert.NotContains(t, err.Error(), "catchup must start from ledger")
 			}
 		})
 	}
@@ -571,31 +626,6 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 
 // ==================== New Tests ====================
 
-func Test_BackfillMode_Methods(t *testing.T) {
-	testCases := []struct {
-		mode           BackfillMode
-		wantHistorical bool
-		wantCatchup    bool
-	}{
-		{
-			mode:           BackfillModeHistorical,
-			wantHistorical: true,
-			wantCatchup:    false,
-		},
-		{
-			mode:           BackfillModeCatchup,
-			wantHistorical: false,
-			wantCatchup:    true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("mode_%d", tc.mode), func(t *testing.T) {
-			assert.Equal(t, tc.wantHistorical, tc.mode.isHistorical())
-			assert.Equal(t, tc.wantCatchup, tc.mode.isCatchup())
-		})
-	}
-}
 
 func Test_analyzeBatchResults(t *testing.T) {
 	ctx := context.Background()
@@ -1074,7 +1104,7 @@ func Test_ingestService_Run(t *testing.T) {
 	}
 }
 
-func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
+func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -1224,8 +1254,8 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			// Call flushBatchBuffer
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, tc.updateCursorTo, nil)
+			// Call flushHistoricalBatch
+			err = svc.flushHistoricalBatch(ctx, buffer, tc.updateCursorTo)
 			require.NoError(t, err)
 
 			// Verify the cursor value
@@ -1393,7 +1423,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
-			results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, tc.batches, nil)
+			results := svc.processBackfillBatchesParallel(ctx, tc.batches, svc.processLedgersInBatchHistorical, nil)
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -1543,7 +1573,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			require.NoError(t, svcErr)
 
 			// Run backfilling
-			backfillErr := svc.startBackfilling(ctx, tc.startLedger, tc.endLedger, BackfillModeHistorical)
+			backfillErr := svc.startHistoricalBackfill(ctx, tc.startLedger, tc.endLedger)
 
 			if tc.wantError {
 				require.Error(t, backfillErr)
@@ -1656,7 +1686,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
-	results := svc.processBackfillBatchesParallel(ctx, BackfillModeHistorical, batches, nil)
+	results := svc.processBackfillBatchesParallel(ctx, batches, svc.processLedgersInBatchHistorical, nil)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -1764,7 +1794,7 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	require.NoError(t, svcErr)
 
 	// Run catchup backfilling: starts at latest+1 = 100, ends at 129 (3 batches)
-	backfillErr := svc.startBackfilling(ctx, 100, 129, BackfillModeCatchup)
+	backfillErr := svc.startCatchup(ctx, 100, 129)
 
 	// Verify error is returned for catchup mode
 	require.Error(t, backfillErr)
@@ -1833,7 +1863,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	require.NoError(t, svcErr)
 
 	// Run backfilling with all batches failing
-	backfillErr := svc.startBackfilling(ctx, 50, 99, BackfillModeHistorical)
+	backfillErr := svc.startHistoricalBackfill(ctx, 50, 99)
 
 	// Historical mode should NOT return error even when all batches fail
 	require.NoError(t, backfillErr, "historical mode should not return error even when all batches fail")
@@ -2356,9 +2386,9 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 	}
 }
 
-// Test_ingestService_flushBatchBuffer_batchChanges tests that batch changes are collected
-// when flushBatchBuffer is called with a non-nil batchChanges parameter.
-func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
+// Test_ingestService_flushCatchupBatch tests that batch changes are collected
+// when flushCatchupBatch is called.
+func Test_ingestService_flushCatchupBatch(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -2418,25 +2448,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 					ContractType: types.ContractTypeSAC,
 				},
 			},
-		},
-		{
-			name: "nil_batchChanges_does_not_collect",
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(catchupTxHash5, 5)
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTrustlineChange(types.TrustlineChange{
-					AccountID:    testAddr1,
-					Asset:        "EUR:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-					OperationID:  102,
-					LedgerNumber: 1002,
-					Operation:    types.TrustlineOpAdd,
-				})
-				return buf
-			},
-			batchChanges:              nil, // nil means historical mode - no collection happens
-			wantTrustlineChangesCount: 0,
-			wantContractChanges:       nil,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2517,32 +2528,28 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushBatchBufferWithRetry(ctx, buffer, nil, tc.batchChanges)
+			err = svc.flushCatchupBatch(ctx, buffer, tc.batchChanges)
 			require.NoError(t, err)
 
 			// Verify collected token changes match expected values
-			if tc.batchChanges != nil {
-				// Verify trustline changes count
-				require.Len(t, tc.batchChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
+			require.Len(t, tc.batchChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
 
-				// Verify contract changes
-				require.Len(t, tc.batchChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
-				for i, want := range tc.wantContractChanges {
-					got := tc.batchChanges.ContractChanges[i]
-					assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
-					assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
-					assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
-					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "ContractChange[%d].LedgerNumber mismatch", i)
-					assert.Equal(t, want.ContractType, got.ContractType, "ContractChange[%d].ContractType mismatch", i)
-				}
+			require.Len(t, tc.batchChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
+			for i, want := range tc.wantContractChanges {
+				got := tc.batchChanges.ContractChanges[i]
+				assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
+				assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
+				assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
+				assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "ContractChange[%d].LedgerNumber mismatch", i)
+				assert.Equal(t, want.ContractType, got.ContractType, "ContractChange[%d].ContractType mismatch", i)
 			}
 		})
 	}
 }
 
-// Test_ingestService_processLedgersInBatch_catchupMode tests that processLedgersInBatch
-// returns catchup data for catchup mode and nil for historical mode.
-func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
+// Test_ingestService_processLedgersInBatchCatchup tests that processLedgersInBatchCatchup
+// returns non-nil BatchChanges.
+func Test_ingestService_processLedgersInBatchCatchup(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -2550,96 +2557,126 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	// Prepare a ledger metadata for the test
 	var ledgerMeta xdr.LedgerCloseMeta
 	err = xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &ledgerMeta)
 	require.NoError(t, err)
 
-	testCases := []struct {
-		name                string
-		mode                BackfillMode
-		wantBatchChangesNil bool
-	}{
-		{
-			name:                "catchup_mode_returns_token_changes",
-			mode:                BackfillModeCatchup,
-			wantBatchChangesNil: false,
-		},
-		{
-			name:                "historical_mode_returns_nil_token_changes",
-			mode:                BackfillModeHistorical,
-			wantBatchChangesNil: true,
-		},
-	}
+	setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Clean up and set up cursors
-			setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+	defer mockMetricsService.AssertExpectations(t)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-			require.NoError(t, err)
+	mockLedgerBackend := &LedgerBackendMock{}
+	mockLedgerBackend.On("GetLedger", mock.Anything, uint32(4599)).Return(ledgerMeta, nil)
 
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+	mockChAccStore := &store.ChannelAccountStoreMock{}
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 
-			// Mock ledger backend that returns a ledger
-			mockLedgerBackend := &LedgerBackendMock{}
-			mockLedgerBackend.On("GetLedger", mock.Anything, uint32(4599)).Return(ledgerMeta, nil)
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeBackfill,
+		Models:                 models,
+		LatestLedgerCursorName: "latest_ledger_cursor",
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          mockLedgerBackend,
+		ChannelAccountStore:    mockChAccStore,
+		MetricsService:         mockMetricsService,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+	batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
+	result := svc.processLedgersInBatchCatchup(ctx, mockLedgerBackend, batch)
 
-			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				ChannelAccountStore:    mockChAccStore,
-				MetricsService:         mockMetricsService,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-			})
-			require.NoError(t, err)
-
-			batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-			ledgersProcessed, batchChanges, _, _, err := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, tc.mode)
-
-			require.NoError(t, err)
-			assert.Equal(t, 1, ledgersProcessed)
-
-			if tc.wantBatchChangesNil {
-				assert.Nil(t, batchChanges, "expected nil batch changes for historical mode")
-			} else {
-				assert.NotNil(t, batchChanges, "expected non-nil batch changes for catchup mode")
-			}
-		})
-	}
+	require.NoError(t, result.Error)
+	assert.Equal(t, 1, result.LedgersCount)
+	assert.NotNil(t, result.BatchChanges, "expected non-nil batch changes for catchup mode")
 }
 
-// Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges tests the full catchup
+// Test_ingestService_processLedgersInBatchHistorical tests that processLedgersInBatchHistorical
+// returns nil BatchChanges.
+func Test_ingestService_processLedgersInBatchHistorical(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	var ledgerMeta xdr.LedgerCloseMeta
+	err = xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &ledgerMeta)
+	require.NoError(t, err)
+
+	setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+	mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
+	mockLedgerBackend := &LedgerBackendMock{}
+	mockLedgerBackend.On("GetLedger", mock.Anything, uint32(4599)).Return(ledgerMeta, nil)
+
+	mockChAccStore := &store.ChannelAccountStoreMock{}
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeBackfill,
+		Models:                 models,
+		LatestLedgerCursorName: "latest_ledger_cursor",
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          mockLedgerBackend,
+		ChannelAccountStore:    mockChAccStore,
+		MetricsService:         mockMetricsService,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
+	result := svc.processLedgersInBatchHistorical(ctx, mockLedgerBackend, batch)
+
+	require.NoError(t, result.Error)
+	assert.Equal(t, 1, result.LedgersCount)
+	assert.Nil(t, result.BatchChanges, "expected nil batch changes for historical mode")
+}
+
+// Test_ingestService_startCatchup_ProcessesBatchChanges tests the full catchup
 // flow including batch change processing and cursor updates.
 //
 //nolint:unparam // Test backend factory always returns nil error - this is intentional for testing
-func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *testing.T) {
+func Test_ingestService_startCatchup_ProcessesBatchChanges(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -2771,7 +2808,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			})
 			require.NoError(t, err)
 
-			err = svc.startBackfilling(ctx, ledgerSeq, ledgerSeq, BackfillModeCatchup)
+			err = svc.startCatchup(ctx, ledgerSeq, ledgerSeq)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -2790,9 +2827,9 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 	}
 }
 
-// Test_ingestService_processBackfillBatchesParallel_BothModes verifies
-// that both historical and catchup modes process batches successfully.
-func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
+// Test_ingestService_processBackfillBatchesParallel_Historical verifies
+// that historical mode processes batches successfully.
+func Test_ingestService_processBackfillBatchesParallel_Historical(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -2800,89 +2837,139 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	testCases := []struct {
-		name string
-		mode BackfillMode
-	}{
-		{
-			name: "historical_mode_processes_batches",
-			mode: BackfillModeHistorical,
-		},
-		{
-			name: "catchup_mode_processes_batches",
-			mode: BackfillModeCatchup,
-		},
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+	mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+	require.NoError(t, modelsErr)
+
+	factory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+		mockBackend := &LedgerBackendMock{}
+		mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(nil)
+		mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(xdr.LedgerCloseMeta{
+			V: 0,
+			V0: &xdr.LedgerCloseMetaV0{
+				LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+					Header: xdr.LedgerHeader{
+						LedgerSeq: xdr.Uint32(100),
+					},
+				},
+			},
+		}, nil)
+		mockBackend.On("Close").Return(nil)
+		return mockBackend, nil
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+	svc, svcErr := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeBackfill,
+		Models:                 models,
+		LatestLedgerCursorName: "latest_ledger_cursor",
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          &LedgerBackendMock{},
+		LedgerBackendFactory:   factory,
+		MetricsService:         mockMetricsService,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+		BackfillBatchSize:      10,
+	})
+	require.NoError(t, svcErr)
 
-			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
-			require.NoError(t, modelsErr)
+	batches := []BackfillBatch{
+		{StartLedger: 100, EndLedger: 100},
+		{StartLedger: 101, EndLedger: 101},
+	}
 
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+	results := svc.processBackfillBatchesParallel(ctx, batches, svc.processLedgersInBatchHistorical, nil)
 
-			// Factory that returns a backend with minimal valid ledger data
-			factory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-				mockBackend := &LedgerBackendMock{}
-				mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(nil)
-				mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(xdr.LedgerCloseMeta{
-					V: 0,
-					V0: &xdr.LedgerCloseMetaV0{
-						LedgerHeader: xdr.LedgerHeaderHistoryEntry{
-							Header: xdr.LedgerHeader{
-								LedgerSeq: xdr.Uint32(100),
-							},
-						},
+	require.Len(t, results, 2)
+	for i, result := range results {
+		assert.NoError(t, result.Error, "batch %d should succeed", i)
+	}
+}
+
+// Test_ingestService_processBackfillBatchesParallel_Catchup verifies
+// that catchup mode processes batches successfully.
+func Test_ingestService_processBackfillBatchesParallel_Catchup(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+	require.NoError(t, modelsErr)
+
+	factory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+		mockBackend := &LedgerBackendMock{}
+		mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(nil)
+		mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(xdr.LedgerCloseMeta{
+			V: 0,
+			V0: &xdr.LedgerCloseMetaV0{
+				LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+					Header: xdr.LedgerHeader{
+						LedgerSeq: xdr.Uint32(100),
 					},
-				}, nil)
-				mockBackend.On("Close").Return(nil)
-				return mockBackend, nil
-			}
+				},
+			},
+		}, nil)
+		mockBackend.On("Close").Return(nil)
+		return mockBackend, nil
+	}
 
-			svc, svcErr := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				LedgerBackendFactory:   factory,
-				MetricsService:         mockMetricsService,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-				BackfillBatchSize:      10,
-			})
-			require.NoError(t, svcErr)
+	svc, svcErr := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeBackfill,
+		Models:                 models,
+		LatestLedgerCursorName: "latest_ledger_cursor",
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          &LedgerBackendMock{},
+		LedgerBackendFactory:   factory,
+		MetricsService:         mockMetricsService,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+		BackfillBatchSize:      10,
+	})
+	require.NoError(t, svcErr)
 
-			batches := []BackfillBatch{
-				{StartLedger: 100, EndLedger: 100},
-				{StartLedger: 101, EndLedger: 101},
-			}
+	batches := []BackfillBatch{
+		{StartLedger: 100, EndLedger: 100},
+		{StartLedger: 101, EndLedger: 101},
+	}
 
-			results := svc.processBackfillBatchesParallel(ctx, tc.mode, batches, nil)
+	results := svc.processBackfillBatchesParallel(ctx, batches, svc.processLedgersInBatchCatchup, nil)
 
-			// All batches should succeed
-			require.Len(t, results, 2)
-			for i, result := range results {
-				assert.NoError(t, result.Error, "batch %d should succeed", i)
-			}
-		})
+	require.Len(t, results, 2)
+	for i, result := range results {
+		assert.NoError(t, result.Error, "batch %d should succeed", i)
 	}
 }
