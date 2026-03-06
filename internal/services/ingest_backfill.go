@@ -661,8 +661,6 @@ func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables 
 // If the watermark advances, triggers recompression of chunks in the safe window.
 func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.completed[batchIdx] = true
 	r.endTimes[batchIdx] = endTime
 
@@ -682,9 +680,13 @@ func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time
 		r.watermarkIdx++
 	}
 
+	safeEnd := r.endTimes[r.watermarkIdx]
+	sendToChannel := (r.watermarkIdx > oldWatermark)
+	r.mu.Unlock()
+
 	// Trigger recompression if watermark advanced
-	if r.watermarkIdx > oldWatermark {
-		r.triggerCh <- r.endTimes[r.watermarkIdx]
+	if sendToChannel {
+		r.triggerCh <- safeEnd
 	}
 }
 
