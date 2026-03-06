@@ -14,7 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
-
 // BackfillBatch represents a contiguous range of ledgers to process as a unit.
 type BackfillBatch struct {
 	StartLedger uint32
@@ -31,7 +30,6 @@ type BackfillResult struct {
 	StartTime    time.Time     // First ledger close time in batch (for compression)
 	EndTime      time.Time     // Last ledger close time in batch (for compression)
 }
-
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
 func analyzeBatchResults(ctx context.Context, results []BackfillResult) int {
@@ -367,5 +365,3 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 	}
 	return nil
 }
-
-

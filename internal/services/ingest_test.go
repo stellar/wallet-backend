@@ -626,7 +626,6 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 
 // ==================== New Tests ====================
 
-
 func Test_analyzeBatchResults(t *testing.T) {
 	ctx := context.Background()
 
