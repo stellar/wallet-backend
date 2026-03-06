@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
@@ -30,12 +29,10 @@ import (
 )
 
 var (
-	testKP1       = keypair.MustRandom()
-	testKP2       = keypair.MustRandom()
-	testKP3       = keypair.MustRandom()
-	testAddr1     = testKP1.Address()
-	testAddr2     = testKP2.Address()
-	testAddrUnreg = testKP3.Address()
+	testKP1   = keypair.MustRandom()
+	testKP2   = keypair.MustRandom()
+	testAddr1 = testKP1.Address()
+	testAddr2 = testKP2.Address()
 )
 
 const (
@@ -46,8 +43,6 @@ const (
 	flushTxHash2   = "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f202"
 	flushTxHash3   = "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f303"
 	flushTxHash4   = "f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f404"
-	flushTxHash5   = "f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f505"
-	flushTxHash6   = "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f606"
 	catchupTxHash1 = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c101"
 	catchupTxHash2 = "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c202"
 	catchupTxHash3 = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c303"
@@ -1086,61 +1081,6 @@ func Test_ingestService_Run(t *testing.T) {
 	}
 }
 
-func Test_hasRegisteredParticipant(t *testing.T) {
-	testCases := []struct {
-		name         string
-		participants []string
-		registered   []string
-		want         bool
-	}{
-		{
-			name:         "empty_participants",
-			participants: []string{},
-			registered:   []string{"GABC"},
-			want:         false,
-		},
-		{
-			name:         "empty_registered",
-			participants: []string{"GABC"},
-			registered:   []string{},
-			want:         false,
-		},
-		{
-			name:         "has_registered_participant",
-			participants: []string{"GABC", "GDEF"},
-			registered:   []string{"GDEF", "GHIJ"},
-			want:         true,
-		},
-		{
-			name:         "no_registered_participant",
-			participants: []string{"GABC", "GDEF"},
-			registered:   []string{"GHIJ", "GKLM"},
-			want:         false,
-		},
-		{
-			name:         "all_participants_registered",
-			participants: []string{"GABC", "GDEF"},
-			registered:   []string{"GABC", "GDEF"},
-			want:         true,
-		},
-		{
-			name:         "single_match",
-			participants: []string{"GABC", "GDEF", "GHIJ"},
-			registered:   []string{"GDEF"},
-			want:         true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			participantSet := set.NewSet(tc.participants...)
-			registeredSet := set.NewSet(tc.registered...)
-			result := hasRegisteredParticipant(participantSet, registeredSet)
-			assert.Equal(t, tc.want, result)
-		})
-	}
-}
-
 func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -1151,17 +1091,15 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name                       string
-		setupBuffer                func() *indexer.IndexerBuffer
-		updateCursorTo             *uint32
-		enableParticipantFiltering bool
-		registeredAccounts         []string
-		initialCursor              uint32
-		wantCursor                 uint32
-		wantTxCount                int
-		wantOpCount                int
-		wantStateChangeCount       int
-		txHashes                   []string // For verification queries
+		name                 string
+		setupBuffer          func() *indexer.IndexerBuffer
+		updateCursorTo       *uint32
+		initialCursor        uint32
+		wantCursor           uint32
+		wantTxCount          int
+		wantOpCount          int
+		wantStateChangeCount int
+		txHashes             []string // For verification queries
 	}{
 		{
 			name:                 "flush_empty_buffer_no_cursor_update",
@@ -1233,33 +1171,12 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			wantStateChangeCount: 0,
 			txHashes:             []string{flushTxHash4},
 		},
-		{
-			name: "flush_with_filtering_only_inserts_registered",
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(flushTxHash5, 5) // Registered participant
-				tx2 := createTestTransaction(flushTxHash6, 6) // No registered participant
-
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTransaction(testAddrUnreg, tx2)
-				return buf
-			},
-			enableParticipantFiltering: true,
-			registeredAccounts:         []string{testAddr1},
-			updateCursorTo:             nil,
-			initialCursor:              100,
-			wantCursor:                 100,
-			wantTxCount:                1, // Only tx1
-			wantOpCount:                0,
-			wantStateChangeCount:       0,
-			txHashes:                   []string{flushTxHash5},
-		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up test data from previous runs (using HashBytea for BYTEA column)
-			for _, hash := range []string{flushTxHash1, flushTxHash2, flushTxHash3, flushTxHash4, flushTxHash5, flushTxHash6} {
+			for _, hash := range []string{flushTxHash1, flushTxHash2, flushTxHash3, flushTxHash4} {
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM state_changes WHERE to_id IN (SELECT to_id FROM transactions WHERE hash = $1)`, types.HashBytea(hash))
 				require.NoError(t, err)
 				_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM transactions WHERE hash = $1`, types.HashBytea(hash))
@@ -1268,18 +1185,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			// Also clean up any orphan operations
 			_, err = dbConnectionPool.ExecContext(ctx, `TRUNCATE operations, operations_accounts CASCADE`)
 			require.NoError(t, err)
-			_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
-			require.NoError(t, err)
 
 			// Set up initial cursor
 			setupDBCursors(t, ctx, dbConnectionPool, 200, tc.initialCursor)
-
-			// Add registered accounts if any
-			for _, acc := range tc.registeredAccounts {
-				_, insertErr := dbConnectionPool.ExecContext(ctx,
-					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, types.AddressBytea(acc))
-				require.NoError(t, insertErr)
-			}
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
@@ -1306,20 +1214,19 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:              IngestionModeBackfill,
-				Models:                     models,
-				LatestLedgerCursorName:     "latest_ledger_cursor",
-				OldestLedgerCursorName:     "oldest_ledger_cursor",
-				AppTracker:                 &apptracker.MockAppTracker{},
-				RPCService:                 mockRPCService,
-				LedgerBackend:              &LedgerBackendMock{},
-				ChannelAccountStore:        mockChAccStore,
-				MetricsService:             mockMetricsService,
-				GetLedgersLimit:            defaultGetLedgersLimit,
-				Network:                    network.TestNetworkPassphrase,
-				NetworkPassphrase:          network.TestNetworkPassphrase,
-				Archive:                    &HistoryArchiveMock{},
-				EnableParticipantFiltering: tc.enableParticipantFiltering,
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             mockRPCService,
+				LedgerBackend:          &LedgerBackendMock{},
+				ChannelAccountStore:    mockChAccStore,
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -1374,208 +1281,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStateChangeCount, scCount, "state change count mismatch")
 			}
-		})
-	}
-}
-
-func Test_ingestService_filterParticipantData(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
-
-	testCases := []struct {
-		name                       string
-		enableParticipantFiltering bool
-		registeredAccounts         []string
-		setupBuffer                func() *indexer.IndexerBuffer
-		wantTxCount                int
-		wantOpCount                int
-		wantStateChangeCount       int
-		verifyParticipants         func(t *testing.T, filtered *filteredIngestionData)
-	}{
-		{
-			name:                       "filtering_disabled_returns_all_data",
-			enableParticipantFiltering: false,
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(txHash1, 1)
-				tx2 := createTestTransaction(txHash2, 2)
-				op1 := createTestOperation(100)
-				op2 := createTestOperation(101)
-				sc1 := createTestStateChange(1, testAddr1, 100)
-				sc2 := createTestStateChange(2, testAddr2, 101)
-
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTransaction(testAddr2, tx2)
-				buf.PushOperation(testAddr1, op1, tx1)
-				buf.PushOperation(testAddr2, op2, tx2)
-				buf.PushStateChange(tx1, op1, sc1)
-				buf.PushStateChange(tx2, op2, sc2)
-				return buf
-			},
-			wantTxCount:          2,
-			wantOpCount:          2,
-			wantStateChangeCount: 2,
-		},
-		{
-			name:                       "filtering_enabled_includes_tx_with_registered_participant",
-			enableParticipantFiltering: true,
-			registeredAccounts:         []string{testAddr1},
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(txHash1, 1)
-				op1 := createTestOperation(100)
-				sc1 := createTestStateChange(1, testAddr1, 100)
-
-				// Tx has 2 participants but only 1 is registered
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTransaction(testAddrUnreg, tx1) // Unregistered participant on same tx
-				buf.PushOperation(testAddr1, op1, tx1)
-				buf.PushStateChange(tx1, op1, sc1)
-				return buf
-			},
-			wantTxCount:          1,
-			wantOpCount:          1,
-			wantStateChangeCount: 1,
-			verifyParticipants: func(t *testing.T, filtered *filteredIngestionData) {
-				// Verify ALL participants are preserved (not just registered ones)
-				participants := filtered.txParticipants[int64(1)]
-				assert.Equal(t, 2, participants.Cardinality())
-				assert.True(t, participants.Contains(testAddr1))
-				assert.True(t, participants.Contains(testAddrUnreg))
-			},
-		},
-		{
-			name:                       "filtering_enabled_excludes_tx_without_registered",
-			enableParticipantFiltering: true,
-			registeredAccounts:         []string{testAddr1},
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(txHash1, 1) // Has registered
-				tx2 := createTestTransaction(txHash2, 2) // No registered
-				op1 := createTestOperation(100)
-				op2 := createTestOperation(101)
-
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTransaction(testAddrUnreg, tx2)
-				buf.PushOperation(testAddr1, op1, tx1)
-				buf.PushOperation(testAddrUnreg, op2, tx2)
-				return buf
-			},
-			wantTxCount:          1, // Only tx1
-			wantOpCount:          1, // Only op1
-			wantStateChangeCount: 0,
-		},
-		{
-			name:                       "filtering_enabled_no_registered_accounts_returns_empty",
-			enableParticipantFiltering: true,
-			registeredAccounts:         []string{},
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(txHash1, 1)
-				buf.PushTransaction(testAddrUnreg, tx1)
-				return buf
-			},
-			wantTxCount:          0,
-			wantOpCount:          0,
-			wantStateChangeCount: 0,
-		},
-		{
-			name:                       "filtering_state_changes_only_for_registered_accounts",
-			enableParticipantFiltering: true,
-			registeredAccounts:         []string{testAddr1, testAddr2},
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(txHash1, 1)
-				op1 := createTestOperation(100)
-
-				// 3 state changes: 2 for registered accounts, 1 for unregistered
-				sc1 := createTestStateChange(1, testAddr1, 100)
-				sc2 := createTestStateChange(2, testAddr2, 100)
-				sc3 := createTestStateChange(3, testAddrUnreg, 100)
-
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushOperation(testAddr1, op1, tx1)
-				buf.PushStateChange(tx1, op1, sc1)
-				buf.PushStateChange(tx1, op1, sc2)
-				buf.PushStateChange(tx1, op1, sc3)
-				return buf
-			},
-			wantTxCount:          1,
-			wantOpCount:          1,
-			wantStateChangeCount: 2, // Only 2 registered accounts' state changes
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Clean up
-			_, execErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
-			require.NoError(t, execErr)
-
-			// Add registered accounts if any
-			for _, acc := range tc.registeredAccounts {
-				_, insertErr := dbConnectionPool.ExecContext(ctx,
-					`INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`, types.AddressBytea(acc))
-				require.NoError(t, insertErr)
-			}
-
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
-
-			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
-			require.NoError(t, modelsErr)
-
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-
-			svc, svcErr := NewIngestService(IngestServiceConfig{
-				IngestionMode:              IngestionModeBackfill,
-				Models:                     models,
-				LatestLedgerCursorName:     "latest_ledger_cursor",
-				OldestLedgerCursorName:     "oldest_ledger_cursor",
-				AppTracker:                 &apptracker.MockAppTracker{},
-				RPCService:                 mockRPCService,
-				LedgerBackend:              &LedgerBackendMock{},
-				MetricsService:             mockMetricsService,
-				GetLedgersLimit:            defaultGetLedgersLimit,
-				Network:                    network.TestNetworkPassphrase,
-				NetworkPassphrase:          network.TestNetworkPassphrase,
-				Archive:                    &HistoryArchiveMock{},
-				EnableParticipantFiltering: tc.enableParticipantFiltering,
-			})
-			require.NoError(t, svcErr)
-
-			buffer := tc.setupBuffer()
-
-			// Call filterParticipantData within a transaction
-			txErr := db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
-				filtered, filterErr := svc.filterParticipantData(ctx, dbTx, buffer)
-				if filterErr != nil {
-					return filterErr
-				}
-				assert.Len(t, filtered.txs, tc.wantTxCount)
-				assert.Len(t, filtered.ops, tc.wantOpCount)
-				assert.Len(t, filtered.stateChanges, tc.wantStateChangeCount)
-
-				// Run custom verification if provided
-				if tc.verifyParticipants != nil {
-					tc.verifyParticipants(t, filtered)
-				}
-				return nil
-			})
-			require.NoError(t, txErr)
 		})
 	}
 }
@@ -2209,21 +1914,20 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:              IngestionModeLive,
-			Models:                     models,
-			LatestLedgerCursorName:     "latest_ledger_cursor",
-			OldestLedgerCursorName:     "oldest_ledger_cursor",
-			AppTracker:                 &apptracker.MockAppTracker{},
-			RPCService:                 mockRPCService,
-			LedgerBackend:              &LedgerBackendMock{},
-			ChannelAccountStore:        mockChAccStore,
-			TokenIngestionService:      mockTokenIngestionService,
-			MetricsService:             mockMetricsService,
-			GetLedgersLimit:            defaultGetLedgersLimit,
-			Network:                    network.TestNetworkPassphrase,
-			NetworkPassphrase:          network.TestNetworkPassphrase,
-			Archive:                    &HistoryArchiveMock{},
-			EnableParticipantFiltering: false,
+			IngestionMode:          IngestionModeLive,
+			Models:                 models,
+			LatestLedgerCursorName: "latest_ledger_cursor",
+			OldestLedgerCursorName: "oldest_ledger_cursor",
+			AppTracker:             &apptracker.MockAppTracker{},
+			RPCService:             mockRPCService,
+			LedgerBackend:          &LedgerBackendMock{},
+			ChannelAccountStore:    mockChAccStore,
+			TokenIngestionService:  mockTokenIngestionService,
+			MetricsService:         mockMetricsService,
+			GetLedgersLimit:        defaultGetLedgersLimit,
+			Network:                network.TestNetworkPassphrase,
+			NetworkPassphrase:      network.TestNetworkPassphrase,
+			Archive:                &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -2300,21 +2004,20 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(fmt.Errorf("db connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:              IngestionModeLive,
-			Models:                     models,
-			LatestLedgerCursorName:     "latest_ledger_cursor",
-			OldestLedgerCursorName:     "oldest_ledger_cursor",
-			AppTracker:                 &apptracker.MockAppTracker{},
-			RPCService:                 mockRPCService,
-			LedgerBackend:              &LedgerBackendMock{},
-			ChannelAccountStore:        mockChAccStore,
-			TokenIngestionService:      mockTokenIngestionService,
-			MetricsService:             mockMetricsService,
-			GetLedgersLimit:            defaultGetLedgersLimit,
-			Network:                    network.TestNetworkPassphrase,
-			NetworkPassphrase:          network.TestNetworkPassphrase,
-			Archive:                    &HistoryArchiveMock{},
-			EnableParticipantFiltering: false,
+			IngestionMode:          IngestionModeLive,
+			Models:                 models,
+			LatestLedgerCursorName: "latest_ledger_cursor",
+			OldestLedgerCursorName: "oldest_ledger_cursor",
+			AppTracker:             &apptracker.MockAppTracker{},
+			RPCService:             mockRPCService,
+			LedgerBackend:          &LedgerBackendMock{},
+			ChannelAccountStore:    mockChAccStore,
+			TokenIngestionService:  mockTokenIngestionService,
+			MetricsService:         mockMetricsService,
+			GetLedgersLimit:        defaultGetLedgersLimit,
+			Network:                network.TestNetworkPassphrase,
+			NetworkPassphrase:      network.TestNetworkPassphrase,
+			Archive:                &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -2399,21 +2102,20 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(nil).Once()
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:              IngestionModeLive,
-			Models:                     models,
-			LatestLedgerCursorName:     "latest_ledger_cursor",
-			OldestLedgerCursorName:     "oldest_ledger_cursor",
-			AppTracker:                 &apptracker.MockAppTracker{},
-			RPCService:                 mockRPCService,
-			LedgerBackend:              &LedgerBackendMock{},
-			ChannelAccountStore:        mockChAccStore,
-			TokenIngestionService:      mockTokenIngestionService,
-			MetricsService:             mockMetricsService,
-			GetLedgersLimit:            defaultGetLedgersLimit,
-			Network:                    network.TestNetworkPassphrase,
-			NetworkPassphrase:          network.TestNetworkPassphrase,
-			Archive:                    &HistoryArchiveMock{},
-			EnableParticipantFiltering: false,
+			IngestionMode:          IngestionModeLive,
+			Models:                 models,
+			LatestLedgerCursorName: "latest_ledger_cursor",
+			OldestLedgerCursorName: "oldest_ledger_cursor",
+			AppTracker:             &apptracker.MockAppTracker{},
+			RPCService:             mockRPCService,
+			LedgerBackend:          &LedgerBackendMock{},
+			ChannelAccountStore:    mockChAccStore,
+			TokenIngestionService:  mockTokenIngestionService,
+			MetricsService:         mockMetricsService,
+			GetLedgersLimit:        defaultGetLedgersLimit,
+			Network:                network.TestNetworkPassphrase,
+			NetworkPassphrase:      network.TestNetworkPassphrase,
+			Archive:                &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -2818,19 +2520,18 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:              IngestionModeBackfill,
-				Models:                     models,
-				LatestLedgerCursorName:     "latest_ledger_cursor",
-				OldestLedgerCursorName:     "oldest_ledger_cursor",
-				AppTracker:                 &apptracker.MockAppTracker{},
-				RPCService:                 mockRPCService,
-				LedgerBackend:              &LedgerBackendMock{},
-				MetricsService:             mockMetricsService,
-				GetLedgersLimit:            defaultGetLedgersLimit,
-				Network:                    network.TestNetworkPassphrase,
-				NetworkPassphrase:          network.TestNetworkPassphrase,
-				Archive:                    &HistoryArchiveMock{},
-				EnableParticipantFiltering: false,
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				LatestLedgerCursorName: "latest_ledger_cursor",
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             mockRPCService,
+				LedgerBackend:          &LedgerBackendMock{},
+				MetricsService:         mockMetricsService,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 

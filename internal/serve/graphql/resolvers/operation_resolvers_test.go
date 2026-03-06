@@ -68,10 +68,10 @@ func TestOperationResolver_Transaction(t *testing.T) {
 
 func TestOperationResolver_Accounts(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "operations_accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &operationResolver{&Resolver{

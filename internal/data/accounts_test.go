@@ -2,10 +2,8 @@ package data
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,226 +15,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-func TestAccountModel_BatchGetByIDs(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	defer mockMetricsService.AssertExpectations(t)
-
-	accountModel := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
-	ctx := context.Background()
-
-	// Generate test addresses
-	account1 := keypair.MustRandom().Address()
-	account2 := keypair.MustRandom().Address()
-	nonexistent1 := keypair.MustRandom().Address()
-	nonexistent2 := keypair.MustRandom().Address()
-
-	t.Run("empty input returns empty result", func(t *testing.T) {
-		var result []string
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
-			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{})
-			return err
-		})
-		require.NoError(t, err)
-		assert.Empty(t, result)
-	})
-
-	t.Run("returns existing accounts only", func(t *testing.T) {
-		// Insert some test accounts using StellarAddress for BYTEA conversion
-		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-			types.AddressBytea(account1), types.AddressBytea(account2))
-		require.NoError(t, err)
-
-		// Test with mix of existing and non-existing accounts
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "accounts").Return().Once()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
-
-		var result []string
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
-			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{account1, nonexistent1, account2, nonexistent2})
-			return err
-		})
-		require.NoError(t, err)
-
-		// Should only return the existing accounts
-		assert.Len(t, result, 2)
-		assert.Contains(t, result, account1)
-		assert.Contains(t, result, account2)
-		assert.NotContains(t, result, nonexistent1)
-		assert.NotContains(t, result, nonexistent2)
-	})
-
-	t.Run("returns empty when no accounts exist", func(t *testing.T) {
-		// Clean up the table
-		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
-		require.NoError(t, err)
-
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByIDs", "accounts").Return().Once()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchGetByIDs", "accounts", mock.Anything).Return().Once()
-
-		var result []string
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
-			result, err = accountModel.BatchGetByIDs(ctx, tx, []string{nonexistent1, nonexistent2})
-			return err
-		})
-		require.NoError(t, err)
-		assert.Empty(t, result)
-	})
-}
-
-func TestAccountModel_Insert(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	t.Run("successful insert", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		ctx := context.Background()
-		address := keypair.MustRandom().Address()
-		err = m.Insert(ctx, address)
-		require.NoError(t, err)
-
-		var dbAddress types.AddressBytea
-		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", types.AddressBytea(address))
-		require.NoError(t, err)
-
-		assert.Equal(t, address, string(dbAddress))
-	})
-
-	t.Run("duplicate insert fails", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Return().Times(1)
-		mockMetricsService.On("IncDBQueryError", "Insert", "accounts", mock.Anything).Return().Times(1)
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		ctx := context.Background()
-		address := keypair.MustRandom().Address()
-
-		// First insert should succeed
-		err = m.Insert(ctx, address)
-		require.NoError(t, err)
-
-		// Second insert should fail
-		err = m.Insert(ctx, address)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrAccountAlreadyExists)
-	})
-}
-
-func TestAccountModel_Delete(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	t.Run("successful deletion", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "Delete", "accounts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Delete", "accounts").Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		ctx := context.Background()
-		address := keypair.MustRandom().Address()
-		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-		require.NoError(t, insertErr)
-		rowAffected, err := result.RowsAffected()
-		require.NoError(t, err)
-		require.Equal(t, int64(1), rowAffected)
-
-		err = m.Delete(ctx, address)
-		require.NoError(t, err)
-
-		var dbAddress types.AddressBytea
-		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
-		assert.ErrorIs(t, err, sql.ErrNoRows)
-	})
-
-	t.Run("delete non-existent account fails", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "Delete", "accounts", mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		m := &AccountModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
-		}
-
-		ctx := context.Background()
-		nonExistentAddress := keypair.MustRandom().Address()
-
-		err = m.Delete(ctx, nonExistentAddress)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrAccountNotFound)
-	})
-}
-
-func TestAccountModelGet(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "Get", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "Get", "accounts").Return()
-	defer mockMetricsService.AssertExpectations(t)
-
-	m := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
-	ctx := context.Background()
-	address := keypair.MustRandom().Address()
-
-	// Insert test account
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
-	require.NoError(t, err)
-	rowAffected, err := result.RowsAffected()
-	require.NoError(t, err)
-	require.Equal(t, int64(1), rowAffected)
-
-	// Test Get function
-	account, err := m.Get(ctx, address)
-	require.NoError(t, err)
-	assert.Equal(t, address, string(account.StellarAddress))
-}
-
 func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -245,9 +23,9 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "transactions_accounts").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -260,11 +38,6 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	address2 := keypair.MustRandom().Address()
 	toID1 := int64(1)
 	toID2 := int64(2)
-
-	// Insert test accounts
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.AddressBytea(address1), types.AddressBytea(address2))
-	require.NoError(t, err)
 
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -299,9 +72,9 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "operations_accounts").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -314,11 +87,6 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	address2 := keypair.MustRandom().Address()
 	operationID1 := int64(123)
 	operationID2 := int64(456)
-
-	// Insert test accounts (stellar_address is BYTEA)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.AddressBytea(address1), types.AddressBytea(address2))
-	require.NoError(t, err)
 
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -359,8 +127,8 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -375,11 +143,9 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, isFeeBumpEligible)
 
-	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", types.AddressBytea(address))
+	// Insert into channel_accounts since IsAccountFeeBumpEligible only checks that table
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", address)
 	require.NoError(t, err)
-	rowAffected, err := result.RowsAffected()
-	require.NoError(t, err)
-	require.Equal(t, int64(1), rowAffected)
 
 	isFeeBumpEligible, err = m.IsAccountFeeBumpEligible(ctx, address)
 	require.NoError(t, err)
@@ -394,9 +160,9 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "state_changes").Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &AccountModel{
@@ -411,11 +177,6 @@ func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
 	toID2 := int64(8192)
 	stateChangeOrder1 := int64(1)
 	stateChangeOrder2 := int64(1)
-
-	// Insert test accounts (stellar_address is BYTEA)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)",
-		types.AddressBytea(address1), types.AddressBytea(address2))
-	require.NoError(t, err)
 
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")

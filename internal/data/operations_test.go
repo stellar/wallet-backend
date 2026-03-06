@@ -53,12 +53,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
-	const q = "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)"
-	_, err = dbConnectionPool.ExecContext(ctx, q, types.AddressBytea(kp1.Address()), types.AddressBytea(kp2.Address()))
-	require.NoError(t, err)
 
 	// Create referenced transactions first with specific ToIDs
 	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
@@ -546,11 +542,8 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test accounts
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
@@ -667,10 +660,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// Create test account
 	address := keypair.MustRandom().Address()
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-	require.NoError(t, err)
 
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")

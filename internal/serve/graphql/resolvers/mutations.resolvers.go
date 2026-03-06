@@ -8,86 +8,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
-
-// RegisterAccount is the resolver for the registerAccount field.
-func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.RegisterAccountInput) (*graphql1.RegisterAccountPayload, error) {
-	err := r.accountService.RegisterAccount(ctx, input.Address)
-	if err != nil {
-		if errors.Is(err, data.ErrAccountAlreadyExists) {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgAccountAlreadyExists,
-				Extensions: map[string]interface{}{
-					"code": "ACCOUNT_ALREADY_EXISTS",
-				},
-			}
-		}
-		if errors.Is(err, services.ErrInvalidAddress) {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgInvalidAddress,
-				Extensions: map[string]interface{}{
-					"code": "INVALID_ADDRESS",
-				},
-			}
-		}
-		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf(ErrMsgAccountRegistrationFailed, err.Error()),
-			Extensions: map[string]interface{}{
-				"code": "ACCOUNT_REGISTRATION_FAILED",
-			},
-		}
-	}
-
-	// Return the account data directly since we know the address
-	account := &types.Account{
-		StellarAddress: types.AddressBytea(input.Address),
-		CreatedAt:      time.Now(),
-	}
-
-	return &graphql1.RegisterAccountPayload{
-		Success: true,
-		Account: account,
-	}, nil
-}
-
-// DeregisterAccount is the resolver for the deregisterAccount field.
-func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1.DeregisterAccountInput) (*graphql1.DeregisterAccountPayload, error) {
-	err := r.accountService.DeregisterAccount(ctx, input.Address)
-	if err != nil {
-		if errors.Is(err, data.ErrAccountNotFound) {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgAccountNotFound,
-				Extensions: map[string]interface{}{
-					"code": "ACCOUNT_NOT_FOUND",
-				},
-			}
-		}
-		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf(ErrMsgAccountDeregistrationFailed, err.Error()),
-			Extensions: map[string]interface{}{
-				"code": "ACCOUNT_DEREGISTRATION_FAILED",
-			},
-		}
-	}
-
-	return &graphql1.DeregisterAccountPayload{
-		Success: true,
-		Message: &[]string{ErrMsgAccountDeregisteredSuccess}[0],
-	}, nil
-}
 
 // BuildTransaction is the resolver for the buildTransaction field.
 func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.BuildTransactionInput) (*graphql1.BuildTransactionPayload, error) {

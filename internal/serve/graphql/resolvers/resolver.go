@@ -44,7 +44,6 @@ const (
 type ResolverConfig struct {
 	MaxAccountsPerBalancesQuery int
 	MaxWorkerPoolSize           int
-	EnableParticipantFiltering  bool
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
@@ -56,8 +55,6 @@ type Resolver struct {
 	// models provides access to data layer for database operations
 	// This follows dependency injection pattern - resolvers don't create their own DB connections
 	models *data.Models
-	// accountService provides account management operations
-	accountService services.AccountService
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
@@ -77,14 +74,13 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
 	}
 	return &Resolver{
 		models:                     models,
-		accountService:             accountService,
 		transactionService:         transactionService,
 		feeBumpService:             feeBumpService,
 		rpcService:                 rpcService,
