@@ -5,8 +5,6 @@ import (
 	"strconv"
 
 	"github.com/alitto/pond/v2"
-	"github.com/dlmiddlecote/sqlstats"
-	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -55,7 +53,6 @@ type MetricsService interface {
 // MetricsService handles all metrics for the wallet-backend
 type metricsService struct {
 	registry *prometheus.Registry
-	db       *sqlx.DB
 
 	// Ingest Service Metrics
 	latestLedgerIngested prometheus.Gauge
@@ -110,10 +107,9 @@ type metricsService struct {
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
-func NewMetricsService(db *sqlx.DB) MetricsService {
+func NewMetricsService() MetricsService {
 	m := &metricsService{
 		registry: prometheus.NewRegistry(),
-		db:       db,
 	}
 
 	// Ingest Service Metrics
@@ -374,9 +370,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 }
 
 func (m *metricsService) registerMetrics() {
-	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
 	m.registry.MustRegister(
-		collector,
 		m.latestLedgerIngested,
 		m.oldestLedgerIngested,
 		m.ingestionDuration,

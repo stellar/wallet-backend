@@ -3,7 +3,6 @@ package infrastructure
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/support/log"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -20,15 +20,15 @@ func (s *SharedContainers) GetIngestCursor(ctx context.Context, cursorName strin
 	if err != nil {
 		return 0, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return 0, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	var valueStr string
 	query := `SELECT value FROM ingest_store WHERE key = $1`
-	err = db.QueryRowContext(ctx, query, cursorName).Scan(&valueStr)
+	err = dbPool.QueryRow(ctx, query, cursorName).Scan(&valueStr)
 	if err != nil {
 		return 0, fmt.Errorf("querying ingest_store for %s: %w", cursorName, err)
 	}
@@ -47,11 +47,11 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 	if err != nil {
 		return 0, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return 0, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	var count int
 	query := `
@@ -61,7 +61,7 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
-	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
+	err = dbPool.QueryRow(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting transactions for account %s: %w", accountAddr, err)
 	}
@@ -75,11 +75,11 @@ func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAd
 	if err != nil {
 		return false, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return false, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	var exists bool
 	query := `
@@ -91,7 +91,7 @@ func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAd
 			AND o.ledger_number BETWEEN $3 AND $4
 		)
 	`
-	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), opType, startLedger, endLedger).Scan(&exists)
+	err = dbPool.QueryRow(ctx, query, types.AddressBytea(accountAddr), opType, startLedger, endLedger).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking operation for account %s: %w", accountAddr, err)
 	}
@@ -105,11 +105,11 @@ func (s *SharedContainers) GetTransactionAccountLinkCount(ctx context.Context, a
 	if err != nil {
 		return 0, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return 0, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	var count int
 	query := `
@@ -119,7 +119,7 @@ func (s *SharedContainers) GetTransactionAccountLinkCount(ctx context.Context, a
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
-	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
+	err = dbPool.QueryRow(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting transaction-account links for %s: %w", accountAddr, err)
 	}
@@ -133,15 +133,15 @@ func (s *SharedContainers) GetStateChangeCountForLedgerRange(ctx context.Context
 	if err != nil {
 		return 0, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return 0, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	var count int
 	query := `SELECT COUNT(*) FROM state_changes WHERE ledger_number BETWEEN $1 AND $2`
-	err = db.QueryRowContext(ctx, query, startLedger, endLedger).Scan(&count)
+	err = dbPool.QueryRow(ctx, query, startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting state changes: %w", err)
 	}
@@ -156,11 +156,11 @@ func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, e
 	if err != nil {
 		return 0, fmt.Errorf("getting database connection string: %w", err)
 	}
-	db, err := sql.Open("postgres", dbURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, dbURL)
 	if err != nil {
 		return 0, fmt.Errorf("opening database connection: %w", err)
 	}
-	defer db.Close() //nolint:errcheck
+	defer dbPool.Close() //nolint:errcheck
 
 	// Count the number of distinct ledgers that have transactions in the range
 	// Then compare with expected count to find gaps
@@ -170,7 +170,7 @@ func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, e
 		FROM transactions
 		WHERE ledger_number BETWEEN $1 AND $2
 	`
-	err = db.QueryRowContext(ctx, query, startLedger, endLedger).Scan(&distinctLedgers)
+	err = dbPool.QueryRow(ctx, query, startLedger, endLedger).Scan(&distinctLedgers)
 	if err != nil {
 		return 0, fmt.Errorf("counting distinct ledgers: %w", err)
 	}
@@ -194,7 +194,7 @@ func (s *SharedContainers) GetLedgerGapCount(ctx context.Context, startLedger, e
 		)
 		SELECT COALESCE(SUM(gap_size), 0) FROM gaps WHERE gap_size > 0
 	`
-	err = db.QueryRowContext(ctx, gapQuery, startLedger, endLedger).Scan(&gapCount)
+	err = dbPool.QueryRow(ctx, gapQuery, startLedger, endLedger).Scan(&gapCount)
 	if err != nil {
 		return 0, fmt.Errorf("counting ledger gaps: %w", err)
 	}

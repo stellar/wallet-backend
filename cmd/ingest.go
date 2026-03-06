@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/types"
 
-	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"

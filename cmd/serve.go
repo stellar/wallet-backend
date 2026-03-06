@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/types"
 
-	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -111,7 +110,7 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL)
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}

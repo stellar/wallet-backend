@@ -119,15 +119,11 @@ func Serve(cfg Configs) error {
 }
 
 func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
