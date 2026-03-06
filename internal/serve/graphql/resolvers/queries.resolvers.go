@@ -73,8 +73,14 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 
 // AccountByAddress is the resolver for the accountByAddress field.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
-	if address == "" {
-		return nil, fmt.Errorf("address cannot be empty")
+	if !utils.IsValidStellarAddress(address) {
+		return nil, &gqlerror.Error{
+			Message: "invalid Stellar address",
+			Extensions: map[string]interface{}{
+				"code":    "INVALID_ADDRESS",
+				"address": address,
+			},
+		}
 	}
 	return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
 }
