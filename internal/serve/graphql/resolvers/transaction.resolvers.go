@@ -25,7 +25,7 @@ func (r *transactionResolver) Hash(ctx context.Context, obj *types.Transaction) 
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	params, err := parsePaginationParams(first, after, last, before, false)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeInt64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -46,7 +46,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	}
 
 	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
-		return o.Cursor
+		return o.Cursor.ID
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
@@ -89,7 +89,7 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	params, err := parsePaginationParams(first, after, last, before, true)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -111,7 +111,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -25,21 +26,26 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
 	}
 
-	conn := NewConnectionWithRelayPagination(transactions, params, func(tx *types.TransactionWithCursor) int64 {
-		return tx.Cursor
+	conn := NewConnectionWithRelayPagination(transactions, params, func(tx *types.TransactionWithCursor) string {
+		return fmt.Sprintf("%d:%d", tx.Cursor.LedgerCreatedAt.UnixNano(), tx.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
@@ -58,21 +64,26 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
-func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db for account %s: %w", obj.StellarAddress, err)
 	}
 
-	conn := NewConnectionWithRelayPagination(operations, params, func(op *types.OperationWithCursor) int64 {
-		return op.Cursor
+	conn := NewConnectionWithRelayPagination(operations, params, func(op *types.OperationWithCursor) string {
+		return fmt.Sprintf("%d:%d", op.Cursor.LedgerCreatedAt.UnixNano(), op.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
@@ -90,8 +101,8 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, filter *graphql1.AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, true)
+func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, filter *graphql1.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -126,15 +137,20 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 		}
 	}
 
+	timeRange, err := buildTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), txHash, operationID, category, reason, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), txHash, operationID, category, reason, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d:%d", sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))

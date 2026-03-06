@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -12,30 +13,40 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// TimeRange represents an optional time window for filtering queries by ledger_created_at.
+// Both fields are optional: omit both for all data, use Since alone for "from this point",
+// use Until alone for "up to this point", or both for a bounded window.
+type TimeRange struct {
+	Since *time.Time
+	Until *time.Time
+}
+
+// appendTimeRangeConditions appends ledger_created_at >= and/or <= conditions to the query builder.
+// Returns the updated args slice and next arg index. The column parameter allows specifying
+// a table-qualified column name (e.g., "ta.ledger_created_at" for CTEs).
+func appendTimeRangeConditions(qb *strings.Builder, column string, timeRange *TimeRange, args []interface{}, argIndex int) ([]interface{}, int) {
+	if timeRange == nil {
+		return args, argIndex
+	}
+	if timeRange.Since != nil {
+		fmt.Fprintf(qb, " AND %s >= $%d", column, argIndex)
+		args = append(args, *timeRange.Since)
+		argIndex++
+	}
+	if timeRange.Until != nil {
+		fmt.Fprintf(qb, " AND %s <= $%d", column, argIndex)
+		args = append(args, *timeRange.Until)
+		argIndex++
+	}
+	return args, argIndex
+}
+
 type SortOrder string
 
 const (
 	ASC  SortOrder = "ASC"
 	DESC SortOrder = "DESC"
 )
-
-// PaginatedQueryConfig contains configuration for building paginated queries
-type paginatedQueryConfig struct {
-	// Base table configuration
-	TableName    string // e.g., "operations" or "transactions"
-	CursorColumn string // e.g., "id" or "to_id"
-
-	// Join configuration
-	JoinTable     string // e.g., "operations_accounts" or "transactions_accounts"
-	JoinCondition string // e.g., "operations_accounts.operation_id = operations.id"
-
-	// Query parameters
-	Columns        string
-	AccountAddress string
-	Limit          *int32
-	Cursor         *int64
-	OrderBy        SortOrder
-}
 
 // pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
 func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
@@ -80,65 +91,59 @@ func pgtypeBytesFromNullAddressBytea(na types.NullAddressBytea) ([]byte, error) 
 	return val.([]byte), nil
 }
 
-// BuildPaginatedQuery constructs a paginated SQL query with cursor-based pagination
-func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) {
-	var queryBuilder strings.Builder
-	var args []any
-	argIndex := 1
+// CursorColumn represents a column name and its cursor value for decomposed pagination.
+type CursorColumn struct {
+	Name  string
+	Value interface{}
+}
 
-	// Base query with join
-	queryBuilder.WriteString(fmt.Sprintf(`
-		SELECT %s, %s.%s as cursor
-		FROM %s
-		INNER JOIN %s
-		ON %s
-		WHERE %s.account_id = $%d`,
-		config.Columns,
-		config.TableName,
-		config.CursorColumn,
-		config.TableName,
-		config.JoinTable,
-		config.JoinCondition,
-		config.JoinTable,
-		argIndex))
-	args = append(args, types.AddressBytea(config.AccountAddress))
-	argIndex++
+// buildDecomposedCursorCondition decomposes a ROW() tuple comparison into an equivalent
+// OR clause that TimescaleDB's ColumnarScan can push into vectorized filters.
+//
+// For example, (a, b, c) < ($1, $2, $3) becomes:
+//
+//	(a < $1 OR (a = $1 AND b < $2) OR (a = $1 AND b = $2 AND c < $3))
+//
+// DESC uses "<", ASC uses ">". Returns the clause string, args slice, and next arg index.
+func buildDecomposedCursorCondition(columns []CursorColumn, sortOrder SortOrder, startArgIndex int) (string, []interface{}, int) {
+	if len(columns) == 0 {
+		return "", nil, startArgIndex
+	}
 
-	// Add cursor condition if provided
-	if config.Cursor != nil {
-		// When paginating in descending order, we are going from greater cursor id to smaller cursor id
-		if config.OrderBy == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(` AND %s.%s < $%d`, config.TableName, config.CursorColumn, argIndex))
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(` AND %s.%s > $%d`, config.TableName, config.CursorColumn, argIndex))
+	op := "<"
+	if sortOrder == ASC {
+		op = ">"
+	}
+
+	argIdx := startArgIndex
+	var args []interface{}
+	var orParts []string
+
+	for i := range columns {
+		var parts []string
+		// Add equality conditions for all preceding columns
+		for j := 0; j < i; j++ {
+			parts = append(parts, fmt.Sprintf("%s = $%d", columns[j].Name, argIdx))
+			args = append(args, columns[j].Value)
+			argIdx++
 		}
-		args = append(args, *config.Cursor)
-		argIndex++
+		// Add the comparison condition for the current column
+		parts = append(parts, fmt.Sprintf("%s %s $%d", columns[i].Name, op, argIdx))
+		args = append(args, columns[i].Value)
+		argIdx++
+
+		orParts = append(orParts, strings.Join(parts, " AND "))
 	}
 
-	// Add ordering
-	if config.OrderBy == DESC {
-		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s DESC", config.TableName, config.CursorColumn))
-	} else {
-		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s ASC", config.TableName, config.CursorColumn))
+	// Wrap each OR branch in parens if it has multiple conditions
+	for i, part := range orParts {
+		if i > 0 {
+			orParts[i] = "(" + part + ")"
+		}
 	}
 
-	// Add limit if provided
-	if config.Limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
-		args = append(args, *config.Limit)
-	}
-
-	query := queryBuilder.String()
-
-	// For backward pagination, wrap query to reverse the final order
-	// This ensures we always display the oldest items first in the output
-	if config.OrderBy == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS %s ORDER BY %s.cursor ASC`,
-			query, config.TableName, config.TableName)
-	}
-
-	return query, args
+	clause := "(" + strings.Join(orParts, " OR ") + ")"
+	return clause, args, argIdx
 }
 
 func getDBColumns(model any) set.Set[string] {

@@ -5,18 +5,22 @@ type Account{
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested
-  
+
   # All transactions associated with this account
-  transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
-  
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  transactions(since: Time, until: Time, first: Int, after: String, last: Int, before: String):   TransactionConnection
+
   # All operations associated with this account
-  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
-  
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String):     OperationConnection
+
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
   # Optional filter parameter allows filtering by transaction hash and/or operation ID
+  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
   stateChanges(
     filter: AccountStateChangeFilterInput
+    since: Time, until: Time
     first: Int, after: String, last: Int, before: String
   ):   StateChangeConnection
 }
