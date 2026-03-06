@@ -28,7 +28,7 @@ import (
 
 const (
 	// FlushBatchSize is the number of entries to buffer before flushing to DB.
-	flushBatchSize = 100_000
+	flushBatchSize = 250_000
 )
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
@@ -266,6 +266,15 @@ func (s *tokenIngestionService) PopulateAccountTokens(ctx context.Context, check
 		// population since it's idempotent and can be re-run if crash occurs
 		if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
 			return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
+		}
+
+		// Disable FK constraint checking for this transaction only. Data integrity is
+		// guaranteed by the code: trustline assets are collected in uniqueAssets and SAC
+		// contracts get minimal stubs created when balance entries are encountered (even
+		// when contract instance entries are missing from the checkpoint). All parent rows
+		// are inserted via storeTokensInDB before commit. Requires superuser privileges.
+		if _, txErr := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); txErr != nil {
+			log.Ctx(ctx).Warnf("Could not disable FK checks for checkpoint population (may require superuser): %v", txErr)
 		}
 
 		// Stream trustlines and collect contracts from checkpoint

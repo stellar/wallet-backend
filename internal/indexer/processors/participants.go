@@ -134,6 +134,7 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 			Operation:      xdrOp,
 			LedgerSequence: ledgerSequence,
 			Network:        p.networkPassphrase,
+			LedgerClosed:   transaction.Ledger.ClosedAt(),
 		}
 		opID := op.ID()
 

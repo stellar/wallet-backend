@@ -316,3 +316,65 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 		})
 	}
 }
+
+func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name           string
+		setupDB        func(t *testing.T)
+		expectedLedger uint32
+	}{
+		{
+			name:           "returns_zero_when_table_is_empty",
+			expectedLedger: 0,
+		},
+		{
+			name: "returns_oldest_ledger_when_data_exists",
+			setupDB: func(t *testing.T) {
+				// Insert ledgers with distinct timestamps so ORDER BY ledger_created_at
+				// returns the correct oldest regardless of to_id ordering.
+				for i, ledger := range []uint32{150, 100, 200} {
+					_, err := dbConnectionPool.ExecContext(ctx,
+						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW() - INTERVAL '1 day' * $4)`,
+						fmt.Sprintf("hash%d", i), i+1, ledger, 300-int(ledger))
+					require.NoError(t, err)
+				}
+			},
+			expectedLedger: 100,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM transactions")
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.
+				On("ObserveDBQueryDuration", "GetOldestLedger", "transactions", mock.Anything).Return().
+				On("IncDBQuery", "GetOldestLedger", "transactions").Return()
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &IngestStoreModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			oldest, err := m.GetOldestLedger(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedLedger, oldest)
+		})
+	}
+}

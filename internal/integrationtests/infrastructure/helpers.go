@@ -38,32 +38,32 @@ func ConvertOperationsToBase64XDR(operations []txnbuild.Operation) ([]string, er
 }
 
 // WaitForRPCHealthAndRun waits for the RPC service to become healthy and then runs the given function.
-func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration, onReady func() error) error {
+func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	log.Ctx(ctx).Info("⏳ Waiting for RPC service to become healthy...")
-	rpcHeartbeatChannel := rpcService.GetHeartbeatChannel()
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context canceled while waiting for RPC service to become healthy: %w", ctx.Err())
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context canceled while waiting for RPC service to become healthy: %w", ctx.Err())
 
-	case sig := <-signalChan:
-		return fmt.Errorf("received signal %s while waiting for RPC service to become healthy", sig)
+		case sig := <-signalChan:
+			return fmt.Errorf("received signal %s while waiting for RPC service to become healthy", sig)
 
-	case <-rpcHeartbeatChannel:
-		log.Ctx(ctx).Info("👍 RPC service is healthy")
-		if onReady != nil {
-			if err := onReady(); err != nil {
-				return fmt.Errorf("executing onReady after RPC became healthy: %w", err)
+		default:
+			healthRes, err := rpcService.GetHealth()
+			if err == nil {
+				if healthRes.Status == "healthy" {
+					return nil
+				}
 			}
 		}
-		return nil
 	}
 }
 

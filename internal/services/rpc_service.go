@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stellar/stellar-rpc/protocol"
 
@@ -34,14 +33,6 @@ type RPCService interface {
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
-	// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
-	// It runs health checks at regular intervals and can be triggered on-demand via immediateHealthCheckTrigger.
-	//
-	// The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
-	// which is particularly useful when the ingestor needs to catch up with the RPC service.
-	//
-	// Returns an error if the context is cancelled. The caller is responsible for handling shutdown signals.
-	TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger <-chan any) error
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 	NetworkPassphrase() string
 }
@@ -325,72 +316,6 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 		return defaultHealthCheckTickInterval
 	}
 	return r.healthCheckTickInterval
-}
-
-// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
-// It runs health checks at regular intervals and can be triggered on-demand via immediateHealthCheckTrigger.
-//
-// The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
-// which is particularly useful when the ingestor needs to catch up with the RPC service.
-//
-// Returns an error if the context is cancelled. The caller is responsible for handling shutdown signals.
-func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger <-chan any) error {
-	// Handle nil channel by creating a never-firing channel
-	if immediateHealthCheckTrigger == nil {
-		immediateHealthCheckTrigger = make(chan any)
-	}
-
-	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
-	unhealthyWarningTicker := time.NewTicker(r.HealthCheckWarningInterval())
-	defer func() {
-		healthCheckTicker.Stop()
-		unhealthyWarningTicker.Stop()
-		close(r.heartbeatChannel)
-	}()
-
-	// performHealthCheck is a function that performs a health check and updates the metrics.
-	performHealthCheck := func() {
-		health, err := r.GetHealth()
-		if err != nil {
-			log.Ctx(ctx).Warnf("RPC health check failed: %v", err)
-			r.metricsService.SetRPCServiceHealth(false)
-			return
-		}
-
-		unhealthyWarningTicker.Reset(r.HealthCheckWarningInterval())
-		select {
-		case r.heartbeatChannel <- health:
-			// sent successfully
-		default:
-			// channel is full, clear it and send latest
-			<-r.heartbeatChannel
-			r.heartbeatChannel <- health
-		}
-		r.metricsService.SetRPCServiceHealth(true)
-		r.metricsService.SetRPCLatestLedger(int64(health.LatestLedger))
-	}
-
-	// Perform immediate health check at startup to avoid 5-second delay
-	performHealthCheck()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Ctx(ctx).Infof("RPC health tracking stopped due to context cancellation: %v", ctx.Err())
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
-
-		case <-unhealthyWarningTicker.C:
-			log.Ctx(ctx).Warnf("RPC service unhealthy for over %s", r.HealthCheckWarningInterval())
-			r.metricsService.SetRPCServiceHealth(false)
-
-		case <-healthCheckTicker.C:
-			performHealthCheck()
-
-		case <-immediateHealthCheckTrigger:
-			healthCheckTicker.Reset(r.HealthCheckTickInterval())
-			performHealthCheck()
-		}
-	}
 }
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
