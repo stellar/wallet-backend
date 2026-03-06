@@ -268,9 +268,6 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
 			}
-			if err := m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
 			if updateCursorTo != nil {
 				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
 					return fmt.Errorf("updating oldest cursor: %w", err)
