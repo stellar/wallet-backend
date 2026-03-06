@@ -630,7 +630,6 @@ type progressiveRecompressor struct {
 	endTimes     []time.Time
 	watermarkIdx int       // index of highest contiguous completed batch (-1 = none)
 	globalStart  time.Time // lower bound for chunk queries (batch 0's StartTime)
-	globalEnd    time.Time // upper bound for verification (max EndTime across completed batches)
 
 	triggerCh chan time.Time // safeEnd for recompression window
 	done      chan struct{}
@@ -656,9 +655,8 @@ func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables 
 // MarkDone records a batch as complete and advances the watermark if possible.
 // If the watermark advances, triggers recompression of chunks in the safe window.
 func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
+	var safeEnd time.Time
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.completed[batchIdx] = true
 	r.endTimes[batchIdx] = endTime
 
@@ -667,20 +665,21 @@ func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time
 		r.globalStart = startTime
 	}
 
-	// Track the maximum EndTime across all completed batches for verification scope
-	if endTime.After(r.globalEnd) {
-		r.globalEnd = endTime
-	}
-
 	// Advance watermark past contiguous completed batches
 	oldWatermark := r.watermarkIdx
 	for r.watermarkIdx+1 < len(r.completed) && r.completed[r.watermarkIdx+1] {
 		r.watermarkIdx++
 	}
 
-	// Trigger recompression if watermark advanced
-	if r.watermarkIdx > oldWatermark {
-		r.triggerCh <- r.endTimes[r.watermarkIdx]
+	sendToChannel := (r.watermarkIdx > oldWatermark)
+	if sendToChannel {
+		safeEnd = r.endTimes[r.watermarkIdx]
+	}
+	r.mu.Unlock()
+
+	// If watermark advanced then we trigger recompression outside the lock
+	if sendToChannel {
+		r.triggerCh <- safeEnd
 	}
 }
 
@@ -692,9 +691,6 @@ func (r *progressiveRecompressor) Wait() {
 
 // runCompression processes compression triggers in the background.
 // For each safe window, queries and compresses uncompressed chunks per table.
-// After all windows, runs verification to catch any missed chunks (including
-// trailing boundary chunks) scoped to [globalStart, globalEnd] to avoid
-// touching chunks compressed by TimescaleDB policy from live ingestion.
 func (r *progressiveRecompressor) runCompression() {
 	defer close(r.done)
 
@@ -706,16 +702,11 @@ func (r *progressiveRecompressor) runCompression() {
 		}
 	}
 
-	// Final verification: overlap query catches trailing boundary chunk + any missed chunks.
-	// Scoped to [globalStart, globalEnd] — the actual backfill range — to avoid touching
-	// chunks compressed by TimescaleDB policy from live ingestion.
-	totalCompressed += r.verifyAllChunksCompressed()
-
 	log.Ctx(r.ctx).Infof("Progressive compression complete: %d total chunks compressed", totalCompressed)
 }
 
 // compressTableChunks compresses uncompressed chunks for a single table within the safe window.
-// Queries chunks where range_end falls within (globalStart, safeEnd] to catch the leading
+// Queries chunks where range_end falls within (globalStart, safeEnd) to catch the leading
 // boundary chunk that overlaps globalStart.
 func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time.Time) int {
 	rows, err := r.pool.Query(r.ctx,
@@ -723,7 +714,7 @@ func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time
 		 FROM timescaledb_information.chunks c
 		 WHERE c.hypertable_name = $1
 		   AND NOT c.is_compressed
-		   AND c.range_end <= $2::timestamptz
+		   AND c.range_end < $2::timestamptz
 		   AND c.range_end > $3::timestamptz`,
 		table, safeEnd, r.globalStart)
 	if err != nil {
@@ -766,65 +757,4 @@ func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time
 	}
 
 	return compressed
-}
-
-// verifyAllChunksCompressed catches any chunks missed by progressive windows.
-// Uses overlap logic (range_end > globalStart AND range_start < globalEnd) to find
-// uncompressed chunks in the backfill range, including trailing boundary chunks.
-func (r *progressiveRecompressor) verifyAllChunksCompressed() int {
-	r.mu.Lock()
-	globalStart := r.globalStart
-	globalEnd := r.globalEnd
-	r.mu.Unlock()
-
-	if globalStart.IsZero() || globalEnd.IsZero() {
-		return 0
-	}
-
-	totalMissed := 0
-	for _, table := range r.tables {
-		rows, err := r.pool.Query(r.ctx,
-			`SELECT c.chunk_schema || '.' || c.chunk_name
-			 FROM timescaledb_information.chunks c
-			 WHERE c.hypertable_name = $1
-			   AND NOT c.is_compressed
-			   AND c.range_end > $2::timestamptz
-			   AND c.range_start < $3::timestamptz`,
-			table, globalStart, globalEnd)
-		if err != nil {
-			log.Ctx(r.ctx).Warnf("Verification query failed for %s: %v", table, err)
-			continue
-		}
-
-		var chunks []string
-		for rows.Next() {
-			var chunk string
-			if err := rows.Scan(&chunk); err != nil {
-				continue
-			}
-			chunks = append(chunks, chunk)
-		}
-		rows.Close()
-
-		for _, chunk := range chunks {
-			select {
-			case <-r.ctx.Done():
-				return totalMissed
-			default:
-			}
-
-			log.Ctx(r.ctx).Warnf("Verification found missed chunk %s for table %s", chunk, table)
-			_, err := r.pool.Exec(r.ctx, `SELECT compress_chunk($1::regclass)`, chunk)
-			if err != nil {
-				log.Ctx(r.ctx).Warnf("Failed to compress missed chunk %s: %v", chunk, err)
-				continue
-			}
-			totalMissed++
-		}
-	}
-
-	if totalMissed > 0 {
-		log.Ctx(r.ctx).Infof("Verification compressed %d missed chunks", totalMissed)
-	}
-	return totalMissed
 }
