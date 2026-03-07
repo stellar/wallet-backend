@@ -251,8 +251,7 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 }
 
 // flushHistoricalBatch persists buffered data to the database within a transaction.
-// If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32) error {
+func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexer.IndexerBuffer) error {
 	var lastErr error
 	for attempt := range maxIngestProcessedDataRetries {
 		select {
@@ -267,11 +266,6 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 			}
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
-			}
-			if updateCursorTo != nil {
-				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
-					return fmt.Errorf("updating oldest cursor: %w", err)
-				}
 			}
 			return nil
 		})
@@ -323,7 +317,7 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 		ledgersInBuffer++
 
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushHistoricalBatch(ctx, batchBuffer, nil); err != nil {
+			if err := m.flushHistoricalBatch(ctx, batchBuffer); err != nil {
 				result.Error = err
 				return result
 			}
@@ -334,16 +328,16 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 
 	// Final flush with cursor update
 	if ledgersInBuffer > 0 {
-		if err := m.flushHistoricalBatch(ctx, batchBuffer, &batch.StartLedger); err != nil {
+		if err := m.flushHistoricalBatch(ctx, batchBuffer); err != nil {
 			result.Error = err
 			return result
 		}
-	} else {
-		// All data was flushed in intermediate batches, but we still need to update the cursor
-		if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
-			result.Error = err
-			return result
-		}
+	}
+
+	// Update the oldest ingested cursor
+	if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
+		result.Error = err
+		return result
 	}
 
 	result.StartTime = startTime

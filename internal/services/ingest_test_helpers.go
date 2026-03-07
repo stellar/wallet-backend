@@ -57,9 +57,6 @@ func setupDBCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, lates
 	}
 }
 
-// ptrUint32 returns a pointer to the given uint32 value
-func ptrUint32(v uint32) *uint32 { return &v }
-
 // createTestTransaction creates a transaction with required fields for testing.
 func createTestTransaction(hash string, toID int64) types.Transaction {
 	now := time.Now()

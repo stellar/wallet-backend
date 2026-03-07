@@ -382,9 +382,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 	testCases := []struct {
 		name                 string
 		setupBuffer          func() *indexer.IndexerBuffer
-		updateCursorTo       *uint32
 		initialCursor        uint32
-		wantCursor           uint32
 		wantTxCount          int
 		wantOpCount          int
 		wantStateChangeCount int
@@ -393,9 +391,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 		{
 			name:                 "flush_empty_buffer_no_cursor_update",
 			setupBuffer:          func() *indexer.IndexerBuffer { return indexer.NewIndexerBuffer() },
-			updateCursorTo:       nil,
 			initialCursor:        100,
-			wantCursor:           100,
 			wantTxCount:          0,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
@@ -420,9 +416,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 				buf.PushStateChange(tx2, op2, sc2)
 				return buf
 			},
-			updateCursorTo:       nil,
 			initialCursor:        100,
-			wantCursor:           100,
 			wantTxCount:          2,
 			wantOpCount:          2,
 			wantStateChangeCount: 2,
@@ -436,9 +430,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
-			updateCursorTo:       ptrUint32(50),
 			initialCursor:        100,
-			wantCursor:           50,
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
@@ -452,9 +444,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 				buf.PushTransaction(testAddr1, tx1)
 				return buf
 			},
-			updateCursorTo:       ptrUint32(150),
 			initialCursor:        100,
-			wantCursor:           100, // UpdateMin keeps lower
 			wantTxCount:          1,
 			wantOpCount:          0,
 			wantStateChangeCount: 0,
@@ -517,13 +507,8 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 			buffer := tc.setupBuffer()
 
 			// Call flushHistoricalBatch
-			err = svc.flushHistoricalBatch(ctx, buffer, tc.updateCursorTo)
+			err = svc.flushHistoricalBatch(ctx, buffer)
 			require.NoError(t, err)
-
-			// Verify the cursor value
-			cursor, err := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantCursor, cursor)
 
 			// Verify transaction count in database
 			if len(tc.txHashes) > 0 {
