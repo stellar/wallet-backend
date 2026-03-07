@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -260,15 +261,7 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 		default:
 		}
 
-		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
-			}
-			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
-				return fmt.Errorf("inserting processed data into db: %w", err)
-			}
-			return nil
-		})
+		err := m.insertIntoDBParallel(ctx, buffer)
 		if err == nil {
 			return nil
 		}
@@ -344,6 +337,50 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 	result.EndTime = endTime
 	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
 	return result
+}
+
+// insertIntoDBParallel persists the processed data from the buffer to the database.
+func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer.IndexerBufferInterface) error {
+	txs := buffer.GetTransactions()
+	txParticipants := buffer.GetTransactionsParticipants()
+	ops := buffer.GetOperations()
+	opParticipants := buffer.GetOperationsParticipants()
+	stateChanges := buffer.GetStateChanges()
+
+	g, dbCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			_, err := m.models.Transactions.BatchCopy(dbCtx, dbTx, txs, txParticipants)
+			if err != nil {
+				return fmt.Errorf("batch inserting transactions: %w", err)
+			}
+			return nil
+		})	
+	})
+	g.Go(func() error {
+		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			_, err := m.models.Operations.BatchCopy(dbCtx, dbTx, ops, opParticipants)
+			if err != nil {
+				return fmt.Errorf("batch inserting operations: %w", err)
+			}
+			return nil
+		})	
+	})
+	g.Go(func() error {
+		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, stateChanges)
+			if err != nil {
+				return fmt.Errorf("batch inserting state changes: %w", err)
+			}
+			return nil
+		})	
+	})
+	err := g.Wait()
+	if err != nil {
+		return fmt.Errorf("inserting data into db: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
+	return nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
