@@ -101,10 +101,11 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 // calculateBackfillGaps determines which ledger ranges need to be backfilled based on
 // the requested range, oldest ingested ledger, and any existing gaps in the data.
 func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, endLedger uint32) ([]data.LedgerRange, error) {
-	oldestIngestedLedger, err := m.models.IngestStore.GetOldestLedger(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
-	}
+	// oldestIngestedLedger, err := m.models.IngestStore.GetOldestLedger(ctx)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
+	// }
+	oldestIngestedLedger := uint32(61531955)
 
 	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
 	if err != nil {
@@ -289,8 +290,12 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 	ledgersInBuffer := uint32(0)
 	var startTime, endTime time.Time
 
+	var fetchDuration, processDuration, flushDuration time.Duration
+
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+		t0 := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+		fetchDuration += time.Since(t0)
 		if err != nil {
 			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			return result
@@ -302,18 +307,23 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 		}
 		endTime = ledgerTime
 
+		t1 := time.Now()
 		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			return result
 		}
+		processDuration += time.Since(t1)
+
 		result.LedgersCount++
 		ledgersInBuffer++
 
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			t2 := time.Now()
 			if err := m.flushHistoricalBatch(ctx, batchBuffer); err != nil {
 				result.Error = err
 				return result
 			}
+			flushDuration += time.Since(t2)
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
 		}
@@ -321,10 +331,12 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 
 	// Final flush with cursor update
 	if ledgersInBuffer > 0 {
+		t2 := time.Now()
 		if err := m.flushHistoricalBatch(ctx, batchBuffer); err != nil {
 			result.Error = err
 			return result
 		}
+		flushDuration += time.Since(t2)
 	}
 
 	// Update the oldest ingested cursor
@@ -336,6 +348,10 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 	result.StartTime = startTime
 	result.EndTime = endTime
 	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+
+	log.Ctx(ctx).Infof("Batch [%d-%d] timing breakdown — fetch: %v, process: %v, flush: %v",
+		batch.StartLedger, batch.EndLedger, fetchDuration, processDuration, flushDuration)
+
 	return result
 }
 
@@ -350,30 +366,39 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 	g, dbCtx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
+				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			}
 			_, err := m.models.Transactions.BatchCopy(dbCtx, dbTx, txs, txParticipants)
 			if err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
 			return nil
-		})	
+		})
 	})
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
+				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			}
 			_, err := m.models.Operations.BatchCopy(dbCtx, dbTx, ops, opParticipants)
 			if err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
 			return nil
-		})	
+		})
 	})
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
+				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			}
 			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, stateChanges)
 			if err != nil {
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
 			return nil
-		})	
+		})
 	})
 	err := g.Wait()
 	if err != nil {
