@@ -16,13 +16,12 @@ import (
 func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 	ctx := context.Background()
 	hash := xdr.Hash{1, 2, 3}
-	code := []byte{0xDE, 0xAD}
 
 	t.Run("tracks_hash", func(t *testing.T) {
 		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
+		svc := NewWasmIngestionService(protocolWasmModelMock)
 
-		err := svc.ProcessContractCode(ctx, hash, code)
+		err := svc.ProcessContractCode(ctx, hash)
 		require.NoError(t, err)
 
 		_, tracked := svc.wasmHashes[hash]
@@ -31,12 +30,12 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 
 	t.Run("duplicate_hash_deduplicated", func(t *testing.T) {
 		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
-		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
+		svc := NewWasmIngestionService(protocolWasmModelMock)
 
-		err := svc.ProcessContractCode(ctx, hash, code)
+		err := svc.ProcessContractCode(ctx, hash)
 		require.NoError(t, err)
 
-		err = svc.ProcessContractCode(ctx, hash, code)
+		err = svc.ProcessContractCode(ctx, hash)
 		require.NoError(t, err)
 
 		assert.Len(t, svc.wasmHashes, 1, "duplicate hash should be deduplicated")
@@ -78,8 +77,8 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
-		err := svc.ProcessContractCode(ctx, hash, []byte{0x01})
+		svc := NewWasmIngestionService(protocolWasmModelMock)
+		err := svc.ProcessContractCode(ctx, hash)
 		require.NoError(t, err)
 
 		err = svc.PersistProtocolWasms(ctx, nil)
@@ -104,9 +103,9 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
-		require.NoError(t, svc.ProcessContractCode(ctx, hash1, []byte{0x01}))
-		require.NoError(t, svc.ProcessContractCode(ctx, hash2, []byte{0x02}))
+		svc := NewWasmIngestionService(protocolWasmModelMock)
+		require.NoError(t, svc.ProcessContractCode(ctx, hash1))
+		require.NoError(t, svc.ProcessContractCode(ctx, hash2))
 
 		err := svc.PersistProtocolWasms(ctx, nil)
 		require.NoError(t, err)
@@ -120,8 +119,8 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).
 			Return(insertErr).Once()
 
-		svc := NewWasmIngestionService(protocolWasmModelMock).(*wasmIngestionService)
-		require.NoError(t, svc.ProcessContractCode(ctx, hash, []byte{0x01}))
+		svc := NewWasmIngestionService(protocolWasmModelMock)
+		require.NoError(t, svc.ProcessContractCode(ctx, hash))
 
 		err := svc.PersistProtocolWasms(ctx, nil)
 		require.Error(t, err)
