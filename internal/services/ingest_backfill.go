@@ -130,8 +130,10 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		if err2 != nil {
 			return fmt.Errorf("fetching boundary timestamps: %w", err2)
 		}
-		if err := db.PreCreateChunks(ctx, m.models.DB, tables, m.chunkInterval, boundaryStart, boundaryEnd); err != nil {
-			return fmt.Errorf("pre-creating chunks: %w", err)
+		var err3 error
+		boundaryStart, err3 = db.PreCreateChunks(ctx, m.models.DB, tables, boundaryStart, boundaryEnd)
+		if err3 != nil {
+			return fmt.Errorf("pre-creating chunks: %w", err3)
 		}
 		if err := db.DropIndexesOnChunksInRange(ctx, m.models.DB, tables, boundaryStart, boundaryEnd); err != nil {
 			return fmt.Errorf("dropping indexes on chunks: %w", err)

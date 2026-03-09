@@ -37,38 +37,60 @@ var droppableIndexes = []string{
 }
 
 // PreCreateChunks pre-creates empty TimescaleDB chunks for the given hypertables
-// covering the time range [rangeStart, rangeEnd]. Chunks are created at chunkInterval
-// boundaries. Existing chunks are skipped via NOT EXISTS checks.
+// covering the time range [rangeStart, rangeEnd]. Chunk boundaries are aligned to
+// match TimescaleDB's internal alignment by reading interval_length from the catalog
+// and replicating the same integer division used in calculate_open_range_default()
+// (see timescale/timescaledb src/dimension.c):
+//
+//	range_start = (value / interval_length) * interval_length
+//
+// Existing chunks are skipped (create_chunk is idempotent for exact boundary matches).
 //
 // This is used before backfill to ensure chunks exist so their indexes can be
 // dropped before bulk INSERTs, avoiding the ~40% write overhead from B-tree maintenance.
-func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []string, chunkInterval string, rangeStart, rangeEnd time.Time) error {
-	// Generate chunk boundary pairs (start, end) using generate_series.
-	// The interval arithmetic is done in SQL so we don't need to parse PostgreSQL intervals in Go.
+//
+// Returns the aligned start time of the first chunk boundary (for use as a lower bound
+// in downstream chunk queries like the progressive recompressor).
+func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []string, rangeStart, rangeEnd time.Time) (time.Time, error) {
+	// Generate aligned chunk boundaries using the same integer division as TimescaleDB's
+	// C code. We read interval_length (microseconds) from the catalog and use
+	// generate_series over chunk indices: floor(usec / interval) to ceil(usec / interval).
 	type chunkRange struct {
 		Start time.Time
 		End   time.Time
 	}
-	rows, err := pool.Query(ctx,
-		`SELECT s AS chunk_start, s + $3::interval AS chunk_end
-		 FROM generate_series($1::timestamptz, $2::timestamptz, $3::interval) AS s`,
-		rangeStart, rangeEnd, chunkInterval,
+	rows, err := pool.Query(ctx, `
+		WITH dim AS (
+			SELECT d.interval_length
+			FROM _timescaledb_catalog.dimension d
+			JOIN _timescaledb_catalog.hypertable h ON d.hypertable_id = h.id
+			WHERE h.table_name = $3 AND d.column_name = 'ledger_created_at'
+		)
+		SELECT
+			to_timestamp((gs * dim.interval_length)::double precision / 1000000) AS chunk_start,
+			to_timestamp(((gs + 1) * dim.interval_length)::double precision / 1000000) AS chunk_end
+		FROM dim,
+		LATERAL generate_series(
+			(extract(epoch from $1::timestamptz) * 1000000)::bigint / dim.interval_length,
+			(extract(epoch from $2::timestamptz) * 1000000)::bigint / dim.interval_length
+		) AS gs`,
+		rangeStart, rangeEnd, hypertables[0],
 	)
 	if err != nil {
-		return fmt.Errorf("generating chunk boundaries: %w", err)
+		return time.Time{}, fmt.Errorf("generating chunk boundaries: %w", err)
 	}
 	var boundaries []chunkRange
 	for rows.Next() {
 		var cr chunkRange
 		if scanErr := rows.Scan(&cr.Start, &cr.End); scanErr != nil {
 			rows.Close()
-			return fmt.Errorf("scanning chunk boundary: %w", scanErr)
+			return time.Time{}, fmt.Errorf("scanning chunk boundary: %w", scanErr)
 		}
 		boundaries = append(boundaries, cr)
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
-		return fmt.Errorf("iterating chunk boundaries: %w", err)
+		return time.Time{}, fmt.Errorf("iterating chunk boundaries: %w", err)
 	}
 
 	for _, table := range hypertables {
@@ -83,14 +105,24 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 				"SELECT * FROM _timescaledb_functions.create_chunk($1::regclass, $2::jsonb)",
 				table, slices)
 			if execErr != nil {
-				return fmt.Errorf("creating chunk for %s at %s: %w", table, b.Start.Format(time.RFC3339), execErr)
+				if strings.Contains(execErr.Error(), "collision") {
+					log.Ctx(ctx).Warnf("Chunk collision for %s at %s (pre-existing chunk), skipping", table, b.Start.Format(time.RFC3339))
+					continue
+				}
+				return time.Time{}, fmt.Errorf("creating chunk for %s at %s: %w", table, b.Start.Format(time.RFC3339), execErr)
 			}
 			created++
 		}
 		log.Ctx(ctx).Infof("Pre-created %d chunks for %s covering [%s, %s] in %v",
 			created, table, rangeStart.Format(time.RFC3339), rangeEnd.Format(time.RFC3339), time.Since(start))
 	}
-	return nil
+
+	// Return the aligned start of the first chunk boundary.
+	var alignedStart time.Time
+	if len(boundaries) > 0 {
+		alignedStart = boundaries[0].Start
+	}
+	return alignedStart, nil
 }
 
 // DropIndexesOnChunksInRange drops indexes listed in droppableIndexes on uncompressed
