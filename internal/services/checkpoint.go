@@ -51,7 +51,7 @@ func NewCheckpointService(
 	tokenIngestionService TokenIngestionService,
 	wasmIngestionService WasmIngestionService,
 	contractValidator ContractValidator,
-) CheckpointService {
+) *checkpointService {
 	return &checkpointService{
 		db:                    dbPool,
 		archive:               archive,
@@ -121,7 +121,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 				contractCodeEntry := change.Post.Data.MustContractCode()
 
 				// WASM service: track hash for protocol_wasms
-				if txErr := s.wasmIngestionService.ProcessContractCode(ctx, contractCodeEntry.Hash, contractCodeEntry.Code); txErr != nil {
+				if txErr := s.wasmIngestionService.ProcessContractCode(ctx, contractCodeEntry.Hash); txErr != nil {
 					return fmt.Errorf("wasm service processing contract code: %w", txErr)
 				}
 

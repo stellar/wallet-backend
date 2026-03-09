@@ -208,8 +208,8 @@ type WasmIngestionServiceMock struct {
 
 var _ WasmIngestionService = (*WasmIngestionServiceMock)(nil)
 
-func (m *WasmIngestionServiceMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	args := m.Called(ctx, wasmHash, wasmCode)
+func (m *WasmIngestionServiceMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash) error {
+	args := m.Called(ctx, wasmHash)
 	return args.Error(0)
 }
 

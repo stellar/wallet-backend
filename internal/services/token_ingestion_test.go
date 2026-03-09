@@ -415,7 +415,15 @@ func TestProcessTokenChanges(t *testing.T) {
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenIngestionService(nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel, "Test SDF Network ; September 2015")
+		service := NewTokenIngestionService(TokenIngestionServiceConfig{
+			TrustlineAssetModel:        trustlineAssetModel,
+			TrustlineBalanceModel:      trustlineBalanceModel,
+			NativeBalanceModel:         nativeBalanceModel,
+			SACBalanceModel:            sacBalanceModel,
+			AccountContractTokensModel: accountContractTokensModel,
+			ContractModel:              contractModel,
+			NetworkPassphrase:          "Test SDF Network ; September 2015",
+		})
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
@@ -440,7 +448,15 @@ func TestProcessTokenChanges(t *testing.T) {
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
-		service := NewTokenIngestionService(nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel, "Test SDF Network ; September 2015")
+		service := NewTokenIngestionService(TokenIngestionServiceConfig{
+			TrustlineAssetModel:        trustlineAssetModel,
+			TrustlineBalanceModel:      trustlineBalanceModel,
+			NativeBalanceModel:         nativeBalanceModel,
+			SACBalanceModel:            sacBalanceModel,
+			AccountContractTokensModel: accountContractTokensModel,
+			ContractModel:              contractModel,
+			NetworkPassphrase:          "Test SDF Network ; September 2015",
+		})
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
@@ -554,13 +570,7 @@ func newTestTokenProcessor() *tokenProcessor {
 	return &tokenProcessor{
 		service:          svc,
 		checkpointLedger: 100,
-		data: checkpointData{
-			contractTokensByHolderAddress: make(map[string][]uuid.UUID),
-			contractIDsByWasmHash:         make(map[xdr.Hash][]string),
-			contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
-			uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
-			uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
-		},
+		data:             newCheckpointData(),
 		batch: &batch{
 			nativeBalances:    make([]wbdata.NativeBalance, 0),
 			trustlineBalances: make([]wbdata.TrustlineBalance, 0),

@@ -198,7 +198,16 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	wasmIngestionService := services.NewWasmIngestionService(models.ProtocolWasm)
 
-	tokenIngestionService := services.NewTokenIngestionService(contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract, cfg.NetworkPassphrase)
+	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
+		ContractMetadataService:    contractMetadataService,
+		TrustlineAssetModel:        models.TrustlineAsset,
+		TrustlineBalanceModel:      models.TrustlineBalance,
+		NativeBalanceModel:         models.NativeBalance,
+		SACBalanceModel:            models.SACBalance,
+		AccountContractTokensModel: models.AccountContractTokens,
+		ContractModel:              models.Contract,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+	})
 
 	checkpointService := services.NewCheckpointService(models.DB, archive, tokenIngestionService, wasmIngestionService, contractValidator)
 

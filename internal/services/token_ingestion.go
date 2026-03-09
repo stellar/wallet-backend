@@ -42,6 +42,16 @@ type checkpointData struct {
 	uniqueContractTokens map[uuid.UUID]*wbdata.Contract
 }
 
+func newCheckpointData() checkpointData {
+	return checkpointData{
+		contractTokensByHolderAddress: make(map[string][]uuid.UUID),
+		contractIDsByWasmHash:         make(map[xdr.Hash][]string),
+		contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
+		uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
+		uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
+	}
+}
+
 // batch holds a batch of trustline balances, native balances, and SAC balances for streaming insertion.
 type batch struct {
 	// trustlineBalances holds the trustline balance entries for batch insert
@@ -167,6 +177,18 @@ type TokenProcessor interface {
 // Verify interface compliance at compile time
 var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
+// TokenIngestionServiceConfig holds configuration for creating a TokenIngestionService.
+type TokenIngestionServiceConfig struct {
+	ContractMetadataService    ContractMetadataService
+	TrustlineAssetModel        wbdata.TrustlineAssetModelInterface
+	TrustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
+	NativeBalanceModel         wbdata.NativeBalanceModelInterface
+	SACBalanceModel            wbdata.SACBalanceModelInterface
+	AccountContractTokensModel wbdata.AccountContractTokensModelInterface
+	ContractModel              wbdata.ContractModelInterface
+	NetworkPassphrase          string
+}
+
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
 	contractMetadataService    ContractMetadataService
@@ -180,45 +202,16 @@ type tokenIngestionService struct {
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
-func NewTokenIngestionService(
-	contractMetadataService ContractMetadataService,
-	trustlineAssetModel wbdata.TrustlineAssetModelInterface,
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
-	nativeBalanceModel wbdata.NativeBalanceModelInterface,
-	sacBalanceModel wbdata.SACBalanceModelInterface,
-	accountContractTokensModel wbdata.AccountContractTokensModelInterface,
-	contractModel wbdata.ContractModelInterface,
-	networkPassphrase string,
-) TokenIngestionService {
+func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionService {
 	return &tokenIngestionService{
-		contractMetadataService:    contractMetadataService,
-		trustlineAssetModel:        trustlineAssetModel,
-		trustlineBalanceModel:      trustlineBalanceModel,
-		nativeBalanceModel:         nativeBalanceModel,
-		sacBalanceModel:            sacBalanceModel,
-		accountContractTokensModel: accountContractTokensModel,
-		contractModel:              contractModel,
-		networkPassphrase:          networkPassphrase,
-	}
-}
-
-// NewTokenIngestionServiceForLoadtest creates a minimal TokenIngestionService
-// that only supports ProcessTokenChanges (not checkpoint processing).
-// This is used by the loadtest runner which doesn't need validator/metadata services.
-func NewTokenIngestionServiceForLoadtest(
-	networkPassphrase string,
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
-	nativeBalanceModel wbdata.NativeBalanceModelInterface,
-	sacBalanceModel wbdata.SACBalanceModelInterface,
-	accountContractTokensModel wbdata.AccountContractTokensModelInterface,
-) TokenIngestionService {
-	return &tokenIngestionService{
-		networkPassphrase:          networkPassphrase,
-		trustlineBalanceModel:      trustlineBalanceModel,
-		nativeBalanceModel:         nativeBalanceModel,
-		sacBalanceModel:            sacBalanceModel,
-		accountContractTokensModel: accountContractTokensModel,
-		// contractValidator, contractMetadataService left nil - not needed for ProcessTokenChanges
+		contractMetadataService:    cfg.ContractMetadataService,
+		trustlineAssetModel:        cfg.TrustlineAssetModel,
+		trustlineBalanceModel:      cfg.TrustlineBalanceModel,
+		nativeBalanceModel:         cfg.NativeBalanceModel,
+		sacBalanceModel:            cfg.SACBalanceModel,
+		accountContractTokensModel: cfg.AccountContractTokensModel,
+		contractModel:              cfg.ContractModel,
+		networkPassphrase:          cfg.NetworkPassphrase,
 	}
 }
 
@@ -244,15 +237,9 @@ func (s *tokenIngestionService) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger 
 		contractValidator: contractValidator,
 		dbTx:              dbTx,
 		checkpointLedger:  checkpointLedger,
-		data: checkpointData{
-			contractTokensByHolderAddress: make(map[string][]uuid.UUID),
-			contractIDsByWasmHash:         make(map[xdr.Hash][]string),
-			contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
-			uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
-			uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
-		},
-		batch:     newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
-		startTime: time.Now(),
+		data:              newCheckpointData(),
+		batch:             newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
+		startTime:         time.Now(),
 	}
 }
 
@@ -294,17 +281,17 @@ func (p *tokenProcessor) ProcessEntry(ctx context.Context, change ingest.Change)
 
 		//exhaustive:ignore
 		if contractDataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
-			contract, wasmHash, isSAC, skip := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
-			if skip {
+			result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
+			if result.Skip {
 				return nil
 			}
-			p.data.uniqueContractTokens[contract.ID] = contract
+			p.data.uniqueContractTokens[result.Contract.ID] = result.Contract
 			p.entries++
 
-			if isSAC {
+			if result.IsSAC {
 				return nil
 			}
-			p.data.contractIDsByWasmHash[*wasmHash] = append(p.data.contractIDsByWasmHash[*wasmHash], contractAddressStr)
+			p.data.contractIDsByWasmHash[*result.WasmHash] = append(p.data.contractIDsByWasmHash[*result.WasmHash], contractAddressStr)
 			p.entries++
 		} else {
 			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
@@ -386,7 +373,7 @@ func (p *tokenProcessor) FlushRemainingBatch(ctx context.Context) error {
 // Finalize identifies SEP-41 contracts, fetches metadata, and stores tokens in DB.
 func (p *tokenProcessor) Finalize(ctx context.Context, dbTx pgx.Tx) error {
 	// Identify SAC contracts missing code/issuer and fetch metadata via RPC
-	sacContractsNeedingMetadata := make([]string, 0)
+	var sacContractsNeedingMetadata []string
 	for _, contract := range p.data.uniqueContractTokens {
 		if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
 			sacContractsNeedingMetadata = append(sacContractsNeedingMetadata, contract.ContractID)
@@ -647,6 +634,14 @@ func (s *tokenIngestionService) processContractBalanceChange(contractDataEntry x
 	return holderAddress, false
 }
 
+// contractInstanceResult holds the result of processing a contract instance entry.
+type contractInstanceResult struct {
+	Contract *wbdata.Contract
+	WasmHash *xdr.Hash
+	IsSAC    bool
+	Skip     bool
+}
+
 // processContractInstanceChange extracts contract type information from a contract instance entry.
 // For SAC contracts: returns contract metadata extracted from ledger data (no RPC needed).
 // For non-SAC contracts: returns WASM hash for later validation and marks as skip.
@@ -654,7 +649,7 @@ func (s *tokenIngestionService) processContractInstanceChange(
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
-) (sacContract *wbdata.Contract, wasmHash *xdr.Hash, isSAC bool, skip bool) {
+) contractInstanceResult {
 	ledgerEntry := change.Post
 	asset, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
 	if isSAC {
@@ -662,20 +657,23 @@ func (s *tokenIngestionService) processContractInstanceChange(
 		var assetType, code, issuer string
 		err := asset.Extract(&assetType, &code, &issuer)
 		if err != nil {
-			return nil, nil, false, true
+			return contractInstanceResult{Skip: true}
 		}
 		name := code + ":" + issuer
 		decimals := uint32(7) // Stellar assets always have 7 decimals
-		return &wbdata.Contract{
-			ID:         wbdata.DeterministicContractID(contractAddress),
-			ContractID: contractAddress,
-			Type:       string(types.ContractTypeSAC),
-			Code:       &code,
-			Issuer:     &issuer,
-			Name:       &name,
-			Symbol:     &code,
-			Decimals:   decimals,
-		}, nil, true, false
+		return contractInstanceResult{
+			Contract: &wbdata.Contract{
+				ID:         wbdata.DeterministicContractID(contractAddress),
+				ContractID: contractAddress,
+				Type:       string(types.ContractTypeSAC),
+				Code:       &code,
+				Issuer:     &issuer,
+				Name:       &name,
+				Symbol:     &code,
+				Decimals:   decimals,
+			},
+			IsSAC: true,
+		}
 	}
 
 	// For non-SAC contracts, extract WASM hash for later validation
@@ -683,15 +681,18 @@ func (s *tokenIngestionService) processContractInstanceChange(
 	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
 		if contractInstance.Executable.WasmHash != nil {
 			hash := *contractInstance.Executable.WasmHash
-			return &wbdata.Contract{
-				ID:         wbdata.DeterministicContractID(contractAddress),
-				ContractID: contractAddress,
-				Type:       string(types.ContractTypeUnknown),
-			}, &hash, false, false
+			return contractInstanceResult{
+				Contract: &wbdata.Contract{
+					ID:         wbdata.DeterministicContractID(contractAddress),
+					ContractID: contractAddress,
+					Type:       string(types.ContractTypeUnknown),
+				},
+				WasmHash: &hash,
+			}
 		}
 	}
 
-	return nil, nil, false, true
+	return contractInstanceResult{Skip: true}
 }
 
 // fetchSep41Metadata validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
@@ -700,7 +701,7 @@ func (s *tokenIngestionService) fetchSep41Metadata(
 	contractIDsByWasmHash map[xdr.Hash][]string,
 	contractTypesByWasmHash map[xdr.Hash]types.ContractType,
 ) ([]*wbdata.Contract, error) {
-	sep41ContractIDs := make([]string, 0)
+	var sep41ContractIDs []string
 	for wasmHash, contractType := range contractTypesByWasmHash {
 		if contractType != types.ContractTypeSEP41 {
 			continue
@@ -710,7 +711,7 @@ func (s *tokenIngestionService) fetchSep41Metadata(
 	}
 
 	// Fetch metadata for SEP-41 contracts via RPC and store in database
-	sep41ContractsWithMetadata := make([]*wbdata.Contract, 0)
+	var sep41ContractsWithMetadata []*wbdata.Contract
 	var err error
 	if len(sep41ContractIDs) > 0 {
 		sep41ContractsWithMetadata, err = s.contractMetadataService.FetchSep41Metadata(ctx, sep41ContractIDs)
