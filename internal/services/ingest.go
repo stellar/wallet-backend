@@ -76,6 +76,7 @@ type IngestServiceConfig struct {
 	BackfillBatchSize         int
 	BackfillDBInsertBatchSize int
 	CatchupThreshold          int
+	ChunkInterval             string
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -118,6 +119,7 @@ type ingestService struct {
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
+	chunkInterval             string
 	knownContractIDs          set.Set[string]
 }
 
@@ -157,6 +159,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
+		chunkInterval:             cfg.ChunkInterval,
 		knownContractIDs:          set.NewSet[string](),
 	}, nil
 }

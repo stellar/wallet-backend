@@ -226,6 +226,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		CatchupThreshold:          cfg.CatchupThreshold,
+		ChunkInterval:             cfg.ChunkInterval,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

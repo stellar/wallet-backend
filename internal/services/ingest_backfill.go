@@ -46,6 +46,48 @@ func analyzeBatchResults(ctx context.Context, results []BackfillResult) int {
 	return numFailed
 }
 
+// fetchBoundaryTimestamps fetches the ClosedAt timestamps for the start and end
+// ledgers of a backfill range. It creates a temporary ledger backend, fetches the
+// two boundary ledgers via single-ledger PrepareRange calls, and returns their times.
+func (m *ingestService) fetchBoundaryTimestamps(ctx context.Context, startLedger, endLedger uint32) (time.Time, time.Time, error) {
+	backend, err := m.ledgerBackendFactory(ctx)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("creating backend for boundary timestamps: %w", err)
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing boundary timestamp backend: %v", closeErr)
+		}
+	}()
+
+	// Fetch start ledger timestamp
+	err = backend.PrepareRange(ctx, ledgerbackend.BoundedRange(startLedger, startLedger))
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("preparing range for start ledger %d: %w", startLedger, err)
+	}
+	startMeta, err := backend.GetLedger(ctx, startLedger)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("getting start ledger %d: %w", startLedger, err)
+	}
+	startTime := startMeta.ClosedAt()
+
+	// Fetch end ledger timestamp
+	err = backend.PrepareRange(ctx, ledgerbackend.BoundedRange(endLedger, endLedger))
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("preparing range for end ledger %d: %w", endLedger, err)
+	}
+	endMeta, err := backend.GetLedger(ctx, endLedger)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("getting end ledger %d: %w", endLedger, err)
+	}
+	endTime := endMeta.ClosedAt()
+
+	log.Ctx(ctx).Infof("Boundary timestamps: start ledger %d at %s, end ledger %d at %s",
+		startLedger, startTime.Format(time.RFC3339), endLedger, endTime.Format(time.RFC3339))
+
+	return startTime, endTime, nil
+}
+
 // startHistoricalBackfill processes ledgers in the specified range, identifying gaps
 // and processing them in parallel batches. Fills gaps within already-ingested range.
 func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger, endLedger uint32) error {
@@ -71,14 +113,31 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		return nil
 	}
 
-	backfillBatches := m.splitGapsIntoBatches(gaps)
-
-	// Create progressive recompressor.
-	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
 	tables := []string{
 		"transactions", "transactions_accounts", "operations",
 		"operations_accounts", "state_changes",
 	}
+
+	// Pre-create chunks and drop their indexes for faster bulk inserts.
+	if m.chunkInterval != "" {
+		rangeStart := gaps[0].GapStart
+		rangeEnd := gaps[len(gaps)-1].GapEnd
+		boundaryStart, boundaryEnd, err := m.fetchBoundaryTimestamps(ctx, rangeStart, rangeEnd)
+		if err != nil {
+			return fmt.Errorf("fetching boundary timestamps: %w", err)
+		}
+		if err := db.PreCreateChunks(ctx, m.models.DB, tables, m.chunkInterval, boundaryStart, boundaryEnd); err != nil {
+			return fmt.Errorf("pre-creating chunks: %w", err)
+		}
+		if err := db.DropIndexesOnChunksInRange(ctx, m.models.DB, tables, boundaryStart, boundaryEnd); err != nil {
+			return fmt.Errorf("dropping indexes on chunks: %w", err)
+		}
+	}
+
+	backfillBatches := m.splitGapsIntoBatches(gaps)
+
+	// Create progressive recompressor.
+	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
 	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
 
 	startTime := time.Now()
