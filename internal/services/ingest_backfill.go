@@ -420,7 +420,22 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 	return result
 }
 
+// setLocalBackfillOpts sets transaction-local options for backfill flushes:
+// - synchronous_commit=off: skip waiting for WAL flush (data is re-derivable from ledger)
+// - session_replication_role=replica: skip CHECK constraints and triggers (trusted ledger data)
+func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
+	if _, err := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return fmt.Errorf("setting synchronous_commit=off: %w", err)
+	}
+	if _, err := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
+		return fmt.Errorf("setting session_replication_role=replica: %w", err)
+	}
+	return nil
+}
+
 // insertIntoDBParallel persists the processed data from the buffer to the database.
+// Uses 5 independent goroutines (one per table) to maximize COPY throughput.
+// This is safe because there are no foreign keys between these tables.
 func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer.IndexerBufferInterface) error {
 	txs := buffer.GetTransactions()
 	txParticipants := buffer.GetTransactionsParticipants()
@@ -429,42 +444,77 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 	stateChanges := buffer.GetStateChanges()
 
 	g, dbCtx := errgroup.WithContext(ctx)
+
+	// 1. transactions
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+				return err
 			}
-			_, err := m.models.Transactions.BatchCopy(dbCtx, dbTx, txs, txParticipants)
+			_, err := m.models.Transactions.CopyTransactions(dbCtx, dbTx, txs)
 			if err != nil {
-				return fmt.Errorf("batch inserting transactions: %w", err)
+				return fmt.Errorf("copying transactions: %w", err)
 			}
 			return nil
 		})
 	})
+
+	// 2. transactions_accounts
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+				return err
 			}
-			_, err := m.models.Operations.BatchCopy(dbCtx, dbTx, ops, opParticipants)
+			_, err := m.models.Transactions.CopyTransactionsAccounts(dbCtx, dbTx, txs, txParticipants)
 			if err != nil {
-				return fmt.Errorf("batch inserting operations: %w", err)
+				return fmt.Errorf("copying transactions_accounts: %w", err)
 			}
 			return nil
 		})
 	})
+
+	// 3. operations
 	g.Go(func() error {
 		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if _, err := dbTx.Exec(dbCtx, "SET LOCAL synchronous_commit = off"); err != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", err)
+			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+				return err
+			}
+			_, err := m.models.Operations.CopyOperations(dbCtx, dbTx, ops)
+			if err != nil {
+				return fmt.Errorf("copying operations: %w", err)
+			}
+			return nil
+		})
+	})
+
+	// 4. operations_accounts
+	g.Go(func() error {
+		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+				return err
+			}
+			_, err := m.models.Operations.CopyOperationsAccounts(dbCtx, dbTx, ops, opParticipants)
+			if err != nil {
+				return fmt.Errorf("copying operations_accounts: %w", err)
+			}
+			return nil
+		})
+	})
+
+	// 5. state_changes
+	g.Go(func() error {
+		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+				return err
 			}
 			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, stateChanges)
 			if err != nil {
-				return fmt.Errorf("batch inserting state changes: %w", err)
+				return fmt.Errorf("copying state_changes: %w", err)
 			}
 			return nil
 		})
 	})
+
 	err := g.Wait()
 	if err != nil {
 		return fmt.Errorf("inserting data into db: %w", err)
