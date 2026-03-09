@@ -353,7 +353,6 @@ func (m *OperationModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]set.Set[string],
 ) (int, error) {
 	if len(operations) == 0 {
 		return 0, nil
@@ -387,46 +386,6 @@ func (m *OperationModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
 	}
 
-	// COPY operations_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByOpID) > 0 {
-		// Build OpID -> LedgerCreatedAt lookup from operations
-		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
-		for _, op := range operations {
-			ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
-		}
-
-		oaRows := make([][]any, 0, len(stellarAddressesByOpID)*2)
-		for opID, addresses := range stellarAddressesByOpID {
-			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				oaRows = append(oaRows, []any{
-					ledgerCreatedAtPgtype,
-					opIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"operations_accounts"},
-			[]string{"ledger_created_at", "operation_id", "account_id"},
-			pgx.CopyFromRows(oaRows),
-		)
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
-	}
-
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
@@ -435,55 +394,8 @@ func (m *OperationModel) BatchCopy(
 	return len(operations), nil
 }
 
-// CopyOperations inserts only the operations table rows using pgx binary COPY.
-// This is a subset of BatchCopy, split out so it can run in its own goroutine during backfill.
-func (m *OperationModel) CopyOperations(
-	ctx context.Context,
-	pgxTx pgx.Tx,
-	operations []*types.Operation,
-) (int, error) {
-	if len(operations) == 0 {
-		return 0, nil
-	}
-
-	start := time.Now()
-
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"operations"},
-		[]string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
-		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
-			op := operations[i]
-			return []any{
-				pgtype.Int8{Int64: op.ID, Valid: true},
-				pgtype.Text{String: string(op.OperationType), Valid: true},
-				[]byte(op.OperationXDR),
-				pgtype.Text{String: op.ResultCode, Valid: true},
-				pgtype.Bool{Bool: op.Successful, Valid: true},
-				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
-				pgtype.Timestamptz{Time: op.LedgerCreatedAt, Valid: true},
-			}, nil
-		}),
-	)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("CopyOperations", "operations", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("pgx CopyFrom operations: %w", err)
-	}
-	if int(copyCount) != len(operations) {
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
-	}
-
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("CopyOperations", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("CopyOperations", "operations", len(operations))
-	m.MetricsService.IncDBQuery("CopyOperations", "operations")
-
-	return len(operations), nil
-}
-
-// CopyOperationsAccounts inserts only the operations_accounts rows using pgx binary COPY.
-// This is a subset of BatchCopy, split out so it can run in its own goroutine during backfill.
-func (m *OperationModel) CopyOperationsAccounts(
+// BatchCopyParticipants inserts only the operations_accounts rows using pgx binary COPY.
+func (m *OperationModel) BatchCopyParticipants(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
@@ -527,14 +439,14 @@ func (m *OperationModel) CopyOperationsAccounts(
 		pgx.CopyFromRows(oaRows),
 	)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("CopyOperationsAccounts", "operations_accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopyParticipants", "operations_accounts", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("CopyOperationsAccounts", "operations_accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("CopyOperationsAccounts", "operations_accounts", len(oaRows))
-	m.MetricsService.IncDBQuery("CopyOperationsAccounts", "operations_accounts")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopyParticipants", "operations_accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopyParticipants", "operations_accounts", len(oaRows))
+	m.MetricsService.IncDBQuery("BatchCopyParticipants", "operations_accounts")
 
 	return len(oaRows), nil
 }

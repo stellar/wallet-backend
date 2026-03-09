@@ -229,6 +229,22 @@ func (m *ingestService) processLedgersInBatchCatchup(ctx context.Context, backen
 // flushCatchupBatch persists buffered data to the database and collects changes
 // for post-catchup processing.
 func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.IndexerBuffer, batchChanges *BatchChanges) error {
+	// 1. Merge changes (pure in-memory, no DB)
+	mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
+	batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
+	mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
+	mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
+	for _, asset := range buffer.GetUniqueTrustlineAssets() {
+		batchChanges.UniqueTrustlineAssets[asset.ID] = asset
+	}
+	maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
+	for id, contract := range buffer.GetSACContracts() {
+		if _, exists := batchChanges.SACContractsByID[id]; !exists {
+			batchChanges.SACContractsByID[id] = contract
+		}
+	}
+
+	// 2. Parallel COPY insert (with retry)
 	var lastErr error
 	for attempt := range maxIngestProcessedDataRetries {
 		select {
@@ -237,34 +253,9 @@ func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.I
 		default:
 		}
 
-		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
-			}
-			// Collect changes for post-catchup processing
-			mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
-			batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
-			mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
-			mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
-			for _, asset := range buffer.GetUniqueTrustlineAssets() {
-				batchChanges.UniqueTrustlineAssets[asset.ID] = asset
-			}
-			maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
-			for id, contract := range buffer.GetSACContracts() {
-				if _, exists := batchChanges.SACContractsByID[id]; !exists {
-					batchChanges.SACContractsByID[id] = contract
-				}
-			}
-			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
-				return fmt.Errorf("inserting processed data into db: %w", err)
-			}
-			if err := m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
-			return nil
-		})
+		_, _, err := m.insertIntoDB(ctx, buffer, insertOpts{})
 		if err == nil {
-			return nil
+			break
 		}
 		lastErr = err
 
@@ -278,7 +269,17 @@ func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.I
 		case <-time.After(backoff):
 		}
 	}
-	return lastErr
+	if lastErr != nil {
+		return lastErr
+	}
+
+	// 3. Unlock channel accounts (separate small tx)
+	if err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		return m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions())
+	}); err != nil {
+		return fmt.Errorf("unlocking channel accounts: %w", err)
+	}
+	return nil
 }
 
 // processBatchChanges processes aggregated batch changes after all parallel batches complete.

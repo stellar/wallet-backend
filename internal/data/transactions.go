@@ -260,7 +260,6 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByToID map[int64]set.Set[string],
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil
@@ -300,46 +299,6 @@ func (m *TransactionModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
 	}
 
-	// COPY transactions_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByToID) > 0 {
-		// Build ToID -> LedgerCreatedAt lookup from transactions
-		ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
-		for _, tx := range txs {
-			ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
-		}
-
-		taRows := make([][]any, 0, len(stellarAddressesByToID)*2)
-		for toID, addresses := range stellarAddressesByToID {
-			ledgerCreatedAt := ledgerCreatedAtByToID[toID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				taRows = append(taRows, []any{
-					ledgerCreatedAtPgtype,
-					toIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"transactions_accounts"},
-			[]string{"ledger_created_at", "tx_to_id", "account_id"},
-			pgx.CopyFromRows(taRows),
-		)
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchCopy", "transactions_accounts")
-	}
-
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchCopy", "transactions", len(txs))
@@ -348,61 +307,8 @@ func (m *TransactionModel) BatchCopy(
 	return len(txs), nil
 }
 
-// CopyTransactions inserts only the transactions table rows using pgx binary COPY.
-// This is a subset of BatchCopy, split out so it can run in its own goroutine during backfill.
-func (m *TransactionModel) CopyTransactions(
-	ctx context.Context,
-	pgxTx pgx.Tx,
-	txs []*types.Transaction,
-) (int, error) {
-	if len(txs) == 0 {
-		return 0, nil
-	}
-
-	start := time.Now()
-
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at", "is_fee_bump"},
-		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
-			tx := txs[i]
-			hashBytes, err := tx.Hash.Value()
-			if err != nil {
-				return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
-			}
-			return []any{
-				hashBytes,
-				pgtype.Int8{Int64: tx.ToID, Valid: true},
-				pgtypeTextFromPtr(tx.EnvelopeXDR),
-				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
-				pgtype.Text{String: tx.ResultCode, Valid: true},
-				pgtypeTextFromPtr(tx.MetaXDR),
-				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
-				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
-				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
-			}, nil
-		}),
-	)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("CopyTransactions", "transactions", utils.GetDBErrorType(err))
-		return 0, fmt.Errorf("pgx CopyFrom transactions: %w", err)
-	}
-	if int(copyCount) != len(txs) {
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
-	}
-
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("CopyTransactions", "transactions", duration)
-	m.MetricsService.ObserveDBBatchSize("CopyTransactions", "transactions", len(txs))
-	m.MetricsService.IncDBQuery("CopyTransactions", "transactions")
-
-	return len(txs), nil
-}
-
-// CopyTransactionsAccounts inserts only the transactions_accounts rows using pgx binary COPY.
-// This is a subset of BatchCopy, split out so it can run in its own goroutine during backfill.
-func (m *TransactionModel) CopyTransactionsAccounts(
+// BatchCopyParticipants inserts only the transactions_accounts rows using pgx binary COPY.
+func (m *TransactionModel) BatchCopyParticipants(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
@@ -446,14 +352,14 @@ func (m *TransactionModel) CopyTransactionsAccounts(
 		pgx.CopyFromRows(taRows),
 	)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("CopyTransactionsAccounts", "transactions_accounts", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("BatchCopyParticipants", "transactions_accounts", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("CopyTransactionsAccounts", "transactions_accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("CopyTransactionsAccounts", "transactions_accounts", len(taRows))
-	m.MetricsService.IncDBQuery("CopyTransactionsAccounts", "transactions_accounts")
+	m.MetricsService.ObserveDBQueryDuration("BatchCopyParticipants", "transactions_accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopyParticipants", "transactions_accounts", len(taRows))
+	m.MetricsService.IncDBQuery("BatchCopyParticipants", "transactions_accounts")
 
 	return len(taRows), nil
 }

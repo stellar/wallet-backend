@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"runtime"
@@ -10,14 +11,18 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -221,62 +226,171 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	return nil
 }
 
+// setLocalBackfillOpts sets transaction-local options for backfill flushes:
+// - synchronous_commit=off: skip waiting for WAL flush (data is re-derivable from ledger)
+// - session_replication_role=replica: skip CHECK constraints and triggers (trusted ledger data)
+func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
+	if _, err := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return fmt.Errorf("setting synchronous_commit=off: %w", err)
+	}
+	if _, err := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
+		return fmt.Errorf("setting session_replication_role=replica: %w", err)
+	}
+	return nil
+}
+
+// isUniqueViolation returns true if the error is a PostgreSQL unique_violation (23505).
+// Used to make parallel COPY idempotent on retry: if a group was already committed
+// in a previous partial flush, the COPY will fail with a unique violation on the
+// duplicate rows, and we can safely skip it.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
+}
+
+// insertOpts configures behavior for insertIntoDB.
+type insertOpts struct {
+	backfillMode bool // sets synchronous_commit=off, session_replication_role=replica
+}
+
 // insertIntoDB persists the processed data from the buffer to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
+// Uses 5 independent goroutines (one per table) to maximize COPY throughput.
+// This is safe because there are no foreign keys between these tables.
+func (m *ingestService) insertIntoDB(ctx context.Context, buffer indexer.IndexerBufferInterface, opts insertOpts) (int, int, error) {
 	txs := buffer.GetTransactions()
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
 	stateChanges := buffer.GetStateChanges()
 
-	if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
-		return 0, 0, err
-	}
-	if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
-		return 0, 0, err
-	}
-	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
-		return 0, 0, err
-	}
-	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
-	return len(txs), len(ops), nil
-}
+	g, dbCtx := errgroup.WithContext(ctx)
 
-// insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]set.Set[string]) error {
-	if len(txs) == 0 {
+	// 1. transactions
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Transactions.BatchCopy(dbCtx, dbTx, txs)
+			if err != nil {
+				return fmt.Errorf("copying transactions: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying transactions tx: %w", err)
+		}
 		return nil
-	}
-	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByToID)
-	if err != nil {
-		return fmt.Errorf("batch inserting transactions: %w", err)
-	}
-	return nil
-}
+	})
 
-// insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
-	if len(ops) == 0 {
+	// 2. transactions_accounts
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Transactions.BatchCopyParticipants(dbCtx, dbTx, txs, txParticipants)
+			if err != nil {
+				return fmt.Errorf("copying transactions_accounts: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions_accounts: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying transactions_accounts tx: %w", err)
+		}
 		return nil
-	}
-	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
-	if err != nil {
-		return fmt.Errorf("batch inserting operations: %w", err)
-	}
-	return nil
-}
+	})
 
-// insertStateChanges batch inserts state changes and records metrics.
-func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) error {
-	if len(stateChanges) == 0 {
+	// 3. operations
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Operations.BatchCopy(dbCtx, dbTx, ops)
+			if err != nil {
+				return fmt.Errorf("copying operations: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying operations tx: %w", err)
+		}
 		return nil
-	}
-	_, err := m.models.StateChanges.BatchCopy(ctx, pgxTx, stateChanges)
-	if err != nil {
-		return fmt.Errorf("batch inserting state changes: %w", err)
+	})
+
+	// 4. operations_accounts
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Operations.BatchCopyParticipants(dbCtx, dbTx, ops, opParticipants)
+			if err != nil {
+				return fmt.Errorf("copying operations_accounts: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations_accounts: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying operations_accounts tx: %w", err)
+		}
+		return nil
+	})
+
+	// 5. state_changes
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, stateChanges)
+			if err != nil {
+				return fmt.Errorf("copying state_changes: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping state_changes: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying state_changes tx: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return 0, 0, fmt.Errorf("inserting data into db: %w", err)
 	}
 	m.recordStateChangeMetrics(stateChanges)
-	return nil
+	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
+	return len(txs), len(ops), nil
 }
 
 // recordStateChangeMetrics aggregates state changes by reason and category, then records metrics.

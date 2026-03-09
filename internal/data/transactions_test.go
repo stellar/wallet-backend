@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -22,9 +21,8 @@ import (
 
 // generateTestTransactions creates n test transactions for benchmarking.
 // Uses toid.New to generate realistic ToIDs based on ledger sequence and transaction index.
-func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, map[int64]set.Set[string]) {
+func generateTestTransactions(n int, startLedger int32) []*types.Transaction {
 	txs := make([]*types.Transaction, n)
-	addressesByToID := make(map[int64]set.Set[string])
 	now := time.Now()
 
 	for i := 0; i < n; i++ {
@@ -34,7 +32,6 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 		hash := fmt.Sprintf("e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0%08x", i)
 		envelope := "AAAAAgAAAAB/NpQ+s+cP+ztX7ryuKgXrxowZPHd4qAxhseOye/JeUgAehIAC2NL/AAflugAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAwAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAAAAAAQ3FwMxshxQAfwV8AAAAAYTGQ3QAAAAAAAAAMAAAAAAAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAGXwFksiHwAEXz8QAAAABhoaQjAAAAAAAAAAF78l5SAAAAQD7LgvZA8Pdvfh5L2b9B9RC7DlacGBJuOchuZDHQdVD1P0bn6nGQJXxDDI4oN76J49JxB7bIgDVim39MU43MOgE="
 		meta := "AAAAAwAAAAAAAAAEAAAAAwM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAQM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAwM6LTkAAAAAAAAAAKl6DQcpepRdTbO/Vw4hYBENfE/95GevM7SNA0ftK0gtAAAAA8Kuf0AC+zZCAAAATAAAAAMAAAABAAAAAMRxxkNwYslQaok0LlOKGtpATS9Bzx06JV9DIffG4OF1AAAAAAAAAAlsb2JzdHIuY28AAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAyZ54QAAAABmrTXCAAAAAAAAAAEDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAAAABAAAAAMDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAzqeHAAAAAAAAAAAqXoNByl6lF1Ns79XDiFgEQ18T/3kZ68ztI0DR+0rSC0AAAACmKiNQAL7NkIAAABNAAAAAwAAAAEAAAAAxHHGQ3BiyVBqiTQuU4oa2kBNL0HPHTolX0Mh98bg4XUAAAAAAAAACWxvYnN0ci5jbwAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAADOp4cAAAAAGchnR8AAAAAAAAAAwM6nZoAAAAAAAAAALKxMozkOH3rgpz3/u3+93wsR4p6z4K82HmJ5NTuaZbYAAACZaqAwoIBqycyAABVlQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAzqSNgAAAABnIVdaAAAAAAAAAAEDOp4cAAAAAAAAAACysTKM5Dh964Kc9/7t/vd8LEeKes+CvNh5ieTU7mmW2AAAAmbUhrSCAasnMgAAVZUAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6kjYAAAAAZyFXWgAAAAAAAAAAAAAAAA=="
-		address := keypair.MustRandom().Address()
 
 		txs[i] = &types.Transaction{
 			Hash:            types.HashBytea(hash),
@@ -47,10 +44,9 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 			LedgerCreatedAt: now,
 			IsFeeBump:       false,
 		}
-		addressesByToID[toID] = set.NewSet(address)
 	}
 
-	return txs, addressesByToID
+	return txs
 }
 
 func Test_TransactionModel_BatchCopy(t *testing.T) {
@@ -62,9 +58,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	now := time.Now()
-
-	kp1 := keypair.MustRandom()
-	kp2 := keypair.MustRandom()
 
 	meta1, meta2 := "meta1", "meta2"
 	envelope1, envelope2 := "envelope1", "envelope2"
@@ -104,35 +97,25 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name                   string
-		txs                    []*types.Transaction
-		stellarAddressesByToID map[int64]set.Set[string]
-		wantCount              int
-		wantErrContains        string
+		name            string
+		txs             []*types.Transaction
+		wantCount       int
+		wantErrContains string
 	}{
 		{
-			name:                   "🟢successful_insert_multiple",
-			txs:                    []*types.Transaction{&txCopy1, &txCopy2},
-			stellarAddressesByToID: map[int64]set.Set[string]{txCopy1.ToID: set.NewSet(kp1.Address()), txCopy2.ToID: set.NewSet(kp2.Address())},
-			wantCount:              2,
+			name:      "🟢successful_insert_multiple",
+			txs:       []*types.Transaction{&txCopy1, &txCopy2},
+			wantCount: 2,
 		},
 		{
-			name:                   "🟢empty_input",
-			txs:                    []*types.Transaction{},
-			stellarAddressesByToID: map[int64]set.Set[string]{},
-			wantCount:              0,
+			name:      "🟢empty_input",
+			txs:       []*types.Transaction{},
+			wantCount: 0,
 		},
 		{
-			name:                   "🟢nullable_fields",
-			txs:                    []*types.Transaction{&txCopy3},
-			stellarAddressesByToID: map[int64]set.Set[string]{txCopy3.ToID: set.NewSet(kp1.Address())},
-			wantCount:              1,
-		},
-		{
-			name:                   "🟢no_participants",
-			txs:                    []*types.Transaction{&txCopy1},
-			stellarAddressesByToID: map[int64]set.Set[string]{},
-			wantCount:              1,
+			name:      "🟢nullable_fields",
+			txs:       []*types.Transaction{&txCopy3},
+			wantCount: 1,
 		},
 	}
 
@@ -157,10 +140,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 					On("ObserveDBBatchSize", "BatchCopy", "transactions", mock.Anything).Return().Once()
 				mockMetricsService.
 					On("IncDBQuery", "BatchCopy", "transactions").Return().Once()
-				if len(tc.stellarAddressesByToID) > 0 {
-					mockMetricsService.
-						On("IncDBQuery", "BatchCopy", "transactions_accounts").Return().Once()
-				}
 			}
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -173,7 +152,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs, tc.stellarAddressesByToID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs)
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -190,28 +169,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			dbInsertedHashes, err := db.QueryMany[types.HashBytea](ctx, dbConnectionPool, "SELECT hash FROM transactions ORDER BY hash")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
-
-			// Verify account links if expected
-			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
-				type txAccountLink struct {
-					TxToID    int64              `db:"tx_to_id"`
-					AccountID types.AddressBytea `db:"account_id"`
-				}
-				accountLinks, err := db.QueryMany[txAccountLink](ctx, dbConnectionPool, "SELECT tx_to_id, account_id FROM transactions_accounts ORDER BY tx_to_id, account_id")
-				require.NoError(t, err)
-
-				// Create a map of tx_to_id -> set of account_ids
-				accountLinksMap := make(map[int64][]string)
-				for _, link := range accountLinks {
-					accountLinksMap[link.TxToID] = append(accountLinksMap[link.TxToID], string(link.AccountID))
-				}
-
-				// Verify each expected transaction has its account links
-				for toID, expectedAddresses := range tc.stellarAddressesByToID {
-					actualAddresses := accountLinksMap[toID]
-					assert.ElementsMatch(t, expectedAddresses.ToSlice(), actualAddresses, "account links for tx %d don't match", toID)
-				}
-			}
 		})
 	}
 }
@@ -525,7 +482,7 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				txs, addressesByToID := generateTestTransactions(size, int32(i*size))
+				txs := generateTestTransactions(size, int32(i*size))
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)
@@ -534,7 +491,7 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, txs, addressesByToID)
+				_, err = m.BatchCopy(ctx, pgxTx, txs)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)

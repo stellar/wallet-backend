@@ -2,16 +2,12 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -330,7 +326,7 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 		default:
 		}
 
-		err := m.insertIntoDBParallel(ctx, buffer)
+		_, _, err := m.insertIntoDB(ctx, buffer, insertOpts{backfillMode: true})
 		if err == nil {
 			return nil
 		}
@@ -421,143 +417,6 @@ func (m *ingestService) processLedgersInBatchHistorical(ctx context.Context, bac
 		batch.StartLedger, batch.EndLedger, fetchDuration, processDuration, flushDuration)
 
 	return result
-}
-
-// setLocalBackfillOpts sets transaction-local options for backfill flushes:
-// - synchronous_commit=off: skip waiting for WAL flush (data is re-derivable from ledger)
-// - session_replication_role=replica: skip CHECK constraints and triggers (trusted ledger data)
-func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
-	if _, err := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
-		return fmt.Errorf("setting synchronous_commit=off: %w", err)
-	}
-	if _, err := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
-		return fmt.Errorf("setting session_replication_role=replica: %w", err)
-	}
-	return nil
-}
-
-// isUniqueViolation returns true if the error is a PostgreSQL unique_violation (23505).
-// Used to make parallel COPY idempotent on retry: if a group was already committed
-// in a previous partial flush, the COPY will fail with a unique violation on the
-// duplicate rows, and we can safely skip it.
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
-}
-
-// insertIntoDBParallel persists the processed data from the buffer to the database.
-// Uses 5 independent goroutines (one per table) to maximize COPY throughput.
-// This is safe because there are no foreign keys between these tables.
-func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer.IndexerBufferInterface) error {
-	txs := buffer.GetTransactions()
-	txParticipants := buffer.GetTransactionsParticipants()
-	ops := buffer.GetOperations()
-	opParticipants := buffer.GetOperationsParticipants()
-	stateChanges := buffer.GetStateChanges()
-
-	g, dbCtx := errgroup.WithContext(ctx)
-
-	// 1. transactions
-	g.Go(func() error {
-		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
-				return err
-			}
-			_, err := m.models.Transactions.CopyTransactions(dbCtx, dbTx, txs)
-			if err != nil {
-				return fmt.Errorf("copying transactions: %w", err)
-			}
-			return nil
-		})
-		if isUniqueViolation(err) {
-			log.Ctx(ctx).Infof("Skipping transactions: data already committed (unique violation)")
-			return nil
-		}
-		return err
-	})
-
-	// 2. transactions_accounts
-	g.Go(func() error {
-		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
-				return err
-			}
-			_, err := m.models.Transactions.CopyTransactionsAccounts(dbCtx, dbTx, txs, txParticipants)
-			if err != nil {
-				return fmt.Errorf("copying transactions_accounts: %w", err)
-			}
-			return nil
-		})
-		if isUniqueViolation(err) {
-			log.Ctx(ctx).Infof("Skipping transactions_accounts: data already committed (unique violation)")
-			return nil
-		}
-		return err
-	})
-
-	// 3. operations
-	g.Go(func() error {
-		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
-				return err
-			}
-			_, err := m.models.Operations.CopyOperations(dbCtx, dbTx, ops)
-			if err != nil {
-				return fmt.Errorf("copying operations: %w", err)
-			}
-			return nil
-		})
-		if isUniqueViolation(err) {
-			log.Ctx(ctx).Infof("Skipping operations: data already committed (unique violation)")
-			return nil
-		}
-		return err
-	})
-
-	// 4. operations_accounts
-	g.Go(func() error {
-		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
-				return err
-			}
-			_, err := m.models.Operations.CopyOperationsAccounts(dbCtx, dbTx, ops, opParticipants)
-			if err != nil {
-				return fmt.Errorf("copying operations_accounts: %w", err)
-			}
-			return nil
-		})
-		if isUniqueViolation(err) {
-			log.Ctx(ctx).Infof("Skipping operations_accounts: data already committed (unique violation)")
-			return nil
-		}
-		return err
-	})
-
-	// 5. state_changes
-	g.Go(func() error {
-		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
-			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
-				return err
-			}
-			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, stateChanges)
-			if err != nil {
-				return fmt.Errorf("copying state_changes: %w", err)
-			}
-			return nil
-		})
-		if isUniqueViolation(err) {
-			log.Ctx(ctx).Infof("Skipping state_changes: data already committed (unique violation)")
-			return nil
-		}
-		return err
-	})
-
-	err := g.Wait()
-	if err != nil {
-		return fmt.Errorf("inserting data into db: %w", err)
-	}
-	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
-	return nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
