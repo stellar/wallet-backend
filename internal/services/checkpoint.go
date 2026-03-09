@@ -134,6 +134,12 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 				if txErr := tokenProcessor.ProcessEntry(ctx, change); txErr != nil {
 					return fmt.Errorf("token processor processing entry: %w", txErr)
 				}
+				// ContractData entries also go to WASM service for protocol contract tracking
+				if change.Type == xdr.LedgerEntryTypeContractData {
+					if txErr := s.wasmIngestionService.ProcessContractData(ctx, change); txErr != nil {
+						return fmt.Errorf("wasm service processing contract data: %w", txErr)
+					}
+				}
 			}
 
 			// Flush token batches periodically
@@ -155,6 +161,11 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		// Post-processing: persist protocol WASMs
 		if txErr := s.wasmIngestionService.PersistProtocolWasms(ctx, dbTx); txErr != nil {
 			return fmt.Errorf("persisting protocol wasms: %w", txErr)
+		}
+
+		// Post-processing: persist protocol contracts (must come after WASMs due to FK)
+		if txErr := s.wasmIngestionService.PersistProtocolContracts(ctx, dbTx); txErr != nil {
+			return fmt.Errorf("persisting protocol contracts: %w", txErr)
 		}
 
 		// Initialize cursors within the same transaction

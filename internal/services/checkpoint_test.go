@@ -142,8 +142,9 @@ func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) 
 	f.tokenProcessor.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	f.tokenProcessor.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 
-	// WASM persistence
+	// WASM and contract persistence
 	f.wasmIngestion.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Contract validator cleanup
 	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
@@ -180,6 +181,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 	f.tokenProcessor.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	f.tokenProcessor.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 	f.wasmIngestion.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
 	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
@@ -209,12 +211,47 @@ func TestCheckpointService_PopulateFromCheckpoint_NonContractCodeEntry(t *testin
 	f.tokenProcessor.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	f.tokenProcessor.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 	f.wasmIngestion.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
 	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
 
 	// WasmIngestionService.ProcessContractCode should NOT have been called
+	f.wasmIngestion.AssertNotCalled(t, "ProcessContractCode", mock.Anything, mock.Anything)
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	contractHash := [32]byte{10, 20, 30}
+	wasmHash := xdr.Hash{40, 50, 60}
+	contractDataChange := makeContractInstanceChange(contractHash, wasmHash)
+
+	// Reader returns one ContractData then EOF
+	f.reader.On("Read").Return(contractDataChange, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.tokenIngestion.On("NewTokenProcessor", mock.Anything, uint32(100), f.contractValidator).Return(f.tokenProcessor).Once()
+
+	// Token processor ProcessEntry for the ContractData entry
+	f.tokenProcessor.On("ProcessEntry", mock.Anything, contractDataChange).Return(nil).Once()
+	// WASM service ProcessContractData for the ContractData entry
+	f.wasmIngestion.On("ProcessContractData", mock.Anything, contractDataChange).Return(nil).Once()
+	f.tokenProcessor.On("FlushBatchIfNeeded", mock.Anything).Return(nil).Once()
+
+	// Finalization
+	f.tokenProcessor.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
+	f.tokenProcessor.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
+	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+
+	// ProcessContractCode should NOT have been called (this is ContractData, not ContractCode)
 	f.wasmIngestion.AssertNotCalled(t, "ProcessContractCode", mock.Anything, mock.Anything)
 }
 
@@ -256,6 +293,7 @@ func TestCheckpointService_PopulateFromCheckpoint_MixedEntries(t *testing.T) {
 	f.tokenProcessor.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 	f.tokenProcessor.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 	f.wasmIngestion.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+	f.wasmIngestion.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
 	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
@@ -362,6 +400,37 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			expectedErrMsg: "persisting protocol wasms",
 		},
 		{
+			name: "persist_contracts_error",
+			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
+				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+				reader.On("Close").Return(nil).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
+				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
+				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
+				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+				wis.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(errors.New("persist contracts error")).Once()
+				cv.On("Close", mock.Anything).Return(nil).Once()
+				return func(_ pgx.Tx) error { return nil }
+			},
+			expectedErrMsg: "persisting protocol contracts",
+		},
+		{
+			name: "wasm_process_contract_data_error",
+			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
+				contractHash := [32]byte{10, 20, 30}
+				wasmHash := xdr.Hash{40, 50, 60}
+				change := makeContractInstanceChange(contractHash, wasmHash)
+				reader.On("Read").Return(change, nil).Once()
+				reader.On("Close").Return(nil).Once()
+				tis.On("NewTokenProcessor", mock.Anything, uint32(100), cv).Return(tp).Once()
+				tp.On("ProcessEntry", mock.Anything, mock.Anything).Return(nil).Once()
+				wis.On("ProcessContractData", mock.Anything, mock.Anything).Return(errors.New("contract data error")).Once()
+				cv.On("Close", mock.Anything).Return(nil).Once()
+				return func(_ pgx.Tx) error { return nil }
+			},
+			expectedErrMsg: "wasm service processing contract data",
+		},
+		{
 			name: "initialize_cursors_error",
 			setupMocks: func(reader *ChangeReaderMock, tis *TokenIngestionServiceMock, tp *TokenProcessorMock, wis *WasmIngestionServiceMock, cv *ContractValidatorMock) func(pgx.Tx) error {
 				reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
@@ -370,6 +439,7 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 				tp.On("FlushRemainingBatch", mock.Anything).Return(nil).Once()
 				tp.On("Finalize", mock.Anything, mock.Anything).Return(nil).Once()
 				wis.On("PersistProtocolWasms", mock.Anything, mock.Anything).Return(nil).Once()
+				wis.On("PersistProtocolContracts", mock.Anything, mock.Anything).Return(nil).Once()
 				cv.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return errors.New("cursor init failed") }
 			},

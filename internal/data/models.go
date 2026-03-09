@@ -17,6 +17,7 @@ type Models struct {
 	SACBalance            SACBalanceModelInterface
 	AccountContractTokens AccountContractTokensModelInterface
 	ProtocolWasm          ProtocolWasmModelInterface
+	ProtocolContract      ProtocolContractModelInterface
 	IngestStore           *IngestStoreModel
 	Operations            *OperationModel
 	Transactions          *TransactionModel
@@ -38,6 +39,7 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 		SACBalance:            &SACBalanceModel{DB: db, MetricsService: metricsService},
 		AccountContractTokens: &AccountContractTokensModel{DB: db, MetricsService: metricsService},
 		ProtocolWasm:          &ProtocolWasmModel{DB: db, MetricsService: metricsService},
+		ProtocolContract:      &ProtocolContractModel{DB: db, MetricsService: metricsService},
 		IngestStore:           &IngestStoreModel{DB: db, MetricsService: metricsService},
 		Operations:            &OperationModel{DB: db, MetricsService: metricsService},
 		Transactions:          &TransactionModel{DB: db, MetricsService: metricsService},
