@@ -118,13 +118,18 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		"operations_accounts", "state_changes",
 	}
 
-	// Pre-create chunks and drop their indexes for faster bulk inserts.
+	// Fetch boundary timestamps for chunk pre-creation and recompression scoping.
+	// boundaryStart is the chunk-boundary-aligned start timestamp used by the recompressor
+	// to scope chunk queries to the backfill range.
+	var boundaryStart time.Time
 	if m.chunkInterval != "" {
 		rangeStart := gaps[0].GapStart
 		rangeEnd := gaps[len(gaps)-1].GapEnd
-		boundaryStart, boundaryEnd, err := m.fetchBoundaryTimestamps(ctx, rangeStart, rangeEnd)
-		if err != nil {
-			return fmt.Errorf("fetching boundary timestamps: %w", err)
+		var boundaryEnd time.Time
+		var err2 error
+		boundaryStart, boundaryEnd, err2 = m.fetchBoundaryTimestamps(ctx, rangeStart, rangeEnd)
+		if err2 != nil {
+			return fmt.Errorf("fetching boundary timestamps: %w", err2)
 		}
 		if err := db.PreCreateChunks(ctx, m.models.DB, tables, m.chunkInterval, boundaryStart, boundaryEnd); err != nil {
 			return fmt.Errorf("pre-creating chunks: %w", err)
@@ -138,7 +143,8 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 
 	// Create progressive recompressor.
 	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
-	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
+	// boundaryStart scopes chunk queries to the backfill range (zero time if no pre-creation).
+	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches), boundaryStart)
 
 	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches, m.processLedgersInBatchHistorical, func(batchIdx int, result BackfillResult) {

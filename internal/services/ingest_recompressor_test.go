@@ -11,11 +11,12 @@ import (
 
 // newTestRecompressor creates a progressiveRecompressor for testing watermark logic.
 // No background goroutine is started; triggerCh is buffered for direct inspection.
-func newTestRecompressor(totalBatches int) *progressiveRecompressor {
+func newTestRecompressor(totalBatches int, globalStart time.Time) *progressiveRecompressor {
 	return &progressiveRecompressor{
 		completed:    make([]bool, totalBatches),
 		endTimes:     make([]time.Time, totalBatches),
 		watermarkIdx: -1,
+		globalStart:  globalStart,
 		triggerCh:    make(chan time.Time, totalBatches),
 	}
 }
@@ -34,8 +35,8 @@ func drainWindows(r *progressiveRecompressor) []time.Time {
 }
 
 func Test_progressiveRecompressor_MarkDone_sequential(t *testing.T) {
-	r := newTestRecompressor(5)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(5, base)
 
 	// Complete batches 0-4 in order
 	for i := 0; i < 5; i++ {
@@ -57,13 +58,13 @@ func Test_progressiveRecompressor_MarkDone_sequential(t *testing.T) {
 	// Last window: safeEnd = batch 4 endTime
 	assert.Equal(t, base.Add(5*time.Hour), windows[4])
 
-	// Verify globalStart set from batch 0
+	// globalStart is set at construction
 	assert.Equal(t, base, r.globalStart)
 }
 
 func Test_progressiveRecompressor_MarkDone_outOfOrder(t *testing.T) {
-	r := newTestRecompressor(5)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(5, base)
 	endTime := func(i int) time.Time { return base.Add(time.Duration(i+1) * time.Hour) }
 	startTime := func(i int) time.Time { return base.Add(time.Duration(i) * time.Hour) }
 
@@ -101,8 +102,8 @@ func Test_progressiveRecompressor_MarkDone_outOfOrder(t *testing.T) {
 }
 
 func Test_progressiveRecompressor_MarkDone_failedBatchBlocksWatermark(t *testing.T) {
-	r := newTestRecompressor(5)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(5, base)
 	endTime := func(i int) time.Time { return base.Add(time.Duration(i+1) * time.Hour) }
 	startTime := func(i int) time.Time { return base.Add(time.Duration(i) * time.Hour) }
 
@@ -124,9 +125,9 @@ func Test_progressiveRecompressor_MarkDone_failedBatchBlocksWatermark(t *testing
 }
 
 func Test_progressiveRecompressor_MarkDone_singleBatch(t *testing.T) {
-	r := newTestRecompressor(1)
 	start := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 6, 1, 1, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(1, start)
 
 	r.MarkDone(0, start, end)
 
@@ -137,26 +138,27 @@ func Test_progressiveRecompressor_MarkDone_singleBatch(t *testing.T) {
 	assert.Equal(t, start, r.globalStart)
 }
 
-func Test_progressiveRecompressor_MarkDone_globalStartSetFromBatchZero(t *testing.T) {
-	r := newTestRecompressor(3)
+func Test_progressiveRecompressor_globalStartSetAtConstruction(t *testing.T) {
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(3, base)
 
-	// Complete batch 1 first — globalStart should NOT be set
+	// globalStart is set at construction, not derived from batches
+	assert.Equal(t, base, r.globalStart)
+
+	// Completing batches doesn't change globalStart
 	r.MarkDone(1, base.Add(1*time.Hour), base.Add(2*time.Hour))
-	assert.True(t, r.globalStart.IsZero())
+	assert.Equal(t, base, r.globalStart)
 
-	// Complete batch 0 — globalStart should be set to batch 0's startTime
 	r.MarkDone(0, base, base.Add(1*time.Hour))
 	assert.Equal(t, base, r.globalStart)
 
-	// Complete batch 2 — globalStart unchanged
 	r.MarkDone(2, base.Add(2*time.Hour), base.Add(3*time.Hour))
 	assert.Equal(t, base, r.globalStart)
 }
 
 func Test_progressiveRecompressor_MarkDone_allSimultaneous(t *testing.T) {
-	r := newTestRecompressor(4)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(4, base)
 	endTime := func(i int) time.Time { return base.Add(time.Duration(i+1) * time.Hour) }
 	startTime := func(i int) time.Time { return base.Add(time.Duration(i) * time.Hour) }
 
@@ -176,8 +178,8 @@ func Test_progressiveRecompressor_MarkDone_allSimultaneous(t *testing.T) {
 }
 
 func Test_progressiveRecompressor_MarkDone_globalEndTracked(t *testing.T) {
-	r := newTestRecompressor(4)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := newTestRecompressor(4, base)
 
 	// globalEnd starts as zero
 	assert.True(t, r.globalEnd.IsZero())

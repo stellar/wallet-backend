@@ -20,7 +20,7 @@ type progressiveRecompressor struct {
 	completed    []bool
 	endTimes     []time.Time
 	watermarkIdx int       // index of highest contiguous completed batch (-1 = none)
-	globalStart  time.Time // lower bound for chunk queries (batch 0's StartTime)
+	globalStart  time.Time // lower bound for chunk queries (chunk-boundary-aligned start)
 	globalEnd    time.Time // upper bound for verification (max EndTime across completed batches)
 
 	triggerCh chan time.Time // safeEnd for recompression window
@@ -29,7 +29,8 @@ type progressiveRecompressor struct {
 
 // newProgressiveRecompressor creates a compressor that progressively compresses uncompressed chunks
 // as contiguous batches complete. Starts a background goroutine for compression work.
-func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables []string, totalBatches int) *progressiveRecompressor {
+// globalStart is the chunk-boundary-aligned start timestamp for scoping chunk queries.
+func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables []string, totalBatches int, globalStart time.Time) *progressiveRecompressor {
 	r := &progressiveRecompressor{
 		pool:         pool,
 		tables:       tables,
@@ -37,6 +38,7 @@ func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables 
 		completed:    make([]bool, totalBatches),
 		endTimes:     make([]time.Time, totalBatches),
 		watermarkIdx: -1,
+		globalStart:  globalStart,
 		triggerCh:    make(chan time.Time, totalBatches),
 		done:         make(chan struct{}),
 	}
@@ -52,11 +54,6 @@ func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time
 
 	r.completed[batchIdx] = true
 	r.endTimes[batchIdx] = endTime
-
-	// Record global start from batch 0 (earliest time boundary for queries)
-	if batchIdx == 0 {
-		r.globalStart = startTime
-	}
 
 	// Track the maximum EndTime across all completed batches for verification scope
 	if endTime.After(r.globalEnd) {
@@ -98,16 +95,16 @@ func (r *progressiveRecompressor) runCompression() {
 }
 
 // compressTableChunks compresses uncompressed chunks for a single table within the safe window.
-// Queries chunks where range_end falls within (globalStart, safeEnd) to catch the leading
-// boundary chunk that overlaps globalStart.
+// Queries chunks where range_start >= globalStart and range_end <= safeEnd, scoping to chunks
+// that fall entirely within the backfill range.
 func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time.Time) int {
 	rows, err := r.pool.Query(r.ctx,
 		`SELECT c.chunk_schema || '.' || c.chunk_name
 		 FROM timescaledb_information.chunks c
 		 WHERE c.hypertable_name = $1
 		   AND NOT c.is_compressed
-		   AND c.range_end < $2::timestamptz
-		   AND c.range_end > $3::timestamptz`,
+		   AND c.range_end <= $2::timestamptz
+		   AND c.range_start >= $3::timestamptz`,
 		table, safeEnd, r.globalStart)
 	if err != nil {
 		log.Ctx(r.ctx).Warnf("Failed to get chunks for %s: %v", table, err)
