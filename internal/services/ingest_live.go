@@ -51,6 +51,28 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 		}
 
+		// 2.5: Persist protocol wasms and contracts
+		protocolWasms := buffer.GetProtocolWasms()
+		if len(protocolWasms) > 0 {
+			wasmSlice := make([]data.ProtocolWasm, 0, len(protocolWasms))
+			for _, wasm := range protocolWasms {
+				wasmSlice = append(wasmSlice, wasm)
+			}
+			if txErr = m.models.ProtocolWasm.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
+		protocolContracts := buffer.GetProtocolContracts()
+		if len(protocolContracts) > 0 {
+			contractSlice := make([]data.ProtocolContract, 0, len(protocolContracts))
+			for _, contract := range protocolContracts {
+				contractSlice = append(contractSlice, contract)
+			}
+			if txErr = m.models.ProtocolContract.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
+
 		// 3. Insert transactions/operations/state_changes
 		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
 		if txErr != nil {

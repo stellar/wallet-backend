@@ -106,6 +106,34 @@ func (m *MockSACInstancesProcessor) Name() string {
 	return args.String(0)
 }
 
+type MockProtocolWasmsProcessor struct {
+	mock.Mock
+}
+
+func (m *MockProtocolWasmsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]data.ProtocolWasm, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]data.ProtocolWasm), args.Error(1)
+}
+
+func (m *MockProtocolWasmsProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+type MockProtocolContractsProcessor struct {
+	mock.Mock
+}
+
+func (m *MockProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]data.ProtocolContract, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]data.ProtocolContract), args.Error(1)
+}
+
+func (m *MockProtocolContractsProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 var (
 	_ ParticipantsProcessorInterface                = &MockParticipantsProcessor{}
 	_ TokenTransferProcessorInterface               = &MockTokenTransferProcessor{}
@@ -114,4 +142,6 @@ var (
 	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
 	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
 	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolWasm]      = &MockProtocolWasmsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolContract]  = &MockProtocolContractsProcessor{}
 )

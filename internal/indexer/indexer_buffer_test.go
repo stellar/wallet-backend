@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -850,5 +851,96 @@ func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
 		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
 		assert.Equal(t, "200", changes[key].Balance)
 		assert.Equal(t, int64(100), changes[key].OperationID)
+	})
+}
+
+func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
+	t.Run("push and get protocol wasms with dedup", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		wasm1 := data.ProtocolWasm{WasmHash: "hash1"}
+		wasm2 := data.ProtocolWasm{WasmHash: "hash2"}
+		wasm1Dup := data.ProtocolWasm{WasmHash: "hash1"} // duplicate
+
+		buffer.PushProtocolWasm(wasm1)
+		buffer.PushProtocolWasm(wasm2)
+		buffer.PushProtocolWasm(wasm1Dup)
+
+		wasms := buffer.GetProtocolWasms()
+		assert.Len(t, wasms, 2)
+		assert.Equal(t, wasm1, wasms["hash1"])
+		assert.Equal(t, wasm2, wasms["hash2"])
+	})
+
+	t.Run("merge protocol wasms first-write-wins", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		buffer1.PushProtocolWasm(data.ProtocolWasm{WasmHash: "hash1"})
+		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "hash1"}) // duplicate across buffers
+		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "hash2"})
+
+		buffer1.Merge(buffer2)
+
+		wasms := buffer1.GetProtocolWasms()
+		assert.Len(t, wasms, 2)
+		assert.Contains(t, wasms, "hash1")
+		assert.Contains(t, wasms, "hash2")
+	})
+
+	t.Run("clear protocol wasms", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushProtocolWasm(data.ProtocolWasm{WasmHash: "hash1"})
+
+		buffer.Clear()
+
+		wasms := buffer.GetProtocolWasms()
+		assert.Len(t, wasms, 0)
+	})
+}
+
+func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
+	t.Run("push and get protocol contracts with dedup", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		c1 := data.ProtocolContract{ContractID: "contract1", WasmHash: "hash1"}
+		c2 := data.ProtocolContract{ContractID: "contract2", WasmHash: "hash2"}
+		c1Dup := data.ProtocolContract{ContractID: "contract1", WasmHash: "hash1"} // duplicate
+
+		buffer.PushProtocolContract(c1)
+		buffer.PushProtocolContract(c2)
+		buffer.PushProtocolContract(c1Dup)
+
+		contracts := buffer.GetProtocolContracts()
+		assert.Len(t, contracts, 2)
+		assert.Equal(t, c1, contracts["contract1"])
+		assert.Equal(t, c2, contracts["contract2"])
+	})
+
+	t.Run("merge protocol contracts first-write-wins", func(t *testing.T) {
+		buffer1 := NewIndexerBuffer()
+		buffer2 := NewIndexerBuffer()
+
+		buffer1.PushProtocolContract(data.ProtocolContract{ContractID: "contract1", WasmHash: "hash1"})
+		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: "contract1", WasmHash: "hash_different"}) // duplicate
+		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: "contract2", WasmHash: "hash2"})
+
+		buffer1.Merge(buffer2)
+
+		contracts := buffer1.GetProtocolContracts()
+		assert.Len(t, contracts, 2)
+		// First-write-wins: buffer1's value should be kept
+		assert.Equal(t, "hash1", contracts["contract1"].WasmHash)
+		assert.Equal(t, "hash2", contracts["contract2"].WasmHash)
+	})
+
+	t.Run("clear protocol contracts", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushProtocolContract(data.ProtocolContract{ContractID: "contract1", WasmHash: "hash1"})
+
+		buffer.Clear()
+
+		contracts := buffer.GetProtocolContracts()
+		assert.Len(t, contracts, 0)
 	})
 }
