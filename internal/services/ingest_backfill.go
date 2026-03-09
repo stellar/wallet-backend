@@ -165,11 +165,10 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 // calculateBackfillGaps determines which ledger ranges need to be backfilled based on
 // the requested range, oldest ingested ledger, and any existing gaps in the data.
 func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, endLedger uint32) ([]data.LedgerRange, error) {
-	// oldestIngestedLedger, err := m.models.IngestStore.GetOldestLedger(ctx)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
-	// }
-	oldestIngestedLedger := uint32(61531955)
+	oldestIngestedLedger, err := m.models.IngestStore.GetOldestLedger(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
+	}
 
 	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
 	if err != nil {
