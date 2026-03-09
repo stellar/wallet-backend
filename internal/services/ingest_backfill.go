@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"golang.org/x/sync/errgroup"
@@ -433,6 +436,15 @@ func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
+// isUniqueViolation returns true if the error is a PostgreSQL unique_violation (23505).
+// Used to make parallel COPY idempotent on retry: if a group was already committed
+// in a previous partial flush, the COPY will fail with a unique violation on the
+// duplicate rows, and we can safely skip it.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
+}
+
 // insertIntoDBParallel persists the processed data from the buffer to the database.
 // Uses 5 independent goroutines (one per table) to maximize COPY throughput.
 // This is safe because there are no foreign keys between these tables.
@@ -447,7 +459,7 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 
 	// 1. transactions
 	g.Go(func() error {
-		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
 			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
 				return err
 			}
@@ -457,11 +469,16 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 			}
 			return nil
 		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions: data already committed (unique violation)")
+			return nil
+		}
+		return err
 	})
 
 	// 2. transactions_accounts
 	g.Go(func() error {
-		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
 			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
 				return err
 			}
@@ -471,11 +488,16 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 			}
 			return nil
 		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions_accounts: data already committed (unique violation)")
+			return nil
+		}
+		return err
 	})
 
 	// 3. operations
 	g.Go(func() error {
-		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
 			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
 				return err
 			}
@@ -485,11 +507,16 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 			}
 			return nil
 		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations: data already committed (unique violation)")
+			return nil
+		}
+		return err
 	})
 
 	// 4. operations_accounts
 	g.Go(func() error {
-		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
 			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
 				return err
 			}
@@ -499,11 +526,16 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 			}
 			return nil
 		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations_accounts: data already committed (unique violation)")
+			return nil
+		}
+		return err
 	})
 
 	// 5. state_changes
 	g.Go(func() error {
-		return db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
 			if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
 				return err
 			}
@@ -513,6 +545,11 @@ func (m *ingestService) insertIntoDBParallel(ctx context.Context, buffer indexer
 			}
 			return nil
 		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping state_changes: data already committed (unique violation)")
+			return nil
+		}
+		return err
 	})
 
 	err := g.Wait()
