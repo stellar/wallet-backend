@@ -103,19 +103,28 @@ func (s *wasmIngestionService) PersistProtocolWasms(ctx context.Context, dbTx pg
 }
 
 // PersistProtocolContracts writes all accumulated contract-to-WASM mappings to the protocol_contracts table.
+// Contracts referencing WASM hashes not present in wasmHashes are skipped (e.g., expired/evicted WASMs).
 func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbTx pgx.Tx) error {
 	if len(s.contractIDsByWasmHash) == 0 {
 		return nil
 	}
 
 	var contracts []data.ProtocolContract
+	var skipped int
 	for hash, contractIDs := range s.contractIDsByWasmHash {
+		if _, exists := s.wasmHashes[hash]; !exists {
+			skipped += len(contractIDs)
+			continue
+		}
 		for _, contractID := range contractIDs {
 			contracts = append(contracts, data.ProtocolContract{
 				ContractID: contractID,
 				WasmHash:   hash.HexString(),
 			})
 		}
+	}
+	if skipped > 0 {
+		log.Ctx(ctx).Infof("Skipped %d protocol contracts referencing missing WASM hashes (expired/evicted)", skipped)
 	}
 
 	if err := s.protocolContractModel.BatchInsert(ctx, dbTx, contracts); err != nil {
