@@ -52,4 +52,5 @@ func SetupCLI(cfg RootConfig) {
 	rootCmd.AddCommand((&channelAccountCmd{}).Command(&ChAccCmdService{}))
 	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
 	rootCmd.AddCommand((&loadtestCmd{}).Command())
+	rootCmd.AddCommand((&protocolSetupCmd{}).Command())
 }
