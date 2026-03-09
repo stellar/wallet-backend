@@ -297,6 +297,7 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 		wasmHash := xdr.Hash{40, 50, 60}
 		change := makeContractInstanceChange(contractHash, wasmHash)
 
+		require.NoError(t, svc.ProcessContractCode(ctx, wasmHash))
 		require.NoError(t, svc.ProcessContractData(ctx, change))
 
 		expectedAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
@@ -327,6 +328,10 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 		contractHash2 := [32]byte{20}
 		contractHash3 := [32]byte{30}
 
+		// Register WASM hashes first
+		require.NoError(t, svc.ProcessContractCode(ctx, wasmHash1))
+		require.NoError(t, svc.ProcessContractCode(ctx, wasmHash2))
+
 		// Two contracts with wasmHash1, one with wasmHash2
 		require.NoError(t, svc.ProcessContractData(ctx, makeContractInstanceChange(contractHash1, wasmHash1)))
 		require.NoError(t, svc.ProcessContractData(ctx, makeContractInstanceChange(contractHash2, wasmHash1)))
@@ -342,6 +347,33 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("contracts_with_missing_wasm_skipped", func(t *testing.T) {
+		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolContractModelMock := data.NewProtocolContractModelMock(t)
+		svc := NewWasmIngestionService(protocolWasmModelMock, protocolContractModelMock)
+
+		knownWasm := xdr.Hash{1}
+		unknownWasm := xdr.Hash{2}
+		contractHash1 := [32]byte{10}
+		contractHash2 := [32]byte{20}
+
+		// Only register one WASM hash
+		require.NoError(t, svc.ProcessContractCode(ctx, knownWasm))
+
+		// Add contracts — one with known WASM, one with unknown
+		require.NoError(t, svc.ProcessContractData(ctx, makeContractInstanceChange(contractHash1, knownWasm)))
+		require.NoError(t, svc.ProcessContractData(ctx, makeContractInstanceChange(contractHash2, unknownWasm)))
+
+		protocolContractModelMock.On("BatchInsert", mock.Anything, mock.Anything,
+			mock.MatchedBy(func(contracts []data.ProtocolContract) bool {
+				return len(contracts) == 1 && contracts[0].WasmHash == knownWasm.HexString()
+			}),
+		).Return(nil).Once()
+
+		err := svc.PersistProtocolContracts(ctx, nil)
+		require.NoError(t, err)
+	})
+
 	t.Run("batch_insert_error_propagated", func(t *testing.T) {
 		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
 		protocolContractModelMock := data.NewProtocolContractModelMock(t)
@@ -349,6 +381,7 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 
 		contractHash := [32]byte{10}
 		wasmHash := xdr.Hash{1}
+		require.NoError(t, svc.ProcessContractCode(ctx, wasmHash))
 		require.NoError(t, svc.ProcessContractData(ctx, makeContractInstanceChange(contractHash, wasmHash)))
 
 		insertErr := errors.New("db connection lost")

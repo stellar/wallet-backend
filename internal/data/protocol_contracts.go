@@ -56,7 +56,10 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 
 	const query = `
 		INSERT INTO protocol_contracts (contract_id, wasm_hash, protocol_id, name)
-		SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[])
+		SELECT u.contract_id, u.wasm_hash, u.protocol_id, u.name
+		FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[])
+			AS u(contract_id, wasm_hash, protocol_id, name)
+		WHERE EXISTS (SELECT 1 FROM protocol_wasms pw WHERE pw.wasm_hash = u.wasm_hash)
 		ON CONFLICT (contract_id) DO NOTHING
 	`
 
