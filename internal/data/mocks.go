@@ -247,6 +247,58 @@ func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wa
 	return args.Error(0)
 }
 
+func (m *ProtocolWasmModelMock) GetUnclassified(ctx context.Context) ([]ProtocolWasm, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ProtocolWasm), args.Error(1)
+}
+
+func (m *ProtocolWasmModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []string, protocolID string) error {
+	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
+	return args.Error(0)
+}
+
+// ProtocolModelMock is a mock implementation of ProtocolModelInterface.
+type ProtocolModelMock struct {
+	mock.Mock
+}
+
+var _ ProtocolModelInterface = (*ProtocolModelMock)(nil)
+
+// NewProtocolModelMock creates a new instance of ProtocolModelMock.
+func NewProtocolModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolModelMock {
+	mockModel := &ProtocolModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *ProtocolModelMock) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+	args := m.Called(ctx, dbTx, protocolIDs, status)
+	return args.Error(0)
+}
+
+func (m *ProtocolModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocol, error) {
+	args := m.Called(ctx, protocolIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]Protocol), args.Error(1)
+}
+
+func (m *ProtocolModelMock) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
+	args := m.Called(ctx, dbTx, protocolID)
+	return args.Error(0)
+}
+
 // ProtocolContractsModelMock is a mock implementation of ProtocolContractsModelInterface.
 type ProtocolContractsModelMock struct {
 	mock.Mock

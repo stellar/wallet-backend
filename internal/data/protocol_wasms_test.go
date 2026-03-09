@@ -27,6 +27,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM protocol_wasms`)
 		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM protocols`)
+		require.NoError(t, err)
 	}
 
 	t.Run("empty input returns no error", func(t *testing.T) {
@@ -78,7 +80,10 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		protocolID := "test-protocol"
 		hash2 := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		// Insert referenced protocol first (FK constraint)
+		_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO protocols (id) VALUES ($1) ON CONFLICT DO NOTHING`, protocolID)
+		require.NoError(t, err)
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
 				{WasmHash: types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000"), ProtocolID: nil},
 				{WasmHash: hash2, ProtocolID: &protocolID},
