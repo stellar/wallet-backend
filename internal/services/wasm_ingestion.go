@@ -13,7 +13,7 @@ import (
 
 // WasmIngestionService tracks and persists WASM hashes during checkpoint population.
 type WasmIngestionService interface {
-	ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error
+	ProcessContractCode(ctx context.Context, wasmHash xdr.Hash) error
 	PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error
 }
 
@@ -27,7 +27,7 @@ type wasmIngestionService struct {
 // NewWasmIngestionService creates a WasmIngestionService.
 func NewWasmIngestionService(
 	protocolWasmModel data.ProtocolWasmModelInterface,
-) WasmIngestionService {
+) *wasmIngestionService {
 	return &wasmIngestionService{
 		protocolWasmModel: protocolWasmModel,
 		wasmHashes:        make(map[xdr.Hash]struct{}),
@@ -35,7 +35,7 @@ func NewWasmIngestionService(
 }
 
 // ProcessContractCode tracks the WASM hash for later persistence.
-func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
+func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash) error {
 	s.wasmHashes[wasmHash] = struct{}{}
 	return nil
 }
