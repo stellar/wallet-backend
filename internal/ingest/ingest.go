@@ -39,6 +39,8 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeBackfill uses an optimised datastore backend for bulk sequential access
+	LedgerBackendTypeBackfill LedgerBackendType = "backfill"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
@@ -198,7 +200,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
 
-	// Create a factory function for parallel backfill (each batch needs its own backend)
+	// Create a factory function for parallel backfill (each batch needs its own backend).
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}

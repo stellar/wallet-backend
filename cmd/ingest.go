@@ -199,6 +199,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			case string(ingest.LedgerBackendTypeBackfill):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeBackfill
 			default:
 				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
 			}
