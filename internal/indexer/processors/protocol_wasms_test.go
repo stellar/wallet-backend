@@ -125,7 +125,6 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 				assert.Equal(t, tc.expectedHash, wasms[0].WasmHash)
 				assert.Nil(t, wasms[0].ProtocolID)
 			}
-
 		})
 	}
 }
