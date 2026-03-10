@@ -1,12 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -79,7 +79,7 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 				if len(wasms) != 1 {
 					return false
 				}
-				return wasms[0].WasmHash == hash.HexString() && wasms[0].ProtocolID == nil
+				return bytes.Equal(wasms[0].WasmHash, hash[:]) && wasms[0].ProtocolID == nil
 			}),
 		).Return(nil).Once()
 
@@ -102,11 +102,11 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 				if len(wasms) != 2 {
 					return false
 				}
-				hashes := make(map[string]bool)
+				found := make(map[string]bool)
 				for _, w := range wasms {
-					hashes[w.WasmHash] = true
+					found[string(w.WasmHash)] = true
 				}
-				return hashes[hash1.HexString()] && hashes[hash2.HexString()]
+				return found[string(hash1[:])] && found[string(hash2[:])]
 			}),
 		).Return(nil).Once()
 
@@ -246,8 +246,7 @@ func TestWasmIngestionService_ProcessContractData(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Contains(t, svc.contractIDsByWasmHash, wasmHash)
-		expectedAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
-		assert.Equal(t, []string{expectedAddr}, svc.contractIDsByWasmHash[wasmHash])
+		assert.Equal(t, [][]byte{contractHash[:]}, svc.contractIDsByWasmHash[wasmHash])
 	})
 
 	t.Run("multiple_contracts_same_wasm_hash", func(t *testing.T) {
@@ -268,10 +267,18 @@ func TestWasmIngestionService_ProcessContractData(t *testing.T) {
 		require.Contains(t, svc.contractIDsByWasmHash, wasmHash)
 		assert.Len(t, svc.contractIDsByWasmHash[wasmHash], 2)
 
-		addr1 := strkey.MustEncode(strkey.VersionByteContract, contractHash1[:])
-		addr2 := strkey.MustEncode(strkey.VersionByteContract, contractHash2[:])
-		assert.Contains(t, svc.contractIDsByWasmHash[wasmHash], addr1)
-		assert.Contains(t, svc.contractIDsByWasmHash[wasmHash], addr2)
+		// Check that both contract hashes are present as raw bytes
+		var foundAddr1, foundAddr2 bool
+		for _, id := range svc.contractIDsByWasmHash[wasmHash] {
+			if bytes.Equal(id, contractHash1[:]) {
+				foundAddr1 = true
+			}
+			if bytes.Equal(id, contractHash2[:]) {
+				foundAddr2 = true
+			}
+		}
+		assert.True(t, foundAddr1, "contractHash1 should be tracked")
+		assert.True(t, foundAddr2, "contractHash2 should be tracked")
 	})
 }
 
@@ -300,14 +307,13 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 		require.NoError(t, svc.ProcessContractCode(ctx, wasmHash))
 		require.NoError(t, svc.ProcessContractData(ctx, change))
 
-		expectedAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
 		protocolContractModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(contracts []data.ProtocolContract) bool {
 				if len(contracts) != 1 {
 					return false
 				}
-				return contracts[0].ContractID == expectedAddr &&
-					contracts[0].WasmHash == wasmHash.HexString() &&
+				return bytes.Equal(contracts[0].ContractID, contractHash[:]) &&
+					bytes.Equal(contracts[0].WasmHash, wasmHash[:]) &&
 					contracts[0].ProtocolID == nil &&
 					contracts[0].Name == nil
 			}),
@@ -366,7 +372,7 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 
 		protocolContractModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(contracts []data.ProtocolContract) bool {
-				return len(contracts) == 1 && contracts[0].WasmHash == knownWasm.HexString()
+				return len(contracts) == 1 && bytes.Equal(contracts[0].WasmHash, knownWasm[:])
 			}),
 		).Return(nil).Once()
 
