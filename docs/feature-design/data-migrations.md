@@ -583,11 +583,11 @@ Backfill migrations rely on checkpoint population being complete before they can
 
 1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table with status `not_started`
 2. **Sets status** to `classification_in_progress` for specified protocols
-3. **Queries existing unclassified entries** from `known_wasms WHERE protocol_id IS NULL`
+3. **Queries existing unclassified entries** from `protocol_wasms WHERE protocol_id IS NULL`
 4. **Gets bytecode** from all unknown contracts using RPC
 5. **Validates each WASM** against all specified protocols' validators
 6. **Populates tables**:
-   - `known_wasms`: Maps WASM hashes to protocol IDs
+   - `protocol_wasms`: Maps WASM hashes to protocol IDs
    - `protocol_contracts`: Maps contract IDs to protocols
 7. **Updates status** to `classification_success` for all processed protocols
 
