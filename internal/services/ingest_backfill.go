@@ -360,19 +360,16 @@ func (m *ingestService) processLedgersInBatchPipelined(
 		meta     xdr.LedgerCloseMeta
 		closedAt time.Time
 	}
-	metaCh := make(chan metaWithTime, runtime.NumCPU())
-	flushCh := make(chan *indexer.IndexerBuffer, runtime.NumCPU())
+	metaCh := make(chan metaWithTime, 2)
+	flushCh := make(chan *indexer.IndexerBuffer, runtime.NumCPU()*2)
 
 	// --- Stage 1: Reader — sequential GetLedger into metaCh ---
 	readerErr := make(chan error, 1)
 	var startTime, endTime time.Time
-	var fetchDuration time.Duration
 	go func() {
 		defer close(metaCh)
 		for seq := batch.StartLedger; seq <= batch.EndLedger; seq++ {
-			t := time.Now()
 			meta, err := m.getLedgerWithRetry(ctx, backend, seq)
-			fetchDuration += time.Since(t)
 			if err != nil {
 				readerErr <- fmt.Errorf("getting ledger %d: %w", seq, err)
 				return
@@ -394,11 +391,13 @@ func (m *ingestService) processLedgersInBatchPipelined(
 
 	// --- Stage 2: Workers — parallel process, send directly to flushCh ---
 	var processDuration atomic.Int64
+	var workerBlockedTime atomic.Int64 // time blocked waiting to send on flushCh
+	var workerLedgers atomic.Int64
 	workerErr := make(chan error, 1)
 	go func() {
 		defer close(flushCh)
 		g, gCtx := errgroup.WithContext(ctx)
-		g.SetLimit(runtime.NumCPU())
+		g.SetLimit(4)
 
 		for mwt := range metaCh {
 			g.Go(func() error {
@@ -408,7 +407,11 @@ func (m *ingestService) processLedgersInBatchPipelined(
 					return err
 				}
 				processDuration.Add(int64(time.Since(t)))
+
+				t2 := time.Now()
 				flushCh <- buf
+				workerBlockedTime.Add(int64(time.Since(t2)))
+				workerLedgers.Add(1)
 				return nil
 			})
 		}
@@ -418,9 +421,17 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	}()
 
 	// --- Stage 3: Consumer — merge + flush ---
+	batchStart := time.Now()
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 	var flushDuration time.Duration
+	flushCount := 0
+	lastFlushEnd := time.Now()
+
+	// Snapshot vars for per-flush deltas
+	var lastProcessDuration int64
+	var lastWorkerBlocked int64
+	var lastWorkerLedgers int64
 
 	for buf := range flushCh {
 		batchBuffer.Merge(buf)
@@ -428,12 +439,34 @@ func (m *ingestService) processLedgersInBatchPipelined(
 		result.LedgersCount++
 
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			fillTime := time.Since(lastFlushEnd)
+			flushCount++
+
 			t := time.Now()
 			if err := flush(ctx, batchBuffer); err != nil {
 				result.Error = err
 				return result
 			}
-			flushDuration += time.Since(t)
+			flushElapsed := time.Since(t)
+			flushDuration += flushElapsed
+			chProducedDuringFlush := len(flushCh) // what Stage 2 queued while we were flushing
+			lastFlushEnd = time.Now()
+
+			// Compute per-flush deltas
+			currProcess := processDuration.Load()
+			currBlocked := workerBlockedTime.Load()
+			currLedgers := workerLedgers.Load()
+			deltaProcess := currProcess - lastProcessDuration
+			deltaBlocked := currBlocked - lastWorkerBlocked
+			deltaLedgers := currLedgers - lastWorkerLedgers
+			lastProcessDuration = currProcess
+			lastWorkerBlocked = currBlocked
+			lastWorkerLedgers = currLedgers
+
+			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+				flushCount, fillTime, flushElapsed, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, result.LedgersCount,
+				time.Duration(deltaProcess), time.Duration(deltaBlocked), deltaLedgers)
+
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
 		}
@@ -441,12 +474,20 @@ func (m *ingestService) processLedgersInBatchPipelined(
 
 	// Final flush
 	if ledgersInBuffer > 0 {
+		fillTime := time.Since(lastFlushEnd)
+		chLen := len(flushCh)
+		flushCount++
+
 		t := time.Now()
 		if err := flush(ctx, batchBuffer); err != nil {
 			result.Error = err
 			return result
 		}
-		flushDuration += time.Since(t)
+		flushElapsed := time.Since(t)
+		flushDuration += flushElapsed
+
+		log.Ctx(ctx).Infof("Pipeline flush #%d (final): fill=%v flush=%v chBacklog=%d/%d ledgers=%d total=%d",
+			flushCount, fillTime, flushElapsed, chLen, cap(flushCh), ledgersInBuffer, result.LedgersCount)
 	}
 
 	// Check for upstream errors
@@ -473,8 +514,11 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	result.EndTime = endTime
 	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
 
-	log.Ctx(ctx).Infof("Batch [%d-%d] timing — fetch: %v, process: %v, flush: %v",
-		batch.StartLedger, batch.EndLedger, fetchDuration,
+	elapsed := time.Since(batchStart)
+	throughput := float64(result.LedgersCount) / elapsed.Seconds()
+	log.Ctx(ctx).Infof("Batch [%d-%d] complete — %d ledgers in %v (%.1f l/s), process: %v, flush: %v",
+		batch.StartLedger, batch.EndLedger,
+		result.LedgersCount, elapsed, throughput,
 		time.Duration(processDuration.Load()), flushDuration)
 
 	return result
