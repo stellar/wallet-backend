@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"runtime"
+	// "runtime"
 	"sync/atomic"
 	"time"
 
@@ -360,8 +360,8 @@ func (m *ingestService) processLedgersInBatchPipelined(
 		meta     xdr.LedgerCloseMeta
 		closedAt time.Time
 	}
-	metaCh := make(chan metaWithTime, 2)
-	flushCh := make(chan *indexer.IndexerBuffer, runtime.NumCPU()*2)
+	metaCh := make(chan metaWithTime, 10)
+	flushCh := make(chan *indexer.IndexerBuffer, m.backfillDBInsertBatchSize)
 
 	// --- Stage 1: Reader — sequential GetLedger into metaCh ---
 	readerErr := make(chan error, 1)
@@ -397,7 +397,7 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	go func() {
 		defer close(flushCh)
 		g, gCtx := errgroup.WithContext(ctx)
-		g.SetLimit(4)
+		g.SetLimit(11)
 
 		for mwt := range metaCh {
 			g.Go(func() error {
@@ -428,13 +428,15 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	flushCount := 0
 	lastFlushEnd := time.Now()
 
-	// Snapshot vars for per-flush deltas
+	var mergeDuration time.Duration
 	var lastProcessDuration int64
 	var lastWorkerBlocked int64
 	var lastWorkerLedgers int64
 
 	for buf := range flushCh {
+		mt := time.Now()
 		batchBuffer.Merge(buf)
+		mergeDuration += time.Since(mt)
 		ledgersInBuffer++
 		result.LedgersCount++
 
@@ -463,11 +465,12 @@ func (m *ingestService) processLedgersInBatchPipelined(
 			lastWorkerBlocked = currBlocked
 			lastWorkerLedgers = currLedgers
 
-			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
-				flushCount, fillTime, flushElapsed, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, result.LedgersCount,
+			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v merge=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+				flushCount, fillTime, flushElapsed, mergeDuration, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, result.LedgersCount,
 				time.Duration(deltaProcess), time.Duration(deltaBlocked), deltaLedgers)
 
 			batchBuffer.Clear()
+			mergeDuration = 0
 			ledgersInBuffer = 0
 		}
 	}
