@@ -48,17 +48,18 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
+		wasmHash := []byte{0xab, 0xc1, 0x23, 0xde, 0xf4, 0x56}
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
-				{WasmHash: "abc123def456", ProtocolID: nil},
+				{WasmHash: wasmHash, ProtocolID: nil},
 			})
 		})
 		assert.NoError(t, err)
 
 		// Verify the insert
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = 'abc123def456'`)
+		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, wasmHash)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
 	})
@@ -73,11 +74,12 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		protocolID := "test-protocol"
+		hash2 := []byte{2}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
-				{WasmHash: "hash1", ProtocolID: nil},
-				{WasmHash: "hash2", ProtocolID: &protocolID},
-				{WasmHash: "hash3", ProtocolID: nil},
+				{WasmHash: []byte{1}, ProtocolID: nil},
+				{WasmHash: hash2, ProtocolID: &protocolID},
+				{WasmHash: []byte{3}, ProtocolID: nil},
 			})
 		})
 		assert.NoError(t, err)
@@ -89,7 +91,7 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify protocol_id was stored correctly
 		var storedProtocolID *string
-		err = dbConnectionPool.GetContext(ctx, &storedProtocolID, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = 'hash2'`)
+		err = dbConnectionPool.GetContext(ctx, &storedProtocolID, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash2)
 		require.NoError(t, err)
 		require.NotNil(t, storedProtocolID)
 		assert.Equal(t, "test-protocol", *storedProtocolID)
@@ -103,12 +105,13 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
+		dupHash := []byte{0xdd, 0xee}
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// First insert
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
-				{WasmHash: "duplicate_hash", ProtocolID: nil},
+				{WasmHash: dupHash, ProtocolID: nil},
 			})
 		})
 		assert.NoError(t, err)
@@ -116,14 +119,14 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		// Second insert with same hash - should not error
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
-				{WasmHash: "duplicate_hash", ProtocolID: nil},
+				{WasmHash: dupHash, ProtocolID: nil},
 			})
 		})
 		assert.NoError(t, err)
 
 		// Verify only one row
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = 'duplicate_hash'`)
+		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, dupHash)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
 	})

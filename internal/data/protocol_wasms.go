@@ -14,7 +14,7 @@ import (
 
 // ProtocolWasm represents a WASM hash tracked during checkpoint population.
 type ProtocolWasm struct {
-	WasmHash   string    `db:"wasm_hash"`
+	WasmHash   []byte    `db:"wasm_hash"`
 	ProtocolID *string   `db:"protocol_id"`
 	CreatedAt  time.Time `db:"created_at"`
 }
@@ -39,7 +39,7 @@ func (m *ProtocolWasmModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms 
 		return nil
 	}
 
-	wasmHashes := make([]string, len(wasms))
+	wasmHashes := make([][]byte, len(wasms))
 	protocolIDs := make([]*string, len(wasms))
 
 	for i, w := range wasms {
@@ -49,7 +49,7 @@ func (m *ProtocolWasmModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms 
 
 	const query = `
 		INSERT INTO protocol_wasms (wasm_hash, protocol_id)
-		SELECT * FROM UNNEST($1::text[], $2::text[])
+		SELECT * FROM UNNEST($1::bytea[], $2::text[])
 		ON CONFLICT (wasm_hash) DO NOTHING
 	`
 

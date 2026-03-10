@@ -15,8 +15,8 @@ import (
 // ProtocolContract represents a contract tracked during checkpoint population,
 // linking a contract_id to its WASM hash.
 type ProtocolContract struct {
-	ContractID string    `db:"contract_id"`
-	WasmHash   string    `db:"wasm_hash"`
+	ContractID []byte    `db:"contract_id"`
+	WasmHash   []byte    `db:"wasm_hash"`
 	ProtocolID *string   `db:"protocol_id"`
 	Name       *string   `db:"name"`
 	CreatedAt  time.Time `db:"created_at"`
@@ -42,8 +42,8 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 		return nil
 	}
 
-	contractIDs := make([]string, len(contracts))
-	wasmHashes := make([]string, len(contracts))
+	contractIDs := make([][]byte, len(contracts))
+	wasmHashes := make([][]byte, len(contracts))
 	protocolIDs := make([]*string, len(contracts))
 	names := make([]*string, len(contracts))
 
@@ -57,7 +57,7 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 	const query = `
 		INSERT INTO protocol_contracts (contract_id, wasm_hash, protocol_id, name)
 		SELECT u.contract_id, u.wasm_hash, u.protocol_id, u.name
-		FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[])
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::text[])
 			AS u(contract_id, wasm_hash, protocol_id, name)
 		WHERE EXISTS (SELECT 1 FROM protocol_wasms pw WHERE pw.wasm_hash = u.wasm_hash)
 		ON CONFLICT (contract_id) DO NOTHING

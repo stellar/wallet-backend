@@ -612,8 +612,9 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasm) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.protocolWasmsByHash[wasm.WasmHash]; !exists {
-		b.protocolWasmsByHash[wasm.WasmHash] = wasm
+	key := string(wasm.WasmHash)
+	if _, exists := b.protocolWasmsByHash[key]; !exists {
+		b.protocolWasmsByHash[key] = wasm
 	}
 }
 
@@ -632,8 +633,9 @@ func (b *IndexerBuffer) PushProtocolContract(contract data.ProtocolContract) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.protocolContractsByID[contract.ContractID]; !exists {
-		b.protocolContractsByID[contract.ContractID] = contract
+	key := string(contract.ContractID)
+	if _, exists := b.protocolContractsByID[key]; !exists {
+		b.protocolContractsByID[key] = contract
 	}
 }
 

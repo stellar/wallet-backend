@@ -39,7 +39,7 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 
 		hash := change.Post.Data.MustContractCode().Hash
 		wasms = append(wasms, data.ProtocolWasm{
-			WasmHash: hash.HexString(),
+			WasmHash: hash[:],
 		})
 	}
 

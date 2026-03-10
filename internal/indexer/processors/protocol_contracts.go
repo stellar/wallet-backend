@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -56,12 +55,11 @@ func (p *ProtocolContractProcessor) ProcessOperation(ctx context.Context, opWrap
 			continue
 		}
 
-		contractID := strkey.MustEncode(strkey.VersionByteContract, contractIDBytes[:])
 		hash := *instance.Executable.WasmHash
 
 		contracts = append(contracts, data.ProtocolContract{
-			ContractID: contractID,
-			WasmHash:   hash.HexString(),
+			ContractID: contractIDBytes[:],
+			WasmHash:   hash[:],
 		})
 	}
 

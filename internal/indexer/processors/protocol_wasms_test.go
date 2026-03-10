@@ -28,7 +28,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 		name          string
 		changes       xdr.LedgerEntryChanges
 		expectedCount int
-		expectedHash  string
+		expectedHash  []byte
 	}{
 		{
 			name: "ContractCode created returns ProtocolWasm",
@@ -47,7 +47,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 				},
 			},
 			expectedCount: 1,
-			expectedHash:  testWasmHash.HexString(),
+			expectedHash:  testWasmHash[:],
 		},
 		{
 			name: "non-ContractCode entry skipped",
@@ -125,6 +125,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 				assert.Equal(t, tc.expectedHash, wasms[0].WasmHash)
 				assert.Nil(t, wasms[0].ProtocolID)
 			}
+
 		})
 	}
 }
