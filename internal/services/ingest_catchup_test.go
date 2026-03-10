@@ -601,9 +601,9 @@ func Test_ingestService_flushCatchupBatch(t *testing.T) {
 	}
 }
 
-// Test_ingestService_processLedgersInBatchCatchup tests that processLedgersInBatchCatchup
-// returns non-nil BatchChanges.
-func Test_ingestService_processLedgersInBatchCatchup(t *testing.T) {
+// Test_ingestService_processLedgersInBatchPipelined_Catchup tests that the pipelined
+// processor with flushCatchupBatch returns non-nil BatchChanges.
+func Test_ingestService_processLedgersInBatchPipelined_Catchup(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -656,7 +656,18 @@ func Test_ingestService_processLedgersInBatchCatchup(t *testing.T) {
 	require.NoError(t, err)
 
 	batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-	result := svc.processLedgersInBatchCatchup(ctx, mockLedgerBackend, batch)
+	batchChanges := &BatchChanges{
+		TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+		AccountChangesByAccountID: make(map[string]types.AccountChange),
+		SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
+		UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
+		UniqueContractTokensByID:  make(map[string]types.ContractType),
+		SACContractsByID:          make(map[string]*data.Contract),
+	}
+	result := svc.processLedgersInBatchPipelined(ctx, mockLedgerBackend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+		return svc.flushCatchupBatch(ctx, buffer, batchChanges)
+	})
+	result.BatchChanges = batchChanges
 
 	require.NoError(t, result.Error)
 	assert.Equal(t, 1, result.LedgersCount)
@@ -883,7 +894,22 @@ func Test_ingestService_processBackfillBatchesParallel_Catchup(t *testing.T) {
 		{StartLedger: 101, EndLedger: 101},
 	}
 
-	results := svc.processBackfillBatchesParallel(ctx, batches, svc.processLedgersInBatchCatchup, nil)
+	catchupProcessor := func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
+		batchChanges := &BatchChanges{
+			TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+			AccountChangesByAccountID: make(map[string]types.AccountChange),
+			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
+			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
+			UniqueContractTokensByID:  make(map[string]types.ContractType),
+			SACContractsByID:          make(map[string]*data.Contract),
+		}
+		result := svc.processLedgersInBatchPipelined(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+			return svc.flushCatchupBatch(ctx, buffer, batchChanges)
+		})
+		result.BatchChanges = batchChanges
+		return result
+	}
+	results := svc.processBackfillBatchesParallel(ctx, batches, catchupProcessor, nil)
 
 	require.Len(t, results, 2)
 	for i, result := range results {

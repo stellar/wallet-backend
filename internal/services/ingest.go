@@ -121,7 +121,6 @@ type ingestService struct {
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
 	backfillPool              pond.Pool
-	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	chunkInterval             string
@@ -161,7 +160,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
 		archive:                   cfg.Archive,
 		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		chunkInterval:             cfg.ChunkInterval,
@@ -219,6 +217,17 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 // processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
 	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+	if err != nil {
+		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
+	return nil
+}
+
+// processLedgerSequential processes a single ledger without tx-level parallelism.
+// Used by the pipelined backfill where ledger-level parallelism replaces tx-level parallelism.
+func (m *ingestService) processLedgerSequential(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	participantCount, err := indexer.ProcessLedgerSequential(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
 	if err != nil {
 		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}

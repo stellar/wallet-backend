@@ -131,16 +131,33 @@ func (m *ingestService) startCatchup(ctx context.Context, startLedger, endLedger
 		return fmt.Errorf("catchup must start from ledger %d (latestIngestedLedger + 1), got %d", latestIngestedLedger+1, startLedger)
 	}
 
-	gaps := []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
-	backfillBatches := m.splitGapsIntoBatches(gaps)
+	// Single contiguous range — no batch splitting needed.
+	// One backend handles the entire catchup range, avoiding redundant S3 downloads.
+	batches := []BackfillBatch{{StartLedger: startLedger, EndLedger: endLedger}}
+
+	catchupProcessor := func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
+		batchChanges := &BatchChanges{
+			TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
+			AccountChangesByAccountID: make(map[string]types.AccountChange),
+			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
+			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
+			UniqueContractTokensByID:  make(map[string]types.ContractType),
+			SACContractsByID:          make(map[string]*data.Contract),
+		}
+		result := m.processLedgersInBatchPipelined(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+			return m.flushCatchupBatch(ctx, buffer, batchChanges)
+		})
+		result.BatchChanges = batchChanges
+		return result
+	}
 
 	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, backfillBatches, m.processLedgersInBatchCatchup, nil)
+	results := m.processBackfillBatchesParallel(ctx, batches, catchupProcessor, nil)
 	duration := time.Since(startTime)
 
 	numFailedBatches := analyzeBatchResults(ctx, results)
 	if numFailedBatches > 0 {
-		return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
+		return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(batches))
 	}
 
 	// Merge all batch changes and apply in a single transaction with cursor update
@@ -161,69 +178,8 @@ func (m *ingestService) startCatchup(ctx context.Context, startLedger, endLedger
 		return fmt.Errorf("updating latest cursor after catchup: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Catchup completed in %v: %d batches", duration, len(backfillBatches))
+	log.Ctx(ctx).Infof("Catchup completed in %v: %d batches", duration, len(batches))
 	return nil
-}
-
-// processLedgersInBatchCatchup processes all ledgers in a batch for catchup mode.
-// Collects BatchChanges for post-catchup processing instead of updating cursors.
-func (m *ingestService) processLedgersInBatchCatchup(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-	result := BackfillResult{Batch: batch}
-	batchBuffer := indexer.NewIndexerBuffer()
-	ledgersInBuffer := uint32(0)
-	var startTime, endTime time.Time
-
-	batchChanges := &BatchChanges{
-		TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
-		AccountChangesByAccountID: make(map[string]types.AccountChange),
-		SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
-		UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
-		UniqueContractTokensByID:  make(map[string]types.ContractType),
-		SACContractsByID:          make(map[string]*data.Contract),
-	}
-
-	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
-		if err != nil {
-			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
-			return result
-		}
-
-		ledgerTime := ledgerMeta.ClosedAt()
-		if startTime.IsZero() {
-			startTime = ledgerTime
-		}
-		endTime = ledgerTime
-
-		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
-			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
-			return result
-		}
-		result.LedgersCount++
-		ledgersInBuffer++
-
-		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushCatchupBatch(ctx, batchBuffer, batchChanges); err != nil {
-				result.Error = err
-				return result
-			}
-			batchBuffer.Clear()
-			ledgersInBuffer = 0
-		}
-	}
-
-	// Final flush
-	if ledgersInBuffer > 0 {
-		if err := m.flushCatchupBatch(ctx, batchBuffer, batchChanges); err != nil {
-			result.Error = err
-			return result
-		}
-	}
-
-	result.BatchChanges = batchChanges
-	result.StartTime = startTime
-	result.EndTime = endTime
-	return result
 }
 
 // flushCatchupBatch persists buffered data to the database and collects changes

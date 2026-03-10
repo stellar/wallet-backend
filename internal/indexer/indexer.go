@@ -368,3 +368,34 @@ func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr
 
 	return participantCount, nil
 }
+
+// ProcessLedgerTransactionsSequential processes transactions sequentially (no goroutine pool).
+// Used by the pipelined backfill where ledger-level parallelism replaces tx-level parallelism.
+func (i *Indexer) ProcessLedgerTransactionsSequential(
+	ctx context.Context,
+	transactions []ingest.LedgerTransaction,
+	buffer IndexerBufferInterface,
+) (int, error) {
+	totalParticipants := 0
+	for _, tx := range transactions {
+		txBuffer := NewIndexerBuffer()
+		count, err := i.processTransaction(ctx, tx, txBuffer)
+		if err != nil {
+			return 0, fmt.Errorf("processing tx at ledger=%d tx=%d: %w",
+				tx.Ledger.LedgerSequence(), tx.Index, err)
+		}
+		buffer.Merge(txBuffer)
+		totalParticipants += count
+	}
+	return totalParticipants, nil
+}
+
+// ProcessLedgerSequential extracts transactions from a ledger and indexes them sequentially.
+// Used by the pipelined backfill where ledger-level parallelism replaces tx-level parallelism.
+func ProcessLedgerSequential(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	return ledgerIndexer.ProcessLedgerTransactionsSequential(ctx, transactions, buffer)
+}
