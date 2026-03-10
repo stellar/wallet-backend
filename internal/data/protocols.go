@@ -12,11 +12,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// Protocol ID constants used by both DB and validator mapping.
-const (
-	ProtocolSEP41 = "SEP41"
-)
-
 // Classification and migration status constants.
 const (
 	StatusNotStarted = "not_started"

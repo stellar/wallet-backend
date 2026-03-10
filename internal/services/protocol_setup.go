@@ -77,9 +77,9 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		}
 	}()
 
-	// Step 2: Register all known protocols in the DB (idempotent)
-	if err := s.registerProtocols(ctx, validatorsByProtocol); err != nil {
-		return fmt.Errorf("registering protocols: %w", err)
+	// Step 2: Validate that all requested protocols exist in the DB
+	if err := s.validateProtocolsExist(ctx, protocolIDs); err != nil {
+		return fmt.Errorf("validating protocols exist: %w", err)
 	}
 
 	// Step 3: Set classification_status to in_progress
@@ -111,16 +111,31 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 	return nil
 }
 
-// registerProtocols registers all known protocols from validators into the DB.
-func (s *protocolSetupService) registerProtocols(ctx context.Context, validatorsByProtocol map[string]ProtocolValidator) error {
-	return db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		for protocolID := range validatorsByProtocol {
-			if err := s.protocolModel.InsertIfNotExists(ctx, dbTx, protocolID); err != nil {
-				return fmt.Errorf("registering protocol %s: %w", protocolID, err)
-			}
+// validateProtocolsExist checks that all requested protocol IDs exist in the DB.
+// Protocols are registered via SQL migration files in internal/db/migrations/protocols/.
+func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, protocolIDs []string) error {
+	found, err := s.protocolModel.GetByIDs(ctx, protocolIDs)
+	if err != nil {
+		return fmt.Errorf("querying protocols: %w", err)
+	}
+
+	foundSet := make(map[string]struct{}, len(found))
+	for _, p := range found {
+		foundSet[p.ID] = struct{}{}
+	}
+
+	var missing []string
+	for _, pid := range protocolIDs {
+		if _, ok := foundSet[pid]; !ok {
+			missing = append(missing, pid)
 		}
-		return nil
-	})
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("protocols not found in DB %v — ensure a protocol migration SQL file exists in internal/db/migrations/protocols/", missing)
+	}
+
+	return nil
 }
 
 // classify queries protocol_wasms for unclassified hashes, fetches bytecodes via RPC,
