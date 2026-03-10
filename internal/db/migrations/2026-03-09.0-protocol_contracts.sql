@@ -2,7 +2,6 @@
 CREATE TABLE protocol_contracts (
     contract_id BYTEA PRIMARY KEY,
     wasm_hash BYTEA NOT NULL REFERENCES protocol_wasms(wasm_hash),
-    protocol_id TEXT,
     name TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
