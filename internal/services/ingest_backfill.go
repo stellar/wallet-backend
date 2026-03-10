@@ -361,7 +361,7 @@ func (m *ingestService) processLedgersInBatchPipelined(
 		closedAt time.Time
 	}
 	metaCh := make(chan metaWithTime, 10)
-	flushCh := make(chan *indexer.IndexerBuffer, m.backfillDBInsertBatchSize)
+	flushCh := make(chan *indexer.IndexerBuffer, m.backfillDBInsertBatchSize*2)
 
 	// --- Stage 1: Reader — sequential GetLedger into metaCh ---
 	readerErr := make(chan error, 1)
