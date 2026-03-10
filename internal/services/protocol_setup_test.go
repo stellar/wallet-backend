@@ -55,8 +55,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 		validatorMock.On("Validate", testSpecEntries).Return(true)
 
-		// Register protocol
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		// Validate protocol exists in DB
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 
 		// Set status to in_progress
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
@@ -102,8 +102,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		// Register protocol
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		// Validate protocol exists in DB
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 
 		// Set status to in_progress
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
@@ -169,7 +169,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// No unclassified WASMs
@@ -202,7 +202,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
@@ -243,7 +243,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 		validatorMock.On("Validate", testSpecEntries).Return(false)
 
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
@@ -284,7 +284,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("InsertIfNotExists", ctx, mock.Anything, testProtocolID).Return(nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// Build 201 unclassified hashes

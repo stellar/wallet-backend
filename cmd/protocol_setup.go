@@ -74,10 +74,10 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	return cmd
 }
 
-// validatorFactories maps protocol ID constants to their validator constructors.
+// validatorFactories maps protocol IDs to their validator constructors.
 var validatorFactories = map[string]func() services.ProtocolValidator{
 	// Validators will be registered here as they are implemented.
-	// Example: data.ProtocolSEP41: services.NewSEP41Validator,
+	// Example: "SEP41": services.NewSEP41Validator,
 }
 
 func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string) error {
@@ -99,6 +99,11 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		return fmt.Errorf("opening database connection: %w", err)
 	}
 	defer dbPool.Close()
+
+	// Run protocol migrations to ensure protocols are registered in the DB
+	if _, err := db.RunProtocolMigrations(ctx, dbPool); err != nil {
+		return fmt.Errorf("running protocol migrations: %w", err)
+	}
 
 	// Create models
 	sqlxDB, err := dbPool.SqlxDB(ctx)

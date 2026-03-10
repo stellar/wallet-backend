@@ -8,6 +8,7 @@ import (
 	migrate "github.com/rubenv/sql-migrate"
 
 	"github.com/stellar/wallet-backend/internal/db/migrations"
+	"github.com/stellar/wallet-backend/internal/db/migrations/protocols"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -29,4 +30,14 @@ func Migrate(ctx context.Context, databaseURL string, direction migrate.Migratio
 		return appliedMigrationsCount, fmt.Errorf("applying migrations: %w", err)
 	}
 	return appliedMigrationsCount, nil
+}
+
+// RunProtocolMigrations executes all embedded protocol SQL files to register
+// protocols in the database. Protocol SQL files are idempotent.
+func RunProtocolMigrations(ctx context.Context, dbPool ConnectionPool) (int, error) {
+	sqlDB, err := dbPool.SqlDB(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("fetching sql.DB for protocol migrations: %w", err)
+	}
+	return protocols.Run(ctx, sqlDB)
 }

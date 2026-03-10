@@ -1,0 +1,2 @@
+-- Placeholder file required by go:embed *.sql directive.
+-- Protocol registration SQL files (e.g., 001_sep41.sql) are added here.
