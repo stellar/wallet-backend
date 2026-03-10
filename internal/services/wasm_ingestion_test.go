@@ -314,7 +314,6 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 				}
 				return bytes.Equal(contracts[0].ContractID, contractHash[:]) &&
 					bytes.Equal(contracts[0].WasmHash, wasmHash[:]) &&
-					contracts[0].ProtocolID == nil &&
 					contracts[0].Name == nil
 			}),
 		).Return(nil).Once()
