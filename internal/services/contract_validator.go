@@ -313,6 +313,25 @@ func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context,
 	return specs, nil
 }
 
+// SEP41ProtocolValidator validates whether a WASM implements the SEP-41 token standard.
+type SEP41ProtocolValidator struct {
+	cv *contractValidator
+}
+
+func NewSEP41ProtocolValidator() *SEP41ProtocolValidator {
+	return &SEP41ProtocolValidator{cv: NewContractValidator().(*contractValidator)}
+}
+
+func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
+
+func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
+	return v.cv.isContractCodeSEP41(specEntries)
+}
+
+func (v *SEP41ProtocolValidator) Close(ctx context.Context) error {
+	return v.cv.Close(ctx)
+}
+
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.
 // Returns "unknown" for unmapped types.
 func getTypeName(scType xdr.ScSpecType) string {
