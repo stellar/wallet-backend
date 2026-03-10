@@ -6,7 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -27,7 +26,7 @@ type wasmIngestionService struct {
 	protocolWasmModel     data.ProtocolWasmModelInterface
 	protocolContractModel data.ProtocolContractModelInterface
 	wasmHashes            map[xdr.Hash]struct{}
-	contractIDsByWasmHash map[xdr.Hash][]string
+	contractIDsByWasmHash map[xdr.Hash][][]byte
 }
 
 // NewWasmIngestionService creates a WasmIngestionService.
@@ -39,7 +38,7 @@ func NewWasmIngestionService(
 		protocolWasmModel:     protocolWasmModel,
 		protocolContractModel: protocolContractModel,
 		wasmHashes:            make(map[xdr.Hash]struct{}),
-		contractIDsByWasmHash: make(map[xdr.Hash][]string),
+		contractIDsByWasmHash: make(map[xdr.Hash][][]byte),
 	}
 }
 
@@ -74,8 +73,7 @@ func (s *wasmIngestionService) ProcessContractData(ctx context.Context, change i
 	}
 
 	hash := *contractInstance.Executable.WasmHash
-	contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
-	s.contractIDsByWasmHash[hash] = append(s.contractIDsByWasmHash[hash], contractAddressStr)
+	s.contractIDsByWasmHash[hash] = append(s.contractIDsByWasmHash[hash], contractAddress[:])
 
 	return nil
 }
@@ -89,7 +87,7 @@ func (s *wasmIngestionService) PersistProtocolWasms(ctx context.Context, dbTx pg
 	wasms := make([]data.ProtocolWasm, 0, len(s.wasmHashes))
 	for hash := range s.wasmHashes {
 		wasms = append(wasms, data.ProtocolWasm{
-			WasmHash:   hash.HexString(),
+			WasmHash:   hash[:],
 			ProtocolID: nil,
 		})
 	}
@@ -119,7 +117,7 @@ func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbT
 		for _, contractID := range contractIDs {
 			contracts = append(contracts, data.ProtocolContract{
 				ContractID: contractID,
-				WasmHash:   hash.HexString(),
+				WasmHash:   hash[:],
 			})
 		}
 	}
