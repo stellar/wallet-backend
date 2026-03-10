@@ -17,7 +17,6 @@ import (
 type ProtocolContract struct {
 	ContractID []byte    `db:"contract_id"`
 	WasmHash   []byte    `db:"wasm_hash"`
-	ProtocolID *string   `db:"protocol_id"`
 	Name       *string   `db:"name"`
 	CreatedAt  time.Time `db:"created_at"`
 }
@@ -44,27 +43,25 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 
 	contractIDs := make([][]byte, len(contracts))
 	wasmHashes := make([][]byte, len(contracts))
-	protocolIDs := make([]*string, len(contracts))
 	names := make([]*string, len(contracts))
 
 	for i, c := range contracts {
 		contractIDs[i] = c.ContractID
 		wasmHashes[i] = c.WasmHash
-		protocolIDs[i] = c.ProtocolID
 		names[i] = c.Name
 	}
 
 	const query = `
-		INSERT INTO protocol_contracts (contract_id, wasm_hash, protocol_id, name)
-		SELECT u.contract_id, u.wasm_hash, u.protocol_id, u.name
-		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::text[])
-			AS u(contract_id, wasm_hash, protocol_id, name)
+		INSERT INTO protocol_contracts (contract_id, wasm_hash, name)
+		SELECT u.contract_id, u.wasm_hash, u.name
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[])
+			AS u(contract_id, wasm_hash, name)
 		WHERE EXISTS (SELECT 1 FROM protocol_wasms pw WHERE pw.wasm_hash = u.wasm_hash)
 		ON CONFLICT (contract_id) DO NOTHING
 	`
 
 	start := time.Now()
-	_, err := dbTx.Exec(ctx, query, contractIDs, wasmHashes, protocolIDs, names)
+	_, err := dbTx.Exec(ctx, query, contractIDs, wasmHashes, names)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchInsert", "protocol_contracts", utils.GetDBErrorType(err))
 		return fmt.Errorf("batch inserting protocol contracts: %w", err)

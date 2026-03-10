@@ -180,7 +180,6 @@ func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
 			if tc.expectedCount > 0 {
 				assert.Equal(t, tc.expectedContractID, contracts[0].ContractID)
 				assert.Equal(t, tc.expectedWasmHash, contracts[0].WasmHash)
-				assert.Nil(t, contracts[0].ProtocolID)
 			}
 		})
 	}
