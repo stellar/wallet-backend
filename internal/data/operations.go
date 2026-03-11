@@ -203,7 +203,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_id ASC`, query)
 	}
 
 	start := time.Now()
