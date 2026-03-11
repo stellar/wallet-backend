@@ -244,8 +244,8 @@ This has to happen in 2 stages during the migration process:
             ┌────────┐ ┌──────────┐                      ▼
             │Store   │ │Store     │              ┌──────────────────┐
             │hash in │ │hash in   │              │ Map contract ID  │
-            │known_  │ │known_    │              │ to WASM hash     │
-            │wasms   │ │wasms     │              │ (for later lookup│
+            │protocol│ │protocol  │              │ to WASM hash     │
+            │_wasms  │ │_wasms    │              │ (for later lookup│
             │with    │ │with NULL │              │ in protocol_wasms)  │
             │protocol│ │protocol  │              └──────────────────┘
             └────────┘ └──────────┘
@@ -307,8 +307,8 @@ During live ingestion, classification happens in two parts: (1) new WASM uploads
          ▼         ▼                    ▼                       ▼
    ┌──────────┐ ┌──────────┐    ┌──────────────┐     ┌──────────────────┐
    │Store in  │ │Store in  │    │ Map contract │     │ Fetch WASM via   │
-   │known_    │ │known_    │    │ to protocol  │     │ RPC, validate,   │
-   │wasms with│ │wasms with│    │ from cached  │     │ then map contract│
+   │protocol  │ │protocol  │    │ to protocol  │     │ RPC, validate,   │
+   │_wasms w/ │ │_wasms w/ │    │ from cached  │     │ then map contract│
    │protocol  │ │NULL      │    │ classification     │ (rare edge case) │
    └──────────┘ └──────────┘    └──────────────┘     └──────────────────┘
                                         │                       │
