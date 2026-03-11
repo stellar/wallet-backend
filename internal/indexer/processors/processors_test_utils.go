@@ -806,15 +806,12 @@ func requireEventCount(t *testing.T, changes []types.StateChange, expectedCount 
 func assertStateChangeBase(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
-	require.Equal(t, expectedAccount, change.AccountID)
+	require.Equal(t, expectedAccount, change.AccountID.String())
 	if expectedAmount != "" {
 		require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	}
 	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
-	}
-	if change.OperationID != 0 {
-		require.Equal(t, change.OperationID, change.ToID)
+		require.Equal(t, utils.NullAddressBytea(expectedToken), change.TokenID)
 	}
 }
 
@@ -823,7 +820,6 @@ func assertFeeEvent(t *testing.T, change types.StateChange, expectedAmount strin
 	t.Helper()
 	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, someTxAccount.ToAccountId().Address(), expectedAmount, nativeContractAddress)
 	assert.Equal(t, types.StateChangeReasonDebit, *change.StateChangeReason)
-	assert.Equal(t, change.TxID, change.ToID)
 }
 
 func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {

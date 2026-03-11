@@ -59,7 +59,7 @@ type SACBalanceChangeKey struct {
 type IndexerBuffer struct {
 	mu                             sync.RWMutex
 	txByHash                       map[string]*types.Transaction
-	participantsByTxHash           map[string]set.Set[string]
+	participantsByToID             map[int64]set.Set[string]
 	opByID                         map[int64]*types.Operation
 	participantsByOpID             map[int64]set.Set[string]
 	stateChanges                   []types.StateChange
@@ -67,7 +67,6 @@ type IndexerBuffer struct {
 	contractChanges                []types.ContractChange
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
-	allParticipants                set.Set[string]
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueSEP41ContractTokensByID  map[string]types.ContractType // contractID → type (SEP-41 only)
 	sacContractsByID               map[string]*data.Contract     // SAC contract metadata extracted from instance entries
@@ -78,7 +77,7 @@ type IndexerBuffer struct {
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
 		txByHash:                       make(map[string]*types.Transaction),
-		participantsByTxHash:           make(map[string]set.Set[string]),
+		participantsByToID:             make(map[int64]set.Set[string]),
 		opByID:                         make(map[int64]*types.Operation),
 		participantsByOpID:             make(map[int64]set.Set[string]),
 		stateChanges:                   make([]types.StateChange, 0),
@@ -86,7 +85,6 @@ func NewIndexerBuffer() *IndexerBuffer {
 		contractChanges:                make([]types.ContractChange, 0),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
-		allParticipants:                set.NewSet[string](),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
 		sacContractsByID:               make(map[string]*data.Contract),
@@ -110,27 +108,23 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 // 1. Check if transaction already exists in txByHash
 // 2. If not, store the transaction pointer
 // 3. Add participant to the global participants set
-// 4. Add participant to this transaction's participant set in participantsByTxHash
+// 4. Add participant to this transaction's participant set in participantsByToID
 //
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash
+	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
 	}
 
-	// Track this participant globally
-	if _, exists := b.participantsByTxHash[txHash]; !exists {
-		b.participantsByTxHash[txHash] = set.NewSet[string]()
+	// Track this participant by ToID
+	toID := transaction.ToID
+	if _, exists := b.participantsByToID[toID]; !exists {
+		b.participantsByToID[toID] = set.NewSet[string]()
 	}
 
 	// Add participant - O(1) with automatic deduplication
-	b.participantsByTxHash[txHash].Add(participant)
-
-	// Track participant in global set for batch account insertion
-	if participant != "" {
-		b.allParticipants.Add(participant)
-	}
+	b.participantsByToID[toID].Add(participant)
 }
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
@@ -165,12 +159,12 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	return txs
 }
 
-// GetTransactionsParticipants returns a map of transaction hashes to its participants.
-func (b *IndexerBuffer) GetTransactionsParticipants() map[string]set.Set[string] {
+// GetTransactionsParticipants returns a map of transaction ToIDs to its participants.
+func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByTxHash
+	return maps.Clone(b.participantsByToID)
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
@@ -350,7 +344,7 @@ func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantsByOpID
+	return maps.Clone(b.participantsByOpID)
 }
 
 // pushOperationUnsafe is the internal implementation for operation storage.
@@ -367,11 +361,6 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
 	b.participantsByOpID[opID].Add(participant)
-
-	// Track participant in global set for batch account insertion
-	if participant != "" {
-		b.allParticipants.Add(participant)
-	}
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
@@ -381,10 +370,10 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
+	b.pushTransactionUnsafe(string(stateChange.AccountID), &transaction)
 	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
-		b.pushOperationUnsafe(stateChange.AccountID, &operation)
+		b.pushOperationUnsafe(string(stateChange.AccountID), &operation)
 	}
 }
 
@@ -395,16 +384,6 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	defer b.mu.RUnlock()
 
 	return b.stateChanges
-}
-
-// GetAllParticipants returns all unique participants (Stellar addresses) that have been
-// recorded during transaction, operation, and state change processing.
-// Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAllParticipants() []string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return b.allParticipants.ToSlice()
 }
 
 // Merge merges another IndexerBuffer into this buffer. This is used to combine
@@ -442,15 +421,15 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
-	for txHash, otherParticipants := range otherBuffer.participantsByTxHash {
-		if existing, exists := b.participantsByTxHash[txHash]; exists {
+	for toID, otherParticipants := range otherBuffer.participantsByToID {
+		if existing, exists := b.participantsByToID[toID]; exists {
 			// Merge into existing set - iterate and add (Union creates new set)
 			for participant := range otherParticipants.Iter() {
 				existing.Add(participant)
 			}
 		} else {
 			// Clone the set instead of creating empty + iterating
-			b.participantsByTxHash[txHash] = otherParticipants.Clone()
+			b.participantsByToID[toID] = otherParticipants.Clone()
 		}
 	}
 
@@ -525,11 +504,6 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		b.sacBalanceChangesByKey[key] = change
 	}
 
-	// Merge all participants
-	for participant := range otherBuffer.allParticipants.Iter() {
-		b.allParticipants.Add(participant)
-	}
-
 	// Merge unique trustline assets
 	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
 
@@ -553,7 +527,7 @@ func (b *IndexerBuffer) Clear() {
 
 	// Clear maps (keep allocated backing arrays)
 	clear(b.txByHash)
-	clear(b.participantsByTxHash)
+	clear(b.participantsByToID)
 	clear(b.opByID)
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
@@ -568,9 +542,6 @@ func (b *IndexerBuffer) Clear() {
 	// Clear account and SAC balance changes maps
 	clear(b.accountChangesByAccountID)
 	clear(b.sacBalanceChangesByKey)
-
-	// Clear all participants set
-	b.allParticipants.Clear()
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

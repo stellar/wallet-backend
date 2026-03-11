@@ -16,7 +16,7 @@ const (
 )
 
 type OperationColumnsKey struct {
-	TxHash        string
+	ToID          int64
 	AccountID     string
 	StateChangeID string
 	Columns       string
@@ -25,39 +25,45 @@ type OperationColumnsKey struct {
 	SortOrder     data.SortOrder
 }
 
-// opByTxHashLoader creates a dataloader for fetching operations by transaction hash
-// This prevents N+1 queries when multiple transactions request their operations
-// The loader batches multiple transaction hashes into a single database query
-func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
+// operationsByToIDLoader creates a dataloader for fetching operations by transaction ToID.
+// This prevents N+1 queries when multiple transactions request their operations.
+// The loader batches multiple transaction ToIDs into a single database query.
+//
+// Operations belong to a transaction when: tx_to_id < operation_id < tx_to_id + 4096
+//
+// To group results back by transaction, we derive tx_to_id from each operation:
+//
+//	tx_to_id = operation.ID &^ 0xFFF
+//
+// This is the inverse of the query: given an operation, find its parent transaction.
+func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
-			// Add the tx_hash column since that will be used as the primary key to group the operations
-			// in the final result.
 			columns := keys[0].Columns
-			if columns != "" {
-				columns = fmt.Sprintf("%s, tx_hash", columns)
-			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
-				return models.Operations.BatchGetByTxHash(ctx, keys[0].TxHash, columns, limit, keys[0].Cursor, sortOrder)
+				return models.Operations.BatchGetByToID(ctx, keys[0].ToID, columns, limit, keys[0].Cursor, sortOrder)
 			}
 
-			txHashes := make([]string, len(keys))
+			toIDs := make([]int64, len(keys))
 			maxLimit := min(*limit, MaxOperationsPerBatch)
 			for i, key := range keys {
-				txHashes[i] = key.TxHash
+				toIDs[i] = key.ToID
 			}
-			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns, &maxLimit, sortOrder)
+			return models.Operations.BatchGetByToIDs(ctx, toIDs, columns, &maxLimit, sortOrder)
 		},
-		func(item *types.OperationWithCursor) string {
-			return item.TxHash
+		func(item *types.OperationWithCursor) int64 {
+			// Derive tx_to_id from operation ID using TOID bit masking
+			// Operation ID encodes (ledger, tx_order, op_index). Setting op_index to 0 gives tx_to_id.
+			// The op_index uses the lower 12 bits (0xFFF), so masking them out gives the tx_to_id.
+			return item.ID &^ 0xFFF
 		},
-		func(key OperationColumnsKey) string {
-			return key.TxHash
+		func(key OperationColumnsKey) int64 {
+			return key.ToID
 		},
 		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
@@ -76,11 +82,11 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Ope
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
 			}
-			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID

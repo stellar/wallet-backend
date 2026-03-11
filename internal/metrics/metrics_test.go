@@ -66,38 +66,6 @@ func TestIngestMetrics(t *testing.T) {
 	})
 }
 
-func TestAccountMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
-
-	t.Run("active accounts counter", func(t *testing.T) {
-		// Initial state should be 0
-		_, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		// Increment and verify
-		ms.IncActiveAccount()
-		ms.IncActiveAccount()
-
-		// Decrement and verify
-		ms.DecActiveAccount()
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "active_accounts" {
-				found = true
-				assert.Equal(t, 1, len(mf.GetMetric()))
-			}
-		}
-		assert.True(t, found)
-	})
-}
-
 func TestRPCMetrics(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

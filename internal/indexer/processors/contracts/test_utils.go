@@ -625,10 +625,10 @@ func createInvalidBalanceMapTx(contractAccount, admin string, asset xdr.Asset, i
 func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
-	require.Equal(t, expectedAccount, change.AccountID)
+	require.Equal(t, expectedAccount, change.AccountID.String())
 	if expectedContractID != "" {
 		require.NotNil(t, change.TokenID)
-		require.Equal(t, expectedContractID, change.TokenID.String)
+		require.Equal(t, expectedContractID, change.TokenID.String())
 	}
 	require.Equal(t, reason, *change.StateChangeReason)
 }

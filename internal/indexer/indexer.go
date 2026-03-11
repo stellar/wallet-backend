@@ -25,9 +25,8 @@ type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
 	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
-	GetTransactionsParticipants() map[string]set.Set[string]
+	GetTransactionsParticipants() map[int64]set.Set[string]
 	GetOperationsParticipants() map[int64]set.Set[string]
-	GetAllParticipants() []string
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
@@ -184,7 +183,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		allParticipants = allParticipants.Union(opParticipants.Participants)
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants.Add(stateChange.AccountID)
+		allParticipants.Add(string(stateChange.AccountID))
 	}
 
 	// Insert transaction participants
@@ -251,9 +250,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			// Only store contract changes when contract token is SEP41
 			if stateChange.ContractType == types.ContractTypeSEP41 {
 				contractChange := types.ContractChange{
-					AccountID:    stateChange.AccountID,
+					AccountID:    string(stateChange.AccountID),
 					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String,
+					ContractID:   stateChange.TokenID.String(),
 					LedgerNumber: tx.Ledger.LedgerSequence(),
 					ContractType: stateChange.ContractType,
 				}

@@ -15,7 +15,6 @@ type StateChangeNode interface {
 	GetIngestedAt() time.Time
 	GetLedgerCreatedAt() time.Time
 	GetLedgerNumber() uint32
-	GetAccountID() string
 }
 
 // BaseStateChangeFields contains the common fields shared by all state change types
@@ -25,7 +24,6 @@ type BaseStateChangeFields struct {
 	IngestedAt      time.Time           `json:"ingestedAt"`
 	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
 	LedgerNumber    uint32              `json:"ledgerNumber"`
-	Account         Account             `json:"account"`
 }
 
 // GetType returns the state change category
@@ -51,11 +49,6 @@ func (b BaseStateChangeFields) GetLedgerCreatedAt() time.Time {
 // GetLedgerNumber returns the ledger number
 func (b BaseStateChangeFields) GetLedgerNumber() uint32 {
 	return b.LedgerNumber
-}
-
-// GetAccountID returns the account address
-func (b BaseStateChangeFields) GetAccountID() string {
-	return b.Account.Address
 }
 
 // StandardBalanceChange represents a standard balance state change
@@ -99,25 +92,28 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
-	TokenID  *string `json:"trustlineTokenId,omitempty"`
-	Limit    *string `json:"limit,omitempty"`
-	KeyValue *string `json:"trustlineKeyValue,omitempty"`
+	TokenID         *string `json:"trustlineTokenId,omitempty"`
+	Limit           *string `json:"limit,omitempty"`
+	LiquidityPoolID *string `json:"trustlineLiquidityPoolId,omitempty"`
 }
 
 // ReservesChange represents a reserves state change
 type ReservesChange struct {
 	BaseStateChangeFields
-	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
-	KeyValue         *string `json:"reservesKeyValue,omitempty"`
+	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
+	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
+	SponsoredData      *string `json:"sponsoredData,omitempty"`
+	SponsoredTrustline *string `json:"sponsoredTrustline,omitempty"`
+	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
+	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
 }
 
 // BalanceAuthorizationChange represents a balance authorization state change
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
-	TokenID  *string  `json:"balanceAuthTokenId,omitempty"`
-	Flags    []string `json:"flags"`
-	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
+	TokenID         *string  `json:"balanceAuthTokenId,omitempty"`
+	LiquidityPoolID *string  `json:"balanceAuthLiquidityPoolId,omitempty"`
+	Flags           []string `json:"flags"`
 }
 
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses

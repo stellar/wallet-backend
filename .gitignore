@@ -9,3 +9,4 @@ __debug_bin*
 *.out
 CLAUDE.md
 .claude/
+.serena

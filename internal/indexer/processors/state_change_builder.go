@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -18,14 +19,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TxHash:          txHash,
-			TxID:            txID,
+			ToID:            txID,
 		},
 		metricsService: metricsService,
 	}
@@ -43,56 +43,74 @@ func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateCh
 	return b
 }
 
-// WithThresholds sets the thresholds
-func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateChangeBuilder {
-	b.base.Thresholds = types.NullableJSONB(thresholds)
+// WithThreshold sets the threshold old and new values directly
+func (b *StateChangeBuilder) WithThreshold(oldValue, newValue *int16) *StateChangeBuilder {
+	if oldValue != nil {
+		b.base.ThresholdOld = sql.NullInt16{Int16: *oldValue, Valid: true}
+	}
+	if newValue != nil {
+		b.base.ThresholdNew = sql.NullInt16{Int16: *newValue, Valid: true}
+	}
 	return b
 }
 
-// WithTrustlineLimit sets the trustline limit
-func (b *StateChangeBuilder) WithTrustlineLimit(limit map[string]any) *StateChangeBuilder {
-	b.base.TrustlineLimit = types.NullableJSONB(limit)
+// WithTrustlineLimit sets the trustline limit old and new values directly
+func (b *StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) *StateChangeBuilder {
+	if oldValue != nil {
+		b.base.TrustlineLimitOld = utils.SQLNullString(*oldValue)
+	}
+	if newValue != nil {
+		b.base.TrustlineLimitNew = utils.SQLNullString(*newValue)
+	}
 	return b
 }
 
-// WithFlags sets the flags
+// WithFlags sets the flags as a bitmask from a slice of flag names
 func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
-	b.base.Flags = types.NullableJSON(flags)
+	if len(flags) > 0 {
+		bitmask := types.EncodeFlagsToBitmask(flags)
+		b.base.Flags = sql.NullInt16{Int16: bitmask, Valid: true}
+	}
 	return b
 }
 
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
-	b.base.AccountID = accountID
+	b.base.AccountID = types.AddressBytea(accountID)
 	return b
 }
 
-// WithSigner sets the signer and the weights
-func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *StateChangeBuilder {
-	b.base.SignerAccountID = utils.SQLNullString(signer)
-	b.base.SignerWeights = types.NullableJSONB(weights)
+// WithSigner sets the signer account ID and the weights directly
+func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) *StateChangeBuilder {
+	b.base.SignerAccountID = utils.NullAddressBytea(signer)
+	if oldWeight != nil {
+		b.base.SignerWeightOld = sql.NullInt16{Int16: *oldWeight, Valid: true}
+	}
+	if newWeight != nil {
+		b.base.SignerWeightNew = sql.NullInt16{Int16: *newWeight, Valid: true}
+	}
 	return b
 }
 
 // WithDeployer sets the deployer account ID, usually associated with a contract deployment.
 func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
-	b.base.DeployerAccountID = utils.SQLNullString(deployer)
+	b.base.DeployerAccountID = utils.NullAddressBytea(deployer)
 	return b
 }
 
 // WithFunder sets the funder account ID
 func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
-	b.base.FunderAccountID = utils.SQLNullString(funder)
+	b.base.FunderAccountID = utils.NullAddressBytea(funder)
 	return b
 }
 
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
-	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	b.base.SponsorAccountID = utils.NullAddressBytea(sponsor)
 	return b
 }
 
-// WithKeyValue sets the key value
+// WithKeyValue sets the key value JSONB field for truly variable data (data entries, home domain)
 func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
 	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
@@ -106,13 +124,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 
 // WithToken sets the token ID using the contract address
 func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
-	b.base.TokenID = utils.SQLNullString(contractAddress)
-	return b
-}
-
-// WithTrustlineAsset sets the trustline asset
-func (b *StateChangeBuilder) WithTrustlineAsset(asset string) *StateChangeBuilder {
-	b.base.TrustlineAsset = asset
+	b.base.TokenID = utils.NullAddressBytea(contractAddress)
 	return b
 }
 
@@ -124,7 +136,7 @@ func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateC
 
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
-	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
+	b.base.SponsoredAccountID = utils.NullAddressBytea(sponsoredAccountID)
 	return b
 }
 
@@ -134,13 +146,26 @@ func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuil
 	return b
 }
 
+// WithClaimableBalanceID sets the claimable balance ID for sponsorship state changes
+func (b *StateChangeBuilder) WithClaimableBalanceID(balanceID string) *StateChangeBuilder {
+	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
+	return b
+}
+
+// WithLiquidityPoolID sets the liquidity pool ID for trustline and sponsorship state changes
+func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuilder {
+	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
+	return b
+}
+
+// WithSponsoredData sets the data entry name for data sponsorship state changes
+func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuilder {
+	b.base.SponsoredData = utils.SQLNullString(dataName)
+	return b
+}
+
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	if b.base.OperationID != 0 {
-		b.base.ToID = b.base.OperationID
-	} else {
-		b.base.ToID = b.base.TxID
-	}
 	b.base.SortKey = b.generateSortKey()
 
 	return b.base
@@ -154,39 +179,30 @@ func (b *StateChangeBuilder) generateSortKey() string {
 	}
 
 	// For JSON fields, marshal to get a canonical string
-	signerWeights, err := json.Marshal(b.base.SignerWeights)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal signer weights: %v", err))
-	}
-	thresholds, err := json.Marshal(b.base.Thresholds)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal thresholds: %v", err))
-	}
-	flags, err := json.Marshal(b.base.Flags)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal flags: %v", err))
-	}
 	keyValue, err := json.Marshal(b.base.KeyValue)
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal key value: %v", err))
 	}
 
 	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
 		b.base.ToID,
 		b.base.StateChangeCategory,
 		reason,
 		b.base.AccountID,
-		b.base.TokenID.String,
+		b.base.TokenID.String(),
 		b.base.Amount.String,
-		b.base.OfferID.String,
-		b.base.SignerAccountID.String,
-		b.base.SpenderAccountID.String,
-		b.base.SponsoredAccountID.String,
-		b.base.SponsorAccountID.String,
-		string(signerWeights),
-		string(thresholds),
-		string(flags),
+		b.base.SignerAccountID.String(),
+		b.base.SpenderAccountID.String(),
+		b.base.SponsoredAccountID.String(),
+		b.base.SponsorAccountID.String(),
+		b.base.SignerWeightOld.Int16,
+		b.base.SignerWeightNew.Int16,
+		b.base.ThresholdOld.Int16,
+		b.base.ThresholdNew.Int16,
+		b.base.TrustlineLimitOld.String,
+		b.base.TrustlineLimitNew.String,
+		b.base.Flags.Int16,
 		string(keyValue),
 	)
 }

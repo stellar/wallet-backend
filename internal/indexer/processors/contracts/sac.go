@@ -27,7 +27,7 @@ var (
 const (
 	setAuthorizedFunctionName              = "set_authorized"
 	AuthorizedFlagName                     = "authorized"
-	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites"
+	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilities"
 	txMetaVersionV3                        = 3
 	txMetaVersionV4                        = 4
 )
@@ -80,7 +80,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {

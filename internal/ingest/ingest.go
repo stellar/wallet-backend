@@ -72,9 +72,6 @@ type Configs struct {
 	SkipTxMeta bool
 	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
 	SkipTxEnvelope bool
-	// EnableParticipantFiltering controls whether to filter ingested data by pre-registered accounts.
-	// When false (default), all data is stored. When true, only data for pre-registered accounts is stored.
-	EnableParticipantFiltering bool
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
@@ -87,6 +84,22 @@ type Configs struct {
 	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
 	// Defaults to 100.
 	CatchupThreshold int
+	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
+	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
+	ChunkInterval string
+	// RetentionPeriod configures automatic data retention. Chunks older than this are dropped.
+	// Empty string disables retention. Uses PostgreSQL INTERVAL syntax (e.g., "30 days", "6 months").
+	RetentionPeriod string
+	// CompressionScheduleInterval controls how frequently the compression policy job runs.
+	// Uses PostgreSQL INTERVAL syntax (e.g., "4 hours", "12 hours"). Empty string skips configuration.
+	CompressionScheduleInterval string
+	// CompressAfter controls how long after a chunk is closed before it becomes eligible for compression.
+	// Uses PostgreSQL INTERVAL syntax (e.g., "1 hour", "12 hours"). Empty string skips configuration.
+	CompressAfter string
+	// MaxChunksToCompress limits how many chunks each compression policy job run processes.
+	// 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during
+	// backfill to prevent long-running jobs from blocking their next scheduled start.
+	MaxChunksToCompress int
 }
 
 func Ingest(cfg Configs) error {
@@ -122,7 +135,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
 			// Continue anyway - other optimizations (async commit, work_mem) still apply
 		} else {
-			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled, work_mem=256MB")
+			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
 		}
 	default:
 		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
@@ -133,6 +146,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
+	}
+
+	if cfg.IngestionMode == services.IngestionModeLive {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
+			return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+		}
 	}
 
 	metricsService := metrics.NewMetricsService(sqlxDB)
@@ -185,29 +204,28 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:              cfg.IngestionMode,
-		Models:                     models,
-		LatestLedgerCursorName:     cfg.LatestLedgerCursorName,
-		OldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		AppTracker:                 cfg.AppTracker,
-		RPCService:                 rpcService,
-		LedgerBackend:              ledgerBackend,
-		LedgerBackendFactory:       ledgerBackendFactory,
-		ChannelAccountStore:        chAccStore,
-		TokenIngestionService:      tokenIngestionService,
-		ContractMetadataService:    contractMetadataService,
-		MetricsService:             metricsService,
-		GetLedgersLimit:            cfg.GetLedgersLimit,
-		Network:                    cfg.Network,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
-		Archive:                    archive,
-		SkipTxMeta:                 cfg.SkipTxMeta,
-		SkipTxEnvelope:             cfg.SkipTxEnvelope,
-		EnableParticipantFiltering: cfg.EnableParticipantFiltering,
-		BackfillWorkers:            cfg.BackfillWorkers,
-		BackfillBatchSize:          cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize:  cfg.BackfillDBInsertBatchSize,
-		CatchupThreshold:           cfg.CatchupThreshold,
+		IngestionMode:             cfg.IngestionMode,
+		Models:                    models,
+		LatestLedgerCursorName:    cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		AppTracker:                cfg.AppTracker,
+		RPCService:                rpcService,
+		LedgerBackend:             ledgerBackend,
+		LedgerBackendFactory:      ledgerBackendFactory,
+		ChannelAccountStore:       chAccStore,
+		TokenIngestionService:     tokenIngestionService,
+		ContractMetadataService:   contractMetadataService,
+		MetricsService:            metricsService,
+		GetLedgersLimit:           cfg.GetLedgersLimit,
+		Network:                   cfg.Network,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
+		Archive:                   archive,
+		SkipTxMeta:                cfg.SkipTxMeta,
+		SkipTxEnvelope:            cfg.SkipTxEnvelope,
+		BackfillWorkers:           cfg.BackfillWorkers,
+		BackfillBatchSize:         cfg.BackfillBatchSize,
+		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		CatchupThreshold:          cfg.CatchupThreshold,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

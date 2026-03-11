@@ -44,7 +44,6 @@ const (
 type ResolverConfig struct {
 	MaxAccountsPerBalancesQuery int
 	MaxWorkerPoolSize           int
-	EnableParticipantFiltering  bool
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
@@ -56,8 +55,6 @@ type Resolver struct {
 	// models provides access to data layer for database operations
 	// This follows dependency injection pattern - resolvers don't create their own DB connections
 	models *data.Models
-	// accountService provides account management operations
-	accountService services.AccountService
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
@@ -77,14 +74,13 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
 	}
 	return &Resolver{
 		models:                     models,
-		accountService:             accountService,
 		transactionService:         transactionService,
 		feeBumpService:             feeBumpService,
 		rpcService:                 rpcService,
@@ -109,6 +105,16 @@ func (r *Resolver) resolveNullableString(field sql.NullString) *string {
 	return nil
 }
 
+// resolveNullableAddress resolves nullable address fields from the database
+// Returns pointer to string if valid, nil if null
+func (r *Resolver) resolveNullableAddress(field types.NullAddressBytea) *string {
+	if field.Valid {
+		s := field.String()
+		return &s
+	}
+	return nil
+}
+
 // resolveRequiredString resolves required string fields from the database
 // Returns empty string if null to satisfy non-nullable GraphQL fields
 func (r *Resolver) resolveRequiredString(field sql.NullString) string {
@@ -116,28 +122,6 @@ func (r *Resolver) resolveRequiredString(field sql.NullString) string {
 		return field.String
 	}
 	return ""
-}
-
-// resolveJSONBField resolves JSONB fields that return nullable strings
-// Marshals Go object to JSON string, returns nil if field is nil or empty map
-func (r *Resolver) resolveJSONBField(field interface{}) (*string, error) {
-	if field == nil {
-		return nil, nil
-	}
-
-	// Handle NullableJSONB specifically - if it's an empty map, treat as nil
-	if jsonbField, ok := field.(types.NullableJSONB); ok {
-		if len(jsonbField) == 0 {
-			return nil, nil
-		}
-	}
-
-	jsonBytes, err := json.Marshal(field)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JSONB field: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
 }
 
 // resolveRequiredJSONBField resolves JSONB fields that return required strings
@@ -156,31 +140,24 @@ func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) 
 // Shared resolver functions for BaseStateChange interface
 // These functions provide common logic that all state change types can use
 
-// resolveStateChangeAccount resolves the account field for any state change type
-// Since state changes have a direct account_id reference, we can fetch the account directly
-func (r *Resolver) resolveStateChangeAccount(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Account, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
-
-	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
-	loaderKey := dataloaders.AccountColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
+// resolveStateChangeAccount resolves the account field for any state change type.
+// Uses the already-populated AccountID from the state change row to avoid a re-query.
+func (r *Resolver) resolveStateChangeAccount(accountID types.AddressBytea) (*types.Account, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("state change has no account_id")
 	}
-	account, err := loaders.AccountByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, fmt.Errorf("loading account for state change %s: %w", stateChangeID, err)
-	}
-	return account, nil
+	return &types.Account{
+		StellarAddress: accountID,
+	}, nil
 }
 
 // resolveStateChangeOperation resolves the operation field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Operation, error) {
+func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeOrder int64) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 
-	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
+	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeOrder)
 	loaderKey := dataloaders.OperationColumnsKey{
 		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),
@@ -194,11 +171,11 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Transaction, error) {
+func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeOrder int64) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
-	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
+	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeOrder)
 	loaderKey := dataloaders.TransactionColumnsKey{
 		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),

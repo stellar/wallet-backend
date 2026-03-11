@@ -3,16 +3,6 @@ package resolvers
 
 // Error message constants
 const (
-	// RegisterAccount errors
-	ErrMsgAccountAlreadyExists      = "Account is already registered"
-	ErrMsgInvalidAddress            = "Invalid address: must be a valid Stellar public key or contract address"
-	ErrMsgAccountRegistrationFailed = "Failed to register account: %s"
-
-	// DeregisterAccount errors
-	ErrMsgAccountNotFound             = "Account not found"
-	ErrMsgAccountDeregistrationFailed = "Failed to deregister account: %s"
-	ErrMsgAccountDeregisteredSuccess  = "Account deregistered successfully"
-
 	// CreateFeeBumpTransaction errors
 	ErrMsgCouldNotParseTransactionEnvelope = "Could not parse transaction envelope."
 	ErrMsgCannotWrapFeeBumpTransaction     = "Cannot wrap a fee-bump transaction into another fee-bump transaction"
@@ -21,6 +11,9 @@ const (
 
 	// BalancesByAccountAddress errors (single account)
 	ErrMsgSingleInvalidAddress = "invalid address format: must be a valid Stellar account (G...) or contract (C...) address"
+
+	// TransactionByHash / StateChanges hash filter errors
+	ErrMsgInvalidTransactionHash = "invalid transaction hash format: must be a 64-character hex string"
 
 	// BalancesByAccountAddresses errors (multiple accounts)
 	ErrMsgEmptyAddresses      = "addresses array cannot be empty"

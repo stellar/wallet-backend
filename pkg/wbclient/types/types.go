@@ -285,39 +285,6 @@ type Operation struct {
 	IngestedAt      time.Time     `json:"ingestedAt"`
 }
 
-// StateChange represents a blockchain state change with all possible fields
-type StateChange struct {
-	Type            StateChangeCategory `json:"type"`
-	Reason          StateChangeReason   `json:"reason"`
-	IngestedAt      time.Time           `json:"ingestedAt"`
-	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
-	LedgerNumber    uint32              `json:"ledgerNumber"`
-
-	// Fields for balance changes
-	TokenID *string `json:"tokenId,omitempty"`
-	Amount  *string `json:"amount,omitempty"`
-
-	// Fields for signer changes
-	SignerAddress *string `json:"signerAddress,omitempty"`
-	SignerWeights *string `json:"signerWeights,omitempty"`
-
-	// Fields for threshold changes
-	Thresholds *string `json:"thresholds,omitempty"`
-
-	// Fields for metadata changes
-	KeyValue *string `json:"keyValue,omitempty"`
-
-	// Fields for flags changes
-	Flags []string `json:"flags,omitempty"`
-
-	// Fields for trustline changes
-	Limit *string `json:"limit,omitempty"`
-
-	// Fields for reserves changes
-	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
-}
-
 // PageInfo contains pagination information
 type PageInfo struct {
 	StartCursor     *string `json:"startCursor,omitempty"`
@@ -392,28 +359,6 @@ func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 type StateChangeConnection struct {
 	Edges    []*StateChangeEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`
-}
-
-// RegisterAccountInput is the input for registering an account
-type RegisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-// RegisterAccountPayload is the response for registering an account
-type RegisterAccountPayload struct {
-	Success bool     `json:"success"`
-	Account *Account `json:"account,omitempty"`
-}
-
-// DeregisterAccountInput is the input for deregistering an account
-type DeregisterAccountInput struct {
-	Address string `json:"address"`
-}
-
-// DeregisterAccountPayload is the response for deregistering an account
-type DeregisterAccountPayload struct {
-	Success bool    `json:"success"`
-	Message *string `json:"message,omitempty"`
 }
 
 type BuildTransactionsRequest struct {

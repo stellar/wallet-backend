@@ -34,12 +34,173 @@ package types
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// AddressBytea represents a Stellar address stored as BYTEA in the database.
+// Storage format: 33 bytes (1 version byte + 32 raw key bytes)
+// Go representation: StrKey string (G.../C...)
+type AddressBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (33 bytes) to StrKey string
+func (a *AddressBytea) Scan(value any) error {
+	if value == nil {
+		*a = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 33 {
+		return fmt.Errorf("expected 33 bytes, got %d", len(bytes))
+	}
+	versionByte := strkey.VersionByte(bytes[0])
+	rawKey := bytes[1:33]
+	encoded, err := strkey.Encode(versionByte, rawKey)
+	if err != nil {
+		return fmt.Errorf("encoding stellar address: %w", err)
+	}
+	*a = AddressBytea(encoded)
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte
+func (a AddressBytea) Value() (driver.Value, error) {
+	if a == "" {
+		return nil, nil
+	}
+	versionByte, rawBytes, err := strkey.DecodeAny(string(a))
+	if err != nil {
+		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
+	}
+	result := make([]byte, 33)
+	result[0] = byte(versionByte)
+	copy(result[1:], rawBytes)
+	return result, nil
+}
+
+// String returns the Stellar address as a string.
+func (a AddressBytea) String() string {
+	return string(a)
+}
+
+// NullAddressBytea represents a nullable Stellar address stored as BYTEA in the database.
+// Similar to sql.NullString but handles BYTEA encoding/decoding for Stellar addresses.
+type NullAddressBytea struct {
+	AddressBytea AddressBytea // The Stellar address (G.../C...)
+	Valid        bool         // Valid is true if AddressBytea is not NULL
+}
+
+// Scan implements sql.Scanner - converts nullable BYTEA (33 bytes) to StrKey string
+func (n *NullAddressBytea) Scan(value any) error {
+	if value == nil {
+		n.AddressBytea, n.Valid = "", false
+		return nil
+	}
+	if err := n.AddressBytea.Scan(value); err != nil {
+		return err
+	}
+	n.Valid = true
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte or nil
+func (n NullAddressBytea) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return n.AddressBytea.Value()
+}
+
+// String returns the Stellar address as a string (convenience accessor).
+func (n NullAddressBytea) String() string {
+	return string(n.AddressBytea)
+}
+
+// HashBytea represents a transaction hash stored as BYTEA in the database.
+// Storage format: 32 bytes (raw SHA-256 hash)
+// Go representation: hex string (64 characters)
+type HashBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (32 bytes) to hex string
+func (h *HashBytea) Scan(value any) error {
+	if value == nil {
+		*h = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) != 32 {
+		return fmt.Errorf("expected 32 bytes, got %d", len(bytes))
+	}
+	*h = HashBytea(hex.EncodeToString(bytes))
+	return nil
+}
+
+// Value implements driver.Valuer - converts hex string to 32-byte []byte
+func (h HashBytea) Value() (driver.Value, error) {
+	if h == "" {
+		return nil, nil
+	}
+	bytes, err := hex.DecodeString(string(h))
+	if err != nil {
+		return nil, fmt.Errorf("decoding hex hash %s: %w", h, err)
+	}
+	if len(bytes) != 32 {
+		return nil, fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(bytes))
+	}
+	return bytes, nil
+}
+
+// String returns the hash as a hex string.
+func (h HashBytea) String() string {
+	return string(h)
+}
+
+// XDRBytea represents XDR data stored as BYTEA in the database.
+// Storage format: raw XDR bytes (variable length)
+// Go representation: raw bytes internally, base64 string via String()
+type XDRBytea []byte
+
+// Scan implements sql.Scanner - reads raw bytes from BYTEA column
+func (x *XDRBytea) Scan(value any) error {
+	if value == nil {
+		*x = nil
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	*x = make([]byte, len(bytes))
+	copy(*x, bytes)
+	return nil
+}
+
+// Value implements driver.Valuer - returns raw bytes for BYTEA storage
+func (x XDRBytea) Value() (driver.Value, error) {
+	if len(x) == 0 {
+		return nil, nil
+	}
+	buf := make([]byte, len(x))
+	copy(buf, x)
+	return buf, nil
+}
+
+// String returns the XDR as a base64 string.
+func (x XDRBytea) String() string {
+	return base64.StdEncoding.EncodeToString(x)
+}
 
 type ContractType string
 
@@ -118,13 +279,13 @@ const (
 )
 
 type Account struct {
-	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
-	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
+	StellarAddress AddressBytea `json:"address,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time    `json:"createdAt,omitempty" db:"created_at"`
 }
 
-type AccountWithTxHash struct {
+type AccountWithToID struct {
 	Account
-	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+	ToID int64 `json:"toId,omitempty" db:"tx_to_id"`
 }
 
 type AccountWithOperationID struct {
@@ -133,7 +294,7 @@ type AccountWithOperationID struct {
 }
 
 type Transaction struct {
-	Hash            string    `json:"hash,omitempty" db:"hash"`
+	Hash            HashBytea `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     *string   `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	FeeCharged      int64     `json:"feeCharged,omitempty" db:"fee_charged"`
@@ -153,9 +314,17 @@ type Transaction struct {
 	InnerTransactionHash string `json:"innerTransactionHash,omitempty" db:"-"`
 }
 
+// CompositeCursor encodes both ledger_created_at and an entity ID for TimescaleDB-friendly
+// cursor-based pagination. Using ledger_created_at as the leading sort column allows
+// TimescaleDB to use ChunkAppend optimization on hypertables.
+type CompositeCursor struct {
+	LedgerCreatedAt time.Time `db:"cursor_ledger_created_at"`
+	ID              int64     `db:"cursor_id"`
+}
+
 type TransactionWithCursor struct {
 	Transaction
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
 }
 
 type TransactionWithStateChangeID struct {
@@ -239,16 +408,21 @@ const (
 )
 
 type Operation struct {
+	// ID is the TOID (Total Order ID) per SEP-35, encoding:
+	//   - Ledger sequence (bits 63-32)
+	//   - Transaction order within ledger (bits 31-12)
+	//   - Operation index within transaction (bits 11-0, 1-indexed)
+	//
+	// The parent transaction's to_id can be derived: ID &^ 0xFFF
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
-	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	OperationXDR    XDRBytea      `json:"operationXdr,omitempty" db:"operation_xdr"`
 	ResultCode      string        `json:"resultCode,omitempty" db:"result_code"`
 	Successful      bool          `json:"successful,omitempty" db:"successful"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
-	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
@@ -256,16 +430,11 @@ type Operation struct {
 
 type OperationWithCursor struct {
 	Operation
-	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
+	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
 }
 
 type OperationWithStateChangeID struct {
 	Operation
-	StateChangeID string `db:"state_change_id"`
-}
-
-type AccountWithStateChangeID struct {
-	Account
 	StateChangeID string `db:"state_change_id"`
 }
 
@@ -307,6 +476,62 @@ const (
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// Flag bitmask constants for encoding/decoding authorization flags.
+// These map to the flags SMALLINT column in the state_changes table.
+const (
+	FlagBitAuthorized                      int16 = 1 << 0 // Bit 0: authorized
+	FlagBitAuthRequired                    int16 = 1 << 1 // Bit 1: auth_required
+	FlagBitAuthRevocable                   int16 = 1 << 2 // Bit 2: auth_revocable
+	FlagBitAuthImmutable                   int16 = 1 << 3 // Bit 3: auth_immutable
+	FlagBitAuthClawbackEnabled             int16 = 1 << 4 // Bit 4: auth_clawback_enabled
+	FlagBitClawbackEnabled                 int16 = 1 << 5 // Bit 5: clawback_enabled
+	FlagBitAuthorizedToMaintainLiabilities int16 = 1 << 6 // Bit 6: authorized_to_maintain_liabilities
+)
+
+// flagNameToBit maps flag names to their bitmask values.
+var flagNameToBit = map[string]int16{
+	"authorized":                         FlagBitAuthorized,
+	"auth_required":                      FlagBitAuthRequired,
+	"auth_revocable":                     FlagBitAuthRevocable,
+	"auth_immutable":                     FlagBitAuthImmutable,
+	"auth_clawback_enabled":              FlagBitAuthClawbackEnabled,
+	"clawback_enabled":                   FlagBitClawbackEnabled,
+	"authorized_to_maintain_liabilities": FlagBitAuthorizedToMaintainLiabilities,
+}
+
+// flagBitToName maps bitmask values to flag names (for decoding)
+var flagBitToName = map[int16]string{
+	FlagBitAuthorized:                      "authorized",
+	FlagBitAuthRequired:                    "auth_required",
+	FlagBitAuthRevocable:                   "auth_revocable",
+	FlagBitAuthImmutable:                   "auth_immutable",
+	FlagBitAuthClawbackEnabled:             "auth_clawback_enabled",
+	FlagBitClawbackEnabled:                 "clawback_enabled",
+	FlagBitAuthorizedToMaintainLiabilities: "authorized_to_maintain_liabilities",
+}
+
+// EncodeFlagsToBitmask encodes a slice of flag names to a bitmask value
+func EncodeFlagsToBitmask(flags []string) int16 {
+	var bitmask int16
+	for _, flag := range flags {
+		if bit, ok := flagNameToBit[flag]; ok {
+			bitmask |= bit
+		}
+	}
+	return bitmask
+}
+
+// DecodeBitmaskToFlags decodes a bitmask value to a slice of flag names
+func DecodeBitmaskToFlags(bitmask int16) []string {
+	var flags []string
+	for bit, name := range flagBitToName {
+		if bitmask&bit != 0 {
+			flags = append(flags, name)
+		}
+	}
+	return flags
+}
+
 // StateChange represents a unified database model for all types of blockchain state changes.
 //
 // DESIGN RATIONALE:
@@ -316,13 +541,13 @@ const (
 //
 // FIELD USAGE BY CATEGORY:
 // - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Liability changes: TokenID, Amount, OfferID
-// - Sponsorship changes: SponsoredAccountID, SponsorAccountID
-// - Signer changes: SignerAccountID, SignerWeights
-// - Threshold changes: Thresholds
-// - Flag changes: Flags
+// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, SponsoredData
+// - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
+// - Threshold changes: ThresholdOld, ThresholdNew
+// - Flag changes: Flags (bitmask)
 // - Metadata changes: KeyValue
 // - Allowance changes: SpenderAccountID
+// - Trustline changes: TrustlineLimitOld, TrustlineLimitNew, LiquidityPoolID
 //
 // The StateChangeCategory field determines which subset of fields are populated and relevant.
 // This approach enables:
@@ -341,34 +566,51 @@ type StateChange struct {
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
-	// Nullable fields:
-	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
-	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
-	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
-	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
-	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
-	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
-	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
-	TrustlineLimit NullableJSONB `json:"trustlineLimit,omitempty" db:"trustline_limit"`
-	Flags          NullableJSON  `json:"flags,omitempty" db:"flags"`
-	KeyValue       NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+
+	// Nullable address fields (stored as BYTEA in database):
+	TokenID NullAddressBytea `json:"tokenId,omitempty" db:"token_id"`
+	Amount  sql.NullString   `json:"amount,omitempty" db:"amount"`
+
+	// Nullable address fields (stored as BYTEA in database):
+	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SpenderAccountID   NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	SponsoredAccountID NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID   NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID  NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID    NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
+
+	// Entity identifiers (moved from key_value JSONB):
+	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
+	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
+	SponsoredData      sql.NullString `json:"sponsoredData,omitempty" db:"sponsored_data"`
+
+	// Flattened signer weights (range 0-255, was JSONB {"old": int, "new": int}):
+	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`
+	SignerWeightNew sql.NullInt16 `json:"signerWeightNew,omitempty" db:"signer_weight_new"`
+
+	// Flattened thresholds (range 0-255, was JSONB {"old": "val", "new": "val"}):
+	ThresholdOld sql.NullInt16 `json:"thresholdOld,omitempty" db:"threshold_old"`
+	ThresholdNew sql.NullInt16 `json:"thresholdNew,omitempty" db:"threshold_new"`
+
+	// Flattened trustline limit (was JSONB {"limit": {"old": "...", "new": "..."}}):
+	TrustlineLimitOld sql.NullString `json:"trustlineLimitOld,omitempty" db:"trustline_limit_old"`
+	TrustlineLimitNew sql.NullString `json:"trustlineLimitNew,omitempty" db:"trustline_limit_new"`
+
+	// Flags as bitmask instead of JSON array (see FlagBit* constants):
+	Flags sql.NullInt16 `json:"flags,omitempty" db:"flags"`
+
+	// ONLY truly variable data remains as JSONB (data entries, home domain):
+	KeyValue NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+
 	// Relationships:
-	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	AccountID   AddressBytea `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
+
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
-	// code:issuer formatted asset string (used for state change history)
-	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }
@@ -379,8 +621,10 @@ type StateChangeWithCursor struct {
 }
 
 type StateChangeCursor struct {
-	ToID             int64 `db:"cursor_to_id"`
-	StateChangeOrder int64 `db:"cursor_state_change_order"`
+	LedgerCreatedAt  time.Time `db:"cursor_ledger_created_at"`
+	ToID             int64     `db:"cursor_to_id"`
+	OperationID      int64     `db:"cursor_operation_id"`
+	StateChangeOrder int64     `db:"cursor_state_change_order"`
 }
 
 type StateChangeCursorGetter interface {
@@ -388,53 +632,6 @@ type StateChangeCursorGetter interface {
 }
 
 type NullableJSONB map[string]any
-
-// NullableJSON represents a nullable JSON array of strings
-type NullableJSON []string
-
-var _ sql.Scanner = (*NullableJSON)(nil)
-
-func (n *NullableJSON) Scan(value any) error {
-	if value == nil {
-		*n = nil
-		return nil
-	}
-
-	switch v := value.(type) {
-	case []byte:
-		var stringSlice []string
-		if err := json.Unmarshal(v, &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value []byte: %w", err)
-		}
-		*n = stringSlice
-	case string:
-		var stringSlice []string
-		if err := json.Unmarshal([]byte(v), &stringSlice); err != nil {
-			return fmt.Errorf("unmarshalling value string: %w", err)
-		}
-		*n = stringSlice
-	default:
-		return fmt.Errorf("unsupported type for JSON array: %T", value)
-	}
-
-	return nil
-}
-
-var _ driver.Valuer = (*NullableJSON)(nil)
-
-func (n NullableJSON) Value() (driver.Value, error) {
-	// Handle nil slice as empty array to avoid null in JSON
-	if n == nil {
-		return []byte("[]"), nil
-	}
-
-	bytes, err := json.Marshal([]string(n))
-	if err != nil {
-		return nil, fmt.Errorf("marshalling JSON array: %w", err)
-	}
-
-	return bytes, nil
-}
 
 var _ sql.Scanner = (*NullableJSONB)(nil)
 
@@ -538,7 +735,9 @@ func (sc StateChange) GetTransaction() *Transaction {
 // GetCursor returns the cursor for this state change.
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
+		LedgerCreatedAt:  sc.LedgerCreatedAt,
 		ToID:             sc.ToID,
+		OperationID:      sc.OperationID,
 		StateChangeOrder: sc.StateChangeOrder,
 	}
 }

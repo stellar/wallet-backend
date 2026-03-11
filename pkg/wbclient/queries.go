@@ -45,9 +45,7 @@ const (
 		ingestedAt
 		ledgerCreatedAt
 		ledgerNumber
-		account {
-			address
-		}
+		
 		... on StandardBalanceChange {
 			standardBalanceTokenId: tokenId
 			amount
@@ -71,17 +69,20 @@ const (
 		... on TrustlineChange {
 			trustlineTokenId: tokenId
 			limit
-			trustlineKeyValue: keyValue
+			trustlineLiquidityPoolId: liquidityPoolId
 		}
 		... on ReservesChange {
 			sponsoredAddress
 			sponsorAddress
-			reservesKeyValue: keyValue
+			sponsoredData
+			sponsoredTrustline
+			claimableBalanceId
+			liquidityPoolId
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId
+			balanceAuthLiquidityPoolId: liquidityPoolId
 			flags
-			balanceAuthKeyValue: keyValue
 		}
 	`
 )
@@ -106,32 +107,6 @@ func createFeeBumpTransactionQuery() string {
 				success
 				transaction
 				networkPassphrase
-			}
-		}
-	`
-}
-
-// registerAccountQuery builds the GraphQL mutation for registering an account
-func registerAccountQuery() string {
-	return `
-		mutation RegisterAccount($input: RegisterAccountInput!) {
-			registerAccount(input: $input) {
-				success
-				account {
-					address
-				}
-			}
-		}
-	`
-}
-
-// deregisterAccountQuery builds the GraphQL mutation for deregistering an account
-func deregisterAccountQuery() string {
-	return `
-		mutation DeregisterAccount($input: DeregisterAccountInput!) {
-			deregisterAccount(input: $input) {
-				success
-				message
 			}
 		}
 	`
@@ -247,9 +222,9 @@ func buildStateChangesQuery() string {
 func buildAccountTransactionsQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultTransactionFields)
 	return fmt.Sprintf(`
-		query AccountTransactions($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountTransactions($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				transactions(first: $first, after: $after, last: $last, before: $before) {
+				transactions(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
@@ -272,9 +247,9 @@ func buildAccountTransactionsQuery(fields []string) string {
 func buildAccountOperationsQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultOperationFields)
 	return fmt.Sprintf(`
-		query AccountOperations($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountOperations($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				operations(first: $first, after: $after, last: $last, before: $before) {
+				operations(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
@@ -297,9 +272,9 @@ func buildAccountOperationsQuery(fields []string) string {
 // Supports optional filtering by transaction hash and/or operation ID
 func buildAccountStateChangesQuery() string {
 	return fmt.Sprintf(`
-		query AccountStateChanges($address: String!, $filter: AccountStateChangeFilterInput, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountStateChanges($address: String!, $filter: AccountStateChangeFilterInput, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				stateChanges(filter: $filter, first: $first, after: $after, last: $last, before: $before) {
+				stateChanges(filter: $filter, since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s

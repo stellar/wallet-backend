@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // GetIngestCursor retrieves a cursor value from the ingest_store table.
@@ -55,11 +57,11 @@ func (s *SharedContainers) GetTransactionCountForAccount(ctx context.Context, ac
 	query := `
 		SELECT COUNT(DISTINCT t.hash)
 		FROM transactions t
-		INNER JOIN transactions_accounts ta ON t.hash = ta.tx_hash
+		INNER JOIN transactions_accounts ta ON t.to_id = ta.tx_to_id
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
-	err = db.QueryRowContext(ctx, query, accountAddr, startLedger, endLedger).Scan(&count)
+	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting transactions for account %s: %w", accountAddr, err)
 	}
@@ -89,7 +91,7 @@ func (s *SharedContainers) HasOperationForAccount(ctx context.Context, accountAd
 			AND o.ledger_number BETWEEN $3 AND $4
 		)
 	`
-	err = db.QueryRowContext(ctx, query, accountAddr, opType, startLedger, endLedger).Scan(&exists)
+	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), opType, startLedger, endLedger).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking operation for account %s: %w", accountAddr, err)
 	}
@@ -113,11 +115,11 @@ func (s *SharedContainers) GetTransactionAccountLinkCount(ctx context.Context, a
 	query := `
 		SELECT COUNT(*)
 		FROM transactions_accounts ta
-		INNER JOIN transactions t ON ta.tx_hash = t.hash
+		INNER JOIN transactions t ON ta.tx_to_id = t.to_id
 		WHERE ta.account_id = $1
 		AND t.ledger_number BETWEEN $2 AND $3
 	`
-	err = db.QueryRowContext(ctx, query, accountAddr, startLedger, endLedger).Scan(&count)
+	err = db.QueryRowContext(ctx, query, types.AddressBytea(accountAddr), startLedger, endLedger).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting transaction-account links for %s: %w", accountAddr, err)
 	}

@@ -147,7 +147,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 
 	// PHASE A: Wait for RPC health
 	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Waiting for RPC service to become healthy...")
-	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil); err != nil {
+	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second); err != nil {
 		suite.Require().NoError(err, "RPC service did not become healthy")
 	}
 

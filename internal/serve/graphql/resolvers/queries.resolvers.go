@@ -6,8 +6,6 @@ package resolvers
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +24,15 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
+	if !utils.IsValidTransactionHash(hash) {
+		return nil, &gqlerror.Error{
+			Message: ErrMsgInvalidTransactionHash,
+			Extensions: map[string]interface{}{
+				"code": "INVALID_TRANSACTION_HASH",
+				"hash": hash,
+			},
+		}
+	}
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
@@ -34,20 +41,20 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
 
-	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) int64 {
-		return t.Cursor
+	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) string {
+		return fmt.Sprintf("%d:%d", t.Cursor.LedgerCreatedAt.UnixNano(), t.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
@@ -66,42 +73,35 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 
 // AccountByAddress is the resolver for the accountByAddress field.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
-	if address == "" {
-		return nil, fmt.Errorf("address cannot be empty")
-	}
-	acc, err := r.models.Account.Get(ctx, address)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			// If the participant filtering has been enabled and this account is not registered, we return an error.
-			if r.config.EnableParticipantFiltering {
-				return nil, fmt.Errorf("account not found")
-			}
-
-			// When participant filtering is disabled, we return the account object so that the resolver can return a valid object.
-			return &types.Account{StellarAddress: address}, nil
+	if !utils.IsValidStellarAddress(address) {
+		return nil, &gqlerror.Error{
+			Message: "invalid Stellar address",
+			Extensions: map[string]interface{}{
+				"code":    "INVALID_ADDRESS",
+				"address": address,
+			},
 		}
-		return nil, err
 	}
-	return acc, nil
+	return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
 }
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, false)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}
 
-	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
-		return o.Cursor
+	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) string {
+		return fmt.Sprintf("%d:%d", o.Cursor.LedgerCreatedAt.UnixNano(), o.Cursor.ID)
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
@@ -126,7 +126,7 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, true)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -140,7 +140,7 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 
 	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
+		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
