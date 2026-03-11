@@ -198,7 +198,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_id" ASC`, query)
 	}
 
 	var operations []*types.OperationWithCursor
@@ -264,8 +264,9 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
 		SELECT %s, o.ledger_created_at as "cursor.cursor_ledger_created_at", o.id as "cursor.cursor_id"
-		FROM account_ops ao,
-		LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o`, columns))
+		FROM account_ops ao
+		LEFT JOIN LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o ON true
+		WHERE o.id IS NOT NULL`, columns))
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`

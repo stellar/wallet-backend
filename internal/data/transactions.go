@@ -138,8 +138,9 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
 		SELECT %s, t.ledger_created_at as "cursor.cursor_ledger_created_at", t.to_id as "cursor.cursor_id"
-		FROM account_txns ta,
-		LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t`, columns))
+		FROM account_txns ta
+		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
+		WHERE t.to_id IS NOT NULL`, columns))
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
