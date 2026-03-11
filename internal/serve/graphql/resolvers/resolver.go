@@ -153,11 +153,11 @@ func (r *Resolver) resolveStateChangeAccount(accountID types.AddressBytea) (*typ
 
 // resolveStateChangeOperation resolves the operation field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeOrder int64) (*types.Operation, error) {
+func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeId int64) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 
-	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeOrder)
+	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeId)
 	loaderKey := dataloaders.OperationColumnsKey{
 		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),
@@ -171,11 +171,11 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeOrder int64) (*types.Transaction, error) {
+func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeId int64) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
-	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeOrder)
+	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeId)
 	loaderKey := dataloaders.TransactionColumnsKey{
 		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),

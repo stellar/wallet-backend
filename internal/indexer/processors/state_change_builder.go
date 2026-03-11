@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -166,13 +167,15 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.SortKey = b.generateSortKey()
-
+	b.base.HashKey = b.generateHashKey()
+	h := fnv.New64a()
+	h.Write([]byte(b.base.HashKey))
+	b.base.StateChangeID = int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
 	return b.base
 }
 
-// generateSortKey creates a deterministic string representation of a state change for sorting purposes.
-func (b *StateChangeBuilder) generateSortKey() string {
+// generateHashKey creates a deterministic string representation of a state change for hashing purposes.
+func (b *StateChangeBuilder) generateHashKey() string {
 	reason := ""
 	if b.base.StateChangeReason != nil {
 		reason = string(*b.base.StateChangeReason)

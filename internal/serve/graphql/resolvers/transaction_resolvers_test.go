@@ -247,31 +247,31 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, int64(0), cursor.OperationID) // Fee change has no operation
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		// Edge 1: Operation 1's first state change
 		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		// Edge 2: Operation 1's second state change
 		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+		assert.Equal(t, int64(2), cursor.StateChangeID)
 
 		// Edge 3: Operation 2's first state change
 		cursor = extractStateChangeIDs(stateChanges.Edges[3].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op2ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		// Edge 4: Operation 2's second state change
 		cursor = extractStateChangeIDs(stateChanges.Edges[4].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op2ID, cursor.OperationID)
-		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+		assert.Equal(t, int64(2), cursor.StateChangeID)
 
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
@@ -294,12 +294,12 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, int64(0), cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
@@ -315,12 +315,12 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+		assert.Equal(t, int64(2), cursor.StateChangeID)
 
 		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op2ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
@@ -343,12 +343,12 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		cursor := extractStateChangeIDs(stateChanges.Edges[0].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op2ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op2ID, cursor.OperationID)
-		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+		assert.Equal(t, int64(2), cursor.StateChangeID)
 
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
@@ -365,17 +365,17 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		cursor = extractStateChangeIDs(stateChanges.Edges[0].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, int64(0), cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		cursor = extractStateChangeIDs(stateChanges.Edges[1].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(1), cursor.StateChangeOrder)
+		assert.Equal(t, int64(1), cursor.StateChangeID)
 
 		cursor = extractStateChangeIDs(stateChanges.Edges[2].Node)
 		assert.Equal(t, txToID, cursor.ToID)
 		assert.Equal(t, op1ID, cursor.OperationID)
-		assert.Equal(t, int64(2), cursor.StateChangeOrder)
+		assert.Equal(t, int64(2), cursor.StateChangeID)
 
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)

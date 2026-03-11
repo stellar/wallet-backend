@@ -560,7 +560,7 @@ func DecodeBitmaskToFlags(bitmask int16) []string {
 // logic that converts this unified representation to specific GraphQL types.
 type StateChange struct {
 	ToID                int64               `json:"toId,omitempty" db:"to_id"`
-	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
+	StateChangeID       int64               `json:"stateChangeId,omitempty" db:"state_change_id"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
@@ -609,8 +609,8 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty"`
 	Transaction *Transaction `json:"transaction,omitempty"`
 
-	// Internal IDs used for sorting state changes within an operation.
-	SortKey string `json:"-"`
+	// Internal: hash key used to derive StateChangeID via FNV-64a.
+	HashKey string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }
@@ -624,7 +624,7 @@ type StateChangeCursor struct {
 	LedgerCreatedAt  time.Time `db:"cursor_ledger_created_at"`
 	ToID             int64     `db:"cursor_to_id"`
 	OperationID      int64     `db:"cursor_operation_id"`
-	StateChangeOrder int64     `db:"cursor_state_change_order"`
+	StateChangeID    int64     `db:"cursor_state_change_id"`
 }
 
 type StateChangeCursorGetter interface {
@@ -738,7 +738,7 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 		LedgerCreatedAt:  sc.LedgerCreatedAt,
 		ToID:             sc.ToID,
 		OperationID:      sc.OperationID,
-		StateChangeOrder: sc.StateChangeOrder,
+		StateChangeID:    sc.StateChangeID,
 	}
 }
 

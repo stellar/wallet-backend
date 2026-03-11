@@ -178,7 +178,7 @@ func prepareColumnsWithID(columns string, model any, prefix string, idColumns ..
 	if prefix != "" {
 		dbColumns = addPrefixToColumns(dbColumns, prefix)
 	}
-	// State changes has both to_id and state_change_order as id columns
+	// State changes has both to_id and state_change_id as id columns
 	for _, idColumn := range idColumns {
 		dbColumns = addIDColumn(dbColumns, prefix, idColumn)
 	}

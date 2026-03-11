@@ -461,7 +461,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 1),
 			(2, 1, 'BALANCE', $1, 2, $2, 2),
@@ -474,7 +474,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
-	// Verify transactions are for correct state change IDs (format: to_id-operation_id-state_change_order)
+	// Verify transactions are for correct state change IDs (format: to_id-operation_id-state_change_id)
 	// State change (to_id, operation_id, order) should return transaction with matching to_id
 	stateChangeIDsFound := make(map[string]types.HashBytea)
 	for _, tx := range transactions {
