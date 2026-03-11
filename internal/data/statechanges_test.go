@@ -32,7 +32,7 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 		auxIdx := i % len(auxAddresses)
 		scs[i] = types.StateChange{
 			ToID:                startToID + int64(i),
-			StateChangeID:    1,
+			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &reason,
 			LedgerCreatedAt:     now,
@@ -113,7 +113,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	reason := types.StateChangeReasonAdd
 	sc1 := types.StateChange{
 		ToID:                1,
-		StateChangeID:    1,
+		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
@@ -125,7 +125,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	}
 	sc2 := types.StateChange{
 		ToID:                2,
-		StateChangeID:    1,
+		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
@@ -136,7 +136,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	// State change with typed signer/threshold fields (uses to_id=1 to reference tx1)
 	sc3 := types.StateChange{
 		ToID:                1,
-		StateChangeID:    2, // Different order to avoid PK conflict with sc1
+		StateChangeID:       2, // Different order to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
 		StateChangeReason:   nil,
 		LedgerCreatedAt:     now,

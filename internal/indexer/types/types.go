@@ -621,10 +621,10 @@ type StateChangeWithCursor struct {
 }
 
 type StateChangeCursor struct {
-	LedgerCreatedAt  time.Time `db:"cursor_ledger_created_at"`
-	ToID             int64     `db:"cursor_to_id"`
-	OperationID      int64     `db:"cursor_operation_id"`
-	StateChangeID    int64     `db:"cursor_state_change_id"`
+	LedgerCreatedAt time.Time `db:"cursor_ledger_created_at"`
+	ToID            int64     `db:"cursor_to_id"`
+	OperationID     int64     `db:"cursor_operation_id"`
+	StateChangeID   int64     `db:"cursor_state_change_id"`
 }
 
 type StateChangeCursorGetter interface {
@@ -735,10 +735,10 @@ func (sc StateChange) GetTransaction() *Transaction {
 // GetCursor returns the cursor for this state change.
 func (sc StateChange) GetCursor() StateChangeCursor {
 	return StateChangeCursor{
-		LedgerCreatedAt:  sc.LedgerCreatedAt,
-		ToID:             sc.ToID,
-		OperationID:      sc.OperationID,
-		StateChangeID:    sc.StateChangeID,
+		LedgerCreatedAt: sc.LedgerCreatedAt,
+		ToID:            sc.ToID,
+		OperationID:     sc.OperationID,
+		StateChangeID:   sc.StateChangeID,
 	}
 }
 

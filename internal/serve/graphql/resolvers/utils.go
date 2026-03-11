@@ -365,16 +365,16 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 		return nil, fmt.Errorf("parsing operation_id: %w", err)
 	}
 
-	stateChangeId, err := strconv.ParseInt(parts[3], 10, 64)
+	stateChangeID, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing state_change_id: %w", err)
 	}
 
 	return &types.StateChangeCursor{
-		LedgerCreatedAt:  time.Unix(0, nanos),
-		ToID:             toID,
-		OperationID:      operationID,
-		StateChangeID: stateChangeId,
+		LedgerCreatedAt: time.Unix(0, nanos),
+		ToID:            toID,
+		OperationID:     operationID,
+		StateChangeID:   stateChangeID,
 	}, nil
 }
 

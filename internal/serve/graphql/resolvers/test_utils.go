@@ -118,7 +118,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID &^ 0xFFF, // Derive transaction to_id from operation_id using TOID bitmask
-				StateChangeID:    int64(scOrder + 1),
+				StateChangeID:       int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
 				OperationID:         op.ID,
@@ -133,7 +133,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
-			StateChangeID:    int64(1),
+			StateChangeID:       int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   &debitReason,
 			AccountID:           parentAccount.StellarAddress,

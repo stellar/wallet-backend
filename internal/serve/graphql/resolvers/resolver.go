@@ -153,36 +153,36 @@ func (r *Resolver) resolveStateChangeAccount(accountID types.AddressBytea) (*typ
 
 // resolveStateChangeOperation resolves the operation field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeId int64) (*types.Operation, error) {
+func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeID int64) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 
-	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeId)
+	stateChangeKey := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeID)
 	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: stateChangeID,
+		StateChangeID: stateChangeKey,
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeID, err)
+		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeKey, err)
 	}
 	return operations, nil
 }
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeId int64) (*types.Transaction, error) {
+func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeID int64) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
-	stateChangeID := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeId)
+	stateChangeKey := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeID)
 	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: stateChangeID,
+		StateChangeID: stateChangeKey,
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeID, err)
+		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeKey, err)
 	}
 	return transaction, nil
 }

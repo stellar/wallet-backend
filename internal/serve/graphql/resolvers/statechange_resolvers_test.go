@@ -285,7 +285,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		StateChange: types.StateChange{
 			ToID:                txToID,
 			OperationID:         opID,
-			StateChangeID:    1,
+			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
 	}
@@ -313,7 +313,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			StateChange: types.StateChange{
 				ToID:                9999,
 				OperationID:         0,
-				StateChangeID:    1,
+				StateChangeID:       1,
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
@@ -344,7 +344,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 0).ToInt64(),
-			StateChangeID:    1,
+			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
 	}
@@ -371,7 +371,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
-				StateChangeID:    1,
+				StateChangeID:       1,
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
