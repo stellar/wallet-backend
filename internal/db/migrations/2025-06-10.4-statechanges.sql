@@ -5,7 +5,7 @@
 CREATE TABLE state_changes (
     to_id BIGINT NOT NULL,
     operation_id BIGINT NOT NULL,
-    state_change_order BIGINT NOT NULL CHECK (state_change_order >= 1),
+    state_change_id BIGINT NOT NULL CHECK (state_change_id >= 1),
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
@@ -43,12 +43,12 @@ CREATE TABLE state_changes (
     flags SMALLINT,
     key_value JSONB,
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (to_id, operation_id, state_change_order, ledger_created_at)
+    PRIMARY KEY (to_id, operation_id, state_change_id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
     tsdb.chunk_interval = '1 day',
-    tsdb.orderby = 'ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC',
+    tsdb.orderby = 'ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC',
     tsdb.segmentby = 'account_id',
     tsdb.sparse_index = 'bloom(state_change_category),bloom(state_change_reason)'
 );
@@ -57,7 +57,7 @@ SELECT enable_chunk_skipping('state_changes', 'to_id');
 SELECT enable_chunk_skipping('state_changes', 'operation_id');
 
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
-CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_order DESC);
+CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC);
 
 -- +migrate Down
 

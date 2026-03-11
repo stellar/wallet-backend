@@ -558,7 +558,7 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 	reason := types.StateChangeReasonCredit
 	return types.StateChange{
 		ToID:                toID,
-		StateChangeOrder:    1,
+		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           types.AddressBytea(accountID),
