@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -172,7 +173,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 				return err
 			}
 			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
-				{WasmHash: tokenHex},
+				{WasmHash: types.HashBytea(tokenHex)},
 			})
 		})
 		require.NoError(t, err)
@@ -211,7 +212,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 				return err
 			}
 			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
-				{WasmHash: incrHex},
+				{WasmHash: types.HashBytea(incrHex)},
 			})
 		})
 		require.NoError(t, err)
@@ -232,7 +233,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 		wasms, err := tdb.protocolWasmModel.GetUnclassified(ctx)
 		require.NoError(t, err)
 		require.Len(t, wasms, 1)
-		assert.Equal(t, incrHex, wasms[0].WasmHash)
+		assert.Equal(t, types.HashBytea(incrHex), wasms[0].WasmHash)
 		assert.Nil(t, wasms[0].ProtocolID)
 
 		// Assert protocol classification status is success
@@ -252,8 +253,8 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 				return err
 			}
 			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
-				{WasmHash: tokenHex},
-				{WasmHash: incrHex},
+				{WasmHash: types.HashBytea(tokenHex)},
+				{WasmHash: types.HashBytea(incrHex)},
 			})
 		})
 		require.NoError(t, err)
@@ -281,7 +282,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 		wasms, err := tdb.protocolWasmModel.GetUnclassified(ctx)
 		require.NoError(t, err)
 		require.Len(t, wasms, 1)
-		assert.Equal(t, incrHex, wasms[0].WasmHash)
+		assert.Equal(t, types.HashBytea(incrHex), wasms[0].WasmHash)
 		assert.Nil(t, wasms[0].ProtocolID)
 
 		// Protocol status should be success

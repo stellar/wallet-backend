@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 const rpcLedgerEntryBatchSize = 200
@@ -154,7 +155,7 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 
 	hexHashes := make([]string, len(unclassifiedWasms))
 	for i, w := range unclassifiedWasms {
-		hexHashes[i] = w.WasmHash
+		hexHashes[i] = w.WasmHash.String()
 	}
 	log.Ctx(ctx).Infof("Found %d unclassified WASM hashes to classify", len(hexHashes))
 
@@ -166,7 +167,7 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	log.Ctx(ctx).Infof("Fetched %d WASM bytecodes from RPC (out of %d requested)", len(wasmBytecodes), len(hexHashes))
 
 	// Classify each WASM with a fetched bytecode
-	matchedHashes := make(map[string][]string)
+	matchedHashes := make(map[string][]types.HashBytea)
 	for wasmHash, bytecode := range wasmBytecodes {
 		specEntries, extractErr := s.specExtractor.ExtractSpec(ctx, bytecode)
 		if extractErr != nil {
@@ -177,7 +178,7 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 		for _, pid := range protocolIDs {
 			validator := validatorsByProtocol[pid]
 			if validator.Validate(specEntries) {
-				matchedHashes[pid] = append(matchedHashes[pid], wasmHash)
+				matchedHashes[pid] = append(matchedHashes[pid], types.HashBytea(wasmHash))
 				break // A WASM matches at most one protocol
 			}
 		}
