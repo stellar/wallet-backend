@@ -1,8 +1,8 @@
 package services
 
 import (
-	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
@@ -79,7 +80,7 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 				if len(wasms) != 1 {
 					return false
 				}
-				return bytes.Equal(wasms[0].WasmHash, hash[:]) && wasms[0].ProtocolID == nil
+				return wasms[0].WasmHash == types.HashBytea(hex.EncodeToString(hash[:])) && wasms[0].ProtocolID == nil
 			}),
 		).Return(nil).Once()
 
@@ -106,7 +107,7 @@ func TestWasmIngestionService_PersistProtocolWasms(t *testing.T) {
 				for _, w := range wasms {
 					found[string(w.WasmHash)] = true
 				}
-				return found[string(hash1[:])] && found[string(hash2[:])]
+				return found[hex.EncodeToString(hash1[:])] && found[hex.EncodeToString(hash2[:])]
 			}),
 		).Return(nil).Once()
 
@@ -246,7 +247,8 @@ func TestWasmIngestionService_ProcessContractData(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Contains(t, svc.contractIDsByWasmHash, wasmHash)
-		assert.Equal(t, [][]byte{contractHash[:]}, svc.contractIDsByWasmHash[wasmHash])
+		expectedContractID := types.HashBytea(hex.EncodeToString(contractHash[:]))
+		assert.Equal(t, []types.HashBytea{expectedContractID}, svc.contractIDsByWasmHash[wasmHash])
 	})
 
 	t.Run("multiple_contracts_same_wasm_hash", func(t *testing.T) {
@@ -267,13 +269,15 @@ func TestWasmIngestionService_ProcessContractData(t *testing.T) {
 		require.Contains(t, svc.contractIDsByWasmHash, wasmHash)
 		assert.Len(t, svc.contractIDsByWasmHash[wasmHash], 2)
 
-		// Check that both contract hashes are present as raw bytes
+		// Check that both contract hashes are present as hex strings
+		expectedID1 := types.HashBytea(hex.EncodeToString(contractHash1[:]))
+		expectedID2 := types.HashBytea(hex.EncodeToString(contractHash2[:]))
 		var foundAddr1, foundAddr2 bool
 		for _, id := range svc.contractIDsByWasmHash[wasmHash] {
-			if bytes.Equal(id, contractHash1[:]) {
+			if id == expectedID1 {
 				foundAddr1 = true
 			}
-			if bytes.Equal(id, contractHash2[:]) {
+			if id == expectedID2 {
 				foundAddr2 = true
 			}
 		}
@@ -312,8 +316,8 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 				if len(contracts) != 1 {
 					return false
 				}
-				return bytes.Equal(contracts[0].ContractID, contractHash[:]) &&
-					bytes.Equal(contracts[0].WasmHash, wasmHash[:]) &&
+				return contracts[0].ContractID == types.HashBytea(hex.EncodeToString(contractHash[:])) &&
+					contracts[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:])) &&
 					contracts[0].Name == nil
 			}),
 		).Return(nil).Once()
@@ -371,7 +375,7 @@ func TestWasmIngestionService_PersistProtocolContracts(t *testing.T) {
 
 		protocolContractModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(contracts []data.ProtocolContract) bool {
-				return len(contracts) == 1 && bytes.Equal(contracts[0].WasmHash, knownWasm[:])
+				return len(contracts) == 1 && contracts[0].WasmHash == types.HashBytea(hex.EncodeToString(knownWasm[:]))
 			}),
 		).Return(nil).Once()
 
