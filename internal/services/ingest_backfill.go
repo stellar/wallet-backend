@@ -635,7 +635,6 @@ type progressiveRecompressor struct {
 	endTimes     []time.Time
 	watermarkIdx int       // index of highest contiguous completed batch (-1 = none)
 	globalStart  time.Time // lower bound for chunk queries (batch 0's StartTime)
-	globalEnd    time.Time // upper bound for verification (max EndTime across completed batches)
 
 	triggerCh chan time.Time // safeEnd for recompression window
 	done      chan struct{}
@@ -661,9 +660,8 @@ func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables 
 // MarkDone records a batch as complete and advances the watermark if possible.
 // If the watermark advances, triggers recompression of chunks in the safe window.
 func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
+	var safeEnd time.Time
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.completed[batchIdx] = true
 	r.endTimes[batchIdx] = endTime
 
@@ -672,20 +670,21 @@ func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time
 		r.globalStart = startTime
 	}
 
-	// Track the maximum EndTime across all completed batches for verification scope
-	if endTime.After(r.globalEnd) {
-		r.globalEnd = endTime
-	}
-
 	// Advance watermark past contiguous completed batches
 	oldWatermark := r.watermarkIdx
 	for r.watermarkIdx+1 < len(r.completed) && r.completed[r.watermarkIdx+1] {
 		r.watermarkIdx++
 	}
 
-	// Trigger recompression if watermark advanced
-	if r.watermarkIdx > oldWatermark {
-		r.triggerCh <- r.endTimes[r.watermarkIdx]
+	sendToChannel := (r.watermarkIdx > oldWatermark)
+	if sendToChannel {
+		safeEnd = r.endTimes[r.watermarkIdx]
+	}
+	r.mu.Unlock()
+
+	// If watermark advanced then we trigger recompression outside the lock
+	if sendToChannel {
+		r.triggerCh <- safeEnd
 	}
 }
 

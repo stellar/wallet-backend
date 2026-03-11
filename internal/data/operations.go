@@ -203,7 +203,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_ledger_created_at ASC, operations.cursor_id ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_id ASC`, query)
 	}
 
 	start := time.Now()
@@ -272,8 +272,9 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
 		SELECT %s, o.ledger_created_at as cursor_ledger_created_at, o.id as cursor_id
-		FROM account_ops ao,
-		LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o`, columns))
+		FROM account_ops ao
+		LEFT JOIN LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o ON true
+		WHERE o.id IS NOT NULL`, columns))
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
@@ -387,7 +388,8 @@ func (m *OperationModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
 	}
 
-	// COPY operations_accounts using pgx binary format with native pgtype types
+	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures that
+	// account address is not NULL here.
 	if len(stellarAddressesByOpID) > 0 {
 		// Build OpID -> LedgerCreatedAt lookup from operations
 		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
