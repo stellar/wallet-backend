@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -165,6 +166,28 @@ func SetConfigOptionSignatureClientProvider(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = t
+
+	return nil
+}
+
+// SetConfigOptionDuration parses a Go duration string (e.g. "5m", "10s") from the CLI flag
+// or environment variable and stores the result in a *time.Duration ConfigKey.
+func SetConfigOptionDuration(co *config.ConfigOption) error {
+	durationStr := viper.GetString(co.Name)
+	if durationStr == "" {
+		return fmt.Errorf("%s cannot be empty", co.Name)
+	}
+
+	d, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return fmt.Errorf("couldn't parse duration in %s: %w", co.Name, err)
+	}
+
+	key, ok := co.ConfigKey.(*time.Duration)
+	if !ok {
+		return fmt.Errorf("%s configKey has an invalid type %T", co.Name, co.ConfigKey)
+	}
+	*key = d
 
 	return nil
 }

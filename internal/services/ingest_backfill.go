@@ -425,6 +425,11 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		}
 
 		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			// Disable synchronous commit for this transaction only — safe for backfill
+			// since data can be re-ingested if a crash occurs before WAL flush.
+			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
+				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
+			}
 			// Collect changes for post-catchup processing if requested
 			if batchChanges != nil {
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
