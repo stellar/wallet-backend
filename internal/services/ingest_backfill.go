@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	// "runtime"
 	"sync/atomic"
 	"time"
 
@@ -116,30 +115,28 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		return nil
 	}
 
+	// Must match ingest.Hypertables — duplicated here to avoid import cycle.
 	tables := []string{
 		"transactions", "transactions_accounts", "operations",
 		"operations_accounts", "state_changes",
 	}
 
 	// Fetch boundary timestamps for chunk pre-creation and recompression scoping.
-	// boundaryStart is the chunk-boundary-aligned start timestamp used by the recompressor
-	// to scope chunk queries to the backfill range.
-	var boundaryStart time.Time
+	// chunkBoundaryStart is the chunk-boundary-aligned start timestamp used by the
+	// recompressor to scope chunk queries to the backfill range.
+	var chunkBoundaryStart time.Time
 	if m.chunkInterval != "" {
 		rangeStart := gaps[0].GapStart
 		rangeEnd := gaps[len(gaps)-1].GapEnd
-		var boundaryEnd time.Time
-		var err2 error
-		boundaryStart, boundaryEnd, err2 = m.fetchBoundaryTimestamps(ctx, rangeStart, rangeEnd)
-		if err2 != nil {
-			return fmt.Errorf("fetching boundary timestamps: %w", err2)
+		rangeStartTime, rangeEndTime, err := m.fetchBoundaryTimestamps(ctx, rangeStart, rangeEnd)
+		if err != nil {
+			return fmt.Errorf("fetching boundary timestamps: %w", err)
 		}
-		var err3 error
-		boundaryStart, err3 = db.PreCreateChunks(ctx, m.models.DB, tables, boundaryStart, boundaryEnd)
-		if err3 != nil {
-			return fmt.Errorf("pre-creating chunks: %w", err3)
+		chunkBoundaryStart, err = db.PreCreateChunks(ctx, m.models.DB, tables, rangeStartTime, rangeEndTime)
+		if err != nil {
+			return fmt.Errorf("pre-creating chunks: %w", err)
 		}
-		if err := db.DropIndexesOnChunksInRange(ctx, m.models.DB, tables, boundaryStart, boundaryEnd); err != nil {
+		if err := db.DropIndexesOnChunksInRange(ctx, m.models.DB, tables, chunkBoundaryStart, rangeEndTime); err != nil {
 			return fmt.Errorf("dropping indexes on chunks: %w", err)
 		}
 	}
@@ -153,11 +150,11 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 
 	// Create progressive recompressor.
 	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
-	// boundaryStart scopes chunk queries to the backfill range (zero time if no pre-creation).
-	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(gapBatches), boundaryStart)
+	// chunkBoundaryStart scopes chunk queries to the backfill range (zero time if no pre-creation).
+	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(gapBatches), chunkBoundaryStart)
 
 	pipelinedProcessor := func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-		return m.processLedgersInBatchPipelined(ctx, backend, batch, m.flushHistoricalBatch)
+		return m.processLedgersInBatch(ctx, backend, batch, m.flushHistoricalBatch)
 	}
 
 	startTime := time.Now()
@@ -327,6 +324,12 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 		}
 		lastErr = err
 
+		if attempt >= maxIngestProcessedDataRetries-1 {
+			log.Ctx(ctx).Errorf("Error flushing historical batch (attempt %d/%d): %v, giving up",
+				attempt+1, maxIngestProcessedDataRetries, lastErr)
+			break
+		}
+
 		backoff := min(time.Duration(1<<attempt)*time.Second, maxIngestProcessedDataRetryBackoff)
 		log.Ctx(ctx).Warnf("Error flushing historical batch (attempt %d/%d): %v, retrying in %v...",
 			attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
@@ -340,15 +343,48 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 	return lastErr
 }
 
-// processLedgersInBatchPipelined processes ledgers using a 3-stage streaming pipeline:
+const (
+	// pipelineWorkerLimit controls parallel ledger processors in Stage 2.
+	// Tuned to ~NumCPU + margin for I/O overlap during buffer sends.
+	pipelineWorkerLimit = 11
+
+	// pipelineReaderBuffer keeps the reader ahead of workers to hide GetLedger latency.
+	pipelineReaderBuffer = 10
+)
+
+// pipelineMetrics tracks worker-side timing for pipeline observability.
+// Stage 2 workers update atomics; Stage 3 consumer reads deltas per flush.
+type pipelineMetrics struct {
+	processDuration   atomic.Int64
+	workerBlockedTime atomic.Int64
+	workerLedgers     atomic.Int64
+	lastProcess       int64
+	lastBlocked       int64
+	lastLedgers       int64
+}
+
+// deltas returns the change in worker metrics since the last call.
+func (pm *pipelineMetrics) deltas() (process, blocked time.Duration, ledgers int64) {
+	currProcess := pm.processDuration.Load()
+	currBlocked := pm.workerBlockedTime.Load()
+	currLedgers := pm.workerLedgers.Load()
+	process = time.Duration(currProcess - pm.lastProcess)
+	blocked = time.Duration(currBlocked - pm.lastBlocked)
+	ledgers = currLedgers - pm.lastLedgers
+	pm.lastProcess = currProcess
+	pm.lastBlocked = currBlocked
+	pm.lastLedgers = currLedgers
+	return
+}
+
+// processLedgersInBatch processes ledgers using a 3-stage streaming pipeline:
 //   - Stage 1 (Reader): Sequential GetLedger calls into metaCh
-//   - Stage 2 (Workers): Parallel ledger processing (NumCPU workers) into flushCh
+//   - Stage 2 (Workers): Parallel ledger processing into flushCh
 //   - Stage 3 (Consumer): Merge buffers + periodic flush to DB
 //
-// This eliminates the two synchronization barriers present in the sequential approach
-// (all-reads-before-process, all-process-before-flush) by streaming ledgers through
-// the pipeline individually.
-func (m *ingestService) processLedgersInBatchPipelined(
+// A pipeline-scoped context ensures all stages stop promptly when any stage fails,
+// preventing partial DB writes and goroutine leaks.
+func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
@@ -356,11 +392,15 @@ func (m *ingestService) processLedgersInBatchPipelined(
 ) BackfillResult {
 	result := BackfillResult{Batch: batch}
 
+	// Pipeline-scoped context: any stage failure cancels all stages.
+	pipeCtx, pipeCancel := context.WithCancel(ctx)
+	defer pipeCancel()
+
 	type metaWithTime struct {
 		meta     xdr.LedgerCloseMeta
 		closedAt time.Time
 	}
-	metaCh := make(chan metaWithTime, 10)
+	metaCh := make(chan metaWithTime, pipelineReaderBuffer)
 	flushCh := make(chan *indexer.IndexerBuffer, m.backfillDBInsertBatchSize*2)
 
 	// --- Stage 1: Reader — sequential GetLedger into metaCh ---
@@ -369,9 +409,10 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	go func() {
 		defer close(metaCh)
 		for seq := batch.StartLedger; seq <= batch.EndLedger; seq++ {
-			meta, err := m.getLedgerWithRetry(ctx, backend, seq)
+			meta, err := m.getLedgerWithRetry(pipeCtx, backend, seq)
 			if err != nil {
 				readerErr <- fmt.Errorf("getting ledger %d: %w", seq, err)
+				pipeCancel()
 				return
 			}
 			lt := meta.ClosedAt()
@@ -382,41 +423,40 @@ func (m *ingestService) processLedgersInBatchPipelined(
 
 			select {
 			case metaCh <- metaWithTime{meta: meta, closedAt: lt}:
-			case <-ctx.Done():
-				readerErr <- ctx.Err()
+			case <-pipeCtx.Done():
+				readerErr <- pipeCtx.Err()
 				return
 			}
 		}
 	}()
 
 	// --- Stage 2: Workers — parallel process, send directly to flushCh ---
-	var processDuration atomic.Int64
-	var workerBlockedTime atomic.Int64 // time blocked waiting to send on flushCh
-	var workerLedgers atomic.Int64
+	var metrics pipelineMetrics
 	workerErr := make(chan error, 1)
 	go func() {
 		defer close(flushCh)
-		g, gCtx := errgroup.WithContext(ctx)
-		g.SetLimit(11)
+		g, gCtx := errgroup.WithContext(pipeCtx)
+		g.SetLimit(pipelineWorkerLimit)
 
-		for mwt := range metaCh {
+		for item := range metaCh {
 			g.Go(func() error {
 				t := time.Now()
 				buf := indexer.NewIndexerBuffer()
-				if err := m.processLedgerSequential(gCtx, mwt.meta, buf); err != nil {
+				if err := m.processLedgerSequential(gCtx, item.meta, buf); err != nil {
 					return err
 				}
-				processDuration.Add(int64(time.Since(t)))
+				metrics.processDuration.Add(int64(time.Since(t)))
 
 				t2 := time.Now()
 				flushCh <- buf
-				workerBlockedTime.Add(int64(time.Since(t2)))
-				workerLedgers.Add(1)
+				metrics.workerBlockedTime.Add(int64(time.Since(t2)))
+				metrics.workerLedgers.Add(1)
 				return nil
 			})
 		}
 		if err := g.Wait(); err != nil {
 			workerErr <- err
+			pipeCancel()
 		}
 	}()
 
@@ -427,13 +467,14 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	var flushDuration time.Duration
 	flushCount := 0
 	lastFlushEnd := time.Now()
-
 	var mergeDuration time.Duration
-	var lastProcessDuration int64
-	var lastWorkerBlocked int64
-	var lastWorkerLedgers int64
 
 	for buf := range flushCh {
+		// Check if an upstream stage has failed before merging more data.
+		if pipeCtx.Err() != nil {
+			break
+		}
+
 		mt := time.Now()
 		batchBuffer.Merge(buf)
 		mergeDuration += time.Since(mt)
@@ -445,29 +486,20 @@ func (m *ingestService) processLedgersInBatchPipelined(
 			flushCount++
 
 			t := time.Now()
-			if err := flush(ctx, batchBuffer); err != nil {
+			if err := flush(pipeCtx, batchBuffer); err != nil {
 				result.Error = err
+				pipeCancel()
 				return result
 			}
 			flushElapsed := time.Since(t)
 			flushDuration += flushElapsed
-			chProducedDuringFlush := len(flushCh) // what Stage 2 queued while we were flushing
+			chProducedDuringFlush := len(flushCh)
 			lastFlushEnd = time.Now()
 
-			// Compute per-flush deltas
-			currProcess := processDuration.Load()
-			currBlocked := workerBlockedTime.Load()
-			currLedgers := workerLedgers.Load()
-			deltaProcess := currProcess - lastProcessDuration
-			deltaBlocked := currBlocked - lastWorkerBlocked
-			deltaLedgers := currLedgers - lastWorkerLedgers
-			lastProcessDuration = currProcess
-			lastWorkerBlocked = currBlocked
-			lastWorkerLedgers = currLedgers
-
+			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
 			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v merge=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
 				flushCount, fillTime, flushElapsed, mergeDuration, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, result.LedgersCount,
-				time.Duration(deltaProcess), time.Duration(deltaBlocked), deltaLedgers)
+				deltaProcess, deltaBlocked, deltaLedgers)
 
 			batchBuffer.Clear()
 			mergeDuration = 0
@@ -476,14 +508,15 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	}
 
 	// Final flush
-	if ledgersInBuffer > 0 {
+	if ledgersInBuffer > 0 && pipeCtx.Err() == nil {
 		fillTime := time.Since(lastFlushEnd)
 		chLen := len(flushCh)
 		flushCount++
 
 		t := time.Now()
-		if err := flush(ctx, batchBuffer); err != nil {
+		if err := flush(pipeCtx, batchBuffer); err != nil {
 			result.Error = err
+			pipeCancel()
 			return result
 		}
 		flushElapsed := time.Since(t)
@@ -522,7 +555,7 @@ func (m *ingestService) processLedgersInBatchPipelined(
 	log.Ctx(ctx).Infof("Batch [%d-%d] complete — %d ledgers in %v (%.1f l/s), process: %v, flush: %v",
 		batch.StartLedger, batch.EndLedger,
 		result.LedgersCount, elapsed, throughput,
-		time.Duration(processDuration.Load()), flushDuration)
+		time.Duration(metrics.processDuration.Load()), flushDuration)
 
 	return result
 }
