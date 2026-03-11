@@ -18,7 +18,8 @@ import (
 func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -33,7 +34,6 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
 	toID1 := int64(1)
@@ -42,11 +42,11 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($3, $4, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, toID1, testHash2, toID2)
+	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($3, $4, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, toID1, testHash2, toID2)
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
+	_, err = m.DB.Exec(ctx, "INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
 		toID1, types.AddressBytea(address1), toID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
@@ -67,7 +67,8 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -82,7 +83,6 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	address1 := keypair.MustRandom().Address()
 	address2 := keypair.MustRandom().Address()
 	operationID1 := int64(123)
@@ -91,17 +91,17 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, testHash2)
+	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Insert test operations (IDs don't need to be in TOID range here since we're just testing operations_accounts links)
 	xdr1 := types.XDRBytea([]byte("xdr1"))
 	xdr2 := types.XDRBytea([]byte("xdr2"))
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'PAYMENT', $3, 'op_success', true, 1, NOW()), ($2, 'PAYMENT', $4, 'op_success', true, 2, NOW())", operationID1, operationID2, xdr1, xdr2)
+	_, err = m.DB.Exec(ctx, "INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at) VALUES ($1, 'PAYMENT', $3, 'op_success', true, 1, NOW()), ($2, 'PAYMENT', $4, 'op_success', true, 2, NOW())", operationID1, operationID2, xdr1, xdr2)
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links (account_id is BYTEA)
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
+	_, err = m.DB.Exec(ctx, "INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id) VALUES (NOW(), $1, $2), (NOW(), $3, $4)",
 		operationID1, types.AddressBytea(address1), operationID2, types.AddressBytea(address2))
 	require.NoError(t, err)
 
@@ -122,7 +122,8 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -136,7 +137,6 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	address := keypair.MustRandom().Address()
 
 	isFeeBumpEligible, err := m.IsAccountFeeBumpEligible(ctx, address)
@@ -144,7 +144,7 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	assert.False(t, isFeeBumpEligible)
 
 	// Insert into channel_accounts since IsAccountFeeBumpEligible only checks that table
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", address)
+	_, err = m.DB.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", address)
 	require.NoError(t, err)
 
 	isFeeBumpEligible, err = m.IsAccountFeeBumpEligible(ctx, address)

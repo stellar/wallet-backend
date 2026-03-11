@@ -21,12 +21,12 @@ func TestContractModel_GetExisting(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -39,7 +39,7 @@ func TestContractModel_GetExisting(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			ids, txErr := m.GetExisting(ctx, dbTx, []string{})
 			require.NoError(t, txErr)
 			require.Nil(t, ids)
@@ -60,7 +60,7 @@ func TestContractModel_GetExisting(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			ids, txErr := m.GetExisting(ctx, dbTx, []string{"nonexistent1", "nonexistent2"})
 			require.NoError(t, txErr)
 			require.Empty(t, ids)
@@ -92,14 +92,14 @@ func TestContractModel_GetExisting(t *testing.T) {
 			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 18},
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
 			return nil
 		})
 		require.NoError(t, err)
 
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			ids, txErr := m.GetExisting(ctx, dbTx, []string{"contract1", "contract3", "contract4"})
 			require.NoError(t, txErr)
 			require.Len(t, ids, 1)
@@ -135,14 +135,14 @@ func TestContractModel_GetExisting(t *testing.T) {
 			{ID: DeterministicContractID("contract3"), ContractID: "contract3", Type: "sac", Name: &name, Symbol: &symbol, Decimals: 6},
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
 			return nil
 		})
 		require.NoError(t, err)
 
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			ids, txErr := m.GetExisting(ctx, dbTx, []string{"contract1", "contract2"})
 			require.NoError(t, txErr)
 			require.Len(t, ids, 2)
@@ -160,12 +160,12 @@ func TestContractModel_BatchInsert(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -178,7 +178,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, []*Contract{})
 			require.NoError(t, txErr)
 			return nil
@@ -241,7 +241,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 			},
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
 			return nil
@@ -249,8 +249,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify contracts were inserted using direct SQL
-		var contract1 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
+		contract1, err := db.QueryOne[Contract](ctx, dbConnectionPool, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
@@ -259,13 +258,11 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "TST1", *contract1.Symbol)
 		require.Equal(t, uint32(7), contract1.Decimals)
 
-		var contract2 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract2, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
+		contract2, err := db.QueryOne[Contract](ctx, dbConnectionPool, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract2")
 		require.NoError(t, err)
 		require.Equal(t, "sep41", contract2.Type)
 
-		var contract3 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract3, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
+		contract3, err := db.QueryOne[Contract](ctx, dbConnectionPool, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract3")
 		require.NoError(t, err)
 		require.Nil(t, contract3.Code)
 		require.Nil(t, contract3.Issuer)
@@ -301,7 +298,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 			},
 		}
 
-		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
 			return nil
@@ -332,7 +329,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 			},
 		}
 
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			txErr := m.BatchInsert(ctx, dbTx, contracts)
 			require.NoError(t, txErr)
 			return nil
@@ -340,8 +337,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify original contract was not updated using direct SQL
-		var contract1 Contract
-		err = dbConnectionPool.GetContext(ctx, &contract1, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
+		contract1, err := db.QueryOne[Contract](ctx, dbConnectionPool, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "Original Name", *contract1.Name)

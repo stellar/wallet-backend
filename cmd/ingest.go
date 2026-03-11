@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/types"
 
-	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -180,6 +179,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 	}
+
+	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
 
 	cmd := &cobra.Command{
 		Use:   "ingest",

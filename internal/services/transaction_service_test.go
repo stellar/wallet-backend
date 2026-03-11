@@ -160,7 +160,8 @@ func buildSimulationResponse(
 func TestValidateOptions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	t.Run("return_error_when_db_nil", func(t *testing.T) {
@@ -243,7 +244,8 @@ func TestValidateOptions(t *testing.T) {
 func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 

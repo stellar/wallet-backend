@@ -38,11 +38,10 @@ func TestKMSSignatureClientSignStellarTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	kmsClient := awskms.KMSMock{}
 	keypairStore := store.KeypairStoreMock{}
@@ -271,11 +270,10 @@ func TestKMSSignatureClientSignStellarFeeBumpTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	kmsClient := awskms.KMSMock{}
 	keypairStore := store.KeypairStoreMock{}

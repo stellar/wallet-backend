@@ -1,37 +1,26 @@
 package metrics
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3" // SQLite driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
-func setupTestDB(t *testing.T) *sqlx.DB {
-	// For testing, we can use a mock DB or sqlite in-memory
-	db, err := sqlx.Connect("sqlite3", ":memory:")
-	require.NoError(t, err)
-	return db
-}
-
 func TestNewMetricsService(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 	assert.NotNil(t, ms)
 	assert.NotNil(t, ms.GetRegistry())
 }
 
 func TestIngestMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("latest ledger metrics", func(t *testing.T) {
 		ms.SetLatestLedgerIngested(1234)
@@ -67,10 +56,7 @@ func TestIngestMetrics(t *testing.T) {
 }
 
 func TestRPCMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("RPC request metrics", func(t *testing.T) {
 		endpoint := "test_endpoint"
@@ -148,10 +134,7 @@ func TestRPCMetrics(t *testing.T) {
 }
 
 func TestHTTPMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 	endpoint := "/api/v1/test"
 	method := "POST"
 	statusCode := 200
@@ -199,10 +182,7 @@ func TestHTTPMetrics(t *testing.T) {
 }
 
 func TestDBMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 	queryType := "SELECT"
 	table := "accounts"
 
@@ -248,10 +228,7 @@ func TestDBMetrics(t *testing.T) {
 }
 
 func TestDBErrorMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 	queryType := "SELECT"
 	table := "accounts"
 	errorType := "no_rows"
@@ -282,10 +259,7 @@ func TestDBErrorMetrics(t *testing.T) {
 }
 
 func TestDBTransactionMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("transaction commit metrics", func(t *testing.T) {
 		ms.IncDBTransaction("commit")
@@ -355,10 +329,7 @@ func TestDBTransactionMetrics(t *testing.T) {
 }
 
 func TestDBBatchSizeMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("batch insert size tracking", func(t *testing.T) {
 		operation := "INSERT"
@@ -430,10 +401,7 @@ func TestDBBatchSizeMetrics(t *testing.T) {
 }
 
 func TestIngestionPhaseMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("ingestion phase duration metrics", func(t *testing.T) {
 		// Record durations for different phases
@@ -578,9 +546,7 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 
 func TestPoolMetrics(t *testing.T) {
 	t.Run("worker pool metrics - success case", func(t *testing.T) {
-		db := setupTestDB(t)
-		defer db.Close()
-		ms := NewMetricsService(db)
+		ms := NewMetricsService()
 		channel := "test_channel"
 		pool := pond.NewPool(5)
 
@@ -641,9 +607,7 @@ func TestPoolMetrics(t *testing.T) {
 	})
 
 	t.Run("worker pool metrics - with failures", func(t *testing.T) {
-		db := setupTestDB(t)
-		defer db.Close()
-		ms := NewMetricsService(db)
+		ms := NewMetricsService()
 
 		channel := "test_channel_failures"
 		pool := pond.NewPool(2)
@@ -697,11 +661,51 @@ func TestPoolMetrics(t *testing.T) {
 	})
 }
 
-func TestRPCMethodMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
+func TestDBPoolMetrics(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
 
-	ms := NewMetricsService(db)
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	ms := NewMetricsService()
+	ms.RegisterDBPoolMetrics(pool)
+
+	metricFamilies, err := ms.GetRegistry().Gather()
+	require.NoError(t, err)
+
+	registeredMetrics := make(map[string]bool)
+	for _, mf := range metricFamilies {
+		registeredMetrics[mf.GetName()] = true
+	}
+
+	expectedMetrics := []string{
+		"db_pool_acquire_total",
+		"db_pool_acquired_conns",
+		"db_pool_idle_conns",
+		"db_pool_total_conns",
+		"db_pool_max_conns",
+		"db_pool_acquire_duration_seconds",
+		"db_pool_constructing_conns",
+		"db_pool_empty_acquire_total",
+	}
+	for _, name := range expectedMetrics {
+		assert.True(t, registeredMetrics[name], "Expected metric %s to be registered", name)
+	}
+
+	// Verify max_conns reflects the pool's configured value
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "db_pool_max_conns" {
+			value := mf.GetMetric()[0].GetGauge().GetValue()
+			assert.Greater(t, value, float64(0), "max_conns should be greater than 0")
+		}
+	}
+}
+
+func TestRPCMethodMetrics(t *testing.T) {
+	ms := NewMetricsService()
 
 	t.Run("RPC method calls counter", func(t *testing.T) {
 		method := "GetTransaction"
@@ -833,7 +837,7 @@ func TestRPCMethodMetrics(t *testing.T) {
 
 	t.Run("Multiple methods tracked independently", func(t *testing.T) {
 		// Create a new metrics service to avoid interference from previous tests
-		msNew := NewMetricsService(db)
+		msNew := NewMetricsService()
 		methods := []string{"GetHealth", "GetLedgerEntries", "GetAccountLedgerSequence"}
 
 		for i, method := range methods {
@@ -871,10 +875,7 @@ func TestRPCMethodMetrics(t *testing.T) {
 }
 
 func TestStateChangeMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
+	ms := NewMetricsService()
 
 	t.Run("State change processing duration", func(t *testing.T) {
 		processor := "TokenTransferProcessor"
@@ -952,7 +953,7 @@ func TestStateChangeMetrics(t *testing.T) {
 	})
 
 	t.Run("All state change types and categories tracked independently", func(t *testing.T) {
-		msNew := NewMetricsService(db)
+		msNew := NewMetricsService()
 
 		testCases := []struct {
 			scType   string

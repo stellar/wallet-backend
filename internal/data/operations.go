@@ -9,7 +9,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -18,16 +18,15 @@ import (
 )
 
 type OperationModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
 func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	query := fmt.Sprintf(`SELECT %s FROM operations WHERE id = $1`, columns)
-	var operation types.Operation
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &operation, query, id)
+	operation, err := db.QueryOne[types.Operation](ctx, m.DB, query, id)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByID", "operations", duration)
 	if err != nil {
@@ -44,7 +43,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	var args []interface{}
 	argIndex := 1
 
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM operations`, columns))
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations`, columns))
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -70,12 +69,11 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	}
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_ledger_created_at ASC, operations.cursor_id ASC`, query)
 	}
 
-	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "operations", duration)
 	if err != nil {
@@ -139,7 +137,7 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 				JOIN
 					inputs i ON o.id > i.to_id AND o.id < i.to_id + 4096
 			)
-		SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM ranked_operations_per_to_id
+		SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM ranked_operations_per_to_id
 	`
 	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
 	if limit != nil {
@@ -147,12 +145,11 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 	}
 	query = queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_ledger_created_at ASC, operations.cursor_id ASC`, query)
 	}
 
-	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(toIDs))
+	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "operations", len(toIDs))
@@ -170,7 +167,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", id as "cursor.cursor_id" FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
 
 	args := []interface{}{toID}
 	argIndex := 2
@@ -198,12 +195,11 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_id ASC`, query)
 	}
 
-	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "operations", duration)
 	if err != nil {
@@ -263,7 +259,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	// Close CTE and LATERAL join to fetch full operation rows
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
-		SELECT %s, o.ledger_created_at as "cursor.cursor_ledger_created_at", o.id as "cursor.cursor_id"
+		SELECT %s, o.ledger_created_at as cursor_ledger_created_at, o.id as cursor_id
 		FROM account_ops ao
 		LEFT JOIN LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o ON true
 		WHERE o.id IS NOT NULL`, columns))
@@ -280,12 +276,11 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 
 	// For backward pagination, wrap query to reverse the final order
 	if orderBy == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations."cursor.cursor_ledger_created_at" ASC, operations."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_ledger_created_at ASC, operations.cursor_id ASC`, query)
 	}
 
-	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "operations", duration)
 	if err != nil {
@@ -315,9 +310,8 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 		ORDER BY operations.ledger_created_at DESC
 	`, columns, strings.Join(tuples, ", "))
 
-	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query)
+	operationsWithStateChanges, err := db.QueryManyPtrs[types.OperationWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "operations", len(scOrders))

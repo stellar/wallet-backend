@@ -47,18 +47,13 @@ type RunConfig struct {
 // Run executes ingestion from synthetic ledgers file.
 func Run(ctx context.Context, cfg RunConfig) error {
 	// Setup dependencies
-	dbPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+	dbPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer dbPool.Close() // nolint:errcheck
 
-	sqlxDB, err := dbPool.SqlxDB(ctx)
-	if err != nil {
-		return fmt.Errorf("getting sqlx db: %w", err)
-	}
-
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 	models, err := data.NewModels(dbPool, metricsService)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
@@ -131,7 +126,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 // initializeCursor ensures the loadtest cursor exists with value 0.
 func initializeCursor(ctx context.Context, models *data.Models, cursorName string) error {
 	// Cursor doesn't exist, create it
-	txErr := db.RunInPgxTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
+	txErr := db.RunInTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
 		return models.IngestStore.Update(ctx, dbTx, cursorName, 0)
 	})
 	if txErr != nil {

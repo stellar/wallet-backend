@@ -5,13 +5,13 @@ import (
 	"strconv"
 
 	"github.com/alitto/pond/v2"
-	"github.com/dlmiddlecote/sqlstats"
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool pond.Pool)
+	RegisterDBPoolMetrics(pool *pgxpool.Pool)
 	GetRegistry() *prometheus.Registry
 	SetLatestLedgerIngested(value float64)
 	SetOldestLedgerIngested(value float64)
@@ -55,7 +55,6 @@ type MetricsService interface {
 // MetricsService handles all metrics for the wallet-backend
 type metricsService struct {
 	registry *prometheus.Registry
-	db       *sqlx.DB
 
 	// Ingest Service Metrics
 	latestLedgerIngested prometheus.Gauge
@@ -110,10 +109,9 @@ type metricsService struct {
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
-func NewMetricsService(db *sqlx.DB) MetricsService {
+func NewMetricsService() MetricsService {
 	m := &metricsService{
 		registry: prometheus.NewRegistry(),
-		db:       db,
 	}
 
 	// Ingest Service Metrics
@@ -374,9 +372,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 }
 
 func (m *metricsService) registerMetrics() {
-	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
 	m.registry.MustRegister(
-		collector,
 		m.latestLedgerIngested,
 		m.oldestLedgerIngested,
 		m.ingestionDuration,
@@ -478,6 +474,89 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
 		},
 		func() float64 {
 			return float64(pool.CompletedTasks())
+		},
+	))
+}
+
+// RegisterDBPoolMetrics registers Prometheus metrics for pgxpool connection pool statistics.
+func (m *metricsService) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name: "db_pool_acquire_total",
+			Help: "Total number of connection acquisitions from the pool",
+		},
+		func() float64 {
+			return float64(pool.Stat().AcquireCount())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_acquired_conns",
+			Help: "Number of currently acquired connections",
+		},
+		func() float64 {
+			return float64(pool.Stat().AcquiredConns())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_idle_conns",
+			Help: "Number of currently idle connections",
+		},
+		func() float64 {
+			return float64(pool.Stat().IdleConns())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_total_conns",
+			Help: "Total number of connections currently open",
+		},
+		func() float64 {
+			return float64(pool.Stat().TotalConns())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_max_conns",
+			Help: "Maximum number of connections allowed",
+		},
+		func() float64 {
+			return float64(pool.Stat().MaxConns())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_acquire_duration_seconds",
+			Help: "Total time spent waiting to acquire connections",
+		},
+		func() float64 {
+			return pool.Stat().AcquireDuration().Seconds()
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "db_pool_constructing_conns",
+			Help: "Number of connections currently being established",
+		},
+		func() float64 {
+			return float64(pool.Stat().ConstructingConns())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name: "db_pool_empty_acquire_total",
+			Help: "Total number of acquires that had to wait because no idle connections were available",
+		},
+		func() float64 {
+			return float64(pool.Stat().EmptyAcquireCount())
 		},
 	))
 }

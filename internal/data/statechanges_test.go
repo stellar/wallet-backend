@@ -67,11 +67,11 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 func TestStateChangeModel_BatchCopy(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	now := time.Now()
 
 	kp1 := keypair.MustRandom()
@@ -103,7 +103,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		IsFeeBump:       true,
 	}
 	// Insert transactions using direct SQL
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)
 	`, tx1.Hash, tx1.ToID, *tx1.EnvelopeXDR, tx1.FeeCharged, tx1.ResultCode, *tx1.MetaXDR, tx1.LedgerNumber, tx1.LedgerCreatedAt, tx1.IsFeeBump,
@@ -185,7 +185,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clear the database before each test
-			_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE state_changes CASCADE")
+			_, err = dbConnectionPool.Exec(ctx, "TRUNCATE state_changes CASCADE")
 			require.NoError(t, err)
 
 			// Create fresh mock for each test case
@@ -224,8 +224,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
-			var dbInsertedIDs []string
-			err = dbConnectionPool.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
+			dbInsertedIDs, err := db.QueryMany[string](ctx, dbConnectionPool, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
@@ -235,11 +234,11 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address1 := keypair.MustRandom().Address()
@@ -249,7 +248,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -259,7 +258,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
@@ -298,11 +297,11 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -312,7 +311,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	testHash2 := "0000000000000000000000000000000000000000000000000000000000000002"
 	testHash3 := "0000000000000000000000000000000000000000000000000000000000000003"
 	testHashNonExistent := "0000000000000000000000000000000000000000000000000000000000000004"
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1),
@@ -323,7 +322,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	// Create test state changes with different operation IDs, categories, and reasons
 	// State changes must reference valid transaction to_ids (1, 2, or 3)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
@@ -351,7 +350,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		// tx1 has to_id=1, so we get state changes where to_id=1 (2 state changes now)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(1), sc.ToID)
+			assert.Equal(t, int64(1), sc.StateChange.ToID)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -373,7 +372,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		// Only 1 state change has operation_id=123 (the first one with to_id=1)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(123), sc.StateChange.OperationID)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -396,8 +395,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		// Should get only state changes that match BOTH filters (to_id=1 from tx1 hash, operation_id=123)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(1), sc.ToID)
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(1), sc.StateChange.ToID)
+			assert.Equal(t, int64(123), sc.StateChange.OperationID)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -486,8 +485,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(1), sc.ToID)
-			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, int64(1), sc.StateChange.ToID)
+			assert.Equal(t, int64(123), sc.StateChange.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
@@ -527,14 +526,15 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.ToID)
 	})
 }
 
 func TestStateChangeModel_GetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -548,7 +548,6 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -557,7 +556,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -567,7 +566,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
@@ -591,11 +590,11 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -604,7 +603,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -614,7 +613,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes - multiple state changes per to_id to test ranking
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
@@ -720,14 +719,14 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 			// Verify state changes are for correct to_ids
 			toIDsFound := make(map[int64]int)
 			for _, sc := range stateChanges {
-				toIDsFound[sc.ToID]++
+				toIDsFound[sc.StateChange.ToID]++
 			}
 			assert.Equal(t, tc.expectedToIDCounts, toIDsFound)
 
 			// Verify cursor structure for returned state changes
 			for _, sc := range stateChanges {
-				assert.NotZero(t, sc.Cursor.ToID, "cursor ToID should be set")
-				assert.NotZero(t, sc.Cursor.StateChangeOrder, "cursor StateChangeOrder should be set")
+				assert.NotZero(t, sc.StateChangeCursor.ToID, "cursor ToID should be set")
+				assert.NotZero(t, sc.StateChangeCursor.StateChangeOrder, "cursor StateChangeOrder should be set")
 			}
 		})
 	}
@@ -736,7 +735,8 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -751,7 +751,6 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -760,7 +759,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -770,7 +769,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
@@ -788,7 +787,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	// Verify state changes are for correct operation IDs
 	operationIDsFound := make(map[int64]int)
 	for _, sc := range stateChanges {
-		operationIDsFound[sc.OperationID]++
+		operationIDsFound[sc.StateChange.OperationID]++
 	}
 	assert.Equal(t, 2, operationIDsFound[123])
 	assert.Equal(t, 1, operationIDsFound[456])
@@ -797,7 +796,8 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -811,7 +811,6 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		MetricsService: mockMetricsService,
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	address := keypair.MustRandom().Address()
@@ -819,7 +818,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	// Create test transactions first (hash is BYTEA)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
 			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
@@ -828,7 +827,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test state changes for to_id=1 (multiple state_change_orders)
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', $1, 1, $2, 123),
@@ -845,13 +844,13 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 		// Verify all state changes are for to_id=1
 		for _, sc := range stateChanges {
-			assert.Equal(t, int64(1), sc.ToID)
+			assert.Equal(t, int64(1), sc.StateChange.ToID)
 		}
 
 		// Verify ordering (ASC by to_id, state_change_order)
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeOrder)
 	})
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
@@ -860,8 +859,8 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
 	})
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
@@ -872,8 +871,8 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 
 		// Should get results after cursor (to_id=1, operation_id=123, state_change_order=1)
-		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[0].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[1].StateChange.StateChangeOrder)
 	})
 
 	t.Run("get state changes with DESC ordering", func(t *testing.T) {
@@ -882,9 +881,9 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 
 		// Verify ordering (results should be in ASC order after DESC query transformation)
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeOrder)
 	})
 
 	t.Run("no state changes for non-existent to_id", func(t *testing.T) {
@@ -898,18 +897,14 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 	dbt := dbtest.OpenB(b)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	if err != nil {
 		b.Fatalf("failed to open db connection pool: %v", err)
 	}
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
-	if err != nil {
-		b.Fatalf("failed to get sqlx db: %v", err)
-	}
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
 
 	m := &StateChangeModel{
 		DB:             dbConnectionPool,

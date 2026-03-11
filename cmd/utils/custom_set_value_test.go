@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -334,6 +335,51 @@ func TestSetConfigOptionAssets(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.assets = []entities.Asset{}
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionDuration(t *testing.T) {
+	opts := struct{ d time.Duration }{}
+
+	co := config.ConfigOption{
+		Name:           "db-max-conn-lifetime",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionDuration,
+		ConfigKey:      &opts.d,
+	}
+
+	testCases := []customSetterTestCase[time.Duration]{
+		{
+			name:            "returns an error if the value is empty",
+			wantErrContains: "db-max-conn-lifetime cannot be empty",
+		},
+		{
+			name:            "returns an error if the value is not a valid duration",
+			args:            []string{"--db-max-conn-lifetime", "invalid"},
+			wantErrContains: `couldn't parse duration in db-max-conn-lifetime`,
+		},
+		{
+			name:       "handles a minute duration through the CLI flag",
+			args:       []string{"--db-max-conn-lifetime", "5m"},
+			wantResult: 5 * time.Minute,
+		},
+		{
+			name:       "handles a second duration through the CLI flag",
+			args:       []string{"--db-max-conn-lifetime", "10s"},
+			wantResult: 10 * time.Second,
+		},
+		{
+			name:       "handles a duration through the ENV var",
+			envValue:   "2m30s",
+			wantResult: 2*time.Minute + 30*time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.d = 0
 			customSetterTester(t, tc, co)
 		})
 	}
