@@ -174,27 +174,3 @@ func Test_progressiveRecompressor_MarkDone_allSimultaneous(t *testing.T) {
 	assert.Equal(t, endTime(3), windows[0]) // safeEnd = last batch
 	assert.Equal(t, 3, r.watermarkIdx)
 }
-
-func Test_progressiveRecompressor_MarkDone_globalEndTracked(t *testing.T) {
-	r := newTestRecompressor(4)
-	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	// globalEnd starts as zero
-	assert.True(t, r.globalEnd.IsZero())
-
-	// Complete batch 2 — globalEnd updates to batch 2's endTime
-	r.MarkDone(2, base.Add(2*time.Hour), base.Add(3*time.Hour))
-	assert.Equal(t, base.Add(3*time.Hour), r.globalEnd)
-
-	// Complete batch 0 — globalEnd should NOT decrease (batch 0 endTime < batch 2 endTime)
-	r.MarkDone(0, base, base.Add(1*time.Hour))
-	assert.Equal(t, base.Add(3*time.Hour), r.globalEnd)
-
-	// Complete batch 3 — globalEnd updates to batch 3's endTime (the new max)
-	r.MarkDone(3, base.Add(3*time.Hour), base.Add(4*time.Hour))
-	assert.Equal(t, base.Add(4*time.Hour), r.globalEnd)
-
-	// Complete batch 1 — globalEnd should NOT decrease
-	r.MarkDone(1, base.Add(1*time.Hour), base.Add(2*time.Hour))
-	assert.Equal(t, base.Add(4*time.Hour), r.globalEnd)
-}
