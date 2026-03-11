@@ -271,7 +271,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	// Close CTE and LATERAL join to fetch full operation rows
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
-		SELECT %s, o.ledger_created_at as "cursor.cursor_ledger_created_at", o.id as "cursor.cursor_id"
+		SELECT %s, o.ledger_created_at as cursor_ledger_created_at, o.id as cursor_id
 		FROM account_ops ao
 		LEFT JOIN LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o ON true
 		WHERE o.id IS NOT NULL`, columns))
