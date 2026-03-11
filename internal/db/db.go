@@ -24,11 +24,10 @@ const (
 
 // PoolConfig holds configurable pgxpool settings. Zero values fall back to Default* constants.
 type PoolConfig struct {
-	MaxConns              int32
-	MinConns              int32
-	MaxConnLifetime       time.Duration
-	MaxConnIdleTime       time.Duration
-	DisableStatementCache bool
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
 }
 
 // DefaultPoolConfig returns a PoolConfig populated with the default values.
@@ -73,10 +72,6 @@ func OpenDBConnectionPool(ctx context.Context, dataSourceName string, poolConfig
 	cfg.MinConns = poolCfg.MinConns
 	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
 	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
-
-	if poolCfg.DisableStatementCache {
-		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
-	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
