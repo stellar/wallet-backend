@@ -528,12 +528,8 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		}
 	}
 
-	// Merge protocol contracts (first-write wins for deduplication)
-	for id, contract := range otherBuffer.protocolContractsByID {
-		if _, exists := b.protocolContractsByID[id]; !exists {
-			b.protocolContractsByID[id] = contract
-		}
-	}
+	// Merge protocol contracts (last-write-wins: otherBuffer has later ledger data)
+	maps.Copy(b.protocolContractsByID, otherBuffer.protocolContractsByID)
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
@@ -627,16 +623,13 @@ func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasm {
 	return maps.Clone(b.protocolWasmsByHash)
 }
 
-// PushProtocolContract adds a protocol contract to the buffer with deduplication (first-write-wins).
+// PushProtocolContract adds a protocol contract to the buffer with deduplication (last-write-wins).
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushProtocolContract(contract data.ProtocolContract) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := string(contract.ContractID)
-	if _, exists := b.protocolContractsByID[key]; !exists {
-		b.protocolContractsByID[key] = contract
-	}
+	b.protocolContractsByID[string(contract.ContractID)] = contract
 }
 
 // GetProtocolContracts returns a clone of the protocol contracts map.

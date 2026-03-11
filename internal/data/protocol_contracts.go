@@ -35,8 +35,8 @@ type ProtocolContractModel struct {
 
 var _ ProtocolContractModelInterface = (*ProtocolContractModel)(nil)
 
-// BatchInsert inserts multiple protocol contracts using UNNEST for efficient batch insertion.
-// Uses ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
+// BatchInsert inserts or updates multiple protocol contracts using UNNEST for efficient batch insertion.
+// Uses ON CONFLICT (contract_id) DO UPDATE to support contract upgrades (last-write-wins).
 func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContract) error {
 	if len(contracts) == 0 {
 		return nil
@@ -67,7 +67,9 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[])
 			AS u(contract_id, wasm_hash, name)
 		WHERE EXISTS (SELECT 1 FROM protocol_wasms pw WHERE pw.wasm_hash = u.wasm_hash)
-		ON CONFLICT (contract_id) DO NOTHING
+		ON CONFLICT (contract_id) DO UPDATE SET
+			wasm_hash = EXCLUDED.wasm_hash,
+			name = COALESCE(EXCLUDED.name, protocol_contracts.name)
 	`
 
 	start := time.Now()

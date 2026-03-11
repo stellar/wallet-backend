@@ -237,12 +237,8 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 						mergedProtocolWasms[hash] = wasm
 					}
 				}
-				// Merge protocol contracts (first-write wins)
-				for id, contract := range result.BatchChanges.ProtocolContractsByID {
-					if _, exists := mergedProtocolContracts[id]; !exists {
-						mergedProtocolContracts[id] = contract
-					}
-				}
+				// Merge protocol contracts (last-write-wins)
+				maps.Copy(mergedProtocolContracts, result.BatchChanges.ProtocolContractsByID)
 			}
 		}
 
@@ -465,12 +461,8 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 						batchChanges.ProtocolWasmsByHash[hash] = wasm
 					}
 				}
-				// Collect protocol contracts (first-write wins)
-				for id, contract := range buffer.GetProtocolContracts() {
-					if _, exists := batchChanges.ProtocolContractsByID[id]; !exists {
-						batchChanges.ProtocolContractsByID[id] = contract
-					}
-				}
+				// Collect protocol contracts (last-write-wins)
+				maps.Copy(batchChanges.ProtocolContractsByID, buffer.GetProtocolContracts())
 			}
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
