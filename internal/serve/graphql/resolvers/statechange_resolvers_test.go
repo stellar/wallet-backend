@@ -224,34 +224,16 @@ func TestStateChangeResolver_TypedFields(t *testing.T) {
 }
 
 func TestStateChangeResolver_Account(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
-
-	resolver := &standardBalanceChangeResolver{&Resolver{
-		models: &data.Models{
-			Account: &data.AccountModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
-			},
-		},
-	}}
-	opID := toid.New(1000, 1, 1).ToInt64()
-	txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id using TOID bitmask
-	parentSC := types.StandardBalanceStateChangeModel{
-		StateChange: types.StateChange{
-			ToID:                txToID,
-			OperationID:         opID,
-			StateChangeOrder:    1,
-			StateChangeCategory: types.StateChangeCategoryBalance,
-		},
-	}
+	resolver := &standardBalanceChangeResolver{&Resolver{}}
 
 	t.Run("success", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+		parentSC := types.StandardBalanceStateChangeModel{
+			StateChange: types.StateChange{
+				AccountID:           types.AddressBytea(sharedTestAccountAddress),
+				StateChangeCategory: types.StateChangeCategoryBalance,
+			},
+		}
+		ctx := context.Background()
 
 		account, err := resolver.Account(ctx, &parentSC)
 		require.NoError(t, err)
@@ -259,29 +241,26 @@ func TestStateChangeResolver_Account(t *testing.T) {
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+		ctx := context.Background()
 
 		assert.Panics(t, func() {
 			_, _ = resolver.Account(ctx, nil) //nolint:errcheck
 		})
 	})
 
-	t.Run("state change with non-existent account", func(t *testing.T) {
-		nonExistentSC := types.StandardBalanceStateChangeModel{
+	t.Run("state change with empty account_id returns error", func(t *testing.T) {
+		emptySC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
-				ToID:                9999,
-				OperationID:         0,
-				StateChangeOrder:    1,
+				AccountID:           "",
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
-		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+		ctx := context.Background()
 
-		account, err := resolver.Account(ctx, &nonExistentSC)
-		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		account, err := resolver.Account(ctx, &emptySC)
+		require.Error(t, err)
 		assert.Nil(t, account)
+		assert.Contains(t, err.Error(), "state change has no account_id")
 	})
 }
 

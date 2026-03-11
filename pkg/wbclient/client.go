@@ -449,7 +449,7 @@ func (c *Client) GetStateChanges(ctx context.Context, first, last *int32, after,
 	return data.StateChanges, nil
 }
 
-func (c *Client) GetAccountTransactions(ctx context.Context, address string, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {
+func (c *Client) GetAccountTransactions(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].TransactionFields
@@ -464,6 +464,12 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, fir
 		map[string]interface{}{"address": address},
 		paginationVars,
 	)
+	if since != nil {
+		variables["since"] = *since
+	}
+	if until != nil {
+		variables["until"] = *until
+	}
 
 	data, err := executeGraphQL[AccountTransactionsData](c, ctx, buildAccountTransactionsQuery(fields), variables)
 	if err != nil {
@@ -473,7 +479,7 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, fir
 	return data.AccountByAddress.Transactions, nil
 }
 
-func (c *Client) GetAccountOperations(ctx context.Context, address string, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
+func (c *Client) GetAccountOperations(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].OperationFields
@@ -488,6 +494,12 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 		map[string]interface{}{"address": address},
 		paginationVars,
 	)
+	if since != nil {
+		variables["since"] = *since
+	}
+	if until != nil {
+		variables["until"] = *until
+	}
 
 	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
 	if err != nil {
@@ -497,7 +509,7 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 	return data.AccountByAddress.Operations, nil
 }
 
-func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *string, reason *string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *string, reason *string, since, until *time.Time, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
 	paginationVars, err := buildPaginationVars(first, last, after, before)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
@@ -523,6 +535,13 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, tra
 			filter["reason"] = *reason
 		}
 		variables["filter"] = filter
+	}
+
+	if since != nil {
+		variables["since"] = *since
+	}
+	if until != nil {
+		variables["until"] = *until
 	}
 
 	variables = mergeVariables(variables, paginationVars)

@@ -2,7 +2,6 @@ package dataloaders
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -11,10 +10,9 @@ import (
 )
 
 type AccountColumnsKey struct {
-	ToID          int64
-	OperationID   int64
-	StateChangeID string
-	Columns       string
+	ToID        int64
+	OperationID int64
+	Columns     string
 }
 
 // accountsByToIDLoader creates a dataloader for fetching accounts by transaction ToID
@@ -62,35 +60,6 @@ func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Accoun
 			return key.OperationID
 		},
 		func(item *types.AccountWithOperationID) types.Account {
-			return item.Account
-		},
-	)
-}
-
-// accountByStateChangeIDLoader creates a dataloader for fetching accounts by state change ID
-// This prevents N+1 queries when multiple state changes request their accounts
-// The loader batches multiple state change IDs into a single database query
-func accountByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumnsKey, *types.Account] {
-	return newOneToOneLoader(
-		func(ctx context.Context, keys []AccountColumnsKey) ([]*types.AccountWithStateChangeID, error) {
-			columns := keys[0].Columns
-			scIDs := make([]string, len(keys))
-			for i, key := range keys {
-				scIDs[i] = key.StateChangeID
-			}
-			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
-			if err != nil {
-				return nil, fmt.Errorf("parsing state change IDs: %w", err)
-			}
-			return models.Account.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
-		},
-		func(item *types.AccountWithStateChangeID) string {
-			return item.StateChangeID
-		},
-		func(key AccountColumnsKey) string {
-			return key.StateChangeID
-		},
-		func(item *types.AccountWithStateChangeID) types.Account {
 			return item.Account
 		},
 	)

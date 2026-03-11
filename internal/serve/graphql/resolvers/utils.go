@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/99designs/gqlgen/graphql"
 
@@ -31,9 +32,22 @@ type GenericConnection[T any] struct {
 	PageInfo *generated.PageInfo
 }
 
+// CursorType determines how pagination cursors are parsed and interpreted.
+type CursorType int
+
+const (
+	// CursorTypeInt64 is used for within-transaction nested resolvers (e.g., operations by ToID)
+	CursorTypeInt64 CursorType = iota
+	// CursorTypeComposite is used for account-level and root tx/ops queries (ledger_created_at:id format)
+	CursorTypeComposite
+	// CursorTypeStateChange is used for state change queries (ledger_created_at:to_id:op_id:sc_order format)
+	CursorTypeStateChange
+)
+
 type PaginationParams struct {
 	Limit             *int32
 	Cursor            *int64
+	CompositeCursor   *types.CompositeCursor
 	StateChangeCursor *types.StateChangeCursor
 	ForwardPagination bool
 	SortOrder         data.SortOrder
@@ -49,19 +63,21 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	hasNextPage := false
 	hasPreviousPage := false
 
+	hasCursor := params.Cursor != nil || params.CompositeCursor != nil || params.StateChangeCursor != nil
+
 	if params.ForwardPagination {
 		if int32(len(nodes)) > *params.Limit {
 			hasNextPage = true
 			nodes = nodes[:*params.Limit]
 		}
-		hasPreviousPage = (params.Cursor != nil || params.StateChangeCursor != nil)
+		hasPreviousPage = hasCursor
 	} else {
 		if int32(len(nodes)) > *params.Limit {
 			hasPreviousPage = true
 			nodes = nodes[1:]
 		}
 		// In backward pagination, presence of a before-cursor implies there may be newer items (a "next page")
-		hasNextPage = (params.Cursor != nil || params.StateChangeCursor != nil)
+		hasNextPage = hasCursor
 	}
 
 	edges := make([]*GenericEdge[T], len(nodes))
@@ -75,11 +91,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	var startCursor, endCursor *string
 	if len(edges) > 0 {
 		startCursor = &edges[0].Cursor
-		if params.ForwardPagination {
-			endCursor = &edges[len(edges)-1].Cursor
-		} else {
-			endCursor = &edges[0].Cursor
-		}
+		endCursor = &edges[len(edges)-1].Cursor
 	}
 
 	pageInfo := &generated.PageInfo{
@@ -273,7 +285,7 @@ func getColumnMap(model any) map[string]string {
 	return fieldToColumnMap
 }
 
-func parsePaginationParams(first *int32, after *string, last *int32, before *string, isStateChange bool) (PaginationParams, error) {
+func parsePaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
 	err := validatePaginationParams(first, after, last, before)
 	if err != nil {
 		return PaginationParams{}, fmt.Errorf("validating pagination params: %w", err)
@@ -299,13 +311,20 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 		ForwardPagination: forwardPagination,
 	}
 
-	if isStateChange {
+	switch cursorType {
+	case CursorTypeStateChange:
 		stateChangeCursor, err := parseStateChangeCursor(cursor)
 		if err != nil {
 			return PaginationParams{}, fmt.Errorf("parsing state change cursor: %w", err)
 		}
 		paginationParams.StateChangeCursor = stateChangeCursor
-	} else {
+	case CursorTypeComposite:
+		compositeCursor, err := parseCompositeCursor(cursor)
+		if err != nil {
+			return PaginationParams{}, fmt.Errorf("parsing composite cursor: %w", err)
+		}
+		paginationParams.CompositeCursor = compositeCursor
+	default:
 		decodedCursor, err := decodeInt64Cursor(cursor)
 		if err != nil {
 			return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
@@ -327,30 +346,80 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 	}
 
 	parts := strings.Split(*decodedCursor, ":")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid cursor format: %s (expected format: to_id:operation_id:state_change_order)", *s)
+	if len(parts) != 4 {
+		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:to_id:operation_id:state_change_order)", *s)
 	}
 
-	toID, err := strconv.ParseInt(parts[0], 10, 64)
+	nanos, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing ledger_created_at: %w", err)
+	}
+
+	toID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing to_id: %w", err)
 	}
 
-	operationID, err := strconv.ParseInt(parts[1], 10, 64)
+	operationID, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing operation_id: %w", err)
 	}
 
-	stateChangeOrder, err := strconv.ParseInt(parts[2], 10, 64)
+	stateChangeOrder, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parsing state_change_order: %w", err)
 	}
 
 	return &types.StateChangeCursor{
+		LedgerCreatedAt:  time.Unix(0, nanos),
 		ToID:             toID,
 		OperationID:      operationID,
 		StateChangeOrder: stateChangeOrder,
 	}, nil
+}
+
+func parseCompositeCursor(s *string) (*types.CompositeCursor, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	decodedCursor, err := decodeStringCursor(s)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	parts := strings.Split(*decodedCursor, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:id)", *s)
+	}
+
+	nanos, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing ledger_created_at: %w", err)
+	}
+
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing id: %w", err)
+	}
+
+	return &types.CompositeCursor{
+		LedgerCreatedAt: time.Unix(0, nanos),
+		ID:              id,
+	}, nil
+}
+
+// buildTimeRange constructs a *data.TimeRange from optional since/until params.
+// Returns an error if both are provided and until is before since.
+// Returns nil if both are nil (no time range filtering).
+func buildTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error) {
+	if since == nil && until == nil {
+		return nil, nil
+	}
+	if since != nil && until != nil && until.Before(*since) {
+		return nil, fmt.Errorf("until must not be before since")
+	}
+	return &data.TimeRange{Since: since, Until: until}, nil
 }
 
 func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
