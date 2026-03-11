@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"encoding/hex"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -61,7 +60,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify the insert
 		var count int
-		wasmHashBytes, _ := hex.DecodeString(string(wasmHash))
+		wasmHashBytes, err := wasmHash.Value()
+		require.NoError(t, err)
 		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, wasmHashBytes)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
@@ -94,7 +94,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify protocol_id was stored correctly
 		var storedProtocolID *string
-		hash2Bytes, _ := hex.DecodeString(string(hash2))
+		hash2Bytes, err := hash2.Value()
+		require.NoError(t, err)
 		err = dbConnectionPool.GetContext(ctx, &storedProtocolID, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash2Bytes)
 		require.NoError(t, err)
 		require.NotNil(t, storedProtocolID)
@@ -130,7 +131,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify only one row
 		var count int
-		dupHashBytes, _ := hex.DecodeString(string(dupHash))
+		dupHashBytes, err := dupHash.Value()
+		require.NoError(t, err)
 		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, dupHashBytes)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
