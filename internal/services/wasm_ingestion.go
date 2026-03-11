@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +11,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // WasmIngestionService tracks and persists WASM hashes and contract-to-WASM mappings during checkpoint population.
@@ -26,7 +28,7 @@ type wasmIngestionService struct {
 	protocolWasmModel     data.ProtocolWasmModelInterface
 	protocolContractModel data.ProtocolContractModelInterface
 	wasmHashes            map[xdr.Hash]struct{}
-	contractIDsByWasmHash map[xdr.Hash][][]byte
+	contractIDsByWasmHash map[xdr.Hash][]types.HashBytea
 }
 
 // NewWasmIngestionService creates a WasmIngestionService.
@@ -38,7 +40,7 @@ func NewWasmIngestionService(
 		protocolWasmModel:     protocolWasmModel,
 		protocolContractModel: protocolContractModel,
 		wasmHashes:            make(map[xdr.Hash]struct{}),
-		contractIDsByWasmHash: make(map[xdr.Hash][][]byte),
+		contractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
 	}
 }
 
@@ -73,7 +75,7 @@ func (s *wasmIngestionService) ProcessContractData(ctx context.Context, change i
 	}
 
 	hash := *contractInstance.Executable.WasmHash
-	s.contractIDsByWasmHash[hash] = append(s.contractIDsByWasmHash[hash], contractAddress[:])
+	s.contractIDsByWasmHash[hash] = append(s.contractIDsByWasmHash[hash], types.HashBytea(hex.EncodeToString(contractAddress[:])))
 
 	return nil
 }
@@ -87,7 +89,7 @@ func (s *wasmIngestionService) PersistProtocolWasms(ctx context.Context, dbTx pg
 	wasms := make([]data.ProtocolWasm, 0, len(s.wasmHashes))
 	for hash := range s.wasmHashes {
 		wasms = append(wasms, data.ProtocolWasm{
-			WasmHash:   hash[:],
+			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			ProtocolID: nil,
 		})
 	}
@@ -117,7 +119,7 @@ func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbT
 		for _, contractID := range contractIDs {
 			contracts = append(contracts, data.ProtocolContract{
 				ContractID: contractID,
-				WasmHash:   hash[:],
+				WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			})
 		}
 	}
