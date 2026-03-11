@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func TestProtocolSetupService_Run(t *testing.T) {
@@ -63,7 +64,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		// GetUnclassified returns 1 hash
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
-			{WasmHash: testWasmHex},
+			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
 		// RPC returns bytecode
@@ -73,7 +74,13 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		specExtractorMock.On("ExtractSpec", ctx, testWasmCode).Return(testSpecEntries, nil)
 
 		// Persist results
-		protocolWasmModelMock.On("BatchUpdateProtocolID", ctx, mock.Anything, []string{testWasmHex}, testProtocolID).Return(nil)
+		protocolWasmModelMock.On(
+			"BatchUpdateProtocolID",
+			ctx,
+			mock.Anything,
+			[]types.HashBytea{types.HashBytea(testWasmHex)},
+			testProtocolID,
+		).Return(nil)
 
 		// Set status to success
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusSuccess).Return(nil)
@@ -110,7 +117,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		// GetUnclassified returns 1 hash
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
-			{WasmHash: testWasmHex},
+			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
 		// RPC fails
@@ -207,7 +214,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		// GetUnclassified returns 1 hash
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
-			{WasmHash: testWasmHex},
+			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
 		// RPC returns empty entries (WASM expired/evicted)
@@ -248,7 +255,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 		// GetUnclassified returns 1 hash
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
-			{WasmHash: testWasmHex},
+			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
 		// RPC returns bytecode
@@ -294,7 +301,7 @@ func TestProtocolSetupService_Run(t *testing.T) {
 			hash := xdr.Hash{}
 			hash[0] = byte(i >> 8)
 			hash[1] = byte(i)
-			unclassifiedWasms[i] = data.ProtocolWasm{WasmHash: hex.EncodeToString(hash[:])}
+			unclassifiedWasms[i] = data.ProtocolWasm{WasmHash: types.HashBytea(hex.EncodeToString(hash[:]))}
 		}
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return(unclassifiedWasms, nil)
 

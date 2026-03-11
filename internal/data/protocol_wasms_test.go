@@ -143,3 +143,87 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		assert.Equal(t, 1, count)
 	})
 }
+
+func TestProtocolWasmBatchUpdateProtocolID(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM protocol_wasms`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM protocols`)
+		require.NoError(t, err)
+	}
+
+	t.Run("empty input returns no error", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		defer mockMetricsService.AssertExpectations(t)
+
+		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.BatchUpdateProtocolID(ctx, dbTx, nil, "ignored")
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("updates protocol_id for matching hashes only", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		protocolID := "test-protocol"
+		hash1 := types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000")
+		hash2 := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
+		hash3 := types.HashBytea("0300000000000000000000000000000000000000000000000000000000000000")
+
+		_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO protocols (id) VALUES ($1)`, protocolID)
+		require.NoError(t, err)
+
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+				{WasmHash: hash1},
+				{WasmHash: hash2},
+				{WasmHash: hash3},
+			})
+		})
+		require.NoError(t, err)
+
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.BatchUpdateProtocolID(ctx, dbTx, []types.HashBytea{hash1, hash3}, protocolID)
+		})
+		require.NoError(t, err)
+
+		var protocolID1 *string
+		hash1Bytes, err := hash1.Value()
+		require.NoError(t, err)
+		err = dbConnectionPool.GetContext(ctx, &protocolID1, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash1Bytes)
+		require.NoError(t, err)
+		require.NotNil(t, protocolID1)
+		assert.Equal(t, protocolID, *protocolID1)
+
+		var protocolID2 *string
+		hash2Bytes, err := hash2.Value()
+		require.NoError(t, err)
+		err = dbConnectionPool.GetContext(ctx, &protocolID2, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash2Bytes)
+		require.NoError(t, err)
+		assert.Nil(t, protocolID2)
+
+		var protocolID3 *string
+		hash3Bytes, err := hash3.Value()
+		require.NoError(t, err)
+		err = dbConnectionPool.GetContext(ctx, &protocolID3, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash3Bytes)
+		require.NoError(t, err)
+		require.NotNil(t, protocolID3)
+		assert.Equal(t, protocolID, *protocolID3)
+	})
+}

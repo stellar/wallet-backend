@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // ContractModelMock is a mock implementation of ContractModelInterface.
@@ -255,7 +257,7 @@ func (m *ProtocolWasmModelMock) GetUnclassified(ctx context.Context) ([]Protocol
 	return args.Get(0).([]ProtocolWasm), args.Error(1)
 }
 
-func (m *ProtocolWasmModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []string, protocolID string) error {
+func (m *ProtocolWasmModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
 	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
 	return args.Error(0)
 }
