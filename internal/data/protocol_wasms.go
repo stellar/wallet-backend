@@ -8,15 +8,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // ProtocolWasm represents a WASM hash tracked during checkpoint population.
 type ProtocolWasm struct {
-	WasmHash   []byte    `db:"wasm_hash"`
-	ProtocolID *string   `db:"protocol_id"`
-	CreatedAt  time.Time `db:"created_at"`
+	WasmHash   types.HashBytea `db:"wasm_hash"`
+	ProtocolID *string         `db:"protocol_id"`
+	CreatedAt  time.Time       `db:"created_at"`
 }
 
 // ProtocolWasmModelInterface defines the interface for protocol_wasms operations.
@@ -43,7 +44,11 @@ func (m *ProtocolWasmModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms 
 	protocolIDs := make([]*string, len(wasms))
 
 	for i, w := range wasms {
-		wasmHashes[i] = w.WasmHash
+		val, err := w.WasmHash.Value()
+		if err != nil {
+			return fmt.Errorf("converting wasm hash to bytes: %w", err)
+		}
+		wasmHashes[i] = val.([]byte)
 		protocolIDs[i] = w.ProtocolID
 	}
 

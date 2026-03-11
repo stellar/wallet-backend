@@ -2,11 +2,14 @@ package processors
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func TestProtocolWasmProcessor_Name(t *testing.T) {
@@ -28,7 +31,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 		name          string
 		changes       xdr.LedgerEntryChanges
 		expectedCount int
-		expectedHash  []byte
+		expectedHash  types.HashBytea
 	}{
 		{
 			name: "ContractCode created returns ProtocolWasm",
@@ -47,7 +50,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 				},
 			},
 			expectedCount: 1,
-			expectedHash:  testWasmHash[:],
+			expectedHash:  types.HashBytea(hex.EncodeToString(testWasmHash[:])),
 		},
 		{
 			name: "non-ContractCode entry skipped",

@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -48,7 +50,7 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		wasmHash := []byte{0xab, 0xc1, 0x23, 0xde, 0xf4, 0x56}
+		wasmHash := types.HashBytea("abc123def4560000000000000000000000000000000000000000000000000000")
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
@@ -59,7 +61,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify the insert
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, wasmHash)
+		wasmHashBytes, _ := hex.DecodeString(string(wasmHash))
+		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, wasmHashBytes)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
 	})
@@ -74,12 +77,12 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		protocolID := "test-protocol"
-		hash2 := []byte{2}
+		hash2 := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
-				{WasmHash: []byte{1}, ProtocolID: nil},
+				{WasmHash: types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000"), ProtocolID: nil},
 				{WasmHash: hash2, ProtocolID: &protocolID},
-				{WasmHash: []byte{3}, ProtocolID: nil},
+				{WasmHash: types.HashBytea("0300000000000000000000000000000000000000000000000000000000000000"), ProtocolID: nil},
 			})
 		})
 		assert.NoError(t, err)
@@ -91,7 +94,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify protocol_id was stored correctly
 		var storedProtocolID *string
-		err = dbConnectionPool.GetContext(ctx, &storedProtocolID, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash2)
+		hash2Bytes, _ := hex.DecodeString(string(hash2))
+		err = dbConnectionPool.GetContext(ctx, &storedProtocolID, `SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, hash2Bytes)
 		require.NoError(t, err)
 		require.NotNil(t, storedProtocolID)
 		assert.Equal(t, "test-protocol", *storedProtocolID)
@@ -105,7 +109,7 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		dupHash := []byte{0xdd, 0xee}
+		dupHash := types.HashBytea("ddee000000000000000000000000000000000000000000000000000000000000")
 		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// First insert
@@ -126,7 +130,8 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Verify only one row
 		var count int
-		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, dupHash)
+		dupHashBytes, _ := hex.DecodeString(string(dupHash))
+		err = dbConnectionPool.GetContext(ctx, &count, `SELECT COUNT(*) FROM protocol_wasms WHERE wasm_hash = $1`, dupHashBytes)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
 	})

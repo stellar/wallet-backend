@@ -858,9 +858,9 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 	t.Run("push and get protocol wasms with dedup", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 
-		wasm1 := data.ProtocolWasm{WasmHash: []byte{1}}
-		wasm2 := data.ProtocolWasm{WasmHash: []byte{2}}
-		wasm1Dup := data.ProtocolWasm{WasmHash: []byte{1}} // duplicate
+		wasm1 := data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}
+		wasm2 := data.ProtocolWasm{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"}
+		wasm1Dup := data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"} // duplicate
 
 		buffer.PushProtocolWasm(wasm1)
 		buffer.PushProtocolWasm(wasm2)
@@ -868,29 +868,29 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 
 		wasms := buffer.GetProtocolWasms()
 		assert.Len(t, wasms, 2)
-		assert.Equal(t, wasm1, wasms[string([]byte{1})])
-		assert.Equal(t, wasm2, wasms[string([]byte{2})])
+		assert.Equal(t, wasm1, wasms[string(wasm1.WasmHash)])
+		assert.Equal(t, wasm2, wasms[string(wasm2.WasmHash)])
 	})
 
 	t.Run("merge protocol wasms first-write-wins", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		buffer1.PushProtocolWasm(data.ProtocolWasm{WasmHash: []byte{1}})
-		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: []byte{1}}) // duplicate across buffers
-		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: []byte{2}})
+		buffer1.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
+		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}) // duplicate across buffers
+		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer1.Merge(buffer2)
 
 		wasms := buffer1.GetProtocolWasms()
 		assert.Len(t, wasms, 2)
-		assert.Contains(t, wasms, string([]byte{1}))
-		assert.Contains(t, wasms, string([]byte{2}))
+		assert.Contains(t, wasms, "0100000000000000000000000000000000000000000000000000000000000000")
+		assert.Contains(t, wasms, "0200000000000000000000000000000000000000000000000000000000000000")
 	})
 
 	t.Run("clear protocol wasms", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushProtocolWasm(data.ProtocolWasm{WasmHash: []byte{1}})
+		buffer.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer.Clear()
 
@@ -903,9 +903,9 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 	t.Run("push and get protocol contracts with dedup", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 
-		c1 := data.ProtocolContract{ContractID: []byte{1}, WasmHash: []byte{10}}
-		c2 := data.ProtocolContract{ContractID: []byte{2}, WasmHash: []byte{20}}
-		c1Dup := data.ProtocolContract{ContractID: []byte{1}, WasmHash: []byte{10}} // duplicate
+		c1 := data.ProtocolContract{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "0a00000000000000000000000000000000000000000000000000000000000000"}
+		c2 := data.ProtocolContract{ContractID: "0200000000000000000000000000000000000000000000000000000000000000", WasmHash: "1400000000000000000000000000000000000000000000000000000000000000"}
+		c1Dup := data.ProtocolContract{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "0a00000000000000000000000000000000000000000000000000000000000000"} // duplicate
 
 		buffer.PushProtocolContract(c1)
 		buffer.PushProtocolContract(c2)
@@ -913,30 +913,30 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 
 		contracts := buffer.GetProtocolContracts()
 		assert.Len(t, contracts, 2)
-		assert.Equal(t, c1, contracts[string([]byte{1})])
-		assert.Equal(t, c2, contracts[string([]byte{2})])
+		assert.Equal(t, c1, contracts[string(c1.ContractID)])
+		assert.Equal(t, c2, contracts[string(c2.ContractID)])
 	})
 
 	t.Run("merge protocol contracts first-write-wins", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		buffer1.PushProtocolContract(data.ProtocolContract{ContractID: []byte{1}, WasmHash: []byte{10}})
-		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: []byte{1}, WasmHash: []byte{99}}) // duplicate
-		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: []byte{2}, WasmHash: []byte{20}})
+		buffer1.PushProtocolContract(data.ProtocolContract{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "0a00000000000000000000000000000000000000000000000000000000000000"})
+		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "6300000000000000000000000000000000000000000000000000000000000000"}) // duplicate
+		buffer2.PushProtocolContract(data.ProtocolContract{ContractID: "0200000000000000000000000000000000000000000000000000000000000000", WasmHash: "1400000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer1.Merge(buffer2)
 
 		contracts := buffer1.GetProtocolContracts()
 		assert.Len(t, contracts, 2)
 		// First-write-wins: buffer1's value should be kept
-		assert.Equal(t, []byte{10}, contracts[string([]byte{1})].WasmHash)
-		assert.Equal(t, []byte{20}, contracts[string([]byte{2})].WasmHash)
+		assert.Equal(t, types.HashBytea("0a00000000000000000000000000000000000000000000000000000000000000"), contracts["0100000000000000000000000000000000000000000000000000000000000000"].WasmHash)
+		assert.Equal(t, types.HashBytea("1400000000000000000000000000000000000000000000000000000000000000"), contracts["0200000000000000000000000000000000000000000000000000000000000000"].WasmHash)
 	})
 
 	t.Run("clear protocol contracts", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushProtocolContract(data.ProtocolContract{ContractID: []byte{1}, WasmHash: []byte{10}})
+		buffer.PushProtocolContract(data.ProtocolContract{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "0a00000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer.Clear()
 

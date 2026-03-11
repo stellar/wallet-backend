@@ -2,11 +2,13 @@ package processors
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // ProtocolContractProcessor extracts contract-to-WASM mappings from ContractData Instance entries.
@@ -58,8 +60,8 @@ func (p *ProtocolContractProcessor) ProcessOperation(ctx context.Context, opWrap
 		hash := *instance.Executable.WasmHash
 
 		contracts = append(contracts, data.ProtocolContract{
-			ContractID: contractIDBytes[:],
-			WasmHash:   hash[:],
+			ContractID: types.HashBytea(hex.EncodeToString(contractIDBytes[:])),
+			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 		})
 	}
 

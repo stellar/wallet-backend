@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -15,10 +16,10 @@ import (
 // ProtocolContract represents a contract tracked during checkpoint population,
 // linking a contract_id to its WASM hash.
 type ProtocolContract struct {
-	ContractID []byte    `db:"contract_id"`
-	WasmHash   []byte    `db:"wasm_hash"`
-	Name       *string   `db:"name"`
-	CreatedAt  time.Time `db:"created_at"`
+	ContractID types.HashBytea `db:"contract_id"`
+	WasmHash   types.HashBytea `db:"wasm_hash"`
+	Name       *string         `db:"name"`
+	CreatedAt  time.Time       `db:"created_at"`
 }
 
 // ProtocolContractModelInterface defines the interface for protocol_contracts operations.
@@ -46,8 +47,17 @@ func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, co
 	names := make([]*string, len(contracts))
 
 	for i, c := range contracts {
-		contractIDs[i] = c.ContractID
-		wasmHashes[i] = c.WasmHash
+		cidVal, err := c.ContractID.Value()
+		if err != nil {
+			return fmt.Errorf("converting contract id to bytes: %w", err)
+		}
+		contractIDs[i] = cidVal.([]byte)
+
+		whVal, err := c.WasmHash.Value()
+		if err != nil {
+			return fmt.Errorf("converting wasm hash to bytes: %w", err)
+		}
+		wasmHashes[i] = whVal.([]byte)
 		names[i] = c.Name
 	}
 

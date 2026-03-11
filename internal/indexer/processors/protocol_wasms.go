@@ -2,11 +2,13 @@ package processors
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // ProtocolWasmProcessor extracts WASM hashes from ContractCode ledger entries.
@@ -39,7 +41,7 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 
 		hash := change.Post.Data.MustContractCode().Hash
 		wasms = append(wasms, data.ProtocolWasm{
-			WasmHash: hash[:],
+			WasmHash: types.HashBytea(hex.EncodeToString(hash[:])),
 		})
 	}
 

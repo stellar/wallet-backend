@@ -2,11 +2,14 @@ package processors
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func TestProtocolContractProcessor_Name(t *testing.T) {
@@ -30,7 +33,7 @@ func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
 		0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
 	}
-	expectedContractIDBytes := testContractIDBytes[:]
+	expectedContractID := types.HashBytea(hex.EncodeToString(testContractIDBytes[:]))
 
 	// Helper to create a WASM instance ledger entry
 	wasmInstanceEntry := func(contractID [32]byte, wasmHash *xdr.Hash) *xdr.LedgerEntry {
@@ -87,8 +90,8 @@ func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
 		name               string
 		changes            xdr.LedgerEntryChanges
 		expectedCount      int
-		expectedContractID []byte
-		expectedWasmHash   []byte
+		expectedContractID types.HashBytea
+		expectedWasmHash   types.HashBytea
 	}{
 		{
 			name: "WASM instance created returns ProtocolContract",
@@ -99,8 +102,8 @@ func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
 				},
 			},
 			expectedCount:      1,
-			expectedContractID: expectedContractIDBytes,
-			expectedWasmHash:   testWasmHash[:],
+			expectedContractID: expectedContractID,
+			expectedWasmHash:   types.HashBytea(hex.EncodeToString(testWasmHash[:])),
 		},
 		{
 			name: "SAC instance (non-WASM executable) skipped",
