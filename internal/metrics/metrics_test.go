@@ -1,12 +1,16 @@
 package metrics
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
 func TestNewMetricsService(t *testing.T) {
@@ -655,6 +659,49 @@ func TestPoolMetrics(t *testing.T) {
 
 		pool.StopAndWait()
 	})
+}
+
+func TestDBPoolMetrics(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	ms := NewMetricsService()
+	ms.RegisterDBPoolMetrics(pool)
+
+	metricFamilies, err := ms.GetRegistry().Gather()
+	require.NoError(t, err)
+
+	registeredMetrics := make(map[string]bool)
+	for _, mf := range metricFamilies {
+		registeredMetrics[mf.GetName()] = true
+	}
+
+	expectedMetrics := []string{
+		"db_pool_acquire_total",
+		"db_pool_acquired_conns",
+		"db_pool_idle_conns",
+		"db_pool_total_conns",
+		"db_pool_max_conns",
+		"db_pool_acquire_duration_seconds",
+		"db_pool_constructing_conns",
+		"db_pool_empty_acquire_total",
+	}
+	for _, name := range expectedMetrics {
+		assert.True(t, registeredMetrics[name], "Expected metric %s to be registered", name)
+	}
+
+	// Verify max_conns reflects the pool's configured value
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "db_pool_max_conns" {
+			value := mf.GetMetric()[0].GetGauge().GetValue()
+			assert.Greater(t, value, float64(0), "max_conns should be greater than 0")
+		}
+	}
 }
 
 func TestRPCMethodMetrics(t *testing.T) {

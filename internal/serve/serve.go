@@ -147,6 +147,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
 	metricsService := metrics.NewMetricsService()
+	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
