@@ -374,17 +374,15 @@ func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr
 func (i *Indexer) ProcessLedgerTransactionsSequential(
 	ctx context.Context,
 	transactions []ingest.LedgerTransaction,
-	buffer IndexerBufferInterface,
+	buffer *IndexerBuffer,
 ) (int, error) {
 	totalParticipants := 0
 	for _, tx := range transactions {
-		txBuffer := NewIndexerBuffer()
-		count, err := i.processTransaction(ctx, tx, txBuffer)
+		count, err := i.processTransaction(ctx, tx, buffer)
 		if err != nil {
 			return 0, fmt.Errorf("processing tx at ledger=%d tx=%d: %w",
 				tx.Ledger.LedgerSequence(), tx.Index, err)
 		}
-		buffer.Merge(txBuffer)
 		totalParticipants += count
 	}
 	return totalParticipants, nil
