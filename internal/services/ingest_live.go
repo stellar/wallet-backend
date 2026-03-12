@@ -86,11 +86,11 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		}
 		protocolContracts := buffer.GetProtocolContracts()
 		if len(protocolContracts) > 0 {
-			contractSlice := make([]data.ProtocolContract, 0, len(protocolContracts))
+			contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
 			for _, contract := range protocolContracts {
 				contractSlice = append(contractSlice, contract)
 			}
-			if txErr = m.models.ProtocolContract.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
 			}
 		}

@@ -26,7 +26,7 @@ var _ WasmIngestionService = (*wasmIngestionService)(nil)
 
 type wasmIngestionService struct {
 	protocolWasmModel     data.ProtocolWasmModelInterface
-	protocolContractModel data.ProtocolContractModelInterface
+	protocolContractsModel data.ProtocolContractsModelInterface
 	wasmHashes            map[xdr.Hash]struct{}
 	contractIDsByWasmHash map[xdr.Hash][]types.HashBytea
 }
@@ -34,11 +34,11 @@ type wasmIngestionService struct {
 // NewWasmIngestionService creates a WasmIngestionService.
 func NewWasmIngestionService(
 	protocolWasmModel data.ProtocolWasmModelInterface,
-	protocolContractModel data.ProtocolContractModelInterface,
+	protocolContractsModel data.ProtocolContractsModelInterface,
 ) *wasmIngestionService {
 	return &wasmIngestionService{
 		protocolWasmModel:     protocolWasmModel,
-		protocolContractModel: protocolContractModel,
+		protocolContractsModel: protocolContractsModel,
 		wasmHashes:            make(map[xdr.Hash]struct{}),
 		contractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
 	}
@@ -109,7 +109,7 @@ func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbT
 		return nil
 	}
 
-	var contracts []data.ProtocolContract
+	var contracts []data.ProtocolContracts
 	var skipped int
 	for hash, contractIDs := range s.contractIDsByWasmHash {
 		if _, exists := s.wasmHashes[hash]; !exists {
@@ -117,7 +117,7 @@ func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbT
 			continue
 		}
 		for _, contractID := range contractIDs {
-			contracts = append(contracts, data.ProtocolContract{
+			contracts = append(contracts, data.ProtocolContracts{
 				ContractID: contractID,
 				WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			})
@@ -127,7 +127,7 @@ func (s *wasmIngestionService) PersistProtocolContracts(ctx context.Context, dbT
 		log.Ctx(ctx).Infof("Skipped %d protocol contracts referencing missing WASM hashes (expired/evicted)", skipped)
 	}
 
-	if err := s.protocolContractModel.BatchInsert(ctx, dbTx, contracts); err != nil {
+	if err := s.protocolContractsModel.BatchInsert(ctx, dbTx, contracts); err != nil {
 		return fmt.Errorf("persisting protocol contracts: %w", err)
 	}
 
