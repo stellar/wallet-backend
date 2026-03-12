@@ -144,7 +144,7 @@ func (m *ingestService) startCatchup(ctx context.Context, startLedger, endLedger
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
 		}
-		result := m.processLedgersInBatchPipelined(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+		result := m.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
 			return m.flushCatchupBatch(ctx, buffer, batchChanges)
 		})
 		result.BatchChanges = batchChanges

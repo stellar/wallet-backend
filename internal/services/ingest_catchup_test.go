@@ -601,9 +601,9 @@ func Test_ingestService_flushCatchupBatch(t *testing.T) {
 	}
 }
 
-// Test_ingestService_processLedgersInBatchPipelined_Catchup tests that the pipelined
+// Test_ingestService_processLedgersInBatch_Catchup tests that the pipelined
 // processor with flushCatchupBatch returns non-nil BatchChanges.
-func Test_ingestService_processLedgersInBatchPipelined_Catchup(t *testing.T) {
+func Test_ingestService_processLedgersInBatch_Catchup(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -664,7 +664,7 @@ func Test_ingestService_processLedgersInBatchPipelined_Catchup(t *testing.T) {
 		UniqueContractTokensByID:  make(map[string]types.ContractType),
 		SACContractsByID:          make(map[string]*data.Contract),
 	}
-	result := svc.processLedgersInBatchPipelined(ctx, mockLedgerBackend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+	result := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
 		return svc.flushCatchupBatch(ctx, buffer, batchChanges)
 	})
 	result.BatchChanges = batchChanges
@@ -903,7 +903,7 @@ func Test_ingestService_processBackfillBatchesParallel_Catchup(t *testing.T) {
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
 		}
-		result := svc.processLedgersInBatchPipelined(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+		result := svc.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
 			return svc.flushCatchupBatch(ctx, buffer, batchChanges)
 		})
 		result.BatchChanges = batchChanges

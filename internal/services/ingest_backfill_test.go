@@ -674,7 +674,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			require.NoError(t, svcErr)
 
 			results := svc.processBackfillBatchesParallel(ctx, tc.batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatchPipelined(ctx, backend, batch, svc.flushHistoricalBatch)
+				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
 			}, nil)
 
 			// Verify results
@@ -939,7 +939,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 
 	// Process both batches in parallel
 	results := svc.processBackfillBatchesParallel(ctx, batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatchPipelined(ctx, backend, batch, svc.flushHistoricalBatch)
+				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
 			}, nil)
 
 	// Verify we got results for both batches
@@ -1045,9 +1045,9 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		"latest cursor should remain unchanged when all batches fail")
 }
 
-// Test_ingestService_processLedgersInBatchPipelined_Historical tests that the pipelined
+// Test_ingestService_processLedgersInBatch_Historical tests that the pipelined
 // processor with flushHistoricalBatch returns nil BatchChanges.
-func Test_ingestService_processLedgersInBatchPipelined_Historical(t *testing.T) {
+func Test_ingestService_processLedgersInBatch_Historical(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -1101,7 +1101,7 @@ func Test_ingestService_processLedgersInBatchPipelined_Historical(t *testing.T) 
 	require.NoError(t, err)
 
 	batch := BackfillBatch{StartLedger: 4599, EndLedger: 4599}
-	result := svc.processLedgersInBatchPipelined(ctx, mockLedgerBackend, batch, svc.flushHistoricalBatch)
+	result := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, svc.flushHistoricalBatch)
 
 	require.NoError(t, result.Error)
 	assert.Equal(t, 1, result.LedgersCount)
@@ -1175,7 +1175,7 @@ func Test_ingestService_processBackfillBatchesParallel_Historical(t *testing.T) 
 	}
 
 	results := svc.processBackfillBatchesParallel(ctx, batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatchPipelined(ctx, backend, batch, svc.flushHistoricalBatch)
+				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
 			}, nil)
 
 	require.Len(t, results, 2)

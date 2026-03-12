@@ -377,6 +377,12 @@ func (pm *pipelineMetrics) deltas() (process, blocked time.Duration, ledgers int
 	return
 }
 
+// metaWithTime pairs a ledger's close metadata with its parsed close time.
+type metaWithTime struct {
+	meta     xdr.LedgerCloseMeta
+	closedAt time.Time
+}
+
 // processLedgersInBatch processes ledgers using a 3-stage streaming pipeline:
 //   - Stage 1 (Reader): Sequential GetLedger calls into metaCh
 //   - Stage 2 (Workers): Parallel ledger processing into flushCh
@@ -396,46 +402,105 @@ func (m *ingestService) processLedgersInBatch(
 	pipeCtx, pipeCancel := context.WithCancel(ctx)
 	defer pipeCancel()
 
-	type metaWithTime struct {
-		meta     xdr.LedgerCloseMeta
-		closedAt time.Time
-	}
 	metaCh := make(chan metaWithTime, pipelineReaderBuffer)
 	flushCh := make(chan *indexer.IndexerBuffer, m.backfillDBInsertBatchSize*2)
+	var metrics pipelineMetrics
 
-	// --- Stage 1: Reader — sequential GetLedger into metaCh ---
+	// Launch pipeline stages
+	startTime, endTime, readerErr := m.startLedgerReader(pipeCtx, backend, batch, metaCh, pipeCancel)
+	workerErr := m.startLedgerWorkers(pipeCtx, metaCh, flushCh, &metrics, pipeCancel)
+
+	// Consume + flush
+	batchStart := time.Now()
+	ledgersCount, flushDuration, flushErr := m.consumeAndFlush(ctx, pipeCtx, flushCh, flush, &metrics, pipeCancel)
+	result.LedgersCount = ledgersCount
+	if flushErr != nil {
+		result.Error = flushErr
+		return result
+	}
+
+	// Check upstream errors
+	if err := collectPipelineErrors(readerErr, workerErr); err != nil {
+		result.Error = err
+		return result
+	}
+
+	// Finalize
+	if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
+		result.Error = err
+		return result
+	}
+	result.StartTime = *startTime
+	result.EndTime = *endTime
+	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+
+	// Summary log
+	elapsed := time.Since(batchStart)
+	log.Ctx(ctx).Infof("Batch [%d-%d] complete — %d ledgers in %v (%.1f l/s), process: %v, flush: %v",
+		batch.StartLedger, batch.EndLedger,
+		result.LedgersCount, elapsed, float64(result.LedgersCount)/elapsed.Seconds(),
+		time.Duration(metrics.processDuration.Load()), flushDuration)
+
+	return result
+}
+
+// startLedgerReader spawns a goroutine that sequentially fetches ledgers via
+// GetLedger and sends them to metaCh. It closes metaCh on completion or error.
+// The caller reads boundary timestamps from the returned pointers after metaCh drains.
+func (m *ingestService) startLedgerReader(
+	ctx context.Context,
+	backend ledgerbackend.LedgerBackend,
+	batch BackfillBatch,
+	metaCh chan<- metaWithTime,
+	cancel context.CancelFunc,
+) (startTime, endTime *time.Time, errCh <-chan error) {
 	readerErr := make(chan error, 1)
-	var startTime, endTime time.Time
+	var st, et time.Time
+	startTime = &st
+	endTime = &et
+
 	go func() {
 		defer close(metaCh)
 		for seq := batch.StartLedger; seq <= batch.EndLedger; seq++ {
-			meta, err := m.getLedgerWithRetry(pipeCtx, backend, seq)
+			meta, err := m.getLedgerWithRetry(ctx, backend, seq)
 			if err != nil {
 				readerErr <- fmt.Errorf("getting ledger %d: %w", seq, err)
-				pipeCancel()
+				cancel()
 				return
 			}
 			lt := meta.ClosedAt()
-			if startTime.IsZero() {
-				startTime = lt
+			if st.IsZero() {
+				st = lt
 			}
-			endTime = lt
+			et = lt
 
 			select {
 			case metaCh <- metaWithTime{meta: meta, closedAt: lt}:
-			case <-pipeCtx.Done():
-				readerErr <- pipeCtx.Err()
+			case <-ctx.Done():
+				readerErr <- ctx.Err()
 				return
 			}
 		}
 	}()
 
-	// --- Stage 2: Workers — parallel process, send directly to flushCh ---
-	var metrics pipelineMetrics
+	return startTime, endTime, readerErr
+}
+
+// startLedgerWorkers spawns a goroutine that reads from metaCh, processes
+// ledgers in parallel (up to pipelineWorkerLimit), and sends IndexerBuffers
+// to flushCh. It closes flushCh on completion.
+func (m *ingestService) startLedgerWorkers(
+	ctx context.Context,
+	metaCh <-chan metaWithTime,
+	flushCh chan<- *indexer.IndexerBuffer,
+	metrics *pipelineMetrics,
+	cancel context.CancelFunc,
+) <-chan error {
 	workerErr := make(chan error, 1)
+
 	go func() {
 		defer close(flushCh)
-		g, gCtx := errgroup.WithContext(pipeCtx)
+		g, gCtx := errgroup.WithContext(ctx)
 		g.SetLimit(pipelineWorkerLimit)
 
 		for item := range metaCh {
@@ -456,15 +521,25 @@ func (m *ingestService) processLedgersInBatch(
 		}
 		if err := g.Wait(); err != nil {
 			workerErr <- err
-			pipeCancel()
+			cancel()
 		}
 	}()
 
-	// --- Stage 3: Consumer — merge + flush ---
-	batchStart := time.Now()
+	return workerErr
+}
+
+// consumeAndFlush merges incoming IndexerBuffers and periodically flushes to DB.
+// Returns the number of ledgers processed, total flush duration, and any flush error.
+func (m *ingestService) consumeAndFlush(
+	ctx context.Context,
+	pipeCtx context.Context,
+	flushCh <-chan *indexer.IndexerBuffer,
+	flush func(context.Context, *indexer.IndexerBuffer) error,
+	metrics *pipelineMetrics,
+	cancel context.CancelFunc,
+) (ledgersCount int, flushDuration time.Duration, err error) {
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
-	var flushDuration time.Duration
 	flushCount := 0
 	lastFlushEnd := time.Now()
 	var mergeDuration time.Duration
@@ -479,7 +554,7 @@ func (m *ingestService) processLedgersInBatch(
 		batchBuffer.Merge(buf)
 		mergeDuration += time.Since(mt)
 		ledgersInBuffer++
-		result.LedgersCount++
+		ledgersCount++
 
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
 			fillTime := time.Since(lastFlushEnd)
@@ -487,9 +562,8 @@ func (m *ingestService) processLedgersInBatch(
 
 			t := time.Now()
 			if err := flush(pipeCtx, batchBuffer); err != nil {
-				result.Error = err
-				pipeCancel()
-				return result
+				cancel()
+				return ledgersCount, flushDuration, err
 			}
 			flushElapsed := time.Since(t)
 			flushDuration += flushElapsed
@@ -498,7 +572,7 @@ func (m *ingestService) processLedgersInBatch(
 
 			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
 			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v merge=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
-				flushCount, fillTime, flushElapsed, mergeDuration, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, result.LedgersCount,
+				flushCount, fillTime, flushElapsed, mergeDuration, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, ledgersCount,
 				deltaProcess, deltaBlocked, deltaLedgers)
 
 			batchBuffer.Clear()
@@ -515,49 +589,33 @@ func (m *ingestService) processLedgersInBatch(
 
 		t := time.Now()
 		if err := flush(pipeCtx, batchBuffer); err != nil {
-			result.Error = err
-			pipeCancel()
-			return result
+			cancel()
+			return ledgersCount, flushDuration, err
 		}
 		flushElapsed := time.Since(t)
 		flushDuration += flushElapsed
 
 		log.Ctx(ctx).Infof("Pipeline flush #%d (final): fill=%v flush=%v chBacklog=%d/%d ledgers=%d total=%d",
-			flushCount, fillTime, flushElapsed, chLen, cap(flushCh), ledgersInBuffer, result.LedgersCount)
+			flushCount, fillTime, flushElapsed, chLen, cap(flushCh), ledgersInBuffer, ledgersCount)
 	}
 
-	// Check for upstream errors
+	return ledgersCount, flushDuration, nil
+}
+
+// collectPipelineErrors drains the reader and worker error channels,
+// returning the first error found (if any).
+func collectPipelineErrors(readerErr, workerErr <-chan error) error {
 	select {
 	case err := <-readerErr:
-		result.Error = err
-		return result
+		return err
 	default:
 	}
 	select {
 	case err := <-workerErr:
-		result.Error = err
-		return result
+		return err
 	default:
 	}
-
-	// Cursor update
-	if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
-		result.Error = err
-		return result
-	}
-
-	result.StartTime = startTime
-	result.EndTime = endTime
-	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
-
-	elapsed := time.Since(batchStart)
-	throughput := float64(result.LedgersCount) / elapsed.Seconds()
-	log.Ctx(ctx).Infof("Batch [%d-%d] complete — %d ledgers in %v (%.1f l/s), process: %v, flush: %v",
-		batch.StartLedger, batch.EndLedger,
-		result.LedgersCount, elapsed, throughput,
-		time.Duration(metrics.processDuration.Load()), flushDuration)
-
-	return result
+	return nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
