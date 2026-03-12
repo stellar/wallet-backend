@@ -68,9 +68,9 @@ type IndexerBuffer struct {
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
-	uniqueSEP41ContractTokensByID  map[string]types.ContractType    // contractID → type (SEP-41 only)
-	sacContractsByID               map[string]*data.Contract        // SAC contract metadata extracted from instance entries
-	protocolWasmsByHash            map[string]data.ProtocolWasm     // wasmHash → ProtocolWasm
+	uniqueSEP41ContractTokensByID  map[string]types.ContractType     // contractID → type (SEP-41 only)
+	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
+	protocolWasmsByHash            map[string]data.ProtocolWasm      // wasmHash → ProtocolWasm
 	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
 }
 
