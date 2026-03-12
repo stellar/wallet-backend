@@ -13,12 +13,12 @@ import (
 )
 
 func TestProtocolContractsProcessor_Name(t *testing.T) {
-	processor := NewProtocolContractsProcessor()
+	processor := NewProtocolContractsProcessor(nil)
 	assert.Equal(t, "protocol_contracts", processor.Name())
 }
 
 func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
-	processor := NewProtocolContractsProcessor()
+	processor := NewProtocolContractsProcessor(nil)
 
 	testWasmHash := xdr.Hash{
 		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,

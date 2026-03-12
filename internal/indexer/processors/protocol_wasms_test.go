@@ -13,12 +13,12 @@ import (
 )
 
 func TestProtocolWasmProcessor_Name(t *testing.T) {
-	processor := NewProtocolWasmProcessor()
+	processor := NewProtocolWasmProcessor(nil)
 	assert.Equal(t, "protocol_wasms", processor.Name())
 }
 
 func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
-	processor := NewProtocolWasmProcessor()
+	processor := NewProtocolWasmProcessor(nil)
 
 	testWasmHash := xdr.Hash{
 		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,

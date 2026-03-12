@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -13,11 +14,15 @@ import (
 
 // ProtocolContractsProcessor extracts contract-to-WASM mappings from ContractData Instance entries.
 // It processes ledger changes to identify contract deployments for protocol tracking.
-type ProtocolContractsProcessor struct{}
+type ProtocolContractsProcessor struct {
+	metricsService MetricsServiceInterface
+}
 
 // NewProtocolContractsProcessor creates a new protocol contract processor.
-func NewProtocolContractsProcessor() *ProtocolContractsProcessor {
-	return &ProtocolContractsProcessor{}
+func NewProtocolContractsProcessor(metricsService MetricsServiceInterface) *ProtocolContractsProcessor {
+	return &ProtocolContractsProcessor{
+		metricsService: metricsService,
+	}
 }
 
 // Name returns the processor name for logging and metrics.
@@ -28,6 +33,14 @@ func (p *ProtocolContractsProcessor) Name() string {
 // ProcessOperation extracts contract-to-WASM mappings from an operation's ledger changes.
 // Only processes ContractData Instance entries with WASM executables.
 func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolContracts, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("ProtocolContractsProcessor", duration)
+		}
+	}()
+
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)

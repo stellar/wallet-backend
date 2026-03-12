@@ -95,8 +95,8 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
 		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
-		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(),
-		protocolContractsProcessor: processors.NewProtocolContractsProcessor(),
+		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(metricsService),
+		protocolContractsProcessor: processors.NewProtocolContractsProcessor(metricsService),
 		accountsProcessor:          processors.NewAccountsProcessor(metricsService),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
