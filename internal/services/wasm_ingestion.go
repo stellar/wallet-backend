@@ -25,10 +25,10 @@ type WasmIngestionService interface {
 var _ WasmIngestionService = (*wasmIngestionService)(nil)
 
 type wasmIngestionService struct {
-	protocolWasmModel     data.ProtocolWasmModelInterface
+	protocolWasmModel      data.ProtocolWasmModelInterface
 	protocolContractsModel data.ProtocolContractsModelInterface
-	wasmHashes            map[xdr.Hash]struct{}
-	contractIDsByWasmHash map[xdr.Hash][]types.HashBytea
+	wasmHashes             map[xdr.Hash]struct{}
+	contractIDsByWasmHash  map[xdr.Hash][]types.HashBytea
 }
 
 // NewWasmIngestionService creates a WasmIngestionService.
@@ -37,10 +37,10 @@ func NewWasmIngestionService(
 	protocolContractsModel data.ProtocolContractsModelInterface,
 ) *wasmIngestionService {
 	return &wasmIngestionService{
-		protocolWasmModel:     protocolWasmModel,
+		protocolWasmModel:      protocolWasmModel,
 		protocolContractsModel: protocolContractsModel,
-		wasmHashes:            make(map[xdr.Hash]struct{}),
-		contractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		wasmHashes:             make(map[xdr.Hash]struct{}),
+		contractIDsByWasmHash:  make(map[xdr.Hash][]types.HashBytea),
 	}
 }
 
