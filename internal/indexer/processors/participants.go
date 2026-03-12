@@ -109,7 +109,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 	// 2. Push transaction and participants to data bundle
 	participantsSet := types.NewStringSet()
 	for _, xdrParticipant := range participants {
-		participantsSet.Add(xdrParticipant.Address())
+		participantsSet.Add(types.CachedAccountAddress(xdrParticipant))
 	}
 
 	return participantsSet, nil
@@ -170,7 +170,7 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 	}
 	participants := types.NewStringSet()
 	for _, accountID := range participantsAccountIDs {
-		participants.Add(accountID.Address())
+		participants.Add(types.CachedAccountAddress(accountID))
 	}
 
 	// 1.1. Return early if the operation is not a Soroban operation

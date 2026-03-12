@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/hash"
@@ -157,7 +158,16 @@ func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags
 	result[prefix+"_flags_s"] = s
 }
 
+// contractIDCache caches asset details → contract ID string.
+// Keyed by "assetType:code:issuer". ~20 unique entries in practice.
+var contractIDCache sync.Map
+
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+	key := assetType + ":" + assetCode + ":" + assetIssuer
+	if v, ok := contractIDCache.Load(key); ok {
+		return v.(string), nil
+	}
+
 	var asset xdr.Asset
 
 	switch assetType {
@@ -176,7 +186,9 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 		return "", fmt.Errorf("getting asset contract ID: %w", err)
 	}
 
-	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
+	encoded := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	contractIDCache.Store(key, encoded)
+	return encoded, nil
 }
 
 // getContractIDFromAssetString converts an asset string in "CODE:ISSUER" format to a contract ID.
@@ -204,24 +216,18 @@ func getContractIDFromAssetString(networkPassphrase string, assetStr string) (st
 	return getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
 }
 
-// isLiquidityPool checks if the given account ID is a liquidity pool
+// isLiquidityPool checks if the given account ID is a liquidity pool.
+// LP strkeys always start with 'L' (VersionByte 88). Inputs are SDK-parsed,
+// so a prefix check is sufficient — no need for full base32 decode + CRC.
 func isLiquidityPool(accountID string) bool {
-	// Try to decode the account ID as a strkey
-	versionByte, _, err := strkey.DecodeAny(accountID)
-	if err != nil {
-		return false
-	}
-	// Check if it's a liquidity pool strkey
-	return versionByte == strkey.VersionByteLiquidityPool
+	return len(accountID) > 0 && accountID[0] == 'L'
 }
 
-// isClaimableBalance checks if the given ID is a claimable balance
+// isClaimableBalance checks if the given ID is a claimable balance.
+// CB strkeys always start with 'B' (VersionByte 8). Inputs are SDK-parsed,
+// so a prefix check is sufficient — no need for full base32 decode + CRC.
 func isClaimableBalance(id string) bool {
-	versionByte, _, err := strkey.DecodeAny(id)
-	if err != nil {
-		return false
-	}
-	return versionByte == strkey.VersionByteClaimableBalance
+	return len(id) > 0 && id[0] == 'B'
 }
 
 // operationSourceAccount returns the source account for an operation,
@@ -229,10 +235,10 @@ func isClaimableBalance(id string) bool {
 func operationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) string {
 	acc := op.SourceAccount
 	if acc != nil {
-		return acc.ToAccountId().Address()
+		return types.CachedAccountAddress(acc.ToAccountId())
 	}
 	res := tx.Envelope.SourceAccount()
-	return res.ToAccountId().Address()
+	return types.CachedAccountAddress(res.ToAccountId())
 }
 
 // convertToInt32 safely converts values to int32
