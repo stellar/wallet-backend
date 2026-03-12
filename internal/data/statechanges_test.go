@@ -138,7 +138,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                1,
 		StateChangeOrder:    2, // Different order to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
-		StateChangeReason:   nil,
+		StateChangeReason:   types.StateChangeReasonAdd,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        3,
 		AccountID:           types.AddressBytea(kp1.Address()),
@@ -435,7 +435,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
@@ -457,7 +457,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 		category := "SIGNER"
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
@@ -482,7 +482,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		category := "BALANCE"
 		reason := "CREDIT"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
