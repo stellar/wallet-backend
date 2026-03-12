@@ -91,14 +91,20 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
 // acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
+	conn, err := m.models.DB.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring a connection from the pool: %w", err)
+	}
+	defer conn.Release()
+
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
 		return fmt.Errorf("acquiring advisory lock: %w", err)
 	} else if !lockAcquired {
 		return errors.New("advisory lock not acquired")
 	}
 	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
+		if err := db.ReleaseAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}

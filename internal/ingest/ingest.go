@@ -157,6 +157,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	metricsService := metrics.NewMetricsService()
+	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)

@@ -74,7 +74,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	start := time.Now()
-	txs, err := db.QueryMany[types.TransactionWithCursor](ctx, m.DB, query, args...)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "transactions", duration)
 	if err != nil {
@@ -82,10 +82,6 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 		return nil, fmt.Errorf("getting transactions: %w", err)
 	}
 	m.MetricsService.IncDBQuery("GetAll", "transactions")
-	transactions := make([]*types.TransactionWithCursor, len(txs))
-	for i := range txs {
-		transactions[i] = &txs[i]
-	}
 	return transactions, nil
 }
 
@@ -139,8 +135,9 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
-		FROM account_txns ta,
-		LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t`, columns))
+		FROM account_txns ta
+		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
+		WHERE t.to_id IS NOT NULL`, columns))
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
@@ -158,7 +155,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	}
 
 	start := time.Now()
-	txs, err := db.QueryMany[types.TransactionWithCursor](ctx, m.DB, query, args...)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "transactions", duration)
 	if err != nil {
@@ -166,10 +163,6 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		return nil, fmt.Errorf("getting transactions by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByAccountAddress", "transactions")
-	transactions := make([]*types.TransactionWithCursor, len(txs))
-	for i := range txs {
-		transactions[i] = &txs[i]
-	}
 	return transactions, nil
 }
 
@@ -196,8 +189,8 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
 	start := time.Now()
-	// QueryMany uses RowToStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	txns, err := db.QueryMany[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
+	// QueryManyPtrs uses RowToAddrOfStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "transactions", len(operationIDs))
@@ -206,10 +199,6 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "transactions")
-	transactions := make([]*types.TransactionWithOperationID, len(txns))
-	for i := range txns {
-		transactions[i] = &txns[i]
-	}
 	return transactions, nil
 }
 
@@ -232,7 +221,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		`, columns, strings.Join(tuples, ", "))
 
 	start := time.Now()
-	txs, err := db.QueryMany[types.TransactionWithStateChangeID](ctx, m.DB, query)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "transactions", len(scOrders))
@@ -241,10 +230,6 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByStateChangeIDs", "transactions")
-	transactions := make([]*types.TransactionWithStateChangeID, len(txs))
-	for i := range txs {
-		transactions[i] = &txs[i]
-	}
 	return transactions, nil
 }
 
@@ -266,7 +251,8 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
-	// COPY transactions using pgx binary format with native pgtype types
+	// COPY transactions using pgx binary format with native pgtype types. Upstream participants handling ensures that
+	// account address is not NULL here.
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},

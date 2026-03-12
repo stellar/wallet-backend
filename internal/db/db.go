@@ -24,11 +24,10 @@ const (
 
 // PoolConfig holds configurable pgxpool settings. Zero values fall back to Default* constants.
 type PoolConfig struct {
-	MaxConns              int32
-	MinConns              int32
-	MaxConnLifetime       time.Duration
-	MaxConnIdleTime       time.Duration
-	DisableStatementCache bool
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
 }
 
 // DefaultPoolConfig returns a PoolConfig populated with the default values.
@@ -73,10 +72,6 @@ func OpenDBConnectionPool(ctx context.Context, dataSourceName string, poolConfig
 	cfg.MinConns = poolCfg.MinConns
 	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
 	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
-
-	if poolCfg.DisableStatementCache {
-		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
-	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -132,14 +127,7 @@ func QueryOne[T any](ctx context.Context, q Querier, query string, args ...any) 
 		var zero T
 		return zero, fmt.Errorf("executing query: %w", err)
 	}
-	var scanner func(pgx.CollectableRow) (T, error)
-	var t T
-	if reflect.TypeOf(t).Kind() == reflect.Struct {
-		scanner = pgx.RowToStructByNameLax[T]
-	} else {
-		scanner = pgx.RowTo[T]
-	}
-	result, err := pgx.CollectOneRow(rows, scanner)
+	result, err := pgx.CollectOneRow(rows, rowScanner[T]())
 	if err != nil {
 		var zero T
 		return zero, err //nolint:wrapcheck // pgx.ErrNoRows must propagate unwrapped for errors.Is checks
@@ -156,14 +144,7 @@ func QueryMany[T any](ctx context.Context, q Querier, query string, args ...any)
 	if err != nil {
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
-	var scanner func(pgx.CollectableRow) (T, error)
-	var t T
-	if reflect.TypeOf(t).Kind() == reflect.Struct {
-		scanner = pgx.RowToStructByNameLax[T]
-	} else {
-		scanner = pgx.RowTo[T]
-	}
-	results, err := pgx.CollectRows(rows, scanner)
+	results, err := pgx.CollectRows(rows, rowScanner[T]())
 	if err != nil {
 		return nil, fmt.Errorf("collecting rows: %w", err)
 	}
@@ -171,4 +152,39 @@ func QueryMany[T any](ctx context.Context, q Querier, query string, args ...any)
 		results = []T{}
 	}
 	return results, nil
+}
+
+// QueryManyPtrs executes a query and scans all result rows into []*T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
+// Returns an empty slice (not nil) if no rows are found.
+func QueryManyPtrs[T any](ctx context.Context, q Querier, query string, args ...any) ([]*T, error) {
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("executing query: %w", err)
+	}
+	results, err := pgx.CollectRows(rows, rowPtrScanner[T]())
+	if err != nil {
+		return nil, fmt.Errorf("collecting rows: %w", err)
+	}
+	if results == nil {
+		results = []*T{}
+	}
+	return results, nil
+}
+
+func rowScanner[T any]() func(pgx.CollectableRow) (T, error) {
+	var t T
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct {
+		return pgx.RowToStructByNameLax[T]
+	}
+	return pgx.RowTo[T]
+}
+
+func rowPtrScanner[T any]() func(pgx.CollectableRow) (*T, error) {
+	var t T
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct {
+		return pgx.RowToAddrOfStructByNameLax[T]
+	}
+	return pgx.RowToAddrOf[T]
 }

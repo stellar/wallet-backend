@@ -88,7 +88,6 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	if c.DBMaxConnIdleTime > 0 {
 		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
 	}
-	cfg.DisableStatementCache = true
 	return cfg
 }
 
@@ -148,6 +147,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
 	metricsService := metrics.NewMetricsService()
+	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)

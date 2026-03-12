@@ -46,7 +46,7 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		WHERE ac.account_address = $1`
 
 	start := time.Now()
-	cs, err := db.QueryMany[Contract](ctx, m.DB, query, accountAddress)
+	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contract_tokens", duration)
 	if err != nil {
@@ -54,10 +54,6 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
 	m.MetricsService.IncDBQuery("GetByAccount", "account_contract_tokens")
-	contracts := make([]*Contract, len(cs))
-	for i := range cs {
-		contracts[i] = &cs[i]
-	}
 	return contracts, nil
 }
 

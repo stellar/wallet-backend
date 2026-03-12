@@ -43,7 +43,7 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 		FROM transactions_accounts
 		WHERE tx_to_id = ANY($1)`
 	start := time.Now()
-	accs, err := db.QueryMany[types.AccountWithToID](ctx, m.DB, query, toIDs)
+	accounts, err := db.QueryManyPtrs[types.AccountWithToID](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
@@ -52,10 +52,6 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByToIDs", "transactions_accounts")
-	accounts := make([]*types.AccountWithToID, len(accs))
-	for i := range accs {
-		accounts[i] = &accs[i]
-	}
 	return accounts, nil
 }
 
@@ -66,7 +62,7 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		FROM operations_accounts
 		WHERE operation_id = ANY($1)`
 	start := time.Now()
-	accs, err := db.QueryMany[types.AccountWithOperationID](ctx, m.DB, query, operationIDs)
+	accounts, err := db.QueryManyPtrs[types.AccountWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))
@@ -75,9 +71,5 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "operations_accounts")
-	accounts := make([]*types.AccountWithOperationID, len(accs))
-	for i := range accs {
-		accounts[i] = &accs[i]
-	}
 	return accounts, nil
 }

@@ -73,16 +73,11 @@ func (ca *ChannelAccountModel) Get(ctx context.Context, publicKey string) (*Chan
 func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, publicKeys ...string) ([]*ChannelAccount, error) {
 	const query = `SELECT * FROM channel_accounts WHERE public_key = ANY($1)`
 
-	cas, err := db.QueryMany[ChannelAccount](ctx, ca.DB, query, publicKeys)
+	cas, err := db.QueryManyPtrs[ChannelAccount](ctx, ca.DB, query, publicKeys)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel accounts %v: %w", publicKeys, err)
 	}
-
-	result := make([]*ChannelAccount, len(cas))
-	for i := range cas {
-		result[i] = &cas[i]
-	}
-	return result, nil
+	return cas, nil
 }
 
 func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error {
@@ -158,16 +153,11 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, pgxTx pgx.Tx, limit i
 		FOR UPDATE SKIP LOCKED
 	`
 
-	cas, err := db.QueryMany[ChannelAccount](ctx, pgxTx, query, limit)
+	cas, err := db.QueryManyPtrs[ChannelAccount](ctx, pgxTx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("getting all channel accounts: %w", err)
 	}
-
-	result := make([]*ChannelAccount, len(cas))
-	for i := range cas {
-		result[i] = &cas[i]
-	}
-	return result, nil
+	return cas, nil
 }
 
 func (ca *ChannelAccountModel) Delete(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error) {
