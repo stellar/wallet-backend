@@ -245,6 +245,9 @@ func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
 	if _, err := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
 		return fmt.Errorf("setting session_replication_role=replica: %w", err)
 	}
+	if _, err := dbTx.Exec(ctx, "SET LOCAL statement_timeout = '30s'"); err != nil {
+		return fmt.Errorf("setting statement_timeout: %w", err)
+  	}
 	return nil
 }
 
