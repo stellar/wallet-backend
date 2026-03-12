@@ -144,8 +144,8 @@ func (m *ingestService) startCatchup(ctx context.Context, startLedger, endLedger
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
 		}
-		result := m.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
-			return m.flushCatchupBatch(ctx, buffer, batchChanges)
+		result := m.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffers []*indexer.IndexerBuffer) error {
+			return m.flushCatchupBatch(ctx, buffers, batchChanges)
 		})
 		result.BatchChanges = batchChanges
 		return result
@@ -184,20 +184,24 @@ func (m *ingestService) startCatchup(ctx context.Context, startLedger, endLedger
 
 // flushCatchupBatch persists buffered data to the database and collects changes
 // for post-catchup processing.
-func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.IndexerBuffer, batchChanges *BatchChanges) error {
-	// 1. Merge changes (pure in-memory, no DB)
-	mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
-	batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
-	mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
-	mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
-	for _, asset := range buffer.GetUniqueTrustlineAssets() {
-		batchChanges.UniqueTrustlineAssets[asset.ID] = asset
-	}
-	maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
-	for id, contract := range buffer.GetSACContracts() {
-		if _, exists := batchChanges.SACContractsByID[id]; !exists {
-			batchChanges.SACContractsByID[id] = contract
+func (m *ingestService) flushCatchupBatch(ctx context.Context, buffers []*indexer.IndexerBuffer, batchChanges *BatchChanges) error {
+	// 1. Collect changes from all buffers (pure in-memory, no DB)
+	var allTxs []*types.Transaction
+	for _, buf := range buffers {
+		mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buf.GetTrustlineChanges())
+		batchChanges.ContractChanges = append(batchChanges.ContractChanges, buf.GetContractChanges()...)
+		mergeAccountChanges(batchChanges.AccountChangesByAccountID, buf.GetAccountChanges())
+		mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buf.GetSACBalanceChanges())
+		for _, asset := range buf.GetUniqueTrustlineAssets() {
+			batchChanges.UniqueTrustlineAssets[asset.ID] = asset
 		}
+		maps.Copy(batchChanges.UniqueContractTokensByID, buf.GetUniqueSEP41ContractTokensByID())
+		for id, contract := range buf.GetSACContracts() {
+			if _, exists := batchChanges.SACContractsByID[id]; !exists {
+				batchChanges.SACContractsByID[id] = contract
+			}
+		}
+		allTxs = append(allTxs, buf.GetTransactions()...)
 	}
 
 	// 2. Parallel COPY insert (with retry)
@@ -209,7 +213,7 @@ func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.I
 		default:
 		}
 
-		_, _, err := m.insertIntoDB(ctx, buffer, insertOpts{})
+		_, _, err := m.insertBatchIntoDB(ctx, buffers, insertOpts{})
 		if err == nil {
 			break
 		}
@@ -231,7 +235,7 @@ func (m *ingestService) flushCatchupBatch(ctx context.Context, buffer *indexer.I
 
 	// 3. Unlock channel accounts (separate small tx)
 	if err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		return m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions())
+		return m.unlockChannelAccounts(ctx, dbTx, allTxs)
 	}); err != nil {
 		return fmt.Errorf("unlocking channel accounts: %w", err)
 	}

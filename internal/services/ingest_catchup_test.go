@@ -582,7 +582,7 @@ func Test_ingestService_flushCatchupBatch(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			err = svc.flushCatchupBatch(ctx, buffer, tc.batchChanges)
+			err = svc.flushCatchupBatch(ctx, []*indexer.IndexerBuffer{buffer}, tc.batchChanges)
 			require.NoError(t, err)
 
 			// Verify collected token changes match expected values
@@ -664,8 +664,8 @@ func Test_ingestService_processLedgersInBatch_Catchup(t *testing.T) {
 		UniqueContractTokensByID:  make(map[string]types.ContractType),
 		SACContractsByID:          make(map[string]*data.Contract),
 	}
-	result := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
-		return svc.flushCatchupBatch(ctx, buffer, batchChanges)
+	result := svc.processLedgersInBatch(ctx, mockLedgerBackend, batch, func(ctx context.Context, buffers []*indexer.IndexerBuffer) error {
+		return svc.flushCatchupBatch(ctx, buffers, batchChanges)
 	})
 	result.BatchChanges = batchChanges
 
@@ -903,8 +903,8 @@ func Test_ingestService_processBackfillBatchesParallel_Catchup(t *testing.T) {
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
 		}
-		result := svc.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffer *indexer.IndexerBuffer) error {
-			return svc.flushCatchupBatch(ctx, buffer, batchChanges)
+		result := svc.processLedgersInBatch(ctx, backend, batch, func(ctx context.Context, buffers []*indexer.IndexerBuffer) error {
+			return svc.flushCatchupBatch(ctx, buffers, batchChanges)
 		})
 		result.BatchChanges = batchChanges
 		return result

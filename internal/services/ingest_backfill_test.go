@@ -506,8 +506,8 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 
 			buffer := tc.setupBuffer()
 
-			// Call flushHistoricalBatch
-			err = svc.flushHistoricalBatch(ctx, buffer)
+			// Call flushHistoricalBatch with a single-buffer slice
+			err = svc.flushHistoricalBatch(ctx, []*indexer.IndexerBuffer{buffer})
 			require.NoError(t, err)
 
 			// Verify transaction count in database

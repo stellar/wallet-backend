@@ -309,7 +309,7 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 }
 
 // flushHistoricalBatch persists buffered data to the database within a transaction.
-func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffers []*indexer.IndexerBuffer) error {
 	var lastErr error
 	for attempt := range maxIngestProcessedDataRetries {
 		select {
@@ -318,7 +318,7 @@ func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffer *indexe
 		default:
 		}
 
-		_, _, err := m.insertIntoDB(ctx, buffer, insertOpts{backfillMode: true})
+		_, _, err := m.insertBatchIntoDB(ctx, buffers, insertOpts{backfillMode: true})
 		if err == nil {
 			return nil
 		}
@@ -394,7 +394,7 @@ func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
-	flush func(context.Context, *indexer.IndexerBuffer) error,
+	flush func(context.Context, []*indexer.IndexerBuffer) error,
 ) BackfillResult {
 	result := BackfillResult{Batch: batch}
 
@@ -537,31 +537,28 @@ func (m *ingestService) startLedgerWorkers(
 	return workerErr
 }
 
-// consumeAndFlush merges incoming IndexerBuffers and periodically flushes to DB.
+// consumeAndFlush collects incoming IndexerBuffers and periodically flushes to DB.
 // Returns the number of ledgers processed, total flush duration, and any flush error.
 func (m *ingestService) consumeAndFlush(
 	ctx context.Context,
 	pipeCtx context.Context,
 	flushCh <-chan *indexer.IndexerBuffer,
-	flush func(context.Context, *indexer.IndexerBuffer) error,
+	flush func(context.Context, []*indexer.IndexerBuffer) error,
 	metrics *pipelineMetrics,
 	cancel context.CancelFunc,
 ) (ledgersCount int, flushDuration time.Duration, err error) {
-	batchBuffer := indexer.NewIndexerBuffer()
+	batch := make([]*indexer.IndexerBuffer, 0, m.backfillDBInsertBatchSize)
 	ledgersInBuffer := uint32(0)
 	flushCount := 0
 	lastFlushEnd := time.Now()
-	var mergeDuration time.Duration
 
 	for buf := range flushCh {
-		// Check if an upstream stage has failed before merging more data.
+		// Check if an upstream stage has failed before collecting more data.
 		if pipeCtx.Err() != nil {
 			break
 		}
 
-		mt := time.Now()
-		batchBuffer.Merge(buf)
-		mergeDuration += time.Since(mt)
+		batch = append(batch, buf)
 		ledgersInBuffer++
 		ledgersCount++
 
@@ -570,7 +567,7 @@ func (m *ingestService) consumeAndFlush(
 			flushCount++
 
 			t := time.Now()
-			if err := flush(pipeCtx, batchBuffer); err != nil {
+			if err := flush(pipeCtx, batch); err != nil {
 				cancel()
 				return ledgersCount, flushDuration, err
 			}
@@ -580,12 +577,11 @@ func (m *ingestService) consumeAndFlush(
 			lastFlushEnd = time.Now()
 
 			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
-			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v merge=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
-				flushCount, fillTime, flushElapsed, mergeDuration, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, ledgersCount,
+			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+				flushCount, fillTime, flushElapsed, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, ledgersCount,
 				deltaProcess, deltaBlocked, deltaLedgers)
 
-			batchBuffer.Clear()
-			mergeDuration = 0
+			batch = batch[:0]
 			ledgersInBuffer = 0
 		}
 	}
@@ -597,7 +593,7 @@ func (m *ingestService) consumeAndFlush(
 		flushCount++
 
 		t := time.Now()
-		if err := flush(pipeCtx, batchBuffer); err != nil {
+		if err := flush(pipeCtx, batch); err != nil {
 			cancel()
 			return ledgersCount, flushDuration, err
 		}

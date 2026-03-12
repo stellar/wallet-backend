@@ -405,6 +405,161 @@ func (m *ingestService) insertIntoDB(ctx context.Context, buffer indexer.Indexer
 	return len(txs), len(ops), nil
 }
 
+// insertBatchIntoDB concatenates data from multiple IndexerBuffers and persists to the database.
+// Same 5-goroutine errgroup pattern as insertIntoDB, but avoids expensive buffer merging by
+// concatenating cheap pointer slices and doing trivial map assignments (no set cloning needed
+// since operation/transaction IDs don't overlap across ledgers).
+func (m *ingestService) insertBatchIntoDB(ctx context.Context, buffers []*indexer.IndexerBuffer, opts insertOpts) (int, int, error) {
+	// Concatenate all buffer data — cheap pointer slice appends, no data copying.
+	var allTxs []*types.Transaction
+	var allOps []*types.Operation
+	var allStateChanges []types.StateChange
+	allTxParticipants := make(map[int64]set.Set[string])
+	allOpParticipants := make(map[int64]set.Set[string])
+
+	for _, buf := range buffers {
+		allTxs = append(allTxs, buf.GetTransactions()...)
+		allOps = append(allOps, buf.GetOperations()...)
+		allStateChanges = append(allStateChanges, buf.GetStateChanges()...)
+		// No overlap across ledgers — simple map assignment, no set union needed.
+		for id, addrs := range buf.GetTransactionsParticipants() {
+			allTxParticipants[id] = addrs
+		}
+		for id, addrs := range buf.GetOperationsParticipants() {
+			allOpParticipants[id] = addrs
+		}
+	}
+
+	g, dbCtx := errgroup.WithContext(ctx)
+
+	// 1. transactions
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Transactions.BatchCopy(dbCtx, dbTx, allTxs)
+			if err != nil {
+				return fmt.Errorf("copying transactions: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying transactions tx: %w", err)
+		}
+		return nil
+	})
+
+	// 2. transactions_accounts
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Transactions.BatchCopyParticipants(dbCtx, dbTx, allTxs, allTxParticipants)
+			if err != nil {
+				return fmt.Errorf("copying transactions_accounts: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping transactions_accounts: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying transactions_accounts tx: %w", err)
+		}
+		return nil
+	})
+
+	// 3. operations
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Operations.BatchCopy(dbCtx, dbTx, allOps)
+			if err != nil {
+				return fmt.Errorf("copying operations: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying operations tx: %w", err)
+		}
+		return nil
+	})
+
+	// 4. operations_accounts
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.Operations.BatchCopyParticipants(dbCtx, dbTx, allOps, allOpParticipants)
+			if err != nil {
+				return fmt.Errorf("copying operations_accounts: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping operations_accounts: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying operations_accounts tx: %w", err)
+		}
+		return nil
+	})
+
+	// 5. state_changes
+	g.Go(func() error {
+		err := db.RunInTransaction(dbCtx, m.models.DB, func(dbTx pgx.Tx) error {
+			if opts.backfillMode {
+				if err := setLocalBackfillOpts(dbCtx, dbTx); err != nil {
+					return err
+				}
+			}
+			_, err := m.models.StateChanges.BatchCopy(dbCtx, dbTx, allStateChanges)
+			if err != nil {
+				return fmt.Errorf("copying state_changes: %w", err)
+			}
+			return nil
+		})
+		if isUniqueViolation(err) {
+			log.Ctx(ctx).Infof("Skipping state_changes: data already committed (unique violation)")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copying state_changes tx: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return 0, 0, fmt.Errorf("inserting batch data into db: %w", err)
+	}
+	m.recordStateChangeMetrics(allStateChanges)
+	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes (from %d buffers)", len(allTxs), len(allOps), len(allStateChanges), len(buffers))
+	return len(allTxs), len(allOps), nil
+}
+
 // recordStateChangeMetrics aggregates state changes by reason and category, then records metrics.
 func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChange) {
 	counts := make(map[string]int) // key: "reason|category"
