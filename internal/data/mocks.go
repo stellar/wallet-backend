@@ -326,20 +326,20 @@ func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wa
 	return args.Error(0)
 }
 
-// ProtocolContractModelMock is a mock implementation of ProtocolContractModelInterface.
-type ProtocolContractModelMock struct {
+// ProtocolContractsModelMock is a mock implementation of ProtocolContractsModelInterface.
+type ProtocolContractsModelMock struct {
 	mock.Mock
 }
 
-var _ ProtocolContractModelInterface = (*ProtocolContractModelMock)(nil)
+var _ ProtocolContractsModelInterface = (*ProtocolContractsModelMock)(nil)
 
-// NewProtocolContractModelMock creates a new instance of ProtocolContractModelMock.
-func NewProtocolContractModelMock(t interface {
+// NewProtocolContractsModelMock creates a new instance of ProtocolContractsModelMock.
+func NewProtocolContractsModelMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *ProtocolContractModelMock {
-	mockModel := &ProtocolContractModelMock{}
+) *ProtocolContractsModelMock {
+	mockModel := &ProtocolContractsModelMock{}
 	mockModel.Mock.Test(t)
 
 	t.Cleanup(func() { mockModel.AssertExpectations(t) })
@@ -347,7 +347,7 @@ func NewProtocolContractModelMock(t interface {
 	return mockModel
 }
 
-func (m *ProtocolContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContract) error {
+func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error {
 	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
 }
