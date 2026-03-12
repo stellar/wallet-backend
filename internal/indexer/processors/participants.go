@@ -189,5 +189,6 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
 
-	return participants.Union(sorobanParticipants), nil
+	participants.Append(sorobanParticipants.ToSlice()...)
+	return participants, nil
 }

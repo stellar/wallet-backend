@@ -38,7 +38,7 @@ func (p *SACInstanceProcessor) Name() string {
 // Returns Contract structs with asset code and issuer for database insertion.
 // Only processes contract instance entries that represent SAC tokens.
 func (p *SACInstanceProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]*data.Contract, error) {
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.GetCachedOperationChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}

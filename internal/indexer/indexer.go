@@ -178,9 +178,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 	// Count all unique participants for metrics
 	allParticipants := set.NewSet[string]()
-	allParticipants = allParticipants.Union(txParticipants)
+	allParticipants.Append(txParticipants.ToSlice()...)
 	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
+		allParticipants.Append(opParticipants.Participants.ToSlice()...)
 	}
 	for _, stateChange := range stateChanges {
 		allParticipants.Add(string(stateChange.AccountID))

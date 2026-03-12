@@ -31,6 +31,24 @@ type TransactionOperationWrapper struct {
 	LedgerSequence uint32
 	Network        string
 	LedgerClosed   time.Time
+
+	// Cached operation changes to avoid re-parsing XDR on repeated calls.
+	cachedChanges   []ingest.Change
+	changesComputed bool
+}
+
+// GetCachedOperationChanges returns operation changes, caching the result for repeated calls.
+func (operation *TransactionOperationWrapper) GetCachedOperationChanges() ([]ingest.Change, error) {
+	if operation.changesComputed {
+		return operation.cachedChanges, nil
+	}
+	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	if err != nil {
+		return nil, err
+	}
+	operation.cachedChanges = changes
+	operation.changesComputed = true
+	return changes, nil
 }
 
 // ID returns the ID for the operation.
@@ -101,7 +119,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 }
 
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.GetCachedOperationChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}

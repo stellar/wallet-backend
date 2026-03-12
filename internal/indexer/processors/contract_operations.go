@@ -79,7 +79,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants = participants.Union(contractIDs)
+		participants.Append(contractIDs.ToSlice()...)
 
 	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn:
 		createContractV2HostFn, ok := invocation.Function.GetCreateContractV2HostFn()
@@ -91,7 +91,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants = participants.Union(contractIDs)
+		participants.Append(contractIDs.ToSlice()...)
 	}
 
 	for _, sub := range invocation.SubInvocations {
@@ -99,7 +99,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("collecting participants from subinvocation: %w", err)
 		}
-		participants = participants.Union(subParticipants)
+		participants.Append(subParticipants.ToSlice()...)
 	}
 
 	return participants, nil
@@ -121,7 +121,7 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 		if err != nil {
 			return nil, fmt.Errorf("getting invocation participants: %w", err)
 		}
-		participants = participants.Union(invocationParticipants)
+		participants.Append(invocationParticipants.ToSlice()...)
 	}
 
 	return participants, nil
@@ -164,7 +164,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
 			}
-			participants = participants.Union(createContractOpParticipants)
+			participants.Append(createContractOpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
 			createContractV2OpProcessor := CreateContractV2OpProcessor{op: op}
@@ -172,7 +172,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
 			}
-			participants = participants.Union(createContractV2OpParticipants)
+			participants.Append(createContractV2OpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
 			invokeContractOpProcessor := InvokeContractOpProcessor{op: op}
@@ -180,7 +180,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting invoke contract participants: %w", err)
 			}
-			participants = participants.Union(invokeContractOpParticipants)
+			participants.Append(invokeContractOpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm:
 			break
@@ -255,7 +255,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
 	}
-	participants = participants.Union(contractIDs)
+	participants.Append(contractIDs.ToSlice()...)
 
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
@@ -263,7 +263,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }
@@ -299,7 +299,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
 	}
-	participants = participants.Union(contractIDs)
+	participants.Append(contractIDs.ToSlice()...)
 
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
@@ -307,7 +307,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }
@@ -353,7 +353,7 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }
