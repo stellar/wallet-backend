@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -10,10 +11,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/hash"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	xdr3 "github.com/stellar/go-xdr/xdr3"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -262,7 +263,7 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkID [32]byte) (*types.Transaction, error) {
 	feeCharged, _ := transaction.FeeCharged()
 
 	// Only marshal envelope when we need to store it
@@ -294,7 +295,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 			V1:   &v1,
 		}
 	}
-	innerHash, err := network.HashTransactionInEnvelope(innerEnvelope, networkPassphrase)
+	innerHash, err := hashTransactionEnvelope(innerEnvelope, networkID)
 	if err != nil {
 		return nil, fmt.Errorf("hashing inner transaction: %w", err)
 	}
@@ -315,6 +316,66 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		IsFeeBump:            transaction.Envelope.IsFeeBump(),
 		InnerTransactionHash: innerTxHash,
 	}, nil
+}
+
+// hashTransactionEnvelope hashes a transaction envelope by streaming XDR directly
+// into sha256, avoiding the intermediate bytes.Buffer allocation that
+// network.HashTransactionInEnvelope uses. The networkID is pre-computed once via
+// network.ID(passphrase) and reused across all calls.
+func hashTransactionEnvelope(envelope xdr.TransactionEnvelope, networkID [32]byte) ([32]byte, error) {
+	var tx xdr.Transaction
+	switch envelope.Type {
+	case xdr.EnvelopeTypeEnvelopeTypeTx:
+		tx = envelope.V1.Tx
+	case xdr.EnvelopeTypeEnvelopeTypeTxV0:
+		// V0→V1 conversion (same as network.HashTransactionV0)
+		sa, saErr := xdr.NewMuxedAccount(xdr.CryptoKeyTypeKeyTypeEd25519, envelope.V0.Tx.SourceAccountEd25519)
+		if saErr != nil {
+			return [32]byte{}, fmt.Errorf("converting V0 source account: %w", saErr)
+		}
+		tx = xdr.Transaction{
+			SourceAccount: sa,
+			Fee:           envelope.V0.Tx.Fee,
+			Memo:          envelope.V0.Tx.Memo,
+			Operations:    envelope.V0.Tx.Operations,
+			SeqNum:        envelope.V0.Tx.SeqNum,
+			Cond:          xdr.NewPreconditionsWithTimeBounds(envelope.V0.Tx.TimeBounds),
+		}
+	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+		// Fee bump: hash the fee bump transaction itself
+		payload := xdr.TransactionSignaturePayload{
+			NetworkId: xdr.Hash(networkID),
+			TaggedTransaction: xdr.TransactionSignaturePayloadTaggedTransaction{
+				Type:    xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+				FeeBump: &envelope.FeeBump.Tx,
+			},
+		}
+		h := sha256.New()
+		if _, err := xdr3.Marshal(h, payload); err != nil {
+			return [32]byte{}, fmt.Errorf("encoding fee bump tx for hash: %w", err)
+		}
+		var result [32]byte
+		copy(result[:], h.Sum(nil))
+		return result, nil
+	default:
+		return [32]byte{}, fmt.Errorf("invalid envelope type: %d", envelope.Type)
+	}
+
+	// Common path for V0 and V1 transactions
+	payload := xdr.TransactionSignaturePayload{
+		NetworkId: xdr.Hash(networkID),
+		TaggedTransaction: xdr.TransactionSignaturePayloadTaggedTransaction{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			Tx:   &tx,
+		},
+	}
+	h := sha256.New()
+	if _, err := xdr3.Marshal(h, payload); err != nil {
+		return [32]byte{}, fmt.Errorf("encoding tx for hash: %w", err)
+	}
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result, nil
 }
 
 func ConvertOperation(
