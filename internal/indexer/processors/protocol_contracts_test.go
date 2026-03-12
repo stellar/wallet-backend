@@ -12,13 +12,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func TestProtocolContractProcessor_Name(t *testing.T) {
-	processor := NewProtocolContractProcessor()
+func TestProtocolContractsProcessor_Name(t *testing.T) {
+	processor := NewProtocolContractsProcessor()
 	assert.Equal(t, "protocol_contracts", processor.Name())
 }
 
-func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
-	processor := NewProtocolContractProcessor()
+func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
+	processor := NewProtocolContractsProcessor()
 
 	testWasmHash := xdr.Hash{
 		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,
@@ -94,7 +94,7 @@ func TestProtocolContractProcessor_ProcessOperation(t *testing.T) {
 		expectedWasmHash   types.HashBytea
 	}{
 		{
-			name: "WASM instance created returns ProtocolContract",
+			name: "WASM instance created returns ProtocolContracts",
 			changes: xdr.LedgerEntryChanges{
 				{
 					Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,

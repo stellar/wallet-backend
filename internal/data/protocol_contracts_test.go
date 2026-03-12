@@ -15,7 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-func TestProtocolContractBatchInsert(t *testing.T) {
+func TestProtocolContractsBatchInsert(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -56,9 +56,9 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{})
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{})
 		})
 		assert.NoError(t, err)
 	})
@@ -76,9 +76,9 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		contractID := types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000")
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: contractID, WasmHash: wasmHash},
 			})
 		})
@@ -105,9 +105,9 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: "aa00000000000000000000000000000000000000000000000000000000000000", WasmHash: wh1},
 				{ContractID: "bb00000000000000000000000000000000000000000000000000000000000000", WasmHash: wh2},
 				{ContractID: "cc00000000000000000000000000000000000000000000000000000000000000", WasmHash: wh1},
@@ -135,11 +135,11 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		contractID := types.HashBytea("aa00000000000000000000000000000000000000000000000000000000000000")
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// First insert with wh1
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: contractID, WasmHash: wh1},
 			})
 		})
@@ -147,7 +147,7 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 
 		// Upsert with wh2
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: contractID, WasmHash: wh2},
 			})
 		})
@@ -180,11 +180,11 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 
 		contractID := types.HashBytea("aa00000000000000000000000000000000000000000000000000000000000000")
 		contractName := "my-contract"
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// Insert with a name
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: contractID, WasmHash: wh1, Name: &contractName},
 			})
 		})
@@ -192,7 +192,7 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 
 		// Upsert with NULL name and different wasm_hash
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{ContractID: contractID, WasmHash: wh2, Name: nil},
 			})
 		})
@@ -226,9 +226,9 @@ func TestProtocolContractBatchInsert(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert contract with wasm_hash that does NOT exist in protocol_wasms
-		model := &ProtocolContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolContractsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolContract{
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
 				{
 					ContractID: "aa00000000000000000000000000000000000000000000000000000000000000",
 					WasmHash:   "dead000000000000000000000000000000000000000000000000000000000000",

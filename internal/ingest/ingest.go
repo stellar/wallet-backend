@@ -196,7 +196,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	wasmIngestionService := services.NewWasmIngestionService(models.ProtocolWasm, models.ProtocolContract)
+	wasmIngestionService := services.NewWasmIngestionService(models.ProtocolWasm, models.ProtocolContracts)
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
 		ContractMetadataService:    contractMetadataService,

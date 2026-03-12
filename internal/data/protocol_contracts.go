@@ -13,31 +13,31 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// ProtocolContract represents a contract tracked during checkpoint population,
+// ProtocolContracts represents a contract tracked during checkpoint population,
 // linking a contract_id to its WASM hash.
-type ProtocolContract struct {
+type ProtocolContracts struct {
 	ContractID types.HashBytea `db:"contract_id"`
 	WasmHash   types.HashBytea `db:"wasm_hash"`
 	Name       *string         `db:"name"`
 	CreatedAt  time.Time       `db:"created_at"`
 }
 
-// ProtocolContractModelInterface defines the interface for protocol_contracts operations.
-type ProtocolContractModelInterface interface {
-	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContract) error
+// ProtocolContractsModelInterface defines the interface for protocol_contracts operations.
+type ProtocolContractsModelInterface interface {
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 }
 
-// ProtocolContractModel implements ProtocolContractModelInterface.
-type ProtocolContractModel struct {
+// ProtocolContractsModel implements ProtocolContractsModelInterface.
+type ProtocolContractsModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
 
-var _ ProtocolContractModelInterface = (*ProtocolContractModel)(nil)
+var _ ProtocolContractsModelInterface = (*ProtocolContractsModel)(nil)
 
 // BatchInsert inserts or updates multiple protocol contracts using UNNEST for efficient batch insertion.
 // Uses ON CONFLICT (contract_id) DO UPDATE to support contract upgrades (last-write-wins).
-func (m *ProtocolContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContract) error {
+func (m *ProtocolContractsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error {
 	if len(contracts) == 0 {
 		return nil
 	}

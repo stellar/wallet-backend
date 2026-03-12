@@ -42,12 +42,12 @@ type IndexerBufferInterface interface {
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
 	PushProtocolWasm(wasm data.ProtocolWasm)
-	PushProtocolContract(contract data.ProtocolContract)
+	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasm
-	GetProtocolContracts() map[string]data.ProtocolContract
+	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
@@ -80,7 +80,7 @@ type Indexer struct {
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
 	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasm]
-	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContract]
+	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
 	metricsService             processors.MetricsServiceInterface
@@ -96,7 +96,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
 		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
 		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(),
-		protocolContractsProcessor: processors.NewProtocolContractProcessor(),
+		protocolContractsProcessor: processors.NewProtocolContractsProcessor(),
 		accountsProcessor:          processors.NewAccountsProcessor(metricsService),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
@@ -262,7 +262,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("processing protocol contracts: %w", pcErr)
 		}
 		for _, contract := range protocolContracts {
-			buffer.PushProtocolContract(contract)
+			buffer.PushProtocolContracts(contract)
 		}
 	}
 

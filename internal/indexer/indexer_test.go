@@ -201,7 +201,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
-		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContract{}, nil)
+		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
@@ -312,7 +312,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
-		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContract{}, nil)
+		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
@@ -635,7 +635,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
-		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContract{}, nil)
+		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{

@@ -71,7 +71,7 @@ type IndexerBuffer struct {
 	uniqueSEP41ContractTokensByID  map[string]types.ContractType    // contractID → type (SEP-41 only)
 	sacContractsByID               map[string]*data.Contract        // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash            map[string]data.ProtocolWasm     // wasmHash → ProtocolWasm
-	protocolContractsByID          map[string]data.ProtocolContract // contractID → ProtocolContract
+	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -91,7 +91,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasm),
-		protocolContractsByID:          make(map[string]data.ProtocolContract),
+		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 	}
 }
 
@@ -623,9 +623,9 @@ func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasm {
 	return maps.Clone(b.protocolWasmsByHash)
 }
 
-// PushProtocolContract adds a protocol contract to the buffer with deduplication (last-write-wins).
+// PushProtocolContracts adds a protocol contract to the buffer with deduplication (last-write-wins).
 // Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushProtocolContract(contract data.ProtocolContract) {
+func (b *IndexerBuffer) PushProtocolContracts(contract data.ProtocolContracts) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -634,7 +634,7 @@ func (b *IndexerBuffer) PushProtocolContract(contract data.ProtocolContract) {
 
 // GetProtocolContracts returns a clone of the protocol contracts map.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetProtocolContracts() map[string]data.ProtocolContract {
+func (b *IndexerBuffer) GetProtocolContracts() map[string]data.ProtocolContracts {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

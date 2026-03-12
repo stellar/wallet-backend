@@ -11,29 +11,29 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// ProtocolContractProcessor extracts contract-to-WASM mappings from ContractData Instance entries.
+// ProtocolContractsProcessor extracts contract-to-WASM mappings from ContractData Instance entries.
 // It processes ledger changes to identify contract deployments for protocol tracking.
-type ProtocolContractProcessor struct{}
+type ProtocolContractsProcessor struct{}
 
-// NewProtocolContractProcessor creates a new protocol contract processor.
-func NewProtocolContractProcessor() *ProtocolContractProcessor {
-	return &ProtocolContractProcessor{}
+// NewProtocolContractsProcessor creates a new protocol contract processor.
+func NewProtocolContractsProcessor() *ProtocolContractsProcessor {
+	return &ProtocolContractsProcessor{}
 }
 
 // Name returns the processor name for logging and metrics.
-func (p *ProtocolContractProcessor) Name() string {
+func (p *ProtocolContractsProcessor) Name() string {
 	return "protocol_contracts"
 }
 
 // ProcessOperation extracts contract-to-WASM mappings from an operation's ledger changes.
 // Only processes ContractData Instance entries with WASM executables.
-func (p *ProtocolContractProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolContract, error) {
+func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolContracts, error) {
 	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	var contracts []data.ProtocolContract
+	var contracts []data.ProtocolContracts
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractData || change.Post == nil {
 			continue
@@ -59,7 +59,7 @@ func (p *ProtocolContractProcessor) ProcessOperation(ctx context.Context, opWrap
 
 		hash := *instance.Executable.WasmHash
 
-		contracts = append(contracts, data.ProtocolContract{
+		contracts = append(contracts, data.ProtocolContracts{
 			ContractID: types.HashBytea(hex.EncodeToString(contractIDBytes[:])),
 			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 		})
