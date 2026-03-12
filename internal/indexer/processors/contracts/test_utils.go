@@ -630,7 +630,7 @@ func assertContractEvent(t *testing.T, change types.StateChange, reason types.St
 		require.NotNil(t, change.TokenID)
 		require.Equal(t, expectedContractID, change.TokenID.String())
 	}
-	require.Equal(t, reason, *change.StateChangeReason)
+	require.Equal(t, reason, change.StateChangeReason)
 }
 
 func makeSymbol(sym string) xdr.ScVal {

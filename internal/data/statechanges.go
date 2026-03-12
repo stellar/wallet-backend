@@ -248,7 +248,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
 				pgtype.Int8{Int64: sc.StateChangeOrder, Valid: true},
 				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReasonPtr(sc.StateChangeReason),
+				pgtypeTextFromReason(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
 				accountBytes,

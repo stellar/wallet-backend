@@ -34,7 +34,7 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			ToID:                startToID + int64(i),
 			StateChangeOrder:    1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
-			StateChangeReason:   &reason,
+			StateChangeReason:   reason,
 			LedgerCreatedAt:     now,
 			LedgerNumber:        uint32(i + 1),
 			AccountID:           types.AddressBytea(accountID),
@@ -115,7 +115,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                1,
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
+		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
@@ -127,7 +127,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                2,
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
+		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
 		AccountID:           types.AddressBytea(kp2.Address()),
@@ -435,11 +435,11 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		}
 
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, &reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonAdd, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -457,12 +457,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 		category := "SIGNER"
 		reason := "ADD"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, &reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
-			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonAdd, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -482,14 +482,14 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		operationID := int64(123)
 		category := "BALANCE"
 		reason := "CREDIT"
-		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC, nil)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, reason, "", nil, nil, ASC, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
 			assert.Equal(t, int64(1), sc.ToID)
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
-			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonCredit, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})

@@ -280,10 +280,7 @@ func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, st
 func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChange) {
 	counts := make(map[string]int) // key: "reason|category"
 	for _, sc := range stateChanges {
-		reason := ""
-		if sc.StateChangeReason != nil {
-			reason = string(*sc.StateChangeReason)
-		}
+		reason := string(sc.StateChangeReason)
 		key := reason + "|" + string(sc.StateChangeCategory)
 		counts[key]++
 	}
