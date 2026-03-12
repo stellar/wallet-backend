@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 // progressiveRecompressor compresses uncompressed TimescaleDB chunks as they become safe during backfill.
@@ -135,6 +137,9 @@ func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time
 		if err != nil {
 			log.Ctx(r.ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
 			continue
+		}
+		if err := db.SetChunkLogged(r.ctx, r.pool, chunk); err != nil {
+			log.Ctx(r.ctx).Warnf("Failed to set chunk %s logged after compression: %v", chunk, err)
 		}
 		compressed++
 		log.Ctx(r.ctx).Debugf("Compressed chunk for %s: %s", table, chunk)

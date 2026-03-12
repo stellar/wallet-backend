@@ -136,8 +136,8 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		if err != nil {
 			return fmt.Errorf("pre-creating chunks: %w", err)
 		}
-		if err := db.DropIndexesOnChunksInRange(ctx, m.models.DB, tables, chunkBoundaryStart, rangeEndTime); err != nil {
-			return fmt.Errorf("dropping indexes on chunks: %w", err)
+		if err := db.PrepareChunksForBackfill(ctx, m.models.DB, tables, chunkBoundaryStart, rangeEndTime); err != nil {
+			return fmt.Errorf("preparing chunks for backfill: %w", err)
 		}
 	}
 

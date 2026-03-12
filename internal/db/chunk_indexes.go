@@ -125,12 +125,14 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 	return alignedStart, nil
 }
 
-// DropIndexesOnChunksInRange drops indexes listed in droppableIndexes on uncompressed
+// PrepareChunksForBackfill drops indexes and sets chunks UNLOGGED on uncompressed
 // chunks within the given time range for the specified hypertables.
 //
-// This speeds up bulk backfill INSERTs by removing B-tree maintenance overhead.
-// Compressed chunks already use segmentby/orderby metadata and don't need B-tree indexes.
-func DropIndexesOnChunksInRange(ctx context.Context, pool *pgxpool.Pool, hypertables []string, rangeStart, rangeEnd time.Time) error {
+// Dropping indexes removes B-tree maintenance overhead (~40% write speedup).
+// Setting UNLOGGED disables WAL writes (~2-3x faster inserts, ~20x less WAL).
+// Unlogged chunks are truncated on crash recovery, so this is only safe for backfill
+// data that can be re-ingested. Caller must set chunks back to LOGGED after compression.
+func PrepareChunksForBackfill(ctx context.Context, pool *pgxpool.Pool, hypertables []string, rangeStart, rangeEnd time.Time) error {
 	for _, table := range hypertables {
 		// Find uncompressed chunks in range
 		rows, err := pool.Query(ctx, `
@@ -170,9 +172,15 @@ func DropIndexesOnChunksInRange(ctx context.Context, pool *pgxpool.Pool, hyperta
 				return fmt.Errorf("dropping indexes on %s.%s: %w", c.Schema, c.Name, dropErr)
 			}
 			dropped += n
+
+			alterSQL := fmt.Sprintf("ALTER TABLE %s.%s SET UNLOGGED", c.Schema, c.Name)
+			if _, execErr := pool.Exec(ctx, alterSQL); execErr != nil {
+				return fmt.Errorf("setting chunk %s.%s unlogged: %w", c.Schema, c.Name, execErr)
+			}
 		}
 
-		log.Ctx(ctx).Infof("Dropped %d indexes across %d chunks for %s", dropped, len(chunks), table)
+		log.Ctx(ctx).Infof("Prepared %d chunks for backfill (dropped %d indexes, set UNLOGGED) for %s",
+			len(chunks), dropped, table)
 	}
 	return nil
 }
@@ -230,4 +238,15 @@ func shouldDropIndex(chunkIndexName string) bool {
 		}
 	}
 	return false
+}
+
+// SetChunkLogged sets a single chunk back to LOGGED, re-enabling WAL writes.
+// Call this after compress_chunk() to restore crash safety on the compressed data.
+// TimescaleDB auto-propagates the change to the internal compressed chunk.
+func SetChunkLogged(ctx context.Context, pool *pgxpool.Pool, chunkName string) error {
+	alterSQL := fmt.Sprintf("ALTER TABLE %s SET LOGGED", chunkName)
+	if _, err := pool.Exec(ctx, alterSQL); err != nil {
+		return fmt.Errorf("setting chunk %s logged: %w", chunkName, err)
+	}
+	return nil
 }
