@@ -57,11 +57,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
 			case types.StateChangeCategoryMetadata:
-				assert.Equal(t, types.StateChangeReasonHomeDomain, *change.StateChangeReason)
+				assert.Equal(t, types.StateChangeReasonHomeDomain, change.StateChangeReason)
 				assert.Equal(t, "https://www.home.org/", change.KeyValue["home_domain"])
 			case types.StateChangeCategorySignatureThreshold:
 				//exhaustive:ignore
-				switch *change.StateChangeReason {
+				switch change.StateChangeReason {
 				case types.StateChangeReasonLow:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(1), change.ThresholdNew.Int16)
@@ -74,7 +74,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				}
 			case types.StateChangeCategoryFlags:
 				//exhaustive:ignore
-				switch *change.StateChangeReason {
+				switch change.StateChangeReason {
 				case types.StateChangeReasonSet:
 					assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthRequired, Valid: true}, change.Flags)
 				case types.StateChangeReasonClear:
@@ -82,7 +82,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				}
 			case types.StateChangeCategorySigner:
 				//exhaustive:ignore
-				switch *change.StateChangeReason {
+				switch change.StateChangeReason {
 				case types.StateChangeReasonUpdate:
 					assert.True(t, change.SignerAccountID.Valid)
 					assert.Equal(t, "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH", change.SignerAccountID.String())
@@ -119,11 +119,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonSet, changes[0].StateChangeReason)
 		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorizedToMaintainLiabilities, Valid: true}, changes[0].Flags)
 
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonClear, changes[1].StateChangeReason)
 		// Bitmask for authorized (1) | clawback_enabled (32) = 33
 		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized | types.FlagBitClawbackEnabled, Valid: true}, changes[1].Flags)
 	})
@@ -164,7 +164,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
 	})
 	t.Run("ManageData - data updated", func(t *testing.T) {
@@ -203,7 +203,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{
 			"GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE": map[string]any{
 				"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
@@ -247,7 +247,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
 	})
 	t.Run("Sponsorship - reserves sponsorship created/updated/revoked", func(t *testing.T) {
@@ -283,51 +283,51 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		// CreateAccount generates SIGNER/ADD effect at index 0
 		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
 
 		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
 		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[1].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[1].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[1].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID.String())
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].SponsoredAccountID.String())
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[2].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[2].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[2].StateChangeReason)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[2].AccountID.String())
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[2].SponsorAccountID.String())
 
 		// Updating sponsorship creates 4 state changes - one for the new sponsor, one for the former sponsor, and two for the target account
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[3].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, *changes[3].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonSponsor, changes[3].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[3].AccountID.String())
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].SponsoredAccountID.String())
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[4].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[4].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[4].StateChangeReason)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[4].AccountID.String())
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].SponsoredAccountID.String())
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[5].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, *changes[5].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonSponsor, changes[5].StateChangeReason)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[5].AccountID.String())
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[5].SponsorAccountID.String())
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[6].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, *changes[6].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[6].StateChangeReason)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[6].AccountID.String())
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[6].SponsorAccountID.String())
 
 		// Sponsorship created creates two state changes - one for the sponsor and one for the target account
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[7].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, *changes[7].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonSponsor, changes[7].StateChangeReason)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[7].AccountID.String())
 		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[7].SponsoredAccountID.String())
 
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[8].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, *changes[8].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonSponsor, changes[8].StateChangeReason)
 		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[8].AccountID.String())
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[8].SponsorAccountID.String())
 	})
@@ -366,7 +366,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		// Should only get the trustline creation
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
 		assert.False(t, changes[0].TrustlineLimitOld.Valid) // New trustline has no old limit
 		assert.Equal(t, "922337203685.4775807", changes[0].TrustlineLimitNew.String)
 		asset := xdr.MustNewCreditAsset("TEST", "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN")
@@ -405,7 +405,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUpdate, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonUpdate, changes[0].StateChangeReason)
 		asset := xdr.MustNewCreditAsset("TESTASSET", "GA5SKSJEB7VWACRNWFGVZBDSZYLGK44A2JPPBWUK3GB7NYEFOOQJAC2B")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
@@ -444,7 +444,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonRemove, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonRemove, changes[0].StateChangeReason)
 		asset := xdr.MustNewCreditAsset("OCIToken", "GBE4L76HUCHCQ2B7IIWBXRAJDBDPIY6MGWX7VZHUZD2N5RO7XI4J6GTJ")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
