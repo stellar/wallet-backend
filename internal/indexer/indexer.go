@@ -10,7 +10,6 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -81,7 +80,6 @@ type Indexer struct {
 	skipTxMeta             bool
 	skipTxEnvelope         bool
 	networkPassphrase      string
-	networkID              [32]byte // pre-computed sha256 of networkPassphrase for tx hashing
 }
 
 func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
@@ -102,7 +100,6 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 		skipTxMeta:        skipTxMeta,
 		skipTxEnvelope:    skipTxEnvelope,
 		networkPassphrase: networkPassphrase,
-		networkID:         network.ID(networkPassphrase),
 	}
 }
 
@@ -173,7 +170,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope, i.networkID)
+	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope)
 	if err != nil {
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}

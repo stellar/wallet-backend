@@ -33,7 +33,7 @@ func Test_ConvertTransaction(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	gotDataTx, err := ConvertTransaction(&ingestTx, false, false, network.ID(network.TestNetworkPassphrase))
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, false)
 	require.NoError(t, err)
 
 	metaXDR := unsafeMetaXDRStr
@@ -64,7 +64,7 @@ func Test_ConvertTransaction_SkipTxEnvelope(t *testing.T) {
 	require.NoError(t, err)
 
 	// skipTxEnvelope = true
-	gotDataTx, err := ConvertTransaction(&ingestTx, false, true, network.ID(network.TestNetworkPassphrase))
+	gotDataTx, err := ConvertTransaction(&ingestTx, false, true)
 	require.NoError(t, err)
 
 	metaXDR := unsafeMetaXDRStr
