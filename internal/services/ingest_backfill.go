@@ -448,7 +448,7 @@ func (m *ingestService) processLedgersInBatch(
 // GetLedger and sends them to metaCh. It closes metaCh on completion or error.
 // The caller reads boundary timestamps from the returned pointers after metaCh drains.
 func (m *ingestService) startLedgerReader(
-	ctx context.Context,
+	pipeCtx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
 	metaCh chan<- metaWithTime,
@@ -462,7 +462,7 @@ func (m *ingestService) startLedgerReader(
 	go func() {
 		defer close(metaCh)
 		for seq := batch.StartLedger; seq <= batch.EndLedger; seq++ {
-			meta, err := m.getLedgerWithRetry(ctx, backend, seq)
+			meta, err := m.getLedgerWithRetry(pipeCtx, backend, seq)
 			if err != nil {
 				readerErr <- fmt.Errorf("getting ledger %d: %w", seq, err)
 				cancel()
@@ -476,8 +476,8 @@ func (m *ingestService) startLedgerReader(
 
 			select {
 			case metaCh <- metaWithTime{meta: meta, closedAt: lt}:
-			case <-ctx.Done():
-				readerErr <- ctx.Err()
+			case <-pipeCtx.Done():
+				readerErr <- pipeCtx.Err()
 				return
 			}
 		}
@@ -490,7 +490,7 @@ func (m *ingestService) startLedgerReader(
 // ledgers in parallel (up to pipelineWorkerLimit), and sends IndexerBuffers
 // to flushCh. It closes flushCh on completion.
 func (m *ingestService) startLedgerWorkers(
-	ctx context.Context,
+	pipeCtx context.Context,
 	metaCh <-chan metaWithTime,
 	flushCh chan<- *indexer.IndexerBuffer,
 	metrics *pipelineMetrics,
@@ -500,10 +500,15 @@ func (m *ingestService) startLedgerWorkers(
 
 	go func() {
 		defer close(flushCh)
-		g, gCtx := errgroup.WithContext(ctx)
+		g, gCtx := errgroup.WithContext(pipeCtx)
 		g.SetLimit(pipelineWorkerLimit)
 
 		for item := range metaCh {
+			// Check if an upstream stage has failed before merging more data.
+			if pipeCtx.Err() != nil {
+				break
+			}
+
 			g.Go(func() error {
 				t := time.Now()
 				buf := indexer.NewIndexerBuffer()
@@ -513,7 +518,11 @@ func (m *ingestService) startLedgerWorkers(
 				metrics.processDuration.Add(int64(time.Since(t)))
 
 				t2 := time.Now()
-				flushCh <- buf
+				select {
+				case flushCh <- buf:
+				case <-gCtx.Done():
+					return gCtx.Err()
+				}
 				metrics.workerBlockedTime.Add(int64(time.Since(t2)))
 				metrics.workerLedgers.Add(1)
 				return nil
