@@ -349,7 +349,7 @@ const (
 	pipelineWorkerLimit = 11
 
 	// pipelineReaderBuffer keeps the reader ahead of workers to hide GetLedger latency.
-	pipelineReaderBuffer = 10
+	pipelineReaderBuffer = 200
 )
 
 // pipelineMetrics tracks worker-side timing for pipeline observability.
@@ -573,12 +573,11 @@ func (m *ingestService) consumeAndFlush(
 			}
 			flushElapsed := time.Since(t)
 			flushDuration += flushElapsed
-			chProducedDuringFlush := len(flushCh)
 			lastFlushEnd = time.Now()
 
 			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
-			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chQueued=%d/%d ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
-				flushCount, fillTime, flushElapsed, chProducedDuringFlush, cap(flushCh), ledgersInBuffer, ledgersCount,
+			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v ledgers=%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+				flushCount, fillTime, flushElapsed, ledgersInBuffer, ledgersCount,
 				deltaProcess, deltaBlocked, deltaLedgers)
 
 			batch = batch[:0]
