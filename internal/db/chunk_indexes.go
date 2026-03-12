@@ -177,9 +177,16 @@ func PrepareChunksForBackfill(ctx context.Context, pool *pgxpool.Pool, hypertabl
 			if _, execErr := pool.Exec(ctx, alterSQL); execErr != nil {
 				return fmt.Errorf("setting chunk %s.%s unlogged: %w", c.Schema, c.Name, execErr)
 			}
+
+			// Disable autovacuum — no useful work during bulk COPY into UNLOGGED tables,
+			// and it would only compete for I/O. Re-enabled in SetChunkLogged after compression.
+			vacuumSQL := fmt.Sprintf("ALTER TABLE %s.%s SET (autovacuum_enabled = false)", c.Schema, c.Name)
+			if _, execErr := pool.Exec(ctx, vacuumSQL); execErr != nil {
+				return fmt.Errorf("disabling autovacuum on %s.%s: %w", c.Schema, c.Name, execErr)
+			}
 		}
 
-		log.Ctx(ctx).Infof("Prepared %d chunks for backfill (dropped %d indexes, set UNLOGGED) for %s",
+		log.Ctx(ctx).Infof("Prepared %d chunks for backfill (dropped %d indexes, set UNLOGGED, autovacuum off) for %s",
 			len(chunks), dropped, table)
 	}
 	return nil
@@ -240,13 +247,19 @@ func shouldDropIndex(chunkIndexName string) bool {
 	return false
 }
 
-// SetChunkLogged sets a single chunk back to LOGGED, re-enabling WAL writes.
-// Call this after compress_chunk() to restore crash safety on the compressed data.
-// TimescaleDB auto-propagates the change to the internal compressed chunk.
+// SetChunkLogged sets a single chunk back to LOGGED and re-enables autovacuum.
+// Call this after compress_chunk() to restore crash safety and normal maintenance
+// on the compressed data. TimescaleDB auto-propagates the LOGGED change to the
+// internal compressed chunk.
 func SetChunkLogged(ctx context.Context, pool *pgxpool.Pool, chunkName string) error {
 	alterSQL := fmt.Sprintf("ALTER TABLE %s SET LOGGED", chunkName)
 	if _, err := pool.Exec(ctx, alterSQL); err != nil {
 		return fmt.Errorf("setting chunk %s logged: %w", chunkName, err)
+	}
+	// Re-enable autovacuum (disabled during backfill by PrepareChunksForBackfill).
+	vacuumSQL := fmt.Sprintf("ALTER TABLE %s SET (autovacuum_enabled = true)", chunkName)
+	if _, err := pool.Exec(ctx, vacuumSQL); err != nil {
+		return fmt.Errorf("re-enabling autovacuum on chunk %s: %w", chunkName, err)
 	}
 	return nil
 }
