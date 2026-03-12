@@ -285,21 +285,23 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		metaXDR = &metaXDRStr
 	}
 
-	// Calculate inner transaction hash directly from XDR — no marshal/unmarshal round-trip.
-	// For fee-bump txs, hash the inner envelope; for regular txs, hash the envelope directly.
-	innerEnvelope := transaction.Envelope
+	// For non-fee-bump txs, inner hash = transaction hash (already computed by Stellar Core).
+	// For fee-bump txs, compute inner envelope hash separately.
+	var innerTxHash string
 	if transaction.Envelope.IsFeeBump() {
 		v1 := transaction.Envelope.MustFeeBump().Tx.InnerTx.MustV1()
-		innerEnvelope = xdr.TransactionEnvelope{
+		innerEnvelope := xdr.TransactionEnvelope{
 			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 			V1:   &v1,
 		}
+		innerHash, err := hashTransactionEnvelope(innerEnvelope, networkID)
+		if err != nil {
+			return nil, fmt.Errorf("hashing inner transaction: %w", err)
+		}
+		innerTxHash = hex.EncodeToString(innerHash[:])
+	} else {
+		innerTxHash = transaction.Hash.HexString()
 	}
-	innerHash, err := hashTransactionEnvelope(innerEnvelope, networkID)
-	if err != nil {
-		return nil, fmt.Errorf("hashing inner transaction: %w", err)
-	}
-	innerTxHash := hex.EncodeToString(innerHash[:])
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
 	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
