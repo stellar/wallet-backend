@@ -3,10 +3,10 @@ package processors
 import (
 	"fmt"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
-
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 type ParticipantsProcessor struct {
@@ -82,7 +82,7 @@ func participantsForMeta(meta xdr.TransactionMeta) ([]xdr.AccountId, error) {
 	return participants, nil
 }
 
-func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
+func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (types.StringSet, error) {
 	// 1. Get direct participants involved in the transaction
 	participants := []xdr.AccountId{
 		transaction.Envelope.SourceAccount().ToAccountId(), // in case of a fee bump, this is the innerTx source account
@@ -107,7 +107,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 	}
 
 	// 2. Push transaction and participants to data bundle
-	participantsSet := set.NewSet[string]()
+	participantsSet := types.NewStringSet()
 	for _, xdrParticipant := range participants {
 		participantsSet.Add(xdrParticipant.Address())
 	}
@@ -117,7 +117,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 
 type OperationParticipants struct {
 	OpWrapper    *TransactionOperationWrapper
-	Participants set.Set[string]
+	Participants types.StringSet
 }
 
 // GetOperationsParticipants returns a map of operation ID to its participants.
@@ -162,13 +162,13 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 
 // GetOperationParticipants returns the participants for a transaction operation.
 // In case of a Soroban operation, it calls the participantsForSorobanOp function to get the Soroban participants.
-func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperationWrapper) (set.Set[string], error) {
+func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperationWrapper) (types.StringSet, error) {
 	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
 	participantsAccountIDs, err := op.Participants()
 	if err != nil {
 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
 	}
-	participants := set.NewSet[string]()
+	participants := types.NewStringSet()
 	for _, accountID := range participantsAccountIDs {
 		participants.Add(accountID.Address())
 	}

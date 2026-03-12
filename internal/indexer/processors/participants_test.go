@@ -3,13 +3,13 @@ package processors
 import (
 	"testing"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -558,9 +558,9 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 				assert.Nil(t, participants)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, len(tc.expectedParticipants), participants.Cardinality())
+				assert.Equal(t, len(tc.expectedParticipants), participants.Len())
 				for _, expectedParticipant := range tc.expectedParticipants {
-					assert.True(t, participants.Contains(expectedParticipant))
+					assert.True(t, participants.Has(expectedParticipant))
 				}
 			}
 		})
@@ -581,7 +581,7 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				return map[int64]OperationParticipants{
 					20929375637505: {
 						OpWrapper: opWrapper,
-						Participants: set.NewSet(
+						Participants: types.NewStringSet(
 							"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
 							"CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD",
 						),

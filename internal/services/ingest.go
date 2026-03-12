@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -124,7 +123,7 @@ type ingestService struct {
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	chunkInterval             string
-	knownContractIDs          set.Set[string]
+	knownContractIDs          types.StringSet
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -163,7 +162,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		chunkInterval:             cfg.ChunkInterval,
-		knownContractIDs:          set.NewSet[string](),
+		knownContractIDs:          types.NewStringSet(),
 	}, nil
 }
 
@@ -247,7 +246,7 @@ func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
 	}
 	if _, err := dbTx.Exec(ctx, "SET LOCAL statement_timeout = '30s'"); err != nil {
 		return fmt.Errorf("setting statement_timeout: %w", err)
-  	}
+	}
 	return nil
 }
 
@@ -414,8 +413,8 @@ func (m *ingestService) insertBatchIntoDB(ctx context.Context, buffers []*indexe
 	var allTxs []*types.Transaction
 	var allOps []*types.Operation
 	var allStateChanges []types.StateChange
-	allTxParticipants := make(map[int64]set.Set[string])
-	allOpParticipants := make(map[int64]set.Set[string])
+	allTxParticipants := make(map[int64]types.StringSet)
+	allOpParticipants := make(map[int64]types.StringSet)
 
 	for _, buf := range buffers {
 		allTxs = append(allTxs, buf.GetTransactions()...)

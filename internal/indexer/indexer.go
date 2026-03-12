@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -26,8 +25,8 @@ type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
 	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
-	GetTransactionsParticipants() map[int64]set.Set[string]
-	GetOperationsParticipants() map[int64]set.Set[string]
+	GetTransactionsParticipants() map[int64]types.StringSet
+	GetOperationsParticipants() map[int64]types.StringSet
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
@@ -54,7 +53,7 @@ type TokenTransferProcessorInterface interface {
 }
 
 type ParticipantsProcessorInterface interface {
-	GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error)
+	GetTransactionParticipants(transaction ingest.LedgerTransaction) (types.StringSet, error)
 	GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error)
 }
 
@@ -180,7 +179,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Count all unique participants for metrics
-	allParticipants := set.NewSet[string]()
+	allParticipants := types.NewStringSet()
 	allParticipants.Append(txParticipants.ToSlice()...)
 	for _, opParticipants := range opsParticipants {
 		allParticipants.Append(opParticipants.Participants.ToSlice()...)
@@ -190,7 +189,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Insert transaction participants
-	for participant := range txParticipants.Iter() {
+	for participant := range txParticipants {
 		buffer.PushTransaction(participant, *dataTx)
 	}
 
@@ -205,7 +204,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("creating data operation: %w", opErr)
 		}
 		operationsMap[opID] = dataOp
-		for participant := range opParticipants.Participants.Iter() {
+		for participant := range opParticipants.Participants {
 			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
 	}
@@ -303,7 +302,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 
-	return allParticipants.Cardinality(), nil
+	return allParticipants.Len(), nil
 }
 
 // getTransactionStateChanges processes operations of a transaction and calculates all state changes

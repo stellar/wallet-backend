@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -399,7 +398,7 @@ func (m *OperationModel) BatchCopyParticipants(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]set.Set[string],
+	stellarAddressesByOpID map[int64]types.StringSet,
 ) (int, error) {
 	if len(stellarAddressesByOpID) == 0 {
 		return 0, nil

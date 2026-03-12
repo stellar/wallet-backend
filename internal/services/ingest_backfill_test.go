@@ -939,8 +939,8 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 
 	// Process both batches in parallel
 	results := svc.processBackfillBatchesParallel(ctx, batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
-			}, nil)
+		return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
+	}, nil)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -1175,8 +1175,8 @@ func Test_ingestService_processBackfillBatchesParallel_Historical(t *testing.T) 
 	}
 
 	results := svc.processBackfillBatchesParallel(ctx, batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
-			}, nil)
+		return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
+	}, nil)
 
 	require.Len(t, results, 2)
 	for i, result := range results {
