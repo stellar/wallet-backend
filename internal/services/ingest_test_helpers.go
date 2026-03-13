@@ -8,9 +8,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 var (
@@ -34,6 +42,90 @@ const (
 )
 
 // ==================== Test Helper Functions ====================
+
+// testBackfillOpts configures newTestBackfillService. All fields are optional.
+type testBackfillOpts struct {
+	models            *data.Models
+	factory           LedgerBackendFactory
+	batchSize         int
+	dbInsertBatchSize int
+}
+
+// newTestBackfillService creates an *ingestService with all mocks wired up.
+// Pass opts.models = nil for pure mock tests (no DB).
+func newTestBackfillService(t *testing.T, opts testBackfillOpts) *ingestService {
+	t.Helper()
+
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("RegisterPoolMetrics", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("IncDBTransaction", mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
+	mockMetrics.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveIngestionDuration", mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	mockMetrics.On("ObserveStateChangeProcessingDuration", mock.Anything, mock.Anything).Return().Maybe()
+
+	mockRPC := &RPCServiceMock{}
+	mockRPC.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
+
+	cfg := IngestServiceConfig{
+		IngestionMode:             IngestionModeBackfill,
+		Models:                    opts.models,
+		LatestLedgerCursorName:    "latest_ledger_cursor",
+		OldestLedgerCursorName:    "oldest_ledger_cursor",
+		AppTracker:                &apptracker.MockAppTracker{},
+		RPCService:                mockRPC,
+		LedgerBackend:             &LedgerBackendMock{},
+		LedgerBackendFactory:      opts.factory,
+		ChannelAccountStore:       &store.ChannelAccountStoreMock{},
+		MetricsService:            mockMetrics,
+		GetLedgersLimit:           defaultGetLedgersLimit,
+		Network:                   network.TestNetworkPassphrase,
+		NetworkPassphrase:         network.TestNetworkPassphrase,
+		Archive:                   &HistoryArchiveMock{},
+		SkipTxMeta:                false,
+		SkipTxEnvelope:            false,
+		BackfillBatchSize:         opts.batchSize,
+		BackfillDBInsertBatchSize: opts.dbInsertBatchSize,
+	}
+
+	svc, err := NewIngestService(cfg)
+	require.NoError(t, err)
+	return svc
+}
+
+// makeLedgerCloseMeta creates a minimal valid V1 LedgerCloseMeta with the given
+// sequence number and close time.
+func makeLedgerCloseMeta(seq uint32, closeTime time.Time) xdr.LedgerCloseMeta {
+	return xdr.LedgerCloseMeta{
+		V: 1,
+		V1: &xdr.LedgerCloseMetaV1{
+			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+				Header: xdr.LedgerHeader{
+					LedgerSeq: xdr.Uint32(seq),
+					ScpValue: xdr.StellarValue{
+						CloseTime: xdr.TimePoint(closeTime.Unix()),
+					},
+				},
+			},
+		},
+	}
+}
+
+// makeLedgerBuffer creates a *LedgerBuffer with an empty IndexerBuffer and the
+// given sequence/time. Useful for watermarkTracker and consumeAndFlush tests.
+func makeLedgerBuffer(seq uint32, closeTime time.Time) *LedgerBuffer {
+	return &LedgerBuffer{
+		buffer:    indexer.NewIndexerBuffer(),
+		ledgerSeq: seq,
+		closeTime: closeTime,
+	}
+}
 
 // setupDBCursors sets up ingest_store cursors for testing
 func setupDBCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, latestLedger, oldestLedger uint32) {

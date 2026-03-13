@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -59,54 +58,6 @@ func Test_generateAdvisoryLockID(t *testing.T) {
 				assert.Equal(t, result, result2, "same network should generate same lock ID")
 				assert.Equal(t, tc.expected, result)
 			}
-		})
-	}
-}
-
-func Test_analyzeBatchResults(t *testing.T) {
-	ctx := context.Background()
-
-	testCases := []struct {
-		name         string
-		results      []BackfillResult
-		wantFailures int
-	}{
-		{
-			name:         "empty_results",
-			results:      []BackfillResult{},
-			wantFailures: 0,
-		},
-		{
-			name: "all_success",
-			results: []BackfillResult{
-				{Batch: BackfillBatch{StartLedger: 100, EndLedger: 199}, LedgersCount: 100},
-				{Batch: BackfillBatch{StartLedger: 200, EndLedger: 299}, LedgersCount: 100},
-			},
-			wantFailures: 0,
-		},
-		{
-			name: "some_failures",
-			results: []BackfillResult{
-				{Batch: BackfillBatch{StartLedger: 100, EndLedger: 199}, LedgersCount: 100},
-				{Batch: BackfillBatch{StartLedger: 200, EndLedger: 299}, Error: fmt.Errorf("failed")},
-				{Batch: BackfillBatch{StartLedger: 300, EndLedger: 399}, LedgersCount: 100},
-			},
-			wantFailures: 1,
-		},
-		{
-			name: "all_failures",
-			results: []BackfillResult{
-				{Batch: BackfillBatch{StartLedger: 100, EndLedger: 199}, Error: fmt.Errorf("failed1")},
-				{Batch: BackfillBatch{StartLedger: 200, EndLedger: 299}, Error: fmt.Errorf("failed2")},
-			},
-			wantFailures: 2,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			numFailed := analyzeBatchResults(ctx, tc.results)
-			assert.Equal(t, tc.wantFailures, numFailed)
 		})
 	}
 }
@@ -219,103 +170,6 @@ func Test_ingestService_getLedgerWithRetry(t *testing.T) {
 				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
 				require.NoError(t, err)
 				assert.Equal(t, meta, ledger)
-			}
-		})
-	}
-}
-
-func Test_ingestService_setupBatchBackend(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	testCases := []struct {
-		name            string
-		batch           BackfillBatch
-		setupFactory    func() LedgerBackendFactory
-		wantErr         bool
-		wantErrContains string
-	}{
-		{
-			name:  "success",
-			batch: BackfillBatch{StartLedger: 100, EndLedger: 199},
-			setupFactory: func() LedgerBackendFactory {
-				return func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-					mockBackend := &LedgerBackendMock{}
-					mockBackend.On("PrepareRange", mock.Anything, ledgerbackend.BoundedRange(100, 199)).Return(nil)
-					return mockBackend, nil
-				}
-			},
-			wantErr: false,
-		},
-		{
-			name:  "factory_error",
-			batch: BackfillBatch{StartLedger: 100, EndLedger: 199},
-			setupFactory: func() LedgerBackendFactory {
-				return func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-					return nil, fmt.Errorf("factory failed")
-				}
-			},
-			wantErr:         true,
-			wantErrContains: "creating ledger backend",
-		},
-		{
-			name:  "prepare_range_error",
-			batch: BackfillBatch{StartLedger: 100, EndLedger: 199},
-			setupFactory: func() LedgerBackendFactory {
-				return func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-					mockBackend := &LedgerBackendMock{}
-					mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(fmt.Errorf("prepare failed"))
-					return mockBackend, nil
-				}
-			},
-			wantErr:         true,
-			wantErrContains: "preparing backend range",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			defer mockMetricsService.AssertExpectations(t)
-
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-			require.NoError(t, err)
-
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-
-			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				LedgerBackendFactory:   tc.setupFactory(),
-				MetricsService:         mockMetricsService,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-			})
-			require.NoError(t, err)
-
-			backend, err := svc.setupBatchBackend(ctx, tc.batch)
-			if tc.wantErr {
-				require.Error(t, err)
-				if tc.wantErrContains != "" {
-					assert.Contains(t, err.Error(), tc.wantErrContains)
-				}
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, backend)
 			}
 		})
 	}
