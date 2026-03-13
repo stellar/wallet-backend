@@ -39,7 +39,8 @@ func (r *progressiveCompressor) Wait() {
 }
 
 // runCompression processes compression triggers in the background.
-// For each safe window, queries and compresses uncompressed chunks per table.
+// Single-goroutine: chunksByBatch mutations don't need locks.
+// Channel ownership: caller creates and closes compressorCh; compressor only reads.
 func (r *progressiveCompressor) runCompression() {
 	go func() {
 		defer close(r.done)
@@ -51,14 +52,18 @@ func (r *progressiveCompressor) runCompression() {
 			chunks := r.chunksByBatch[*item.batch]
 			remaining := chunks[:0]
 			for _, chunk := range chunks {
-				if !chunk.End.After(item.ledgerCloseTime) {
-					if chunk.NumWriters.Add(-1) == 0 {
-						if err := r.compressChunk(r.ctx, chunk.Name); err != nil {
-							log.Ctx(r.ctx).Warnf("Failed to compress %s, will retry next run: %v", chunk.Name, err)
-						}
-					}
-				} else {
+				// Chunk still has future writes pending — keep it.
+				if chunk.End.After(item.ledgerCloseTime) {
 					remaining = append(remaining, chunk)
+					continue
+				}
+				// Other batches still writing to this chunk.
+				if chunk.NumWriters.Add(-1) > 0 {
+					continue
+				}
+				if err := r.compressChunk(r.ctx, chunk.Name); err != nil {
+					log.Ctx(r.ctx).Warnf("Failed to compress %s: %v", chunk.Name, err)
+					remaining = append(remaining, chunk) // re-queue for next watermark advance
 				}
 			}
 			r.chunksByBatch[*item.batch] = remaining

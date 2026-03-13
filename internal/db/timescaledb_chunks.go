@@ -44,6 +44,12 @@ type Chunk struct {
 	NumWriters atomic.Int64
 }
 
+// chunkRange is a time boundary for a single chunk.
+type chunkRange struct {
+	start time.Time
+	end   time.Time
+}
+
 // PreCreateChunks pre-creates empty TimescaleDB chunks for the given hypertables
 // covering the time range [rangeStart, rangeEnd]. Chunk boundaries are aligned to
 // match TimescaleDB's internal alignment by reading interval_length from the catalog
@@ -84,10 +90,6 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 	if err != nil {
 		return []*Chunk{}, fmt.Errorf("generating chunk boundaries: %w", err)
 	}
-	type chunkRange struct {
-		start time.Time
-		end   time.Time
-	}
 	var boundaries []chunkRange
 	for rows.Next() {
 		var boundary chunkRange
@@ -107,54 +109,55 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 		start := time.Now()
 		numChunks := 0
 		for _, boundary := range boundaries {
-			chunk := Chunk{
-				Start: boundary.start,
-				End:   boundary.end,
+			chunk, err := prepareNewChunk(ctx, pool, table, boundary)
+			if err != nil {
+				return nil, err
 			}
-			// create_chunk expects slices as {"dimension": [start_usec, end_usec]}.
-			// It is idempotent: returns created=false if a chunk already covers this range.
-			slices := fmt.Sprintf(`{"ledger_created_at": [%d, %d]}`,
-				boundary.start.UnixMicro(), boundary.end.UnixMicro())
-			var created bool
-			queryErr := pool.QueryRow(ctx,
-				"SELECT schema_name || '.' || table_name, created FROM _timescaledb_functions.create_chunk($1::regclass, $2::jsonb)",
-				table, slices,
-			).Scan(&chunk.Name, &created)
-			if queryErr != nil {
-				return []*Chunk{}, fmt.Errorf("creating chunk for %s at %s: %w", table, boundary.start.Format(time.RFC3339), queryErr)
+			if chunk != nil {
+				chunks = append(chunks, chunk)
+				numChunks++
 			}
-			if !created {
-				continue
-			}
-
-			// Drop chunk indexes
-			numDropped, dropErr := dropChunkIndexes(ctx, pool, chunk.Name)
-			if dropErr != nil {
-				return []*Chunk{}, fmt.Errorf("dropping indexes on %s: %w", chunk.Name, dropErr)
-			}
-			log.Ctx(ctx).Infof("Dropped %d indexes on chunk %s", numDropped, chunk.Name)
-
-			// Set UNLOGGED. Setting UNLOGGED disables WAL writes (~2-3x faster inserts, ~20x less WAL).
-			// Unlogged chunks are truncated on crash recovery, so this is only safe for backfill
-			// data that can be re-ingested. Caller must set chunks back to LOGGED after compression.
-			alterSQL := fmt.Sprintf("ALTER TABLE %s SET UNLOGGED", chunk.Name)
-			if _, execErr := pool.Exec(ctx, alterSQL); execErr != nil {
-				return []*Chunk{}, fmt.Errorf("setting chunk %s unlogged: %w", chunk.Name, execErr)
-			}
-
-			// Disable autovacuum — no useful work during bulk COPY into UNLOGGED tables,
-			// and it would only compete for I/O. Re-enabled in SetChunkLogged after compression.
-			vacuumSQL := fmt.Sprintf("ALTER TABLE %s SET (autovacuum_enabled = false)", chunk.Name)
-			if _, execErr := pool.Exec(ctx, vacuumSQL); execErr != nil {
-				return []*Chunk{}, fmt.Errorf("disabling autovacuum on %s: %w", chunk.Name, execErr)
-			}
-			chunks = append(chunks, &chunk)
-			numChunks++
 		}
 		log.Ctx(ctx).Infof("Pre-created %d chunks for %s covering [%s, %s] in %v",
 			numChunks, table, rangeStart.Format(time.RFC3339), rangeEnd.Format(time.RFC3339), time.Since(start))
 	}
 	return chunks, nil
+}
+
+// prepareNewChunk creates a chunk for the given boundary, drops its indexes, sets it
+// UNLOGGED, and disables autovacuum. Returns nil if the chunk already existed.
+func prepareNewChunk(ctx context.Context, pool *pgxpool.Pool, table string, boundary chunkRange) (*Chunk, error) {
+	chunk := Chunk{Start: boundary.start, End: boundary.end}
+	slices := fmt.Sprintf(`{"ledger_created_at": [%d, %d]}`,
+		boundary.start.UnixMicro(), boundary.end.UnixMicro())
+	var created bool
+	if err := pool.QueryRow(ctx,
+		"SELECT schema_name || '.' || table_name, created FROM _timescaledb_functions.create_chunk($1::regclass, $2::jsonb)",
+		table, slices,
+	).Scan(&chunk.Name, &created); err != nil {
+		return nil, fmt.Errorf("creating chunk for %s at %s: %w", table, boundary.start.Format(time.RFC3339), err)
+	}
+	if !created {
+		return nil, nil
+	}
+
+	numDropped, err := dropChunkIndexes(ctx, pool, chunk.Name)
+	if err != nil {
+		return nil, fmt.Errorf("dropping indexes on %s: %w", chunk.Name, err)
+	}
+	log.Ctx(ctx).Infof("Dropped %d indexes on chunk %s", numDropped, chunk.Name)
+
+	// UNLOGGED disables WAL writes (~2-3x faster inserts, ~20x less WAL).
+	// Safe for backfill data that can be re-ingested. Set back to LOGGED after compression.
+	if err := executeChunkDDL(ctx, pool, chunk.Name, "SET UNLOGGED"); err != nil {
+		return nil, err
+	}
+	// Disable autovacuum — no useful work during bulk COPY into UNLOGGED tables.
+	// Re-enabled in SetChunkLogged after compression.
+	if err := executeChunkDDL(ctx, pool, chunk.Name, "SET (autovacuum_enabled = false)"); err != nil {
+		return nil, err
+	}
+	return &chunk, nil
 }
 
 // dropChunkIndexes drops indexes on a single chunk that match the droppableIndexes list.
@@ -243,19 +246,26 @@ func RestoreInsertAutovacuum(ctx context.Context, pool *pgxpool.Pool, hypertable
 	return nil
 }
 
+// executeChunkDDL runs a single ALTER TABLE statement on a chunk.
+func executeChunkDDL(ctx context.Context, pool *pgxpool.Pool, chunkName, ddl string) error {
+	sql := fmt.Sprintf("ALTER TABLE %s %s", chunkName, ddl)
+	if _, err := pool.Exec(ctx, sql); err != nil {
+		return fmt.Errorf("alter table %s (%s): %w", chunkName, ddl, err)
+	}
+	return nil
+}
+
 // SetChunkLogged sets a single chunk back to LOGGED and re-enables autovacuum.
 // Call this after compress_chunk() to restore crash safety and normal maintenance
 // on the compressed data. TimescaleDB auto-propagates the LOGGED change to the
 // internal compressed chunk.
 func SetChunkLogged(ctx context.Context, pool *pgxpool.Pool, chunkName string) error {
-	alterSQL := fmt.Sprintf("ALTER TABLE %s SET LOGGED", chunkName)
-	if _, err := pool.Exec(ctx, alterSQL); err != nil {
-		return fmt.Errorf("setting chunk %s logged: %w", chunkName, err)
+	if err := executeChunkDDL(ctx, pool, chunkName, "SET LOGGED"); err != nil {
+		return err
 	}
 	// Re-enable autovacuum (disabled during backfill by PrepareChunksForBackfill).
-	vacuumSQL := fmt.Sprintf("ALTER TABLE %s SET (autovacuum_enabled = true)", chunkName)
-	if _, err := pool.Exec(ctx, vacuumSQL); err != nil {
-		return fmt.Errorf("re-enabling autovacuum on chunk %s: %w", chunkName, err)
+	if err := executeChunkDDL(ctx, pool, chunkName, "SET (autovacuum_enabled = true)"); err != nil {
+		return err
 	}
 	return nil
 }

@@ -131,34 +131,9 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		return fmt.Errorf("pre-creating chunks: %w", err)
 	}
 
-	// Convert gaps directly to BackfillBatches (1 per gap — no batch splitting).
-	// Each gap gets a single backend, avoiding redundant S3 downloads across 250-ledger batches.
-	gapBatches := make([]BackfillBatch, len(gaps))
-	for i, gap := range gaps {
-		gapBatches[i] = BackfillBatch{
-			StartLedger: gap.GapStart,
-			EndLedger:   gap.GapEnd,
-		}
-	}
-
-	// Map batches and chunks
-	chunksByBatch := make(map[BackfillBatch][]*db.Chunk)
-	for _, batch := range gapBatches {
-		startTime, err := m.fetchLedgerCloseTime(ctx, batch.StartLedger)
-		if err != nil {
-			return fmt.Errorf("fetching start ledger %d timestamp: %w", batch.StartLedger, err)
-		}
-		endTime, err := m.fetchLedgerCloseTime(ctx, batch.EndLedger)
-		if err != nil {
-			return fmt.Errorf("fetching end ledger %d timestamp: %w", batch.EndLedger, err)
-		}
-		chunksByBatch[batch] = make([]*db.Chunk, 0)
-		for _, chunk := range chunks {
-			if !(startTime.After(chunk.End) || endTime.Before(chunk.Start)) {
-				chunk.NumWriters.Add(1)
-				chunksByBatch[batch] = append(chunksByBatch[batch], chunk)
-			}
-		}
+	gapBatches, chunksByBatch, err := m.mapBatchesToChunks(ctx, gaps, chunks)
+	if err != nil {
+		return err
 	}
 	compressorCh := make(chan *CompressBatch, 64)
 	compressor := newProgressiveCompressor(ctx, m.models.DB, chunksByBatch, compressorCh)
@@ -499,6 +474,7 @@ func (m *ingestService) startLedgerReader(
 // startLedgerWorkers spawns a goroutine that reads from metaCh, processes
 // ledgers in parallel (up to pipelineWorkerLimit), and sends IndexerBuffers
 // to flushCh. It closes flushCh on completion.
+// Channel ownership: caller creates and closes metaCh; workers only read from it.
 func (m *ingestService) startLedgerWorkers(
 	pipeCtx context.Context,
 	metaCh <-chan metaWithTime,
@@ -551,7 +527,69 @@ func (m *ingestService) startLedgerWorkers(
 	return workerErr
 }
 
+// watermarkTracker tracks the highest contiguously-flushed ledger sequence
+// to signal safe compression windows. Single-goroutine use only.
+type watermarkTracker struct {
+	gapBatch     *BackfillBatch
+	flushed      []bool
+	closeTimes   map[uint32]time.Time
+	watermark    uint32
+	compressorCh chan<- *CompressBatch
+}
+
+func newWatermarkTracker(gapBatch *BackfillBatch, compressorCh chan<- *CompressBatch) *watermarkTracker {
+	return &watermarkTracker{
+		gapBatch:     gapBatch,
+		flushed:      make([]bool, gapBatch.EndLedger-gapBatch.StartLedger+1),
+		closeTimes:   make(map[uint32]time.Time),
+		watermark:    gapBatch.StartLedger,
+		compressorCh: compressorCh,
+	}
+}
+
+// advance marks ledgers as flushed and signals compression for any new
+// contiguously-complete prefix. Prunes consumed closeTimes entries.
+func (w *watermarkTracker) advance(buffers []*LedgerBuffer) {
+	for _, item := range buffers {
+		w.flushed[item.ledgerSeq-w.gapBatch.StartLedger] = true
+		w.closeTimes[item.ledgerSeq] = item.closeTime
+	}
+	prev := w.watermark
+	for w.watermark <= w.gapBatch.EndLedger && w.flushed[w.watermark-w.gapBatch.StartLedger] {
+		w.watermark++
+	}
+	if w.watermark > prev {
+		// watermark points to first unflushed; watermark-1 is the last flushed.
+		closeTime := w.closeTimes[w.watermark-1]
+		// Prune consumed entries below new watermark.
+		for seq := prev; seq < w.watermark; seq++ {
+			delete(w.closeTimes, seq)
+		}
+		w.compressorCh <- &CompressBatch{
+			batch:           w.gapBatch,
+			ledgerCloseTime: closeTime,
+		}
+	}
+}
+
+// executeFlush persists a batch to DB and advances the watermark.
+func executeFlush(
+	pipeCtx context.Context,
+	batch []*LedgerBuffer,
+	flush func(context.Context, []*LedgerBuffer) error,
+	wt *watermarkTracker,
+) (time.Duration, error) {
+	t := time.Now()
+	if err := flush(pipeCtx, batch); err != nil {
+		return 0, err
+	}
+	elapsed := time.Since(t)
+	wt.advance(batch)
+	return elapsed, nil
+}
+
 // consumeAndFlush collects incoming IndexerBuffers and periodically flushes to DB.
+// Runs as a single goroutine per batch — watermark mutations are safe without locks.
 // Returns the number of ledgers processed, total flush duration, and any flush error.
 func (m *ingestService) consumeAndFlush(
 	ctx context.Context,
@@ -566,29 +604,7 @@ func (m *ingestService) consumeAndFlush(
 	batch := make([]*LedgerBuffer, 0, m.backfillDBInsertBatchSize)
 	flushCount := 0
 	lastFlushEnd := time.Now()
-
-	flushed := make([]bool, gapBatch.EndLedger-gapBatch.StartLedger+1)
-	closeTimes := make(map[uint32]time.Time)
-	watermark := gapBatch.StartLedger
-	prevWatermark := watermark
-	advanceWatermark := func() {
-		for _, item := range batch {
-			flushed[item.ledgerSeq-gapBatch.StartLedger] = true
-			closeTimes[item.ledgerSeq] = item.closeTime
-		}
-
-		for watermark <= gapBatch.EndLedger && flushed[watermark-gapBatch.StartLedger] {
-			watermark++
-		}
-
-		if watermark > prevWatermark {
-			compressorCh <- &CompressBatch{
-				batch:           gapBatch,
-				ledgerCloseTime: closeTimes[watermark-1], // watermark currently points to the first unflushed ledger
-			}
-			prevWatermark = watermark
-		}
-	}
+	wt := newWatermarkTracker(gapBatch, compressorCh)
 
 	for ledgerBuffer := range flushCh {
 		// Check if an upstream stage has failed before collecting more data.
@@ -603,16 +619,13 @@ func (m *ingestService) consumeAndFlush(
 			fillTime := time.Since(lastFlushEnd)
 			flushCount++
 
-			t := time.Now()
-			if err := flush(pipeCtx, batch); err != nil {
+			flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
+			if flushErr != nil {
 				cancel()
-				return ledgersCount, flushDuration, err
+				return ledgersCount, flushDuration, flushErr
 			}
-			flushElapsed := time.Since(t)
 			flushDuration += flushElapsed
 			lastFlushEnd = time.Now()
-
-			advanceWatermark()
 
 			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
 			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
@@ -629,14 +642,12 @@ func (m *ingestService) consumeAndFlush(
 		chLen := len(flushCh)
 		flushCount++
 
-		t := time.Now()
-		if err := flush(pipeCtx, batch); err != nil {
+		flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
+		if flushErr != nil {
 			cancel()
-			return ledgersCount, flushDuration, err
+			return ledgersCount, flushDuration, flushErr
 		}
-		flushElapsed := time.Since(t)
 		flushDuration += flushElapsed
-		advanceWatermark()
 
 		log.Ctx(ctx).Infof("Pipeline flush #%d (final): fill=%v flush=%v chBacklog=%d/%d total=%d",
 			flushCount, fillTime, flushElapsed, chLen, cap(flushCh), ledgersCount)
@@ -659,6 +670,40 @@ func collectPipelineErrors(readerErr, workerErr <-chan error) error {
 	default:
 	}
 	return nil
+}
+
+// timeRangesOverlap returns true if [aStart, aEnd] overlaps [bStart, bEnd].
+func timeRangesOverlap(aStart, aEnd, bStart, bEnd time.Time) bool {
+	return !aStart.After(bEnd) && !aEnd.Before(bStart)
+}
+
+// mapBatchesToChunks converts gaps to BackfillBatches and maps each batch to the
+// pre-created chunks whose time range overlaps the batch's ledger close times.
+func (m *ingestService) mapBatchesToChunks(
+	ctx context.Context,
+	gaps []data.LedgerRange,
+	chunks []*db.Chunk,
+) ([]BackfillBatch, map[BackfillBatch][]*db.Chunk, error) {
+	batches := make([]BackfillBatch, len(gaps))
+	chunksByBatch := make(map[BackfillBatch][]*db.Chunk)
+	for i, gap := range gaps {
+		batches[i] = BackfillBatch{StartLedger: gap.GapStart, EndLedger: gap.GapEnd}
+		startTime, err := m.fetchLedgerCloseTime(ctx, gap.GapStart)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetching start ledger %d timestamp: %w", gap.GapStart, err)
+		}
+		endTime, err := m.fetchLedgerCloseTime(ctx, gap.GapEnd)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetching end ledger %d timestamp: %w", gap.GapEnd, err)
+		}
+		for _, chunk := range chunks {
+			if timeRangesOverlap(startTime, endTime, chunk.Start, chunk.End) {
+				chunk.NumWriters.Add(1)
+				chunksByBatch[batches[i]] = append(chunksByBatch[batches[i]], chunk)
+			}
+		}
+	}
+	return batches, chunksByBatch, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
