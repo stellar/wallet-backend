@@ -39,5 +39,9 @@ func RunProtocolMigrations(ctx context.Context, dbPool ConnectionPool) (int, err
 	if err != nil {
 		return 0, fmt.Errorf("fetching sql.DB for protocol migrations: %w", err)
 	}
-	return protocols.Run(ctx, sqlDB)
+	n, err := protocols.Run(ctx, sqlDB)
+	if err != nil {
+		return n, fmt.Errorf("running protocol migrations: %w", err)
+	}
+	return n, nil
 }

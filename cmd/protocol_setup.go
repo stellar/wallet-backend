@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	internalutils "github.com/stellar/wallet-backend/internal/utils"
 )
 
 type protocolSetupCmd struct{}
@@ -92,7 +93,7 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	if err != nil {
 		return fmt.Errorf("opening database connection: %w", err)
 	}
-	defer dbPool.Close()
+	defer internalutils.DeferredClose(ctx, dbPool, "closing dbPool in protocol setup")
 
 	// Run protocol migrations to ensure protocols are registered in the DB
 	if _, err := db.RunProtocolMigrations(ctx, dbPool); err != nil {
