@@ -244,9 +244,6 @@ func setLocalBackfillOpts(ctx context.Context, dbTx pgx.Tx) error {
 	if _, err := dbTx.Exec(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
 		return fmt.Errorf("setting session_replication_role=replica: %w", err)
 	}
-	if _, err := dbTx.Exec(ctx, "SET LOCAL statement_timeout = '30s'"); err != nil {
-		return fmt.Errorf("setting statement_timeout: %w", err)
-	}
 	return nil
 }
 
@@ -408,7 +405,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, buffer indexer.Indexer
 // Same 5-goroutine errgroup pattern as insertIntoDB, but avoids expensive buffer merging by
 // concatenating cheap pointer slices and doing trivial map assignments (no set cloning needed
 // since operation/transaction IDs don't overlap across ledgers).
-func (m *ingestService) insertBatchIntoDB(ctx context.Context, buffers []*indexer.IndexerBuffer, opts insertOpts) (int, int, error) {
+func (m *ingestService) insertBatchIntoDB(ctx context.Context, buffers []*LedgerBuffer, opts insertOpts) (int, int, error) {
 	// Concatenate all buffer data — cheap pointer slice appends, no data copying.
 	var allTxs []*types.Transaction
 	var allOps []*types.Operation
@@ -416,7 +413,8 @@ func (m *ingestService) insertBatchIntoDB(ctx context.Context, buffers []*indexe
 	allTxParticipants := make(map[int64]types.StringSet)
 	allOpParticipants := make(map[int64]types.StringSet)
 
-	for _, buf := range buffers {
+	for _, item := range buffers {
+		buf := item.buffer
 		allTxs = append(allTxs, buf.GetTransactions()...)
 		allOps = append(allOps, buf.GetOperations()...)
 		allStateChanges = append(allStateChanges, buf.GetStateChanges()...)
