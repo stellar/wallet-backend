@@ -25,8 +25,8 @@ type ProtocolSetupService interface {
 type protocolSetupService struct {
 	db                db.ConnectionPool
 	rpcService        RPCService
-	protocolModel     data.ProtocolModelInterface
-	protocolWasmModel data.ProtocolWasmModelInterface
+	protocolModel     data.ProtocolsModelInterface
+	protocolWasmModel data.ProtocolWasmsModelInterface
 	specExtractor     WasmSpecExtractor
 	validators        []ProtocolValidator
 }
@@ -40,8 +40,8 @@ func ProtocolCursorName(protocolID, cursorType string) string {
 func NewProtocolSetupService(
 	dbPool db.ConnectionPool,
 	rpcService RPCService,
-	protocolModel data.ProtocolModelInterface,
-	protocolWasmModel data.ProtocolWasmModelInterface,
+	protocolModel data.ProtocolsModelInterface,
+	protocolWasmModel data.ProtocolWasmsModelInterface,
 	specExtractor WasmSpecExtractor,
 	validators []ProtocolValidator,
 ) *protocolSetupService {

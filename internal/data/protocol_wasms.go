@@ -13,31 +13,31 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// ProtocolWasm represents a WASM hash tracked during checkpoint population.
-type ProtocolWasm struct {
+// ProtocolWasms represents a WASM hash tracked during checkpoint population.
+type ProtocolWasms struct {
 	WasmHash   types.HashBytea `db:"wasm_hash"`
 	ProtocolID *string         `db:"protocol_id"`
 	CreatedAt  time.Time       `db:"created_at"`
 }
 
-// ProtocolWasmModelInterface defines the interface for protocol_wasms operations.
-type ProtocolWasmModelInterface interface {
-	BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error
-	GetUnclassified(ctx context.Context) ([]ProtocolWasm, error)
+// ProtocolWasmsModelInterface defines the interface for protocol_wasms operations.
+type ProtocolWasmsModelInterface interface {
+	BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error
+	GetUnclassified(ctx context.Context) ([]ProtocolWasms, error)
 	BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error
 }
 
-// ProtocolWasmModel implements ProtocolWasmModelInterface.
-type ProtocolWasmModel struct {
+// ProtocolWasmsModel implements ProtocolWasmsModelInterface.
+type ProtocolWasmsModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
 
-var _ ProtocolWasmModelInterface = (*ProtocolWasmModel)(nil)
+var _ ProtocolWasmsModelInterface = (*ProtocolWasmsModel)(nil)
 
 // BatchInsert inserts multiple protocol WASMs using UNNEST for efficient batch insertion.
 // Uses ON CONFLICT (wasm_hash) DO NOTHING for idempotent operations.
-func (m *ProtocolWasmModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
+func (m *ProtocolWasmsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error {
 	if len(wasms) == 0 {
 		return nil
 	}
@@ -74,7 +74,7 @@ func (m *ProtocolWasmModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms 
 }
 
 // GetUnclassified returns all protocol WASMs where protocol_id IS NULL.
-func (m *ProtocolWasmModel) GetUnclassified(ctx context.Context) ([]ProtocolWasm, error) {
+func (m *ProtocolWasmsModel) GetUnclassified(ctx context.Context) ([]ProtocolWasms, error) {
 	const query = `SELECT wasm_hash, protocol_id, created_at FROM protocol_wasms WHERE protocol_id IS NULL`
 
 	start := time.Now()
@@ -87,7 +87,7 @@ func (m *ProtocolWasmModel) GetUnclassified(ctx context.Context) ([]ProtocolWasm
 
 	var wasms []ProtocolWasm
 	for rows.Next() {
-		var w ProtocolWasm
+		var w ProtocolWasms
 		if err := rows.Scan(&w.WasmHash, &w.ProtocolID, &w.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning protocol wasm row: %w", err)
 		}
@@ -103,7 +103,7 @@ func (m *ProtocolWasmModel) GetUnclassified(ctx context.Context) ([]ProtocolWasm
 }
 
 // BatchUpdateProtocolID updates protocol_id for the given WASM hashes.
-func (m *ProtocolWasmModel) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
+func (m *ProtocolWasmsModel) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
 	if len(wasmHashes) == 0 {
 		return nil
 	}

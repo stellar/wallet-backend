@@ -36,9 +36,9 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{})
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{})
 		})
 		assert.NoError(t, err)
 	})
@@ -52,9 +52,9 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		wasmHash := types.HashBytea("abc123def4560000000000000000000000000000000000000000000000000000")
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
 				{WasmHash: wasmHash, ProtocolID: nil},
 			})
 		})
@@ -77,14 +77,14 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		protocolID := "test-protocol"
 		hash2 := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
 		// Insert referenced protocol first (FK constraint)
 		_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO protocols (id) VALUES ($1) ON CONFLICT DO NOTHING`, protocolID)
 		require.NoError(t, err)
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
 				{WasmHash: types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000"), ProtocolID: nil},
 				{WasmHash: hash2, ProtocolID: &protocolID},
 				{WasmHash: types.HashBytea("0300000000000000000000000000000000000000000000000000000000000000"), ProtocolID: nil},
@@ -116,11 +116,11 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		dupHash := types.HashBytea("ddee000000000000000000000000000000000000000000000000000000000000")
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// First insert
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
 				{WasmHash: dupHash, ProtocolID: nil},
 			})
 		})
@@ -128,7 +128,7 @@ func TestProtocolWasmBatchInsert(t *testing.T) {
 
 		// Second insert with same hash - should not error
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
 				{WasmHash: dupHash, ProtocolID: nil},
 			})
 		})
@@ -165,7 +165,7 @@ func TestProtocolWasmBatchUpdateProtocolID(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.BatchUpdateProtocolID(ctx, dbTx, nil, "ignored")
 		})
@@ -180,7 +180,7 @@ func TestProtocolWasmBatchUpdateProtocolID(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		protocolID := "test-protocol"
 		hash1 := types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000")
 		hash2 := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
@@ -190,7 +190,7 @@ func TestProtocolWasmBatchUpdateProtocolID(t *testing.T) {
 		require.NoError(t, err)
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return model.BatchInsert(ctx, dbTx, []ProtocolWasm{
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
 				{WasmHash: hash1},
 				{WasmHash: hash2},
 				{WasmHash: hash3},

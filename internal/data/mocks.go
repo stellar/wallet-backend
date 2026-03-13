@@ -223,20 +223,20 @@ func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx p
 	return args.Error(0)
 }
 
-// ProtocolWasmModelMock is a mock implementation of ProtocolWasmModelInterface.
-type ProtocolWasmModelMock struct {
+// ProtocolWasmsModelMock is a mock implementation of ProtocolWasmsModelInterface.
+type ProtocolWasmsModelMock struct {
 	mock.Mock
 }
 
-var _ ProtocolWasmModelInterface = (*ProtocolWasmModelMock)(nil)
+var _ ProtocolWasmsModelInterface = (*ProtocolWasmsModelMock)(nil)
 
-// NewProtocolWasmModelMock creates a new instance of ProtocolWasmModelMock.
-func NewProtocolWasmModelMock(t interface {
+// NewProtocolWasmsModelMock creates a new instance of ProtocolWasmsModelMock.
+func NewProtocolWasmsModelMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *ProtocolWasmModelMock {
-	mockModel := &ProtocolWasmModelMock{}
+) *ProtocolWasmsModelMock {
+	mockModel := &ProtocolWasmsModelMock{}
 	mockModel.Mock.Test(t)
 
 	t.Cleanup(func() { mockModel.AssertExpectations(t) })
@@ -244,38 +244,38 @@ func NewProtocolWasmModelMock(t interface {
 	return mockModel
 }
 
-func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
+func (m *ProtocolWasmsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error {
 	args := m.Called(ctx, dbTx, wasms)
 	return args.Error(0)
 }
 
-func (m *ProtocolWasmModelMock) GetUnclassified(ctx context.Context) ([]ProtocolWasm, error) {
+func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]ProtocolWasms, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]ProtocolWasm), args.Error(1)
+	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
-func (m *ProtocolWasmModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
+func (m *ProtocolWasmsModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
 	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
 	return args.Error(0)
 }
 
-// ProtocolModelMock is a mock implementation of ProtocolModelInterface.
-type ProtocolModelMock struct {
+// ProtocolsModelMock is a mock implementation of ProtocolsModelInterface.
+type ProtocolsModelMock struct {
 	mock.Mock
 }
 
-var _ ProtocolModelInterface = (*ProtocolModelMock)(nil)
+var _ ProtocolsModelInterface = (*ProtocolsModelMock)(nil)
 
-// NewProtocolModelMock creates a new instance of ProtocolModelMock.
-func NewProtocolModelMock(t interface {
+// NewProtocolsModelMock creates a new instance of ProtocolsModelMock.
+func NewProtocolsModelMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *ProtocolModelMock {
-	mockModel := &ProtocolModelMock{}
+) *ProtocolsModelMock {
+	mockModel := &ProtocolsModelMock{}
 	mockModel.Mock.Test(t)
 
 	t.Cleanup(func() { mockModel.AssertExpectations(t) })
@@ -283,20 +283,20 @@ func NewProtocolModelMock(t interface {
 	return mockModel
 }
 
-func (m *ProtocolModelMock) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+func (m *ProtocolsModelMock) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
 	args := m.Called(ctx, dbTx, protocolIDs, status)
 	return args.Error(0)
 }
 
-func (m *ProtocolModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocol, error) {
+func (m *ProtocolsModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error) {
 	args := m.Called(ctx, protocolIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]Protocol), args.Error(1)
+	return args.Get(0).([]Protocols), args.Error(1)
 }
 
-func (m *ProtocolModelMock) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
+func (m *ProtocolsModelMock) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
 	args := m.Called(ctx, dbTx, protocolID)
 	return args.Error(0)
 }

@@ -64,7 +64,7 @@ type BatchChanges struct {
 	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
 	UniqueContractTokensByID  map[string]types.ContractType
 	SACContractsByID          map[string]*data.Contract // SAC contract metadata extracted from instance entries
-	ProtocolWasmsByHash       map[string]data.ProtocolWasm
+	ProtocolWasmsByHash       map[string]data.ProtocolWasms
 	ProtocolContractsByID     map[string]data.ProtocolContracts
 }
 
@@ -214,7 +214,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		mergedSACContracts := make(map[string]*data.Contract)
 		mergedAccountChanges := make(map[string]types.AccountChange)
 		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
-		mergedProtocolWasms := make(map[string]data.ProtocolWasm)
+		mergedProtocolWasms := make(map[string]data.ProtocolWasms)
 		mergedProtocolContracts := make(map[string]data.ProtocolContracts)
 		var allContractChanges []types.ContractChange
 		for _, result := range results {
@@ -525,7 +525,7 @@ func (m *ingestService) processLedgersInBatch(
 			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
-			ProtocolWasmsByHash:       make(map[string]data.ProtocolWasm),
+			ProtocolWasmsByHash:       make(map[string]data.ProtocolWasms),
 			ProtocolContractsByID:     make(map[string]data.ProtocolContracts),
 		}
 	}
@@ -602,7 +602,7 @@ func (m *ingestService) processBatchChanges(
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
 	uniqueContractTokens map[string]types.ContractType,
 	sacContracts map[string]*data.Contract,
-	protocolWasms map[string]data.ProtocolWasm,
+	protocolWasms map[string]data.ProtocolWasms,
 	protocolContracts map[string]data.ProtocolContracts,
 ) error {
 	// 1. Convert unique assets map to slice for BatchInsert
@@ -633,11 +633,11 @@ func (m *ingestService) processBatchChanges(
 
 	// 4. Persist protocol wasms and contracts (wasms first due to FK)
 	if len(protocolWasms) > 0 {
-		wasmSlice := make([]data.ProtocolWasm, 0, len(protocolWasms))
+		wasmSlice := make([]data.ProtocolWasms, 0, len(protocolWasms))
 		for _, wasm := range protocolWasms {
 			wasmSlice = append(wasmSlice, wasm)
 		}
-		if txErr := m.models.ProtocolWasm.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+		if txErr := m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
 			return fmt.Errorf("inserting protocol wasms: %w", txErr)
 		}
 	}

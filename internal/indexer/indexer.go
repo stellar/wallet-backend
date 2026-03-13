@@ -41,12 +41,12 @@ type IndexerBufferInterface interface {
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
-	PushProtocolWasm(wasm data.ProtocolWasm)
+	PushProtocolWasm(wasm data.ProtocolWasms)
 	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
-	GetProtocolWasms() map[string]data.ProtocolWasm
+	GetProtocolWasms() map[string]data.ProtocolWasms
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
@@ -79,7 +79,7 @@ type Indexer struct {
 	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
-	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasm]
+	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
