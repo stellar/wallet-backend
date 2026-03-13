@@ -32,11 +32,6 @@ type protocolSetupService struct {
 	validators        []ProtocolValidator
 }
 
-// ProtocolCursorName returns the ingest_store cursor key for a given protocol and cursor type.
-func ProtocolCursorName(protocolID, cursorType string) string {
-	return fmt.Sprintf("protocol_%s_%s_cursor", protocolID, cursorType)
-}
-
 // NewProtocolSetupService creates a new ProtocolSetupService.
 func NewProtocolSetupService(
 	dbPool db.ConnectionPool,
