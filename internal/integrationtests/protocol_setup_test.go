@@ -148,7 +148,6 @@ func TestSEP41ProtocolValidator_RealWasm(t *testing.T) {
 	defer func() { require.NoError(t, extractor.Close(ctx)) }()
 
 	validator := services.NewSEP41ProtocolValidator()
-	defer func() { require.NoError(t, validator.Close(ctx)) }()
 
 	t.Run("token contract validates as SEP-41", func(t *testing.T) {
 		wasmBytes, _, _ := loadTestWasm(t, "soroban_token_contract.wasm")
