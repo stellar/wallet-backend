@@ -14,7 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-func TestProtocolModel(t *testing.T) {
+func TestProtocolsModel(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -35,7 +35,7 @@ func TestProtocolModel(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return model.InsertIfNotExists(ctx, dbTx, "SEP41")
 		})
@@ -55,7 +55,7 @@ func TestProtocolModel(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			if err := model.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
 				return err
@@ -77,7 +77,7 @@ func TestProtocolModel(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// Insert protocol first
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -105,7 +105,7 @@ func TestProtocolModel(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
-		model := &ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		// Insert two protocols
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -131,7 +131,7 @@ func TestProtocolModel(t *testing.T) {
 
 	t.Run("GetByIDs with empty slice returns nil", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		model := &ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		protocols, err := model.GetByIDs(ctx, []string{})
 		require.NoError(t, err)
