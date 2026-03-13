@@ -1,6 +1,8 @@
 package services
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,9 +11,11 @@ import (
 
 func withCleanRegistry(t *testing.T) {
 	t.Helper()
+	registryMu.RLock()
 	original := validatorRegistry
-	validatorRegistry = map[string]func() ProtocolValidator{}
-	t.Cleanup(func() { validatorRegistry = original })
+	registryMu.RUnlock()
+	resetRegistry(map[string]func() ProtocolValidator{})
+	t.Cleanup(func() { resetRegistry(original) })
 }
 
 func TestRegisterValidator(t *testing.T) {
@@ -51,5 +55,27 @@ func TestRegisterValidator(t *testing.T) {
 		require.True(t, ok)
 		v := factory()
 		assert.Equal(t, "DUP", v.ProtocolID())
+	})
+
+	t.Run("concurrent register and get does not race", func(t *testing.T) {
+		withCleanRegistry(t)
+
+		const n = 50
+		var wg sync.WaitGroup
+		wg.Add(n * 2)
+
+		for i := range n {
+			id := fmt.Sprintf("PROTO_%d", i)
+			go func() {
+				defer wg.Done()
+				RegisterValidator(id, func() ProtocolValidator { return nil })
+			}()
+			go func() {
+				defer wg.Done()
+				GetValidator(id)
+			}()
+		}
+
+		wg.Wait()
 	})
 }
