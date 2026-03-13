@@ -39,42 +39,41 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 	// Phase 2: Single tx for token processing + cursor update
 	err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert trustline assets
-		// uniqueAssets := buffer.GetUniqueTrustlineAssets()
-		// if len(uniqueAssets) > 0 {
-		// 	if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-		// 		return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
-		// 	}
-		// }
+		uniqueAssets := buffer.GetUniqueTrustlineAssets()
+		if len(uniqueAssets) > 0 {
+			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
+				return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
 
-		// // 2. Insert contract tokens
-		// contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
-		// if txErr != nil {
-		// 	return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
-		// }
-		// if len(contracts) > 0 {
-		// 	if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-		// 		return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
-		// 	}
-		// 	log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
-		// }
+		// 2. Insert contract tokens
+		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
+		if txErr != nil {
+			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
+		}
+		if len(contracts) > 0 {
+			if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
+		}
 
-		// // 3. Unlock channel accounts
-		// if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
-		// 	return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
-		// }
+		// 3. Unlock channel accounts
+		if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
+			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
+		}
 
-		// // 4. Process token changes
-		// if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
-		// 	buffer.GetTrustlineChanges(),
-		// 	buffer.GetContractChanges(),
-		// 	buffer.GetAccountChanges(),
-		// 	buffer.GetSACBalanceChanges(),
-		// ); txErr != nil {
-		// 	return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
-		// }
+		// 4. Process token changes
+		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
+			buffer.GetTrustlineChanges(),
+			buffer.GetContractChanges(),
+			buffer.GetAccountChanges(),
+			buffer.GetSACBalanceChanges(),
+		); txErr != nil {
+			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
+		}
 
 		// 5. Update cursor
-		var txErr error
 		if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
 			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 		}
@@ -122,15 +121,17 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		// err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
-		// 	return m.initializeCursors(ctx, dbTx, startLedger)
-		// })
-		// if err != nil {
-		// 	return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
-		// }
-		err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
+		if err != nil {
+			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
+		}
+		if err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			return m.initializeCursors(ctx, dbTx, startLedger)
+		}); err != nil {
+			return fmt.Errorf("initializing cursors: %w", err)
+		}
 		m.metricsService.SetLatestLedgerIngested(float64(startLedger))
 		m.metricsService.SetOldestLedgerIngested(float64(startLedger))
 	} else {

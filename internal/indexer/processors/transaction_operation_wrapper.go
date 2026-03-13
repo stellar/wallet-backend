@@ -44,7 +44,7 @@ func (operation *TransactionOperationWrapper) GetCachedOperationChanges() ([]ing
 	}
 	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting operation changes for index %d: %w", operation.Index, err)
 	}
 	operation.cachedChanges = changes
 	operation.changesComputed = true

@@ -507,7 +507,7 @@ func Test_ingestService_flushHistoricalBatch(t *testing.T) {
 			buffer := tc.setupBuffer()
 
 			// Call flushHistoricalBatch with a single-buffer slice
-			err = svc.flushHistoricalBatch(ctx, []*indexer.IndexerBuffer{buffer})
+			err = svc.flushHistoricalBatch(ctx, []*LedgerBuffer{{buffer: buffer}})
 			require.NoError(t, err)
 
 			// Verify transaction count in database
@@ -673,9 +673,10 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
+			compressorCh := make(chan *CompressBatch, 1000)
 			results := svc.processBackfillBatchesParallel(ctx, tc.batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
-			}, nil)
+				return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch, compressorCh)
+			})
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -938,9 +939,10 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
+	compressorCh := make(chan *CompressBatch, 1000)
 	results := svc.processBackfillBatchesParallel(ctx, batches, func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
-		return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch)
-	}, nil)
+		return svc.processLedgersInBatch(ctx, backend, batch, svc.flushHistoricalBatch, compressorCh)
+	})
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)

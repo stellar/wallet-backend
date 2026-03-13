@@ -617,7 +617,17 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				LedgerSequence: 4873,
 				LedgerClosed:   ingestTx.Ledger.ClosedAt(),
 			}
-			assert.Equal(t, tc.wantParticipantsFn(t, opWrapper), gotParticipants)
+			wantParticipants := tc.wantParticipantsFn(t, opWrapper)
+			require.Equal(t, len(wantParticipants), len(gotParticipants), "participant count mismatch")
+			for opID, want := range wantParticipants {
+				got, ok := gotParticipants[opID]
+				require.True(t, ok, "missing operation ID %d", opID)
+				assert.Equal(t, want.Participants, got.Participants, "participants mismatch for op %d", opID)
+				// Compare op wrapper fields without deep-comparing XDR internals.
+				assert.Equal(t, want.OpWrapper.Index, got.OpWrapper.Index)
+				assert.Equal(t, want.OpWrapper.LedgerSequence, got.OpWrapper.LedgerSequence)
+				assert.Equal(t, want.OpWrapper.Network, got.OpWrapper.Network)
+			}
 		})
 	}
 }
