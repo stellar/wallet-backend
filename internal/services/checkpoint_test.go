@@ -48,7 +48,8 @@ func makeAccountChange() ingest.Change {
 			Data: xdr.LedgerEntryData{
 				Type: xdr.LedgerEntryTypeAccount,
 				Account: &xdr.AccountEntry{
-					Balance: 100,
+					AccountId: xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
+					Balance:   100,
 				},
 			},
 		},
@@ -225,6 +226,9 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 	f.contractValidator.On("ValidateFromContractCode", mock.Anything, code).
 		Return(types.ContractTypeSEP41, nil).Once()
 
+	// finalize -> persistProtocolWasms inserts the tracked WASM hash
+	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
 }
@@ -331,8 +335,10 @@ func TestCheckpointService_PopulateFromCheckpoint_ContextCancellation(t *testing
 	f.reader.On("Close").Return(nil).Once()
 	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
-	// Cancel context immediately — loop should exit before reading anything
-	cancel()
+	// First Read succeeds but cancels the context; the next loop iteration detects cancellation
+	f.reader.On("Read").Run(func(_ mock.Arguments) {
+		cancel()
+	}).Return(makeAccountChange(), nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(ctx, 100, func(_ pgx.Tx) error { return nil })
 	require.Error(t, err)
