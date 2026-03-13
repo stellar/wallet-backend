@@ -74,19 +74,13 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	return cmd
 }
 
-// validatorFactories maps protocol IDs to their validator constructors.
-var validatorFactories = map[string]func() services.ProtocolValidator{
-	// Validators will be registered here as they are implemented.
-	// Example: "SEP41": services.NewSEP41Validator,
-}
-
 func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string) error {
 	ctx := context.Background()
 
-	// Build validators from protocol IDs
+	// Build validators from protocol IDs using the dynamic registry
 	var validators []services.ProtocolValidator
 	for _, pid := range protocolIDs {
-		factory, ok := validatorFactories[pid]
+		factory, ok := services.GetValidator(pid)
 		if !ok {
 			return fmt.Errorf("unknown protocol ID %q — no validator registered", pid)
 		}
@@ -130,8 +124,8 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	service := services.NewProtocolSetupService(
 		dbPool,
 		rpcService,
-		models.Protocol,
-		models.ProtocolWasm,
+		models.Protocols,
+		models.ProtocolWasms,
 		specExtractor,
 		validators,
 	)

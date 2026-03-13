@@ -85,7 +85,7 @@ func (m *ProtocolWasmsModel) GetUnclassified(ctx context.Context) ([]ProtocolWas
 	}
 	defer rows.Close()
 
-	var wasms []ProtocolWasm
+	var wasms []ProtocolWasms
 	for rows.Next() {
 		var w ProtocolWasms
 		if err := rows.Scan(&w.WasmHash, &w.ProtocolID, &w.CreatedAt); err != nil {
