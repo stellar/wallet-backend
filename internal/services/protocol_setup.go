@@ -210,6 +210,9 @@ func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes
 		if err != nil {
 			return nil, fmt.Errorf("decoding hex hash %s: %w", hexHash, err)
 		}
+		if len(hashBytes) != 32 {
+			return nil, fmt.Errorf("invalid hash length for %s: got %d bytes, want 32", hexHash, len(hashBytes))
+		}
 
 		var hash xdr.Hash
 		copy(hash[:], hashBytes)
