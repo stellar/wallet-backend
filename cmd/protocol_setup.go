@@ -85,7 +85,11 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		if !ok {
 			return fmt.Errorf("unknown protocol ID %q — no validator registered", pid)
 		}
-		validators = append(validators, factory())
+		v := factory()
+		if v == nil {
+			return fmt.Errorf("validator factory for protocol %q returned nil", pid)
+		}
+		validators = append(validators, v)
 	}
 
 	// Open DB connection
