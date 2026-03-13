@@ -317,7 +317,6 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 	}, nil
 }
 
-
 func ConvertOperation(
 	transaction *ingest.LedgerTransaction,
 	op *xdr.Operation,

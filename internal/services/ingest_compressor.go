@@ -12,11 +12,11 @@ import (
 
 // progressiveCompressor compresses uncompressed TimescaleDB chunks as they become safe during backfill.
 type progressiveCompressor struct {
-	pool   *pgxpool.Pool
+	pool          *pgxpool.Pool
 	chunksByBatch map[BackfillBatch][]*db.Chunk
-	ctx    context.Context
-	compressorCh <-chan *CompressBatch
-	done      chan struct{}
+	ctx           context.Context
+	compressorCh  <-chan *CompressBatch
+	done          chan struct{}
 }
 
 // newProgressiveCompressor creates a compressor that progressively compresses uncompressed chunks
@@ -24,11 +24,11 @@ type progressiveCompressor struct {
 // globalStart is the chunk-boundary-aligned start timestamp for scoping chunk queries.
 func newProgressiveCompressor(ctx context.Context, pool *pgxpool.Pool, chunksByBatch map[BackfillBatch][]*db.Chunk, compressorCh <-chan *CompressBatch) *progressiveCompressor {
 	r := &progressiveCompressor{
-		ctx:          ctx,
-		pool:         pool,
+		ctx:           ctx,
+		pool:          pool,
 		chunksByBatch: chunksByBatch,
-		compressorCh: compressorCh,
-		done: make(chan struct{}),
+		compressorCh:  compressorCh,
+		done:          make(chan struct{}),
 	}
 	return r
 }

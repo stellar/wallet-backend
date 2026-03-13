@@ -83,9 +83,6 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
-	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
-	// Defaults to 100.
-	CatchupThreshold int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -228,7 +225,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
-		CatchupThreshold:          cfg.CatchupThreshold,
 		ChunkInterval:             cfg.ChunkInterval,
 	})
 	if err != nil {

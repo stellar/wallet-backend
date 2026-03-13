@@ -24,7 +24,7 @@ type BackfillBatch struct {
 }
 
 type CompressBatch struct {
-	batch *BackfillBatch
+	batch           *BackfillBatch
 	ledgerCloseTime time.Time
 }
 
@@ -34,9 +34,8 @@ type BackfillResult struct {
 	LedgersCount int
 	Duration     time.Duration
 	Error        error
-	BatchChanges *BatchChanges // Only populated for catchup mode
-	StartTime    time.Time     // First ledger close time in batch (for compression)
-	EndTime      time.Time     // Last ledger close time in batch (for compression)
+	StartTime    time.Time // First ledger close time in batch (for compression)
+	EndTime      time.Time // Last ledger close time in batch (for compression)
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -137,8 +136,8 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 	gapBatches := make([]BackfillBatch, len(gaps))
 	for i, gap := range gaps {
 		gapBatches[i] = BackfillBatch{
-			StartLedger: gap.GapStart, 
-			EndLedger: gap.GapEnd,
+			StartLedger: gap.GapStart,
+			EndLedger:   gap.GapEnd,
 		}
 	}
 
@@ -388,7 +387,7 @@ type metaWithTime struct {
 }
 
 type LedgerBuffer struct {
-	buffer *indexer.IndexerBuffer
+	buffer    *indexer.IndexerBuffer
 	ledgerSeq uint32
 	closeTime time.Time
 }
@@ -531,7 +530,7 @@ func (m *ingestService) startLedgerWorkers(
 				t2 := time.Now()
 				select {
 				case flushCh <- &LedgerBuffer{
-					buffer: buf,
+					buffer:    buf,
 					ledgerSeq: item.meta.LedgerSequence(),
 					closeTime: item.meta.ClosedAt(),
 				}:
@@ -584,7 +583,7 @@ func (m *ingestService) consumeAndFlush(
 
 		if watermark > prevWatermark {
 			compressorCh <- &CompressBatch{
-				batch: gapBatch,
+				batch:           gapBatch,
 				ledgerCloseTime: closeTimes[watermark-1], // watermark currently points to the first unflushed ledger
 			}
 			prevWatermark = watermark

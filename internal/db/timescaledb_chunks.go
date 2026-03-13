@@ -86,7 +86,7 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 	}
 	type chunkRange struct {
 		start time.Time
-		end time.Time
+		end   time.Time
 	}
 	var boundaries []chunkRange
 	for rows.Next() {
@@ -109,7 +109,7 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 		for _, boundary := range boundaries {
 			chunk := Chunk{
 				Start: boundary.start,
-				End: boundary.end,
+				End:   boundary.end,
 			}
 			// create_chunk expects slices as {"dimension": [start_usec, end_usec]}.
 			// It is idempotent: returns created=false if a chunk already covers this range.
@@ -162,7 +162,7 @@ func PreCreateChunks(ctx context.Context, pool *pgxpool.Pool, hypertables []stri
 // strings.HasSuffix. Returns the number of indexes dropped.
 func dropChunkIndexes(ctx context.Context, pool *pgxpool.Pool, chunkName string) (int, error) {
 	parts := strings.SplitN(chunkName, ".", 2)
-  	schemaName, tableName := parts[0], parts[1]
+	schemaName, tableName := parts[0], parts[1]
 
 	rows, err := pool.Query(ctx, `
 		SELECT indexname

@@ -79,7 +79,6 @@ type IngestServiceConfig struct {
 	BackfillWorkers           int
 	BackfillBatchSize         int
 	BackfillDBInsertBatchSize int
-	CatchupThreshold          int
 	ChunkInterval             string
 }
 
@@ -121,7 +120,6 @@ type ingestService struct {
 	archive                   historyarchive.ArchiveInterface
 	backfillPool              pond.Pool
 	backfillDBInsertBatchSize uint32
-	catchupThreshold          uint32
 	chunkInterval             string
 	knownContractIDs          types.StringSet
 }
@@ -160,7 +158,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		archive:                   cfg.Archive,
 		backfillPool:              backfillPool,
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		chunkInterval:             cfg.ChunkInterval,
 		knownContractIDs:          types.NewStringSet(),
 	}, nil
