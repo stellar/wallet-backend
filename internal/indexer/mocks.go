@@ -143,5 +143,5 @@ var (
 	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
 	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
 	_ LedgerChangeProcessor[data.ProtocolWasms]     = &MockProtocolWasmsProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolContracts]  = &MockProtocolContractsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolContracts] = &MockProtocolContractsProcessor{}
 )

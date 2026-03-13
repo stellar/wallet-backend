@@ -123,8 +123,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		// RPC fails
 		rpcServiceMock.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{}, errors.New("rpc unavailable"))
 
-		// Set status to failed
-		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusFailed).Return(nil)
+		// Set status to failed (uses a fresh context.WithTimeout, so match any context)
+		protocolModelMock.On("UpdateClassificationStatus", mock.Anything, mock.Anything, []string{testProtocolID}, data.StatusFailed).Return(nil)
 
 		specExtractorMock.On("Close", ctx).Return(nil)
 

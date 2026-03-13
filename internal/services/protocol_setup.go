@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -92,9 +93,11 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 
 	// Run classification, setting status to failed on error
 	if err := s.classify(ctx, protocolIDs, validatorsByProtocol); err != nil {
-		// Best-effort set status to failed
-		if txErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-			return s.protocolModel.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusFailed)
+		// Use a fresh context for best-effort cleanup, since ctx may be cancelled
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if txErr := db.RunInPgxTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
+			return s.protocolModel.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
 		}); txErr != nil {
 			log.Ctx(ctx).Errorf("error setting classification status to failed: %v", txErr)
 		}
@@ -204,8 +207,7 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 // fetchWasmBytecodes fetches WASM bytecodes from RPC for the given hex hashes.
 // Returns a map of hexHash -> bytecode. Hashes not found in the ledger (expired/evicted) are omitted.
 func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes []string) (map[string][]byte, error) {
-	// Build base64 ledger keys and track reverse lookup
-	base64ToHex := make(map[string]string, len(hexHashes))
+	// Build base64 ledger keys
 	base64Keys := make([]string, 0, len(hexHashes))
 
 	for _, hexHash := range hexHashes {
@@ -227,7 +229,6 @@ func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes
 			return nil, fmt.Errorf("marshaling ledger key for hash %s: %w", hexHash, err)
 		}
 
-		base64ToHex[base64Key] = hexHash
 		base64Keys = append(base64Keys, base64Key)
 	}
 
@@ -251,6 +252,11 @@ func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes
 			var ledgerEntryData xdr.LedgerEntryData
 			if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData); err != nil {
 				return nil, fmt.Errorf("unmarshaling ledger entry data: %w", err)
+			}
+
+			if ledgerEntryData.Type != xdr.LedgerEntryTypeContractCode {
+				log.Ctx(ctx).Warnf("unexpected ledger entry type %v in GetLedgerEntries response, skipping", ledgerEntryData.Type)
+				continue
 			}
 
 			codeEntry := ledgerEntryData.MustContractCode()
