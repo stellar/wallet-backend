@@ -3,7 +3,6 @@ package indexer
 import (
 	"context"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stretchr/testify/mock"
 
@@ -17,9 +16,9 @@ type MockParticipantsProcessor struct {
 	mock.Mock
 }
 
-func (m *MockParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
+func (m *MockParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (types.StringSet, error) {
 	args := m.Called(transaction)
-	return args.Get(0).(set.Set[string]), args.Error(1)
+	return args.Get(0).(types.StringSet), args.Error(1)
 }
 
 func (m *MockParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error) {

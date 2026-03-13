@@ -39,6 +39,8 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeBackfill uses an optimised datastore backend for bulk sequential access
+	LedgerBackendTypeBackfill LedgerBackendType = "backfill"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
@@ -81,9 +83,6 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
-	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
-	// Defaults to 100.
-	CatchupThreshold int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -199,7 +198,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
 
-	// Create a factory function for parallel backfill (each batch needs its own backend)
+	// Create a factory function for parallel backfill (each batch needs its own backend).
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}
@@ -226,7 +225,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
-		CatchupThreshold:          cfg.CatchupThreshold,
+		ChunkInterval:             cfg.ChunkInterval,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

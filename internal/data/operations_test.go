@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
@@ -20,15 +19,12 @@ import (
 )
 
 // generateTestOperations creates n test operations for benchmarking.
-// It returns a map of operation IDs to addresses.
-func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64]set.Set[string]) {
+func generateTestOperations(n int, startID int64) []*types.Operation {
 	ops := make([]*types.Operation, n)
-	addressesByOpID := make(map[int64]set.Set[string])
 	now := time.Now()
 
 	for i := 0; i < n; i++ {
 		opID := startID + int64(i)
-		address := keypair.MustRandom().Address()
 
 		ops[i] = &types.Operation{
 			ID:              opID,
@@ -37,10 +33,9 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
-		addressesByOpID[opID] = set.NewSet(address)
 	}
 
-	return ops, addressesByOpID
+	return ops
 }
 
 func Test_OperationModel_BatchCopy(t *testing.T) {
@@ -51,9 +46,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	now := time.Now()
-
-	kp1 := keypair.MustRandom()
-	kp2 := keypair.MustRandom()
 
 	// Create referenced transactions first with specific ToIDs
 	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
@@ -105,29 +97,20 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name                   string
-		operations             []*types.Operation
-		stellarAddressesByOpID map[int64]set.Set[string]
-		wantCount              int
-		wantErrContains        string
+		name            string
+		operations      []*types.Operation
+		wantCount       int
+		wantErrContains string
 	}{
 		{
-			name:                   "🟢successful_insert_multiple",
-			operations:             []*types.Operation{&op1, &op2},
-			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address()), op2.ID: set.NewSet(kp2.Address())},
-			wantCount:              2,
+			name:       "🟢successful_insert_multiple",
+			operations: []*types.Operation{&op1, &op2},
+			wantCount:  2,
 		},
 		{
-			name:                   "🟢empty_input",
-			operations:             []*types.Operation{},
-			stellarAddressesByOpID: map[int64]set.Set[string]{},
-			wantCount:              0,
-		},
-		{
-			name:                   "🟢no_participants",
-			operations:             []*types.Operation{&op1},
-			stellarAddressesByOpID: map[int64]set.Set[string]{},
-			wantCount:              1,
+			name:       "🟢empty_input",
+			operations: []*types.Operation{},
+			wantCount:  0,
 		},
 	}
 
@@ -152,10 +135,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 					On("ObserveDBBatchSize", "BatchCopy", "operations", mock.Anything).Return().Once()
 				mockMetricsService.
 					On("IncDBQuery", "BatchCopy", "operations").Return().Once()
-				if len(tc.stellarAddressesByOpID) > 0 {
-					mockMetricsService.
-						On("IncDBQuery", "BatchCopy", "operations_accounts").Return().Once()
-				}
 			}
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -168,7 +147,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations)
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -185,28 +164,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			dbInsertedIDs, err := db.QueryMany[int64](ctx, dbConnectionPool, "SELECT id FROM operations ORDER BY id")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
-
-			// Verify account links if expected
-			if len(tc.stellarAddressesByOpID) > 0 && tc.wantCount > 0 {
-				type operationAccountLink struct {
-					OperationID int64              `db:"operation_id"`
-					AccountID   types.AddressBytea `db:"account_id"`
-				}
-				accountLinks, err := db.QueryMany[operationAccountLink](ctx, dbConnectionPool, "SELECT operation_id, account_id FROM operations_accounts ORDER BY operation_id, account_id")
-				require.NoError(t, err)
-
-				// Create a map of operation_id -> set of account_ids
-				accountLinksMap := make(map[int64][]string)
-				for _, link := range accountLinks {
-					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], string(link.AccountID))
-				}
-
-				// Verify each expected operation has its account links
-				for opID, expectedAddresses := range tc.stellarAddressesByOpID {
-					actualAddresses := accountLinksMap[opID]
-					assert.ElementsMatch(t, expectedAddresses.ToSlice(), actualAddresses, "account links for op %d don't match", opID)
-				}
-			}
 		})
 	}
 }
@@ -751,7 +708,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				}
 
 				// Generate fresh test data for each iteration
-				ops, addressesByOpID := generateTestOperations(size, int64(i*size))
+				ops := generateTestOperations(size, int64(i*size))
 
 				// Start a pgx transaction
 				pgxTx, err := conn.Begin(ctx)
@@ -760,7 +717,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, ops, addressesByOpID)
+				_, err = m.BatchCopy(ctx, pgxTx, ops)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)

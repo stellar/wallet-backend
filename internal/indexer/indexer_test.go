@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -166,7 +165,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mock expectations
-		txParticipants := set.NewSet("alice", "bob")
+		txParticipants := types.NewStringSet("alice", "bob")
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants, nil)
 
 		opParticipants := map[int64]processors.OperationParticipants{
@@ -177,7 +176,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
@@ -227,8 +226,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		// Verify transaction participants
 		txParticipantsMap := buffer.GetTransactionsParticipants()
 		toID := allTxs[0].ToID
-		assert.True(t, txParticipantsMap[toID].Contains("alice"), "alice should be in tx participants")
-		assert.True(t, txParticipantsMap[toID].Contains("bob"), "bob should be in tx participants")
+		assert.True(t, txParticipantsMap[toID].Has("alice"), "alice should be in tx participants")
+		assert.True(t, txParticipantsMap[toID].Has("bob"), "bob should be in tx participants")
 
 		// Verify operations
 		allOps := buffer.GetOperations()
@@ -261,7 +260,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mocks for first transaction
-		txParticipants1 := set.NewSet("alice", "bob")
+		txParticipants1 := types.NewStringSet("alice", "bob")
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants1, nil)
 		opParticipants1 := map[int64]processors.OperationParticipants{
 			1: {
@@ -271,13 +270,13 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants1, nil)
 
 		// Setup mocks for second transaction
-		txParticipants2 := set.NewSet("bob", "charlie")
+		txParticipants2 := types.NewStringSet("bob", "charlie")
 		mockParticipants.On("GetTransactionParticipants", testTx2).Return(txParticipants2, nil)
 		opParticipants2 := map[int64]processors.OperationParticipants{
 			2: {
@@ -287,7 +286,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("charlie"),
+				Participants: types.NewStringSet("charlie"),
 			},
 		}
 		mockParticipants.On("GetOperationsParticipants", testTx2).Return(opParticipants2, nil)
@@ -383,7 +382,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
-		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(types.NewStringSet(), nil)
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 
@@ -421,7 +420,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
-		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), errors.New("participant error"))
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(types.NewStringSet(), errors.New("participant error"))
 
 		// Create indexer
 		indexer := &Indexer{
@@ -458,7 +457,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
-		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(types.NewStringSet(), nil)
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
 
 		// Create indexer
@@ -496,7 +495,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
-		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(types.NewStringSet(), nil)
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, errors.New("token transfer error"))
 
@@ -535,7 +534,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
-		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(types.NewStringSet(), nil)
 		opParticipants := map[int64]processors.OperationParticipants{
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
@@ -544,7 +543,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
@@ -590,7 +589,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACInstances := &MockSACInstancesProcessor{}
 
 		// Setup mock expectations
-		txParticipants := set.NewSet("alice")
+		txParticipants := types.NewStringSet("alice")
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants, nil)
 
 		opParticipants := map[int64]processors.OperationParticipants{
@@ -601,7 +600,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
@@ -692,7 +691,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 
@@ -803,7 +802,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 
@@ -883,7 +882,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
-				Participants: set.NewSet("alice"),
+				Participants: types.NewStringSet("alice"),
 			},
 		}
 

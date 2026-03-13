@@ -83,14 +83,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "catchup-threshold",
-			Usage:       "Number of ledgers behind network tip that triggers fast catchup via backfilling. Defaults to 100.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.CatchupThreshold,
-			FlagDefault: 100,
-			Required:    false,
-		},
-		{
 			Name:        "archive-url",
 			Usage:       "Archive URL for history archives",
 			OptType:     types.String,
@@ -199,6 +191,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			case string(ingest.LedgerBackendTypeBackfill):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeBackfill
 			default:
 				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
 			}

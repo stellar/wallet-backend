@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/asset"
@@ -20,6 +21,11 @@ import (
 
 var ErrOperationNotFound = errors.New("operation not found")
 
+// contractTypeCache caches contract address string → ContractType.
+// The contract address uniquely identifies the asset, so we only need to compute
+// the SAC contract ID once per address.
+var contractTypeCache sync.Map
+
 // getContractType determines if a token is a Stellar Asset Contract (SAC) or a custom token
 // by comparing the contract address with the deterministically derived SAC contract ID from the asset.
 // Returns ContractTypeNative if the asset is native, ContractTypeSAC if verified SAC, ContractTypeSEP41 otherwise.
@@ -30,6 +36,10 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 
 	if asset.GetNative() {
 		return types.ContractTypeNative
+	}
+
+	if v, ok := contractTypeCache.Load(contractAddress); ok {
+		return v.(types.ContractType)
 	}
 
 	// Convert to XDR asset
@@ -45,10 +55,12 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 	sacContractIDStr := strkey.MustEncode(strkey.VersionByteContract, sacContractID[:])
 
 	// Compare with the actual contract address
+	result := types.ContractTypeSEP41
 	if sacContractIDStr == contractAddress {
-		return types.ContractTypeSAC
+		result = types.ContractTypeSAC
 	}
-	return types.ContractTypeSEP41
+	contractTypeCache.Store(contractAddress, result)
+	return result
 }
 
 // TokenTransferProcessor processes Stellar transactions and extracts token transfer events.

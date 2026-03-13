@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -50,8 +50,8 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 
 // participantsFromInvocationAndSubInvocations recursively collects all ScAddresses from a SorobanAuthorizedInvocation
 // and its subinvocations.
-func participantsFromInvocationAndSubInvocations(networkPassphrase string, invocation xdr.SorobanAuthorizedInvocation) (set.Set[string], error) {
-	participants := set.NewSet[string]()
+func participantsFromInvocationAndSubInvocations(networkPassphrase string, invocation xdr.SorobanAuthorizedInvocation) (types.StringSet, error) {
+	participants := types.NewStringSet()
 	if utils.IsEmpty(invocation) {
 		return participants, nil
 	}
@@ -79,7 +79,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants = participants.Union(contractIDs)
+		participants.Append(contractIDs.ToSlice()...)
 
 	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn:
 		createContractV2HostFn, ok := invocation.Function.GetCreateContractV2HostFn()
@@ -91,7 +91,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants = participants.Union(contractIDs)
+		participants.Append(contractIDs.ToSlice()...)
 	}
 
 	for _, sub := range invocation.SubInvocations {
@@ -99,15 +99,15 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 		if err != nil {
 			return nil, fmt.Errorf("collecting participants from subinvocation: %w", err)
 		}
-		participants = participants.Union(subParticipants)
+		participants.Append(subParticipants.ToSlice()...)
 	}
 
 	return participants, nil
 }
 
 // participantsForAuthEntries extracts all participant addresses from a []SorobanAuthorizationEntry.
-func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
-	participants := set.NewSet[string]()
+func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.SorobanAuthorizationEntry) (types.StringSet, error) {
+	participants := types.NewStringSet()
 	for _, authEntry := range authEntries {
 		if authEntry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
 			participant, err := authEntry.Credentials.MustAddress().Address.String()
@@ -121,7 +121,7 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 		if err != nil {
 			return nil, fmt.Errorf("getting invocation participants: %w", err)
 		}
-		participants = participants.Union(invocationParticipants)
+		participants.Append(invocationParticipants.ToSlice()...)
 	}
 
 	return participants, nil
@@ -143,12 +143,12 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 //     applying the same extraction logic as above
 //
 // It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
-func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string], error) {
+func participantsForSorobanOp(op *TransactionOperationWrapper) (types.StringSet, error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
 
-	participants := set.NewSet(op.SourceAccount().Address())
+	participants := types.NewStringSet(op.SourceAccount().Address())
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
@@ -164,7 +164,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
 			}
-			participants = participants.Union(createContractOpParticipants)
+			participants.Append(createContractOpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
 			createContractV2OpProcessor := CreateContractV2OpProcessor{op: op}
@@ -172,7 +172,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
 			}
-			participants = participants.Union(createContractV2OpParticipants)
+			participants.Append(createContractV2OpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
 			invokeContractOpProcessor := InvokeContractOpProcessor{op: op}
@@ -180,7 +180,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 			if err != nil {
 				return nil, fmt.Errorf("getting invoke contract participants: %w", err)
 			}
-			participants = participants.Union(invokeContractOpParticipants)
+			participants.Append(invokeContractOpParticipants.ToSlice()...)
 
 		case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm:
 			break
@@ -197,7 +197,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 // if the preimage is FromAsset, it returns the SAC contract ID.
 // if the preimage is FromAddress, it returns the contract ID calculated from the deployer address, salt and the network passphrase.
 // It also returns the deployer account ID.
-func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPreimage) (set.Set[string], error) {
+func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPreimage) (types.StringSet, error) {
 	switch preimage.Type {
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
 		contractID, err := calculateContractID(networkPassphrase, preimage.MustFromAddress())
@@ -209,7 +209,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 		if err != nil {
 			return nil, fmt.Errorf("getting from address' string representation: %w", err)
 		}
-		return set.NewSet(contractID, fromAccountID), nil
+		return types.NewStringSet(contractID, fromAccountID), nil
 
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
 		fromAsset := preimage.MustFromAsset()
@@ -217,7 +217,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 		if err != nil {
 			return nil, fmt.Errorf("getting asset contract ID: %w", err)
 		}
-		return set.NewSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
+		return types.NewStringSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
 
 	default:
 		return nil, fmt.Errorf("invalid contract id preimage type")
@@ -241,21 +241,21 @@ func (p *CreateContractV1OpProcessor) GetCreateContract() (xdr.CreateContractArg
 	return invokeHostFunctionOp.HostFunction.MustCreateContract(), true
 }
 
-func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
+func (p *CreateContractV1OpProcessor) Participants() (types.StringSet, error) {
 	createContractOp, ok := p.GetCreateContract()
 	if !ok {
 		return nil, fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := types.NewStringSet(p.op.SourceAccount().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
 	}
-	participants = participants.Union(contractIDs)
+	participants.Append(contractIDs.ToSlice()...)
 
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
@@ -263,7 +263,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }
@@ -285,21 +285,21 @@ func (p *CreateContractV2OpProcessor) GetCreateContract() (xdr.CreateContractArg
 	return invokeHostFunctionOp.HostFunction.MustCreateContractV2(), true
 }
 
-func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
+func (p *CreateContractV2OpProcessor) Participants() (types.StringSet, error) {
 	createContractOp, ok := p.GetCreateContract()
 	if !ok {
 		return nil, fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := types.NewStringSet(p.op.SourceAccount().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
 	}
-	participants = participants.Union(contractIDs)
+	participants.Append(contractIDs.ToSlice()...)
 
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
@@ -307,7 +307,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }
@@ -329,14 +329,14 @@ func (p *InvokeContractOpProcessor) GetInvokeContract() (xdr.InvokeContractArgs,
 	return invokeHostFunctionOp.HostFunction.MustInvokeContract(), true
 }
 
-func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
+func (p *InvokeContractOpProcessor) Participants() (types.StringSet, error) {
 	invokeContractOp, ok := p.GetInvokeContract()
 	if !ok {
 		return nil, fmt.Errorf("not a invoke contract operation: %w", ErrInvalidOpType)
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := types.NewStringSet(p.op.SourceAccount().Address())
 
 	// Contract ID
 	contractID, err := invokeContractOp.ContractAddress.String()
@@ -353,7 +353,7 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
-	participants = participants.Union(authParticipants)
+	participants.Append(authParticipants.ToSlice()...)
 
 	return participants, nil
 }

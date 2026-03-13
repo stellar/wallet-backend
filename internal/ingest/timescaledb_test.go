@@ -26,7 +26,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify chunk interval was updated for all hypertables
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			intervalSecs, err := db.QueryOne[float64](ctx, dbConnectionPool,
 				`SELECT EXTRACT(EPOCH FROM d.time_interval)
 				 FROM timescaledb_information.dimensions d
@@ -51,7 +51,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify retention policy was created for all hypertables
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			count, err := db.QueryOne[int](ctx, dbConnectionPool,
 				`SELECT COUNT(*)
 				 FROM timescaledb_information.jobs j
@@ -101,7 +101,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify exactly 1 retention policy per table (not duplicated)
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			count, err := db.QueryOne[int](ctx, dbConnectionPool,
 				`SELECT COUNT(*)
 				 FROM timescaledb_information.jobs j
@@ -221,7 +221,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify schedule_interval was updated for all compression policy jobs
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			intervalSecs, err := db.QueryOne[float64](ctx, dbConnectionPool,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
@@ -249,7 +249,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify compress_after was updated in the config JSONB for all compression policy jobs
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			compressAfter, err := db.QueryOne[string](ctx, dbConnectionPool,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
@@ -273,7 +273,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Compression policies already exist from columnstore hypertable creation.
 		// Record the default compress_after value before calling configureHypertableSettings.
 		defaultValues := make(map[string]string)
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			compressAfter, err := db.QueryOne[string](ctx, dbConnectionPool,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
@@ -290,7 +290,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify compress_after was NOT changed
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			compressAfter, err := db.QueryOne[string](ctx, dbConnectionPool,
 				`SELECT j.config->>'compress_after'
 				 FROM timescaledb_information.jobs j
@@ -314,7 +314,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		// Compression policies already exist from columnstore hypertable creation.
 		// Record the default schedule interval before calling configureHypertableSettings.
 		defaultIntervals := make(map[string]float64)
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			intervalSecs, err := db.QueryOne[float64](ctx, dbConnectionPool,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
@@ -331,7 +331,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify schedule_interval was NOT changed
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			intervalSecs, err := db.QueryOne[float64](ctx, dbConnectionPool,
 				`SELECT EXTRACT(EPOCH FROM j.schedule_interval)
 				 FROM timescaledb_information.jobs j
@@ -388,7 +388,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify maxchunks_to_compress was set in the config JSONB for all compression policy jobs
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var maxChunks int
 			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int
@@ -412,7 +412,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 
 		// Record default maxchunks_to_compress before calling configureHypertableSettings.
 		defaultValues := make(map[string]*int)
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var maxChunks *int
 			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int
@@ -430,7 +430,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify maxchunks_to_compress was NOT changed
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var maxChunks *int
 			err := dbConnectionPool.QueryRow(ctx,
 				`SELECT (j.config->>'maxchunks_to_compress')::int

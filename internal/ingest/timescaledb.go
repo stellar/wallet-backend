@@ -10,8 +10,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
-// hypertables lists all TimescaleDB hypertables managed by the ingestion system.
-var hypertables = []string{
+// Hypertables lists all TimescaleDB hypertables managed by the ingestion system.
+var Hypertables = []string{
 	"transactions",
 	"transactions_accounts",
 	"operations",
@@ -29,7 +29,7 @@ var hypertables = []string{
 // Compress after updates how long after a chunk closes before it becomes
 // eligible for compression.
 func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string, maxChunksToCompress int) error {
-	for _, table := range hypertables {
+	for _, table := range Hypertables {
 		if _, err := pool.Exec(ctx,
 			"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
 			table, chunkInterval,
@@ -40,7 +40,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 
 	// We first remove existing retention policy
-	for _, table := range hypertables {
+	for _, table := range Hypertables {
 		if _, err := pool.Exec(ctx,
 			"SELECT remove_retention_policy($1::regclass, if_exists => true)",
 			table,
@@ -57,7 +57,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 	if retentionPeriod != "" {
 		// Add new retention period policy
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			if _, err := pool.Exec(ctx,
 				"SELECT add_retention_policy($1::regclass, drop_after => $2::interval)",
 				table, retentionPeriod,
@@ -109,7 +109,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 
 	if compressionScheduleInterval != "" {
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var jobID int
 			err := pool.QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs
@@ -133,7 +133,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 
 	if compressAfter != "" {
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var jobID int
 			err := pool.QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs
@@ -159,7 +159,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 
 	if maxChunksToCompress > 0 {
-		for _, table := range hypertables {
+		for _, table := range Hypertables {
 			var jobID int
 			err := pool.QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs

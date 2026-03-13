@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -172,39 +174,63 @@ func (b *StateChangeBuilder) Build() types.StateChange {
 }
 
 // generateSortKey creates a deterministic string representation of a state change for sorting purposes.
+// Uses strings.Builder instead of fmt.Sprintf to avoid reflection and interface boxing overhead.
 func (b *StateChangeBuilder) generateSortKey() string {
 	reason := ""
 	if b.base.StateChangeReason != nil {
 		reason = string(*b.base.StateChangeReason)
 	}
 
-	// For JSON fields, marshal to get a canonical string
-	keyValue, err := json.Marshal(b.base.KeyValue)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal key value: %v", err))
+	// Only marshal KeyValue when non-nil (~5% of state changes — home domain, data entries).
+	// The vast majority of state changes (token transfers, balances) have KeyValue == nil,
+	// so this short-circuit avoids ~95% of json.Marshal calls.
+	var keyValueStr string
+	if b.base.KeyValue != nil {
+		kv, err := json.Marshal(b.base.KeyValue)
+		if err != nil {
+			panic(fmt.Sprintf("failed to marshal key value: %v", err))
+		}
+		keyValueStr = string(kv)
 	}
 
-	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
-		b.base.ToID,
-		b.base.StateChangeCategory,
-		reason,
-		b.base.AccountID,
-		b.base.TokenID.String(),
-		b.base.Amount.String,
-		b.base.SignerAccountID.String(),
-		b.base.SpenderAccountID.String(),
-		b.base.SponsoredAccountID.String(),
-		b.base.SponsorAccountID.String(),
-		b.base.SignerWeightOld.Int16,
-		b.base.SignerWeightNew.Int16,
-		b.base.ThresholdOld.Int16,
-		b.base.ThresholdNew.Int16,
-		b.base.TrustlineLimitOld.String,
-		b.base.TrustlineLimitNew.String,
-		b.base.Flags.Int16,
-		string(keyValue),
-	)
+	var buf strings.Builder
+	buf.Grow(256)
+	buf.WriteString(strconv.FormatInt(b.base.ToID, 10))
+	buf.WriteByte(':')
+	buf.WriteString(string(b.base.StateChangeCategory))
+	buf.WriteByte(':')
+	buf.WriteString(reason)
+	buf.WriteByte(':')
+	buf.WriteString(string(b.base.AccountID))
+	buf.WriteByte(':')
+	buf.WriteString(b.base.TokenID.String())
+	buf.WriteByte(':')
+	buf.WriteString(b.base.Amount.String)
+	buf.WriteByte(':')
+	buf.WriteString(b.base.SignerAccountID.String())
+	buf.WriteByte(':')
+	buf.WriteString(b.base.SpenderAccountID.String())
+	buf.WriteByte(':')
+	buf.WriteString(b.base.SponsoredAccountID.String())
+	buf.WriteByte(':')
+	buf.WriteString(b.base.SponsorAccountID.String())
+	buf.WriteByte(':')
+	buf.WriteString(strconv.FormatInt(int64(b.base.SignerWeightOld.Int16), 10))
+	buf.WriteByte(':')
+	buf.WriteString(strconv.FormatInt(int64(b.base.SignerWeightNew.Int16), 10))
+	buf.WriteByte(':')
+	buf.WriteString(strconv.FormatInt(int64(b.base.ThresholdOld.Int16), 10))
+	buf.WriteByte(':')
+	buf.WriteString(strconv.FormatInt(int64(b.base.ThresholdNew.Int16), 10))
+	buf.WriteByte(':')
+	buf.WriteString(b.base.TrustlineLimitOld.String)
+	buf.WriteByte(':')
+	buf.WriteString(b.base.TrustlineLimitNew.String)
+	buf.WriteByte(':')
+	buf.WriteString(strconv.FormatInt(int64(b.base.Flags.Int16), 10))
+	buf.WriteByte(':')
+	buf.WriteString(keyValueStr)
+	return buf.String()
 }
 
 func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
