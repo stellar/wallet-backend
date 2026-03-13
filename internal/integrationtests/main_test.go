@@ -56,6 +56,13 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	// Validate protocol WASM and contract data from checkpoint population
+	t.Run("ProtocolDataAfterCheckpointTestSuite", func(t *testing.T) {
+		suite.Run(t, &ProtocolDataAfterCheckpointTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
 	// Only proceed if checkpoint balance validation succeeded
 	if t.Failed() {
 		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
