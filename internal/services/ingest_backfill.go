@@ -64,6 +64,8 @@ type BatchChanges struct {
 	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
 	UniqueContractTokensByID  map[string]types.ContractType
 	SACContractsByID          map[string]*data.Contract // SAC contract metadata extracted from instance entries
+	ProtocolWasmsByHash       map[string]data.ProtocolWasm
+	ProtocolContractsByID     map[string]data.ProtocolContracts
 }
 
 // mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
@@ -212,6 +214,8 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		mergedSACContracts := make(map[string]*data.Contract)
 		mergedAccountChanges := make(map[string]types.AccountChange)
 		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
+		mergedProtocolWasms := make(map[string]data.ProtocolWasm)
+		mergedProtocolContracts := make(map[string]data.ProtocolContracts)
 		var allContractChanges []types.ContractChange
 		for _, result := range results {
 			if result.BatchChanges != nil {
@@ -227,13 +231,21 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 						mergedSACContracts[id] = contract
 					}
 				}
+				// Merge protocol WASMs (first-write wins)
+				for hash, wasm := range result.BatchChanges.ProtocolWasmsByHash {
+					if _, exists := mergedProtocolWasms[hash]; !exists {
+						mergedProtocolWasms[hash] = wasm
+					}
+				}
+				// Merge protocol contracts (last-write-wins)
+				maps.Copy(mergedProtocolContracts, result.BatchChanges.ProtocolContractsByID)
 			}
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts, mergedProtocolWasms, mergedProtocolContracts)
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
@@ -443,6 +455,14 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 						batchChanges.SACContractsByID[id] = contract
 					}
 				}
+				// Collect protocol WASMs (first-write wins)
+				for hash, wasm := range buffer.GetProtocolWasms() {
+					if _, exists := batchChanges.ProtocolWasmsByHash[hash]; !exists {
+						batchChanges.ProtocolWasmsByHash[hash] = wasm
+					}
+				}
+				// Collect protocol contracts (last-write-wins)
+				maps.Copy(batchChanges.ProtocolContractsByID, buffer.GetProtocolContracts())
 			}
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
@@ -505,6 +525,8 @@ func (m *ingestService) processLedgersInBatch(
 			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
 			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
+			ProtocolWasmsByHash:       make(map[string]data.ProtocolWasm),
+			ProtocolContractsByID:     make(map[string]data.ProtocolContracts),
 		}
 	}
 
@@ -580,6 +602,8 @@ func (m *ingestService) processBatchChanges(
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
 	uniqueContractTokens map[string]types.ContractType,
 	sacContracts map[string]*data.Contract,
+	protocolWasms map[string]data.ProtocolWasm,
+	protocolContracts map[string]data.ProtocolContracts,
 ) error {
 	// 1. Convert unique assets map to slice for BatchInsert
 	assetSlice := make([]data.TrustlineAsset, 0, len(uniqueAssets))
@@ -607,7 +631,27 @@ func (m *ingestService) processBatchChanges(
 		}
 	}
 
-	// 4. Apply token changes to PostgreSQL
+	// 4. Persist protocol wasms and contracts (wasms first due to FK)
+	if len(protocolWasms) > 0 {
+		wasmSlice := make([]data.ProtocolWasm, 0, len(protocolWasms))
+		for _, wasm := range protocolWasms {
+			wasmSlice = append(wasmSlice, wasm)
+		}
+		if txErr := m.models.ProtocolWasm.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol wasms: %w", txErr)
+		}
+	}
+	if len(protocolContracts) > 0 {
+		contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
+		for _, contract := range protocolContracts {
+			contractSlice = append(contractSlice, contract)
+		}
+		if txErr := m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol contracts: %w", txErr)
+		}
+	}
+
+	// 5. Apply token changes to PostgreSQL
 	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey); txErr != nil {
 		return fmt.Errorf("processing token changes: %w", txErr)
 	}

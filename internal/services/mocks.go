@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
@@ -130,11 +131,6 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
-	args := m.Called(ctx, checkpointLedger, initializeCursors)
-	return args.Error(0)
-}
-
 func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
 	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey)
 	return args.Error(0)
@@ -259,6 +255,68 @@ func (m *HistoryArchiveMock) GetCheckpointManager() historyarchive.CheckpointMan
 func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	args := m.Called()
 	return args.Get(0).([]historyarchive.ArchiveStats)
+}
+
+// ContractValidatorMock is a mock implementation of the ContractValidator interface
+type ContractValidatorMock struct {
+	mock.Mock
+}
+
+var _ ContractValidator = (*ContractValidatorMock)(nil)
+
+func (m *ContractValidatorMock) ValidateFromContractCode(ctx context.Context, wasmCode []byte) (types.ContractType, error) {
+	args := m.Called(ctx, wasmCode)
+	return args.Get(0).(types.ContractType), args.Error(1)
+}
+
+func (m *ContractValidatorMock) Close(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+// NewContractValidatorMock creates a new instance of ContractValidatorMock.
+func NewContractValidatorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ContractValidatorMock {
+	mock := &ContractValidatorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// ChangeReaderMock is a mock implementation of the ChangeReader interface
+type ChangeReaderMock struct {
+	mock.Mock
+}
+
+var _ ingest.ChangeReader = (*ChangeReaderMock)(nil)
+
+func (m *ChangeReaderMock) Read() (ingest.Change, error) {
+	args := m.Called()
+	return args.Get(0).(ingest.Change), args.Error(1)
+}
+
+func (m *ChangeReaderMock) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+// NewChangeReaderMock creates a new instance of ChangeReaderMock.
+func NewChangeReaderMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ChangeReaderMock {
+	mock := &ChangeReaderMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
 }
 
 // ContractMetadataServiceMock is a mock implementation of ContractMetadataService
