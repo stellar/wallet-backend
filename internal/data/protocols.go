@@ -20,7 +20,7 @@ const (
 	StatusFailed     = "failed"
 )
 
-// Protocol represents a row in the protocols table.
+// Protocols represents a row in the protocols table.
 type Protocols struct {
 	ID                          string    `db:"id"`
 	ClassificationStatus        string    `db:"classification_status"`

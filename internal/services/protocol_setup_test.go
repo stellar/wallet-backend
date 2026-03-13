@@ -40,7 +40,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 	buildRPCResponse := func(wasmHash xdr.Hash, wasmCode []byte) entities.RPCGetLedgerEntriesResult {
 		codeEntry := xdr.ContractCodeEntry{Hash: wasmHash, Code: wasmCode}
 		entryData := xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeContractCode, ContractCode: &codeEntry}
-		dataXDR, _ := xdr.MarshalBase64(entryData)
+		dataXDR, err := xdr.MarshalBase64(entryData)
+		require.NoError(t, err)
 		return entities.RPCGetLedgerEntriesResult{
 			Entries: []entities.LedgerEntryResult{{DataXDR: dataXDR}},
 		}

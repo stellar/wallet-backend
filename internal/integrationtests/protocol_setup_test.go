@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,7 +48,10 @@ func loadTestWasm(t *testing.T, filename string) ([]byte, xdr.Hash, string) {
 func buildRPCResponse(wasmHash xdr.Hash, wasmCode []byte) entities.RPCGetLedgerEntriesResult {
 	codeEntry := xdr.ContractCodeEntry{Hash: wasmHash, Code: wasmCode}
 	entryData := xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeContractCode, ContractCode: &codeEntry}
-	dataXDR, _ := xdr.MarshalBase64(entryData)
+	dataXDR, err := xdr.MarshalBase64(entryData)
+	if err != nil {
+		panic(fmt.Sprintf("buildRPCResponse: marshal XDR: %v", err))
+	}
 	return entities.RPCGetLedgerEntriesResult{
 		Entries: []entities.LedgerEntryResult{{DataXDR: dataXDR}},
 	}
@@ -57,12 +61,16 @@ func buildRPCResponse(wasmHash xdr.Hash, wasmCode []byte) entities.RPCGetLedgerE
 func buildMultiRPCResponse(entries []struct {
 	hash xdr.Hash
 	code []byte
-}) entities.RPCGetLedgerEntriesResult {
+},
+) entities.RPCGetLedgerEntriesResult {
 	var results []entities.LedgerEntryResult
 	for _, e := range entries {
 		codeEntry := xdr.ContractCodeEntry{Hash: e.hash, Code: e.code}
 		entryData := xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeContractCode, ContractCode: &codeEntry}
-		dataXDR, _ := xdr.MarshalBase64(entryData)
+		dataXDR, err := xdr.MarshalBase64(entryData)
+		if err != nil {
+			panic(fmt.Sprintf("buildMultiRPCResponse: marshal XDR: %v", err))
+		}
 		results = append(results, entities.LedgerEntryResult{DataXDR: dataXDR})
 	}
 	return entities.RPCGetLedgerEntriesResult{Entries: results}
