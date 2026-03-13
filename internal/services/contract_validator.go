@@ -161,7 +161,7 @@ func (v *contractValidator) ValidateFromContractCode(ctx context.Context, contra
 	if err != nil {
 		return types.ContractTypeUnknown, fmt.Errorf("extracting contract spec from WASM: %w", err)
 	}
-	isSep41 := v.isContractCodeSEP41(contractSpec)
+	isSep41 := isContractCodeSEP41(contractSpec)
 	if isSep41 {
 		return types.ContractTypeSEP41, nil
 	}
@@ -189,7 +189,7 @@ func (v *contractValidator) Close(ctx context.Context) error {
 //   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 //   - burn: (from: Address, amount: i128) -> ()
 //   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
-func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
+func isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
 	// Build a map of required function names to their specs for quick lookup
 	requiredSpecs := make(map[string][]sep41FunctionSpec, len(sep41RequiredFunctions))
 	for _, spec := range sep41RequiredFunctions {
@@ -231,7 +231,7 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 			expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
 
 			// Validate the function signature matches SEP-41 requirements
-			if v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
+			if validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
 				foundFunctions.Add(funcName)
 				break
 			}
@@ -245,7 +245,7 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 // validateFunctionInputsAndOutputs checks if a function's signature matches the expected SEP-41 specification.
 // It compares input parameter names/types and output types, supporting both exact matches and sets of valid types
 // (e.g., for CAP-67 where "from" parameter accepts both Address and MuxedAddress).
-func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
+func validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
 	}
@@ -314,22 +314,14 @@ func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context,
 }
 
 // SEP41ProtocolValidator validates whether a WASM implements the SEP-41 token standard.
-type SEP41ProtocolValidator struct {
-	cv *contractValidator
-}
+type SEP41ProtocolValidator struct{}
 
-func NewSEP41ProtocolValidator() *SEP41ProtocolValidator {
-	return &SEP41ProtocolValidator{cv: NewContractValidator().(*contractValidator)}
-}
+func NewSEP41ProtocolValidator() *SEP41ProtocolValidator { return &SEP41ProtocolValidator{} }
 
 func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
 
 func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
-	return v.cv.isContractCodeSEP41(specEntries)
-}
-
-func (v *SEP41ProtocolValidator) Close(ctx context.Context) error {
-	return v.cv.Close(ctx)
+	return isContractCodeSEP41(specEntries)
 }
 
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.
