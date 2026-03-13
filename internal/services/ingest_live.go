@@ -128,11 +128,11 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		// 2.5: Persist protocol wasms and contracts
 		protocolWasms := buffer.GetProtocolWasms()
 		if len(protocolWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasm, 0, len(protocolWasms))
+			wasmSlice := make([]data.ProtocolWasms, 0, len(protocolWasms))
 			for _, wasm := range protocolWasms {
 				wasmSlice = append(wasmSlice, wasm)
 			}
-			if txErr = m.models.ProtocolWasm.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
 			}
 		}
