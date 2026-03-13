@@ -21,7 +21,7 @@ const (
 )
 
 // Protocol represents a row in the protocols table.
-type Protocol struct {
+type Protocols struct {
 	ID                          string    `db:"id"`
 	ClassificationStatus        string    `db:"classification_status"`
 	HistoryMigrationStatus      string    `db:"history_migration_status"`
@@ -30,23 +30,23 @@ type Protocol struct {
 	UpdatedAt                   time.Time `db:"updated_at"`
 }
 
-// ProtocolModelInterface defines the interface for protocols operations.
-type ProtocolModelInterface interface {
+// ProtocolsModelInterface defines the interface for protocols operations.
+type ProtocolsModelInterface interface {
 	UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
-	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocol, error)
+	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error)
 	InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error
 }
 
-// ProtocolModel implements ProtocolModelInterface.
-type ProtocolModel struct {
+// ProtocolsModel implements ProtocolsModelInterface.
+type ProtocolsModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
 
-var _ ProtocolModelInterface = (*ProtocolModel)(nil)
+var _ ProtocolsModelInterface = (*ProtocolsModel)(nil)
 
 // UpdateClassificationStatus updates classification_status and updated_at for the given protocol IDs.
-func (m *ProtocolModel) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+func (m *ProtocolsModel) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
 	if len(protocolIDs) == 0 {
 		return nil
 	}
@@ -70,7 +70,7 @@ func (m *ProtocolModel) UpdateClassificationStatus(ctx context.Context, dbTx pgx
 }
 
 // GetByIDs returns protocols matching the given IDs.
-func (m *ProtocolModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocol, error) {
+func (m *ProtocolsModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error) {
 	if len(protocolIDs) == 0 {
 		return nil, nil
 	}
@@ -89,9 +89,9 @@ func (m *ProtocolModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]P
 	}
 	defer rows.Close()
 
-	var protocols []Protocol
+	var protocols []Protocols
 	for rows.Next() {
-		var p Protocol
+		var p Protocols
 		if err := rows.Scan(&p.ID, &p.ClassificationStatus, &p.HistoryMigrationStatus, &p.CurrentStateMigrationStatus, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning protocol row: %w", err)
 		}
@@ -107,7 +107,7 @@ func (m *ProtocolModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]P
 }
 
 // InsertIfNotExists inserts a protocol if it doesn't already exist (idempotent).
-func (m *ProtocolModel) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
+func (m *ProtocolsModel) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
 	const query = `INSERT INTO protocols (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`
 
 	start := time.Now()

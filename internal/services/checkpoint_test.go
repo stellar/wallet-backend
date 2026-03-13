@@ -98,7 +98,7 @@ type checkpointTestFixture struct {
 	sacBalanceModel            *wbdata.SACBalanceModelMock
 	accountContractTokensModel *wbdata.AccountContractTokensModelMock
 	contractModel              *wbdata.ContractModelMock
-	protocolWasmModel          *wbdata.ProtocolWasmModelMock
+	protocolWasmModel          *wbdata.ProtocolWasmsModelMock
 	protocolContractsModel     *wbdata.ProtocolContractsModelMock
 }
 
@@ -121,7 +121,7 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	sacBalanceModelMock := wbdata.NewSACBalanceModelMock(t)
 	accountContractTokensModelMock := wbdata.NewAccountContractTokensModelMock(t)
 	contractModelMock := wbdata.NewContractModelMock(t)
-	protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+	protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 	protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 
 	svc := &checkpointService{
@@ -410,7 +410,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no_hashes_skips_insert", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		err := svc.persistProtocolWasms(ctx, nil, map[xdr.Hash]types.ContractType{})
@@ -419,14 +419,14 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	})
 
 	t.Run("single_hash_persisted", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{10, 20, 30}
 		wasmClassifications := map[xdr.Hash]types.ContractType{hash: types.ContractTypeSEP41}
 
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
-			mock.MatchedBy(func(wasms []wbdata.ProtocolWasm) bool {
+			mock.MatchedBy(func(wasms []wbdata.ProtocolWasms) bool {
 				if len(wasms) != 1 {
 					return false
 				}
@@ -439,7 +439,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	})
 
 	t.Run("batch_insert_error_propagated", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{99}

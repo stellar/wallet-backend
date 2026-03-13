@@ -48,8 +48,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("successfully classifies WASMs", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
@@ -57,13 +57,13 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		validatorMock.On("Validate", testSpecEntries).Return(true)
 
 		// Validate protocol exists in DB
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 
 		// Set status to in_progress
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
-		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
+		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasms{
 			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
@@ -102,21 +102,21 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("sets status to failed on RPC error", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
 		// Validate protocol exists in DB
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 
 		// Set status to in_progress
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
-		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
+		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasms{
 			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
@@ -169,18 +169,18 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("no unclassified WASMs skips RPC", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// No unclassified WASMs
-		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{}, nil)
+		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasms{}, nil)
 
 		// No RPC calls expected (rpcServiceMock has no expectations set for GetLedgerEntries)
 
@@ -202,18 +202,18 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("WASM expired/evicted from ledger is skipped", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
-		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
+		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasms{
 			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
@@ -242,19 +242,19 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("WASM that doesn't match any validator is not classified", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 		validatorMock.On("Validate", testSpecEntries).Return(false)
 
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// GetUnclassified returns 1 hash
-		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasm{
+		protocolWasmModelMock.On("GetUnclassified", ctx).Return([]data.ProtocolWasms{
 			{WasmHash: types.HashBytea(testWasmHex)},
 		}, nil)
 
@@ -284,24 +284,24 @@ func TestProtocolSetupService_Run(t *testing.T) {
 
 	t.Run("batches RPC calls", func(t *testing.T) {
 		rpcServiceMock := NewRPCServiceMock(t)
-		protocolModelMock := data.NewProtocolModelMock(t)
-		protocolWasmModelMock := data.NewProtocolWasmModelMock(t)
+		protocolModelMock := data.NewProtocolsModelMock(t)
+		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
 		specExtractorMock := NewWasmSpecExtractorMock(t)
 		validatorMock := NewProtocolValidatorMock(t)
 
 		validatorMock.On("ProtocolID").Return(testProtocolID)
 
-		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocol{{ID: testProtocolID}}, nil)
+		protocolModelMock.On("GetByIDs", ctx, []string{testProtocolID}).Return([]data.Protocols{{ID: testProtocolID}}, nil)
 		protocolModelMock.On("UpdateClassificationStatus", ctx, mock.Anything, []string{testProtocolID}, data.StatusInProgress).Return(nil)
 
 		// Build 201 unclassified hashes
 		numHashes := rpcLedgerEntryBatchSize + 1
-		unclassifiedWasms := make([]data.ProtocolWasm, numHashes)
+		unclassifiedWasms := make([]data.ProtocolWasms, numHashes)
 		for i := 0; i < numHashes; i++ {
 			hash := xdr.Hash{}
 			hash[0] = byte(i >> 8)
 			hash[1] = byte(i)
-			unclassifiedWasms[i] = data.ProtocolWasm{WasmHash: types.HashBytea(hex.EncodeToString(hash[:]))}
+			unclassifiedWasms[i] = data.ProtocolWasms{WasmHash: types.HashBytea(hex.EncodeToString(hash[:]))}
 		}
 		protocolWasmModelMock.On("GetUnclassified", ctx).Return(unclassifiedWasms, nil)
 

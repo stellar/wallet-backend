@@ -70,7 +70,7 @@ type IndexerBuffer struct {
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	uniqueSEP41ContractTokensByID  map[string]types.ContractType     // contractID → type (SEP-41 only)
 	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
-	protocolWasmsByHash            map[string]data.ProtocolWasm      // wasmHash → ProtocolWasm
+	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms
 	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
 }
 
@@ -90,7 +90,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
 		sacContractsByID:               make(map[string]*data.Contract),
-		protocolWasmsByHash:            make(map[string]data.ProtocolWasm),
+		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 	}
 }
@@ -604,7 +604,7 @@ func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
 
 // PushProtocolWasm adds a protocol WASM to the buffer with deduplication (first-write-wins).
 // Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasm) {
+func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -616,7 +616,7 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasm) {
 
 // GetProtocolWasms returns a clone of the protocol WASMs map.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasm {
+func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

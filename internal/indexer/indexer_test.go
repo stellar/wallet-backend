@@ -200,7 +200,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
-		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
+		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasms{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer
@@ -311,7 +311,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
-		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
+		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasms{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer
@@ -634,7 +634,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
-		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasm{}, nil)
+		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolWasms{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
 
 		// Create indexer

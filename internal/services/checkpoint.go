@@ -61,7 +61,7 @@ type CheckpointServiceConfig struct {
 	SACBalanceModel            wbdata.SACBalanceModelInterface
 	AccountContractTokensModel wbdata.AccountContractTokensModelInterface
 	ContractModel              wbdata.ContractModelInterface
-	ProtocolWasmModel          wbdata.ProtocolWasmModelInterface
+	ProtocolWasmsModel         wbdata.ProtocolWasmsModelInterface
 	ProtocolContractsModel     wbdata.ProtocolContractsModelInterface
 	NetworkPassphrase          string
 }
@@ -77,7 +77,7 @@ type checkpointService struct {
 	sacBalanceModel            wbdata.SACBalanceModelInterface
 	accountContractTokensModel wbdata.AccountContractTokensModelInterface
 	contractModel              wbdata.ContractModelInterface
-	protocolWasmModel          wbdata.ProtocolWasmModelInterface
+	protocolWasmModel          wbdata.ProtocolWasmsModelInterface
 	protocolContractsModel     wbdata.ProtocolContractsModelInterface
 	networkPassphrase          string
 	readerFactory              readerFactory
@@ -96,7 +96,7 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		sacBalanceModel:            cfg.SACBalanceModel,
 		accountContractTokensModel: cfg.AccountContractTokensModel,
 		contractModel:              cfg.ContractModel,
-		protocolWasmModel:          cfg.ProtocolWasmModel,
+		protocolWasmModel:          cfg.ProtocolWasmsModel,
 		protocolContractsModel:     cfg.ProtocolContractsModel,
 		networkPassphrase:          cfg.NetworkPassphrase,
 		readerFactory:              defaultReaderFactory,
@@ -743,9 +743,9 @@ func (s *checkpointService) persistProtocolWasms(ctx context.Context, dbTx pgx.T
 		return nil
 	}
 
-	wasms := make([]wbdata.ProtocolWasm, 0, len(wasmClassifications))
+	wasms := make([]wbdata.ProtocolWasms, 0, len(wasmClassifications))
 	for hash := range wasmClassifications {
-		wasms = append(wasms, wbdata.ProtocolWasm{
+		wasms = append(wasms, wbdata.ProtocolWasms{
 			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			ProtocolID: nil,
 		})

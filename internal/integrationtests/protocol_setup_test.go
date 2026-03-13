@@ -70,8 +70,8 @@ func buildMultiRPCResponse(entries []struct {
 
 type testDB struct {
 	pool              db.ConnectionPool
-	protocolModel     *data.ProtocolModel
-	protocolWasmModel *data.ProtocolWasmModel
+	protocolModel     *data.ProtocolsModel
+	protocolWasmModel *data.ProtocolWasmsModel
 }
 
 func setupTestDB(t *testing.T) testDB {
@@ -91,8 +91,8 @@ func setupTestDB(t *testing.T) testDB {
 
 	return testDB{
 		pool:              dbConnectionPool,
-		protocolModel:     &data.ProtocolModel{DB: dbConnectionPool, MetricsService: mockMetrics},
-		protocolWasmModel: &data.ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetrics},
+		protocolModel:     &data.ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetrics},
+		protocolWasmModel: &data.ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetrics},
 	}
 }
 
@@ -172,7 +172,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
 				return err
 			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
+			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
 				{WasmHash: types.HashBytea(tokenHex)},
 			})
 		})
@@ -211,7 +211,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
 				return err
 			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
+			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
 				{WasmHash: types.HashBytea(incrHex)},
 			})
 		})
@@ -252,7 +252,7 @@ func TestProtocolSetupService_RealPipeline(t *testing.T) {
 			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
 				return err
 			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasm{
+			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
 				{WasmHash: types.HashBytea(tokenHex)},
 				{WasmHash: types.HashBytea(incrHex)},
 			})
