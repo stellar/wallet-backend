@@ -131,11 +131,6 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor {
-	args := m.Called(dbTx, checkpointLedger, contractValidator)
-	return args.Get(0).(TokenProcessor)
-}
-
 func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
 	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey)
 	return args.Error(0)
@@ -148,93 +143,6 @@ func NewTokenIngestionServiceMock(t interface {
 },
 ) *TokenIngestionServiceMock {
 	mock := &TokenIngestionServiceMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// TokenProcessorMock is a mock implementation of the TokenProcessor interface
-type TokenProcessorMock struct {
-	mock.Mock
-}
-
-var _ TokenProcessor = (*TokenProcessorMock)(nil)
-
-func (m *TokenProcessorMock) ProcessEntry(ctx context.Context, change ingest.Change) error {
-	args := m.Called(ctx, change)
-	return args.Error(0)
-}
-
-func (m *TokenProcessorMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	args := m.Called(ctx, wasmHash, wasmCode)
-	return args.Error(0)
-}
-
-func (m *TokenProcessorMock) FlushBatchIfNeeded(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-func (m *TokenProcessorMock) FlushRemainingBatch(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-func (m *TokenProcessorMock) Finalize(ctx context.Context, dbTx pgx.Tx) error {
-	args := m.Called(ctx, dbTx)
-	return args.Error(0)
-}
-
-// NewTokenProcessorMock creates a new instance of TokenProcessorMock.
-func NewTokenProcessorMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *TokenProcessorMock {
-	mock := &TokenProcessorMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// WasmIngestionServiceMock is a mock implementation of the WasmIngestionService interface
-type WasmIngestionServiceMock struct {
-	mock.Mock
-}
-
-var _ WasmIngestionService = (*WasmIngestionServiceMock)(nil)
-
-func (m *WasmIngestionServiceMock) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash) error {
-	args := m.Called(ctx, wasmHash)
-	return args.Error(0)
-}
-
-func (m *WasmIngestionServiceMock) ProcessContractData(ctx context.Context, change ingest.Change) error {
-	args := m.Called(ctx, change)
-	return args.Error(0)
-}
-
-func (m *WasmIngestionServiceMock) PersistProtocolWasms(ctx context.Context, dbTx pgx.Tx) error {
-	args := m.Called(ctx, dbTx)
-	return args.Error(0)
-}
-
-func (m *WasmIngestionServiceMock) PersistProtocolContracts(ctx context.Context, dbTx pgx.Tx) error {
-	args := m.Called(ctx, dbTx)
-	return args.Error(0)
-}
-
-// NewWasmIngestionServiceMock creates a new instance of WasmIngestionServiceMock.
-func NewWasmIngestionServiceMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *WasmIngestionServiceMock {
-	mock := &WasmIngestionServiceMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })

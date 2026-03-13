@@ -5,173 +5,21 @@ package services
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/stellar/go-stellar-sdk/amount"
-	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/ingest/sac"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/go-stellar-sdk/xdr"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
-	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-const (
-	// FlushBatchSize is the number of entries to buffer before flushing to DB.
-	flushBatchSize = 250_000
-)
-
-// checkpointData holds all data collected from processing a checkpoint ledger.
-// Note: Trustlines, native balances, and SAC balances are streamed directly to DB in batches.
-type checkpointData struct {
-	// contractTokensByHolderAddress maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
-	contractTokensByHolderAddress map[string][]uuid.UUID
-	// contractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
-	contractIDsByWasmHash map[xdr.Hash][]string
-	// contractTypesByWasmHash maps WASM hashes to their contract code bytes
-	contractTypesByWasmHash map[xdr.Hash]types.ContractType
-	// uniqueAssets stores unique asset metadata extracted from ledger (no RPC needed)
-	uniqueAssets map[uuid.UUID]*wbdata.TrustlineAsset
-	// uniqueContractTokens stores unique contract metadata extracted from ledger (no RPC needed)
-	uniqueContractTokens map[uuid.UUID]*wbdata.Contract
-}
-
-func newCheckpointData() checkpointData {
-	return checkpointData{
-		contractTokensByHolderAddress: make(map[string][]uuid.UUID),
-		contractIDsByWasmHash:         make(map[xdr.Hash][]string),
-		contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
-		uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
-		uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
-	}
-}
-
-// batch holds a batch of trustline balances, native balances, and SAC balances for streaming insertion.
-type batch struct {
-	// trustlineBalances holds the trustline balance entries for batch insert
-	trustlineBalances []wbdata.TrustlineBalance
-	// nativeBalances holds the native balance entries for batch insert
-	nativeBalances []wbdata.NativeBalance
-	// sacBalances holds the SAC balance entries for batch insert
-	sacBalances []wbdata.SACBalance
-	// trustlineBalanceModel is the model for inserting trustline balances
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface
-	// nativeBalanceModel is the model for inserting native balances
-	nativeBalanceModel wbdata.NativeBalanceModelInterface
-	// sacBalanceModel is the model for inserting SAC balances
-	sacBalanceModel wbdata.SACBalanceModelInterface
-}
-
-func newBatch(
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
-	nativeBalanceModel wbdata.NativeBalanceModelInterface,
-	sacBalanceModel wbdata.SACBalanceModelInterface,
-) *batch {
-	return &batch{
-		trustlineBalances:     make([]wbdata.TrustlineBalance, 0, flushBatchSize),
-		nativeBalances:        make([]wbdata.NativeBalance, 0, flushBatchSize),
-		sacBalances:           make([]wbdata.SACBalance, 0, flushBatchSize),
-		trustlineBalanceModel: trustlineBalanceModel,
-		nativeBalanceModel:    nativeBalanceModel,
-		sacBalanceModel:       sacBalanceModel,
-	}
-}
-
-func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
-	// Add trustline balance with all XDR fields
-	b.trustlineBalances = append(b.trustlineBalances, wbdata.TrustlineBalance{
-		AccountAddress:     accountAddress,
-		AssetID:            wbdata.DeterministicAssetID(asset.Code, asset.Issuer),
-		Balance:            balance,
-		Limit:              limit,
-		BuyingLiabilities:  buyingLiabilities,
-		SellingLiabilities: sellingLiabilities,
-		Flags:              flags,
-		LedgerNumber:       ledger,
-	})
-}
-
-func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
-	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
-		AccountAddress:     accountAddress,
-		Balance:            balance,
-		MinimumBalance:     minimumBalance,
-		BuyingLiabilities:  buyingLiabilities,
-		SellingLiabilities: sellingLiabilities,
-		LedgerNumber:       ledger,
-	})
-}
-
-func (b *batch) addSACBalance(sacBalance wbdata.SACBalance) {
-	b.sacBalances = append(b.sacBalances, sacBalance)
-}
-
-// flush inserts the batch's data into DB.
-func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
-	// 1. Batch insert trustline balances using BatchCopy
-	if err := b.trustlineBalanceModel.BatchCopy(ctx, dbTx, b.trustlineBalances); err != nil {
-		return fmt.Errorf("batch inserting trustline balances: %w", err)
-	}
-
-	// 2. Batch insert native balances using BatchCopy
-	if err := b.nativeBalanceModel.BatchCopy(ctx, dbTx, b.nativeBalances); err != nil {
-		return fmt.Errorf("batch inserting native balances: %w", err)
-	}
-
-	// 3. Batch insert SAC balances using BatchCopy
-	if err := b.sacBalanceModel.BatchCopy(ctx, dbTx, b.sacBalances); err != nil {
-		return fmt.Errorf("batch inserting SAC balances: %w", err)
-	}
-
-	return nil
-}
-
-func (b *batch) count() int {
-	return len(b.trustlineBalances) + len(b.nativeBalances) + len(b.sacBalances)
-}
-
-func (b *batch) reset() {
-	b.trustlineBalances = b.trustlineBalances[:0]
-	b.nativeBalances = b.nativeBalances[:0]
-	b.sacBalances = b.sacBalances[:0]
-}
-
-// TokenIngestionService provides write access to account token storage during ingestion.
+// TokenIngestionService provides write access to account token storage during live ingestion.
 type TokenIngestionService interface {
-	// NewTokenProcessor creates a TokenProcessor for processing checkpoint data.
-	// The processor handles Account, Trustline, ContractCode, and ContractData entries,
-	// streaming balances in batches and collecting contract metadata in memory.
-	NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor
-
 	// ProcessTokenChanges applies trustline, contract, and SAC balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
-	//
-	// Storage semantics differ between token types:
-	// - Trustlines: Can be added or removed. When all trustlines for an account are removed,
-	//   the account's entry is deleted from PostgreSQL.
-	// - Contracts: Only SEP-41 contracts are tracked (contracts accumulate). Unknown contracts
-	//   are skipped. Contract balance entries persist in the ledger even when balance is zero,
-	//   so we track all contracts an account has ever held a balance in.
-	// - SAC Balances: For contract addresses (C...) only. Stores absolute balance values with
-	//   authorized and clawback flags. G-addresses use trustlines for SAC balances.
-	//
-	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
 	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
-}
-
-// TokenProcessor processes checkpoint ledger entries for token data.
-type TokenProcessor interface {
-	ProcessEntry(ctx context.Context, change ingest.Change) error
-	ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error
-	FlushBatchIfNeeded(ctx context.Context) error
-	FlushRemainingBatch(ctx context.Context) error
-	Finalize(ctx context.Context, dbTx pgx.Tx) error
 }
 
 // Verify interface compliance at compile time
@@ -179,255 +27,35 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // TokenIngestionServiceConfig holds configuration for creating a TokenIngestionService.
 type TokenIngestionServiceConfig struct {
-	ContractMetadataService    ContractMetadataService
-	TrustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	TrustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
 	NativeBalanceModel         wbdata.NativeBalanceModelInterface
 	SACBalanceModel            wbdata.SACBalanceModelInterface
 	AccountContractTokensModel wbdata.AccountContractTokensModelInterface
-	ContractModel              wbdata.ContractModelInterface
 	NetworkPassphrase          string
 }
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	contractMetadataService    ContractMetadataService
-	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
 	nativeBalanceModel         wbdata.NativeBalanceModelInterface
 	sacBalanceModel            wbdata.SACBalanceModelInterface
 	accountContractTokensModel wbdata.AccountContractTokensModelInterface
-	contractModel              wbdata.ContractModelInterface
 	networkPassphrase          string
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
 func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionService {
 	return &tokenIngestionService{
-		contractMetadataService:    cfg.ContractMetadataService,
-		trustlineAssetModel:        cfg.TrustlineAssetModel,
 		trustlineBalanceModel:      cfg.TrustlineBalanceModel,
 		nativeBalanceModel:         cfg.NativeBalanceModel,
 		sacBalanceModel:            cfg.SACBalanceModel,
 		accountContractTokensModel: cfg.AccountContractTokensModel,
-		contractModel:              cfg.ContractModel,
 		networkPassphrase:          cfg.NetworkPassphrase,
 	}
 }
 
-// tokenProcessor processes checkpoint ledger entries for token data.
-type tokenProcessor struct {
-	service           *tokenIngestionService
-	contractValidator ContractValidator
-	dbTx              pgx.Tx
-	checkpointLedger  uint32
-	data              checkpointData
-	batch             *batch
-	entries           int
-	trustlineCount    int
-	accountCount      int
-	batchCount        int
-	startTime         time.Time
-}
-
-// NewTokenProcessor creates a TokenProcessor for processing checkpoint data.
-func (s *tokenIngestionService) NewTokenProcessor(dbTx pgx.Tx, checkpointLedger uint32, contractValidator ContractValidator) TokenProcessor {
-	return &tokenProcessor{
-		service:           s,
-		contractValidator: contractValidator,
-		dbTx:              dbTx,
-		checkpointLedger:  checkpointLedger,
-		data:              newCheckpointData(),
-		batch:             newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
-		startTime:         time.Now(),
-	}
-}
-
-// ProcessEntry handles Account, Trustline, and ContractData entries from a checkpoint.
-func (p *tokenProcessor) ProcessEntry(ctx context.Context, change ingest.Change) error {
-	//exhaustive:ignore
-	switch change.Type {
-	case xdr.LedgerEntryTypeAccount:
-		accountEntry := change.Post.Data.MustAccount()
-		liabilities := accountEntry.Liabilities()
-		numSubEntries := accountEntry.NumSubEntries
-		numSponsoring := accountEntry.NumSponsoring()
-		numSponsored := accountEntry.NumSponsored()
-		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
-		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), p.checkpointLedger)
-		p.entries++
-		p.accountCount++
-
-	case xdr.LedgerEntryTypeTrustline:
-		accountAddress, asset, xdrFields, skip := p.service.processTrustlineChange(change)
-		if skip {
-			return nil
-		}
-		p.entries++
-		p.trustlineCount++
-		p.batch.addTrustline(accountAddress, asset, xdrFields.Balance, xdrFields.Limit, xdrFields.BuyingLiabilities, xdrFields.SellingLiabilities, xdrFields.Flags, p.checkpointLedger)
-		if _, exists := p.data.uniqueAssets[asset.ID]; !exists {
-			p.data.uniqueAssets[asset.ID] = &asset
-		}
-
-	case xdr.LedgerEntryTypeContractData:
-		contractDataEntry := change.Post.Data.MustContractData()
-
-		contractAddress, ok := contractDataEntry.Contract.GetContractId()
-		if !ok {
-			return nil
-		}
-		contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
-
-		//exhaustive:ignore
-		if contractDataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
-			result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
-			if result.Skip {
-				return nil
-			}
-			p.data.uniqueContractTokens[result.Contract.ID] = result.Contract
-			p.entries++
-
-			if result.IsSAC {
-				return nil
-			}
-			p.data.contractIDsByWasmHash[*result.WasmHash] = append(p.data.contractIDsByWasmHash[*result.WasmHash], contractAddressStr)
-			p.entries++
-		} else {
-			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
-			if skip {
-				return nil
-			}
-
-			_, _, ok := sac.ContractBalanceFromContractData(*change.Post, p.service.networkPassphrase)
-			if ok {
-				contractUUID := wbdata.DeterministicContractID(contractAddressStr)
-				if _, exists := p.data.uniqueContractTokens[contractUUID]; !exists {
-					p.data.uniqueContractTokens[contractUUID] = &wbdata.Contract{
-						ID:         contractUUID,
-						ContractID: contractAddressStr,
-						Type:       string(types.ContractTypeSAC),
-					}
-				}
-
-				balanceStr, authorized, clawback := p.service.extractSACBalanceFields(contractDataEntry.Val)
-				p.batch.addSACBalance(wbdata.SACBalance{
-					AccountAddress:    holderAddress,
-					ContractID:        contractUUID,
-					Balance:           balanceStr,
-					IsAuthorized:      authorized,
-					IsClawbackEnabled: clawback,
-					LedgerNumber:      p.checkpointLedger,
-				})
-				p.entries++
-				return nil
-			}
-
-			if _, ok := p.data.contractTokensByHolderAddress[holderAddress]; !ok {
-				p.data.contractTokensByHolderAddress[holderAddress] = []uuid.UUID{}
-			}
-			p.data.contractTokensByHolderAddress[holderAddress] = append(p.data.contractTokensByHolderAddress[holderAddress], wbdata.DeterministicContractID(contractAddressStr))
-			p.entries++
-		}
-	}
-	return nil
-}
-
-// ProcessContractCode validates WASM against SEP-41 and stores the type by hash.
-func (p *tokenProcessor) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
-	if err != nil {
-		return nil //nolint:nilerr // intentionally skip invalid entries
-	}
-	p.data.contractTypesByWasmHash[wasmHash] = contractType
-	p.entries++
-	return nil
-}
-
-// FlushBatchIfNeeded flushes the batch to DB if it has reached the flush size.
-func (p *tokenProcessor) FlushBatchIfNeeded(ctx context.Context) error {
-	if p.batch.count() >= flushBatchSize {
-		if err := p.batch.flush(ctx, p.dbTx); err != nil {
-			return fmt.Errorf("flushing batch: %w", err)
-		}
-		p.batchCount++
-		log.Ctx(ctx).Infof("Flushed batch %d (%d entries so far)", p.batchCount, p.entries)
-		p.batch.reset()
-	}
-	return nil
-}
-
-// FlushRemainingBatch flushes any remaining data in the batch.
-func (p *tokenProcessor) FlushRemainingBatch(ctx context.Context) error {
-	if p.batch.count() > 0 {
-		if err := p.batch.flush(ctx, p.dbTx); err != nil {
-			return fmt.Errorf("flushing final batch: %w", err)
-		}
-		p.batchCount++
-	}
-	log.Ctx(ctx).Infof("Processed %d entries (%d trustlines, %d accounts in %d batches) in %.2f minutes",
-		p.entries, p.trustlineCount, p.accountCount, p.batchCount, time.Since(p.startTime).Minutes())
-	return nil
-}
-
-// Finalize identifies SEP-41 contracts, fetches metadata, and stores tokens in DB.
-func (p *tokenProcessor) Finalize(ctx context.Context, dbTx pgx.Tx) error {
-	// Identify SAC contracts missing code/issuer and fetch metadata via RPC
-	var sacContractsNeedingMetadata []string
-	for _, contract := range p.data.uniqueContractTokens {
-		if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
-			sacContractsNeedingMetadata = append(sacContractsNeedingMetadata, contract.ContractID)
-		}
-	}
-	if len(sacContractsNeedingMetadata) > 0 {
-		sacContracts, err := p.service.contractMetadataService.FetchSACMetadata(ctx, sacContractsNeedingMetadata)
-		if err != nil {
-			return fmt.Errorf("fetching SAC metadata: %w", err)
-		}
-		for _, contract := range sacContracts {
-			p.data.uniqueContractTokens[contract.ID] = contract
-		}
-	}
-
-	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	sep41Tokens, err := p.service.fetchSep41Metadata(ctx, p.data.contractIDsByWasmHash, p.data.contractTypesByWasmHash)
-	if err != nil {
-		return fmt.Errorf("fetching SEP-41 token metadata: %w", err)
-	}
-	for _, token := range sep41Tokens {
-		p.data.uniqueContractTokens[token.ID] = token
-	}
-	sep41TokensByAccountAddress := make(map[string][]uuid.UUID)
-	for address, contractTokens := range p.data.contractTokensByHolderAddress {
-		for _, token := range contractTokens {
-			if _, exists := p.data.uniqueContractTokens[token]; exists && p.data.uniqueContractTokens[token].Type == string(types.ContractTypeSEP41) {
-				if _, exists := sep41TokensByAccountAddress[address]; !exists {
-					sep41TokensByAccountAddress[address] = make([]uuid.UUID, 0)
-				}
-				sep41TokensByAccountAddress[address] = append(sep41TokensByAccountAddress[address], token)
-			}
-		}
-	}
-
-	// Store SEP-41 contract relationships using deterministic IDs
-	if err := p.service.storeTokensInDB(ctx, dbTx, sep41TokensByAccountAddress, p.data.uniqueAssets, p.data.uniqueContractTokens); err != nil {
-		return fmt.Errorf("storing SEP-41 tokens in postgres: %w", err)
-	}
-
-	return nil
-}
-
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
-//
-// For trustlines: handles ADD (new trustline), UPDATE (balance/limit changed), and REMOVE (deleted).
-// For contract token balances (SAC, SEP41): only ADD operations are processed. Unknown contracts
-// (not SAC/SEP-41) are silently skipped.
-// For SAC balances (contract addresses only): handles ADD, UPDATE, and REMOVE operations
-// with absolute balance values and authorization flags.
-//
-// Both trustline and contract IDs are computed using deterministic hash functions.
-// The dbTx parameter allows this function to participate in an outer transaction for atomicity.
 func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
 	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 {
 		return nil
@@ -479,7 +107,7 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
-	log.Ctx(ctx).Infof("✅ upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
+	log.Ctx(ctx).Infof("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
 	return nil
 }
 
@@ -494,7 +122,6 @@ func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context,
 		if change.ContractID == "" {
 			continue
 		}
-		// Only process SEP-41 contracts
 		if change.ContractType != types.ContractTypeSEP41 {
 			continue
 		}
@@ -506,7 +133,7 @@ func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context,
 		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccount); err != nil {
 			return fmt.Errorf("batch inserting contract tokens: %w", err)
 		}
-		log.Ctx(ctx).Infof("✅ inserted %d account-contract SEP41 relationships", len(contractTokensByAccount))
+		log.Ctx(ctx).Infof("inserted %d account-contract SEP41 relationships", len(contractTokensByAccount))
 	}
 	return nil
 }
@@ -538,7 +165,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 		if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("✅ upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Infof("upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	}
 	return nil
 }
@@ -572,279 +199,7 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("✅ upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Infof("upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
 	}
 	return nil
-}
-
-// trustlineXDRFields holds all XDR fields extracted from a trustline entry.
-type trustlineXDRFields struct {
-	Balance            int64
-	Limit              int64
-	BuyingLiabilities  int64
-	SellingLiabilities int64
-	Flags              uint32
-}
-
-// processTrustlineChange extracts trustline information from a ledger change entry.
-// Returns the account address, asset, XDR fields, and skip=true if the entry should be skipped.
-func (s *tokenIngestionService) processTrustlineChange(change ingest.Change) (string, wbdata.TrustlineAsset, trustlineXDRFields, bool) {
-	trustlineEntry := change.Post.Data.MustTrustLine()
-	accountAddress := trustlineEntry.AccountId.Address()
-	asset := trustlineEntry.Asset
-
-	// Skip liquidity pool shares as they're tracked separately via pool-specific indexing
-	// and don't represent traditional trustlines.
-	if asset.Type == xdr.AssetTypeAssetTypePoolShare {
-		return "", wbdata.TrustlineAsset{}, trustlineXDRFields{}, true
-	}
-
-	var assetType, assetCode, assetIssuer string
-	if err := trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		return "", wbdata.TrustlineAsset{}, trustlineXDRFields{}, true
-	}
-
-	liabilities := trustlineEntry.Liabilities()
-
-	return accountAddress, wbdata.TrustlineAsset{
-			ID:     wbdata.DeterministicAssetID(assetCode, assetIssuer),
-			Code:   assetCode,
-			Issuer: assetIssuer,
-		}, trustlineXDRFields{
-			Balance:            int64(trustlineEntry.Balance),
-			Limit:              int64(trustlineEntry.Limit),
-			BuyingLiabilities:  int64(liabilities.Buying),
-			SellingLiabilities: int64(liabilities.Selling),
-			Flags:              uint32(trustlineEntry.Flags),
-		}, false
-}
-
-// processContractBalanceChange extracts contract balance information from a contract data entry.
-// Returns the holder address and contract ID, with skip=true if extraction fails.
-func (s *tokenIngestionService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
-	// Extract the account/contract address from the contract data entry key.
-	// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
-	// However, this could also be valid for any non-SEP41 contract that mimics the same format.
-	var err error
-	holderAddress, err = s.extractHolderAddress(contractDataEntry.Key)
-	if err != nil {
-		return "", true
-	}
-
-	return holderAddress, false
-}
-
-// contractInstanceResult holds the result of processing a contract instance entry.
-type contractInstanceResult struct {
-	Contract *wbdata.Contract
-	WasmHash *xdr.Hash
-	IsSAC    bool
-	Skip     bool
-}
-
-// processContractInstanceChange extracts contract type information from a contract instance entry.
-// For SAC contracts: returns contract metadata extracted from ledger data (no RPC needed).
-// For non-SAC contracts: returns WASM hash for later validation and marks as skip.
-func (s *tokenIngestionService) processContractInstanceChange(
-	change ingest.Change,
-	contractAddress string,
-	contractDataEntry xdr.ContractDataEntry,
-) contractInstanceResult {
-	ledgerEntry := change.Post
-	asset, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
-	if isSAC {
-		// Extract metadata from ledger (code:issuer format for name, code for symbol)
-		var assetType, code, issuer string
-		err := asset.Extract(&assetType, &code, &issuer)
-		if err != nil {
-			return contractInstanceResult{Skip: true}
-		}
-		name := code + ":" + issuer
-		decimals := uint32(7) // Stellar assets always have 7 decimals
-		return contractInstanceResult{
-			Contract: &wbdata.Contract{
-				ID:         wbdata.DeterministicContractID(contractAddress),
-				ContractID: contractAddress,
-				Type:       string(types.ContractTypeSAC),
-				Code:       &code,
-				Issuer:     &issuer,
-				Name:       &name,
-				Symbol:     &code,
-				Decimals:   decimals,
-			},
-			IsSAC: true,
-		}
-	}
-
-	// For non-SAC contracts, extract WASM hash for later validation
-	contractInstance := contractDataEntry.Val.MustInstance()
-	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
-		if contractInstance.Executable.WasmHash != nil {
-			hash := *contractInstance.Executable.WasmHash
-			return contractInstanceResult{
-				Contract: &wbdata.Contract{
-					ID:         wbdata.DeterministicContractID(contractAddress),
-					ContractID: contractAddress,
-					Type:       string(types.ContractTypeUnknown),
-				},
-				WasmHash: &hash,
-			}
-		}
-	}
-
-	return contractInstanceResult{Skip: true}
-}
-
-// fetchSep41Metadata validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
-func (s *tokenIngestionService) fetchSep41Metadata(
-	ctx context.Context,
-	contractIDsByWasmHash map[xdr.Hash][]string,
-	contractTypesByWasmHash map[xdr.Hash]types.ContractType,
-) ([]*wbdata.Contract, error) {
-	var sep41ContractIDs []string
-	for wasmHash, contractType := range contractTypesByWasmHash {
-		if contractType != types.ContractTypeSEP41 {
-			continue
-		}
-
-		sep41ContractIDs = append(sep41ContractIDs, contractIDsByWasmHash[wasmHash]...)
-	}
-
-	// Fetch metadata for SEP-41 contracts via RPC and store in database
-	var sep41ContractsWithMetadata []*wbdata.Contract
-	var err error
-	if len(sep41ContractIDs) > 0 {
-		sep41ContractsWithMetadata, err = s.contractMetadataService.FetchSep41Metadata(ctx, sep41ContractIDs)
-		if err != nil {
-			return nil, fmt.Errorf("fetching SEP-41 contract metadata: %w", err)
-		}
-	}
-
-	return sep41ContractsWithMetadata, nil
-}
-
-// storeTokensInDB stores collected contract relationships into PostgreSQL.
-func (s *tokenIngestionService) storeTokensInDB(
-	ctx context.Context,
-	dbTx pgx.Tx,
-	contractTokensByAccountAddress map[string][]uuid.UUID,
-	uniqueAssets map[uuid.UUID]*wbdata.TrustlineAsset,
-	uniqueContractTokens map[uuid.UUID]*wbdata.Contract,
-) error {
-	if len(uniqueAssets) == 0 && len(uniqueContractTokens) == 0 {
-		return nil
-	}
-
-	startTime := time.Now()
-
-	// Batch insert trustline assets
-	trustlineAssets := make([]wbdata.TrustlineAsset, 0, len(uniqueAssets))
-	for _, asset := range uniqueAssets {
-		trustlineAssets = append(trustlineAssets, *asset)
-	}
-	if len(trustlineAssets) > 0 {
-		if err := s.trustlineAssetModel.BatchInsert(ctx, dbTx, trustlineAssets); err != nil {
-			return fmt.Errorf("batch inserting trustline assets: %w", err)
-		}
-	}
-
-	// Batch insert contract tokens
-	contractTokens := make([]*wbdata.Contract, 0, len(uniqueContractTokens))
-	for _, contract := range uniqueContractTokens {
-		contractTokens = append(contractTokens, contract)
-	}
-	if len(contractTokens) > 0 {
-		if err := s.contractModel.BatchInsert(ctx, dbTx, contractTokens); err != nil {
-			return fmt.Errorf("batch inserting contracts: %w", err)
-		}
-	}
-
-	// Batch insert account-contract relationships
-	if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccountAddress); err != nil {
-		return fmt.Errorf("batch inserting account contracts: %w", err)
-	}
-	log.Ctx(ctx).Infof("✅ Inserted %d trustline assets, %d contract tokens, %d account-contract relationships in %.2f minutes", len(uniqueAssets), len(uniqueContractTokens), len(contractTokensByAccountAddress), time.Since(startTime).Minutes())
-
-	return nil
-}
-
-// extractHolderAddress extracts the account address from a contract balance entry key.
-// Balance entries have a key that is a ScVec with 2 elements:
-// - First element: ScSymbol("Balance")
-// - Second element: ScAddress (the account/contract holder address)
-// Returns the holder address as a Stellar-encoded string, or empty string if invalid.
-func (s *tokenIngestionService) extractHolderAddress(key xdr.ScVal) (string, error) {
-	// Verify the key is a vector
-	keyVecPtr, ok := key.GetVec()
-	if !ok || keyVecPtr == nil {
-		return "", fmt.Errorf("key is not a vector")
-	}
-	keyVec := *keyVecPtr
-
-	// Balance entries should have exactly 2 elements
-	if len(keyVec) != 2 {
-		return "", fmt.Errorf("key vector length is %d, expected 2", len(keyVec))
-	}
-
-	// First element should be the symbol "Balance"
-	sym, ok := keyVec[0].GetSym()
-	if !ok || sym != "Balance" {
-		return "", fmt.Errorf("first element is not 'Balance' symbol")
-	}
-
-	// Second element is the ScAddress of the balance holder
-	scAddress, ok := keyVec[1].GetAddress()
-	if !ok {
-		return "", fmt.Errorf("second element is not a valid address")
-	}
-
-	// Convert ScAddress to Stellar string format
-	// This handles both account addresses (G...) and contract addresses (C...)
-	holderAddress, err := scAddress.String()
-	if err != nil {
-		return "", fmt.Errorf("converting address to string: %w", err)
-	}
-
-	return holderAddress, nil
-}
-
-// extractSACBalanceFields extracts balance, authorized, and clawback from a SAC balance map.
-// This function assumes SDK validation has already confirmed this is a valid SAC balance entry.
-// SAC balance format: {amount: i128, authorized: bool, clawback: bool}
-func (s *tokenIngestionService) extractSACBalanceFields(val xdr.ScVal) (balance string, authorized bool, clawback bool) {
-	balanceMap, ok := val.GetMap()
-	if !ok || balanceMap == nil {
-		return "0", false, false
-	}
-
-	for _, entry := range *balanceMap {
-		if entry.Key.Type != xdr.ScValTypeScvSymbol {
-			continue
-		}
-
-		keySymbol, ok := entry.Key.GetSym()
-		if !ok {
-			continue
-		}
-
-		switch string(keySymbol) {
-		case "amount":
-			if entry.Val.Type == xdr.ScValTypeScvI128 {
-				i128Parts := entry.Val.MustI128()
-				balance = amount.String128(i128Parts)
-			}
-
-		case "authorized":
-			if entry.Val.Type == xdr.ScValTypeScvBool {
-				authorized = entry.Val.MustB()
-			}
-
-		case "clawback":
-			if entry.Val.Type == xdr.ScValTypeScvBool {
-				clawback = entry.Val.MustB()
-			}
-		}
-	}
-
-	return balance, authorized, clawback
 }

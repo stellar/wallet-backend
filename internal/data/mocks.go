@@ -44,6 +44,32 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Error(0)
 }
 
+// TrustlineAssetModelMock is a mock implementation of TrustlineAssetModelInterface.
+type TrustlineAssetModelMock struct {
+	mock.Mock
+}
+
+var _ TrustlineAssetModelInterface = (*TrustlineAssetModelMock)(nil)
+
+// NewTrustlineAssetModelMock creates a new instance of TrustlineAssetModelMock.
+func NewTrustlineAssetModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TrustlineAssetModelMock {
+	mockModel := &TrustlineAssetModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *TrustlineAssetModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
+	args := m.Called(ctx, dbTx, assets)
+	return args.Error(0)
+}
+
 // TrustlineBalanceModelMock is a mock implementation of TrustlineBalanceModelInterface.
 type TrustlineBalanceModelMock struct {
 	mock.Mock
