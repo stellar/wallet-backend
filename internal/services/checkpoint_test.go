@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"iter"
 	"testing"
 
 	"github.com/google/uuid"
@@ -723,6 +724,315 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 
 		assert.Equal(t, 0, proc.entries)
 	})
+}
+
+// Hot archive test helpers
+
+// makeHotArchiveContractCodeEntry builds a LedgerEntry for a ContractCode in the hot archive.
+func makeHotArchiveContractCodeEntry(hash xdr.Hash, code []byte) xdr.LedgerEntry {
+	return xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractCode,
+			ContractCode: &xdr.ContractCodeEntry{
+				Hash: hash,
+				Code: code,
+			},
+		},
+	}
+}
+
+// makeHotArchiveContractInstanceEntry builds a LedgerEntry for a ContractData instance entry in the hot archive.
+func makeHotArchiveContractInstanceEntry(contractHash [32]byte, wasmHash xdr.Hash) xdr.LedgerEntry {
+	return xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.ContractDataEntry{
+				Contract: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: (*xdr.ContractId)(&contractHash),
+				},
+				Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+				Durability: xdr.ContractDataDurabilityPersistent,
+				Val: xdr.ScVal{
+					Type: xdr.ScValTypeScvContractInstance,
+					Instance: &xdr.ScContractInstance{
+						Executable: xdr.ContractExecutable{
+							Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+							WasmHash: &wasmHash,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// emptyHotArchiveFactory returns an iterator that yields no entries.
+func emptyHotArchiveFactory(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) iter.Seq2[xdr.LedgerEntry, error] {
+	return func(yield func(xdr.LedgerEntry, error) bool) {}
+}
+
+// hotArchiveFactoryFromEntries returns a factory that yields the given entries.
+func hotArchiveFactoryFromEntries(entries []xdr.LedgerEntry) hotArchiveIteratorFactory {
+	return func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) iter.Seq2[xdr.LedgerEntry, error] {
+		return func(yield func(xdr.LedgerEntry, error) bool) {
+			for _, entry := range entries {
+				if !yield(entry, nil) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// hotArchiveFactoryWithError returns a factory that yields entries then an error.
+func hotArchiveFactoryWithError(entries []xdr.LedgerEntry, err error) hotArchiveIteratorFactory {
+	return func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) iter.Seq2[xdr.LedgerEntry, error] {
+		return func(yield func(xdr.LedgerEntry, error) bool) {
+			for _, entry := range entries {
+				if !yield(entry, nil) {
+					return
+				}
+			}
+			yield(xdr.LedgerEntry{}, err)
+		}
+	}
+}
+
+func TestCheckpointProcessor_ProcessHotArchive(t *testing.T) {
+	t.Run("nil_factory_is_noop", func(t *testing.T) {
+		proc := &checkpointProcessor{
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{hotArchiveIteratorFactory: nil}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+	})
+
+	t.Run("empty_hot_archive_is_noop", func(t *testing.T) {
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: emptyHotArchiveFactory,
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+		assert.Empty(t, proc.wasmHashes)
+		assert.Empty(t, proc.protocolContractIDsByWasmHash)
+	})
+
+	t.Run("evicted_contract_code_adds_hash", func(t *testing.T) {
+		hash := xdr.Hash{0xAA, 0xBB, 0xCC}
+		entries := []xdr.LedgerEntry{makeHotArchiveContractCodeEntry(hash, []byte{0xDE, 0xAD})}
+
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryFromEntries(entries),
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+
+		_, tracked := proc.wasmHashes[hash]
+		assert.True(t, tracked, "evicted WASM hash should be tracked")
+	})
+
+	t.Run("evicted_contract_data_instance_tracked", func(t *testing.T) {
+		contractHash := [32]byte{0x10, 0x20, 0x30}
+		wasmHash := xdr.Hash{0x40, 0x50, 0x60}
+		entries := []xdr.LedgerEntry{makeHotArchiveContractInstanceEntry(contractHash, wasmHash)}
+
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryFromEntries(entries),
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+
+		require.Contains(t, proc.protocolContractIDsByWasmHash, wasmHash)
+		expectedContractID := types.HashBytea(hex.EncodeToString(contractHash[:]))
+		assert.Equal(t, []types.HashBytea{expectedContractID}, proc.protocolContractIDsByWasmHash[wasmHash])
+	})
+
+	t.Run("deduplication_live_and_hot_archive", func(t *testing.T) {
+		hash := xdr.Hash{0x01, 0x02, 0x03}
+		entries := []xdr.LedgerEntry{makeHotArchiveContractCodeEntry(hash, []byte{0xBE, 0xEF})}
+
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    map[xdr.Hash]struct{}{hash: {}}, // already in live state
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryFromEntries(entries),
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+
+		assert.Len(t, proc.wasmHashes, 1, "duplicate should be deduplicated by map semantics")
+	})
+
+	t.Run("iteration_error_fails_hard", func(t *testing.T) {
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryWithError(nil, errors.New("bucket corrupted")),
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "reading hot archive entry")
+		assert.ErrorContains(t, err, "bucket corrupted")
+	})
+
+	t.Run("context_cancellation_stops_iteration", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // cancel immediately
+
+		hash := xdr.Hash{0xDD}
+		entries := []xdr.LedgerEntry{makeHotArchiveContractCodeEntry(hash, []byte{0x01})}
+
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryFromEntries(entries),
+		}
+
+		err := proc.processHotArchive(ctx, svc)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "hot archive processing cancelled")
+	})
+
+	t.Run("non_instance_contract_data_skipped", func(t *testing.T) {
+		contractHash := [32]byte{0xAA}
+		// Non-instance ContractData entry (e.g., a Balance entry) — should be skipped
+		entry := xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&contractHash),
+					},
+					Key:        xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        xdr.ScVal{Type: xdr.ScValTypeScvI128},
+				},
+			},
+		}
+		entries := []xdr.LedgerEntry{entry}
+
+		proc := &checkpointProcessor{
+			checkpointLedger:              100,
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+		}
+		svc := &checkpointService{
+			archive:                   &HistoryArchiveMock{},
+			hotArchiveIteratorFactory: hotArchiveFactoryFromEntries(entries),
+		}
+
+		err := proc.processHotArchive(context.Background(), svc)
+		require.NoError(t, err)
+		assert.Empty(t, proc.protocolContractIDsByWasmHash, "non-instance ContractData should be skipped")
+	})
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveEvictedWasm(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	// Live state: contract instance references a WASM hash, but no ContractCode entry
+	contractHash := [32]byte{0xAA, 0xBB, 0xCC}
+	evictedWasmHash := xdr.Hash{0x11, 0x22, 0x33}
+	contractDataChange := makeContractInstanceChange(contractHash, evictedWasmHash)
+
+	f.reader.On("Read").Return(contractDataChange, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
+
+	// Hot archive: the evicted WASM ContractCode entry
+	hotArchiveEntries := []xdr.LedgerEntry{
+		makeHotArchiveContractCodeEntry(evictedWasmHash, []byte{0xDE, 0xAD}),
+	}
+	f.svc.hotArchiveIteratorFactory = hotArchiveFactoryFromEntries(hotArchiveEntries)
+
+	// Batch flush mocks
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	// Finalize mocks
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.accountContractTokensModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	// Protocol WASM: the evicted hash should now be present
+	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(wasms []wbdata.ProtocolWasm) bool {
+			if len(wasms) != 1 {
+				return false
+			}
+			return wasms[0].WasmHash == types.HashBytea(hex.EncodeToString(evictedWasmHash[:]))
+		}),
+	).Return(nil).Once()
+
+	// Protocol contracts: the contract referencing the evicted WASM should now be linked
+	f.protocolContractsModel.On("BatchInsert", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(contracts []wbdata.ProtocolContracts) bool {
+			if len(contracts) != 1 {
+				return false
+			}
+			return contracts[0].ContractID == types.HashBytea(hex.EncodeToString(contractHash[:])) &&
+				contracts[0].WasmHash == types.HashBytea(hex.EncodeToString(evictedWasmHash[:]))
+		}),
+	).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveError(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
+
+	// Hot archive iteration fails
+	f.svc.hotArchiveIteratorFactory = hotArchiveFactoryWithError(nil, errors.New("archive corrupt"))
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "processing hot archive")
+	assert.ErrorContains(t, err, "reading hot archive entry")
 }
 
 func TestCheckpointService_ExtractHolderAddress(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,25 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 	return reader, nil
 }
 
+// hotArchiveIteratorFactory creates an iterator over the hot archive bucket list for a given checkpoint ledger.
+type hotArchiveIteratorFactory func(ctx context.Context, archive historyarchive.ArchiveInterface, checkpointLedger uint32) iter.Seq2[xdr.LedgerEntry, error]
+
+// defaultHotArchiveIteratorFactory wraps ingest.NewHotArchiveIterator, filtering for ContractCode and ContractData entries.
+func defaultHotArchiveIteratorFactory(ctx context.Context, archive historyarchive.ArchiveInterface, checkpointLedger uint32) iter.Seq2[xdr.LedgerEntry, error] {
+	return ingest.NewHotArchiveIterator(ctx, archive, checkpointLedger,
+		ingest.WithFilter(
+			func(entry xdr.LedgerEntry) bool {
+				return entry.Data.Type == xdr.LedgerEntryTypeContractCode ||
+					entry.Data.Type == xdr.LedgerEntryTypeContractData
+			},
+			func(key xdr.LedgerKey) bool {
+				return key.Type == xdr.LedgerEntryTypeContractCode ||
+					key.Type == xdr.LedgerEntryTypeContractData
+			},
+		),
+	)
+}
+
 // CheckpointServiceConfig holds configuration for creating a CheckpointService.
 type CheckpointServiceConfig struct {
 	DB                         db.ConnectionPool
@@ -81,6 +101,7 @@ type checkpointService struct {
 	protocolContractsModel     wbdata.ProtocolContractsModelInterface
 	networkPassphrase          string
 	readerFactory              readerFactory
+	hotArchiveIteratorFactory  hotArchiveIteratorFactory
 }
 
 // NewCheckpointService creates a CheckpointService.
@@ -100,6 +121,7 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		protocolContractsModel:     cfg.ProtocolContractsModel,
 		networkPassphrase:          cfg.NetworkPassphrase,
 		readerFactory:              defaultReaderFactory,
+		hotArchiveIteratorFactory:  defaultHotArchiveIteratorFactory,
 	}
 }
 
@@ -293,6 +315,13 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			return fmt.Errorf("flushing remaining token batch: %w", txErr)
 		}
 
+		// Scan hot archive for evicted WASMs not present in live state.
+		// This recovers WASM hashes that were evicted before the checkpoint,
+		// allowing contracts referencing them to be linked in protocol_contracts.
+		if txErr := proc.processHotArchive(ctx, s); txErr != nil {
+			return fmt.Errorf("processing hot archive: %w", txErr)
+		}
+
 		if txErr := proc.finalize(ctx, dbTx); txErr != nil {
 			return fmt.Errorf("finalizing checkpoint processor: %w", txErr)
 		}
@@ -426,6 +455,51 @@ func (p *checkpointProcessor) processWasmContractData(contractDataEntry xdr.Cont
 
 	hash := *contractInstance.Executable.WasmHash
 	p.protocolContractIDsByWasmHash[hash] = append(p.protocolContractIDsByWasmHash[hash], types.HashBytea(hex.EncodeToString(contractAddress[:])))
+}
+
+// processHotArchive iterates the hot archive bucket list for evicted ContractCode and ContractData entries.
+// Evicted WASMs get hash-tracked only (no SEP-41 classification). Contracts referencing them are linked.
+func (p *checkpointProcessor) processHotArchive(ctx context.Context, s *checkpointService) error {
+	if s.hotArchiveIteratorFactory == nil {
+		return nil
+	}
+
+	hotArchiveIter := s.hotArchiveIteratorFactory(ctx, s.archive, p.checkpointLedger)
+
+	var hotArchiveEntries int
+	for entry, err := range hotArchiveIter {
+		if err != nil {
+			return fmt.Errorf("reading hot archive entry: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("hot archive processing cancelled: %w", ctx.Err())
+		default:
+		}
+
+		switch entry.Data.Type {
+		case xdr.LedgerEntryTypeContractCode:
+			codeEntry := entry.Data.MustContractCode()
+			// Hash only — no SEP-41 classification for archived WASMs
+			p.wasmHashes[codeEntry.Hash] = struct{}{}
+			hotArchiveEntries++
+		case xdr.LedgerEntryTypeContractData:
+			dataEntry := entry.Data.MustContractData()
+			contractAddress, ok := dataEntry.Contract.GetContractId()
+			if !ok {
+				continue
+			}
+			if dataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
+				p.processWasmContractData(dataEntry, xdr.Hash(contractAddress))
+				hotArchiveEntries++
+			}
+		}
+	}
+
+	if hotArchiveEntries > 0 {
+		log.Ctx(ctx).Infof("Recovered %d entries from hot archive (evicted WASMs/contract data)", hotArchiveEntries)
+	}
+	return nil
 }
 
 // flushBatchIfNeeded flushes the batch to DB if it has reached the flush size.
