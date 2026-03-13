@@ -110,9 +110,9 @@ type MockProtocolWasmsProcessor struct {
 	mock.Mock
 }
 
-func (m *MockProtocolWasmsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]data.ProtocolWasm, error) {
+func (m *MockProtocolWasmsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]data.ProtocolWasms, error) {
 	args := m.Called(ctx, opWrapper)
-	return args.Get(0).([]data.ProtocolWasm), args.Error(1)
+	return args.Get(0).([]data.ProtocolWasms), args.Error(1)
 }
 
 func (m *MockProtocolWasmsProcessor) Name() string {
@@ -142,6 +142,6 @@ var (
 	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
 	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
 	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolWasm]      = &MockProtocolWasmsProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolContracts]  = &MockProtocolContractsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolWasms]     = &MockProtocolWasmsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolContracts] = &MockProtocolContractsProcessor{}
 )

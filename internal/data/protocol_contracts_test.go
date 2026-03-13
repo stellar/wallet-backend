@@ -32,10 +32,10 @@ func TestProtocolContractsBatchInsert(t *testing.T) {
 		mockMetrics.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
 		mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return()
 
-		wasmModel := &ProtocolWasmModel{DB: dbConnectionPool, MetricsService: mockMetrics}
-		wasms := make([]ProtocolWasm, len(hashes))
+		wasmModel := &ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetrics}
+		wasms := make([]ProtocolWasms, len(hashes))
 		for i, h := range hashes {
-			wasms[i] = ProtocolWasm{WasmHash: h}
+			wasms[i] = ProtocolWasms{WasmHash: h}
 		}
 		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return wasmModel.BatchInsert(ctx, dbTx, wasms)

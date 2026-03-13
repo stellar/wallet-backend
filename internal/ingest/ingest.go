@@ -215,7 +215,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		SACBalanceModel:            models.SACBalance,
 		AccountContractTokensModel: models.AccountContractTokens,
 		ContractModel:              models.Contract,
-		ProtocolWasmModel:          models.ProtocolWasm,
+		ProtocolWasmsModel:         models.ProtocolWasms,
 		ProtocolContractsModel:     models.ProtocolContracts,
 		NetworkPassphrase:          cfg.NetworkPassphrase,
 	})

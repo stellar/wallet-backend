@@ -327,71 +327,69 @@ func TestValidateFromContractCode(t *testing.T) {
 }
 
 func TestIsContractCodeSEP41(t *testing.T) {
-	validator := NewContractValidator().(*contractValidator)
-
 	t.Run("returns true for complete SEP-41 contract", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.True(t, result)
 	})
 
 	t.Run("returns false when missing balance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing allowance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"allowance"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing decimals function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"decimals"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing name function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"name"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing symbol function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"symbol"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing approve function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"approve"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer_from"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn_from"})
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
@@ -409,7 +407,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
@@ -426,7 +424,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
@@ -443,13 +441,13 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for empty contract spec", func(t *testing.T) {
 		spec := []xdr.ScSpecEntry{}
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.False(t, result)
 	})
 
@@ -465,7 +463,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, customFunc)
 
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.True(t, result)
 	})
 
@@ -485,14 +483,12 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, udtEntry)
 
-		result := validator.isContractCodeSEP41(spec)
+		result := isContractCodeSEP41(spec)
 		assert.True(t, result)
 	})
 }
 
 func TestValidateFunctionInputsAndOutputs(t *testing.T) {
-	validator := NewContractValidator().(*contractValidator)
-
 	t.Run("returns true for exact match", func(t *testing.T) {
 		inputs := map[string]any{
 			"from": "Address",
@@ -506,7 +502,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
 
@@ -522,7 +518,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -540,7 +536,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -557,7 +553,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -574,7 +570,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -591,7 +587,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -608,7 +604,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -625,7 +621,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		expectedOutputs := set.NewSet("i128")
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
@@ -636,7 +632,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		expectedInputs := map[string]string{}
 		expectedOutputs := set.NewSet[string]()
 
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
 }

@@ -16,7 +16,8 @@ type Models struct {
 	NativeBalance         NativeBalanceModelInterface
 	SACBalance            SACBalanceModelInterface
 	AccountContractTokens AccountContractTokensModelInterface
-	ProtocolWasm          ProtocolWasmModelInterface
+	ProtocolWasms         ProtocolWasmsModelInterface
+	Protocols             ProtocolsModelInterface
 	ProtocolContracts     ProtocolContractsModelInterface
 	IngestStore           *IngestStoreModel
 	Operations            *OperationModel
@@ -38,7 +39,8 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 		NativeBalance:         &NativeBalanceModel{DB: db, MetricsService: metricsService},
 		SACBalance:            &SACBalanceModel{DB: db, MetricsService: metricsService},
 		AccountContractTokens: &AccountContractTokensModel{DB: db, MetricsService: metricsService},
-		ProtocolWasm:          &ProtocolWasmModel{DB: db, MetricsService: metricsService},
+		ProtocolWasms:         &ProtocolWasmsModel{DB: db, MetricsService: metricsService},
+		Protocols:             &ProtocolsModel{DB: db, MetricsService: metricsService},
 		ProtocolContracts:     &ProtocolContractsModel{DB: db, MetricsService: metricsService},
 		IngestStore:           &IngestStoreModel{DB: db, MetricsService: metricsService},
 		Operations:            &OperationModel{DB: db, MetricsService: metricsService},

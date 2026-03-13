@@ -858,9 +858,9 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 	t.Run("push and get protocol wasms with dedup", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 
-		wasm1 := data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}
-		wasm2 := data.ProtocolWasm{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"}
-		wasm1Dup := data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"} // duplicate
+		wasm1 := data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}
+		wasm2 := data.ProtocolWasms{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"}
+		wasm1Dup := data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"} // duplicate
 
 		buffer.PushProtocolWasm(wasm1)
 		buffer.PushProtocolWasm(wasm2)
@@ -876,9 +876,9 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 
-		buffer1.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
-		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}) // duplicate across buffers
-		buffer2.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"})
+		buffer1.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
+		buffer2.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}) // duplicate across buffers
+		buffer2.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer1.Merge(buffer2)
 
@@ -890,7 +890,7 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 
 	t.Run("clear protocol wasms", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushProtocolWasm(data.ProtocolWasm{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
+		buffer.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
 
 		buffer.Clear()
 
