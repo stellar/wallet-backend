@@ -25,13 +25,14 @@ const (
 )
 
 var (
-	ErrInvalidTimeout                 = errors.New("invalid timeout: timeout cannot be greater than maximum allowed seconds")
-	ErrInvalidOperationChannelAccount = errors.New("invalid operation: operation source account cannot be the channel account")
-	ErrInvalidOperationMissingSource  = errors.New("invalid operation: operation source account cannot be empty for non-Soroban operations")
-	ErrInvalidSorobanOperationCount   = errors.New("invalid Soroban transaction: must have exactly one operation")
-	ErrInvalidSorobanSimulationEmpty  = errors.New("invalid Soroban transaction: simulation response cannot be empty")
-	ErrInvalidSorobanSimulationFailed = errors.New("invalid Soroban transaction: simulation failed")
-	ErrInvalidSorobanOperationType    = errors.New("invalid Soroban transaction: operation type not supported")
+	ErrInvalidTimeout                       = errors.New("invalid timeout: timeout cannot be greater than maximum allowed seconds")
+	ErrInvalidOperationChannelAccount       = errors.New("invalid operation: operation source account cannot be the channel account")
+	ErrInvalidOperationMissingSource        = errors.New("invalid operation: operation source account cannot be empty for non-Soroban operations")
+	ErrInvalidSorobanOperationCount         = errors.New("invalid Soroban transaction: must have exactly one operation")
+	ErrInvalidSorobanSimulationEmpty        = errors.New("invalid Soroban transaction: simulation response cannot be empty")
+	ErrInvalidSorobanSimulationFailed       = errors.New("invalid Soroban transaction: simulation failed")
+	ErrInvalidSorobanOperationType          = errors.New("invalid Soroban transaction: operation type not supported")
+	ErrInvalidSorobanSimulationResultsEmpty = errors.New("invalid Soroban transaction: simulation results cannot be empty for InvokeHostFunction")
 )
 
 type TransactionService interface {
@@ -225,6 +226,11 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 		return txnbuild.TransactionParams{}, ErrInvalidSorobanSimulationEmpty
 	} else if simulationResponse.Error != "" {
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %s", ErrInvalidSorobanSimulationFailed, simulationResponse.Error)
+	}
+
+	// InvokeHostFunction requires non-empty simulation results so auth entries can be verified.
+	if _, ok := operations[0].(*txnbuild.InvokeHostFunction); ok && len(simulationResponse.Results) == 0 {
+		return txnbuild.TransactionParams{}, ErrInvalidSorobanSimulationResultsEmpty
 	}
 
 	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
