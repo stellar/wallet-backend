@@ -3,6 +3,7 @@ package integrationtests
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -11,16 +12,18 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	_ "github.com/lib/pq"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -36,6 +39,18 @@ func loadTestWasm(t *testing.T, filename string) ([]byte, xdr.Hash, string) {
 	t.Helper()
 	wasmBytes, err := os.ReadFile(filepath.Join(testdataDir(), filename))
 	require.NoError(t, err, "reading test WASM file %s", filename)
+
+	hashBytes := sha256.Sum256(wasmBytes)
+	var xdrHash xdr.Hash
+	copy(xdrHash[:], hashBytes[:])
+	hexStr := hex.EncodeToString(hashBytes[:])
+	return wasmBytes, xdrHash, hexStr
+}
+
+// loadTestWasmSuite reads a WASM file from testdata for use in suite tests.
+func loadTestWasmSuite(s *suite.Suite, filename string) ([]byte, xdr.Hash, string) {
+	wasmBytes, err := os.ReadFile(filepath.Join(testdataDir(), filename))
+	s.Require().NoError(err, "reading test WASM file %s", filename)
 
 	hashBytes := sha256.Sum256(wasmBytes)
 	var xdrHash xdr.Hash
@@ -76,33 +91,7 @@ func buildMultiRPCResponse(entries []struct {
 	return entities.RPCGetLedgerEntriesResult{Entries: results}
 }
 
-type testDB struct {
-	pool              db.ConnectionPool
-	protocolModel     *data.ProtocolsModel
-	protocolWasmModel *data.ProtocolWasmsModel
-}
-
-func setupTestDB(t *testing.T) testDB {
-	t.Helper()
-	dbt := dbtest.Open(t)
-	t.Cleanup(func() { dbt.Close() })
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	t.Cleanup(func() { dbConnectionPool.Close() })
-
-	mockMetrics := metrics.NewMockMetricsService()
-	mockMetrics.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-	mockMetrics.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-	mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-	mockMetrics.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return()
-
-	return testDB{
-		pool:              dbConnectionPool,
-		protocolModel:     &data.ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetrics},
-		protocolWasmModel: &data.ProtocolWasmsModel{DB: dbConnectionPool, MetricsService: mockMetrics},
-	}
-}
+// --- Standalone tests (no Docker DB required) ---
 
 func TestWasmSpecExtractor_RealWasm(t *testing.T) {
 	ctx := context.Background()
@@ -167,135 +156,176 @@ func TestSEP41ProtocolValidator_RealWasm(t *testing.T) {
 	})
 }
 
-func TestProtocolSetupService_RealPipeline(t *testing.T) {
+// --- ProtocolSetupTestSuite (requires Docker DB via integration test infra) ---
+
+type ProtocolSetupTestSuite struct {
+	suite.Suite
+	testEnv *infrastructure.TestEnvironment
+}
+
+func (s *ProtocolSetupTestSuite) setupDB() (db.ConnectionPool, func()) {
 	ctx := context.Background()
+	dbURL, err := s.testEnv.Containers.GetWalletDBConnectionString(ctx)
+	s.Require().NoError(err)
+	pool, err := db.OpenDBConnectionPool(dbURL)
+	s.Require().NoError(err)
+	return pool, func() { pool.Close() }
+}
 
-	t.Run("classifies token WASM as SEP-41", func(t *testing.T) {
-		tdb := setupTestDB(t)
-		tokenBytes, tokenHash, tokenHex := loadTestWasm(t, "soroban_token_contract.wasm")
+func (s *ProtocolSetupTestSuite) setupModels(pool db.ConnectionPool) (*data.ProtocolsModel, *data.ProtocolWasmsModel) {
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+	mockMetrics.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
+	mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+	mockMetrics.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return()
+	return &data.ProtocolsModel{DB: pool, MetricsService: mockMetrics},
+		&data.ProtocolWasmsModel{DB: pool, MetricsService: mockMetrics}
+}
 
-		// Insert protocol and unclassified WASM row
-		err := db.RunInPgxTransaction(ctx, tdb.pool, func(dbTx pgx.Tx) error {
-			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
-				return err
-			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
-				{WasmHash: types.HashBytea(tokenHex)},
-			})
+// SetupTest cleans protocol tables before each test to avoid conflicts with the shared DB.
+func (s *ProtocolSetupTestSuite) SetupTest() {
+	ctx := context.Background()
+	dbURL, err := s.testEnv.Containers.GetWalletDBConnectionString(ctx)
+	s.Require().NoError(err)
+
+	sqlDB, err := sql.Open("postgres", dbURL)
+	s.Require().NoError(err)
+	defer sqlDB.Close()
+
+	_, err = sqlDB.ExecContext(ctx, "TRUNCATE TABLE protocol_wasms CASCADE")
+	s.Require().NoError(err)
+	_, err = sqlDB.ExecContext(ctx, "DELETE FROM protocols WHERE id IN ('SEP41')")
+	s.Require().NoError(err)
+}
+
+func (s *ProtocolSetupTestSuite) TestClassifiesTokenWasmAsSEP41() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+	protocolModel, protocolWasmModel := s.setupModels(pool)
+
+	tokenBytes, tokenHash, tokenHex := loadTestWasmSuite(&s.Suite, "soroban_token_contract.wasm")
+
+	err := db.RunInPgxTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		if err := protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
+			return err
+		}
+		return protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
+			{WasmHash: types.HashBytea(tokenHex)},
 		})
-		require.NoError(t, err)
-
-		// Mock RPC returning real token bytecodes
-		rpcMock := services.NewRPCServiceMock(t)
-		rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildRPCResponse(tokenHash, tokenBytes), nil)
-
-		specExtractor := services.NewWasmSpecExtractor()
-		validator := services.NewSEP41ProtocolValidator()
-
-		svc := services.NewProtocolSetupService(
-			tdb.pool, rpcMock, tdb.protocolModel, tdb.protocolWasmModel,
-			specExtractor, []services.ProtocolValidator{validator},
-		)
-		require.NoError(t, svc.Run(ctx, []string{"SEP41"}))
-
-		// Assert WASM is classified as SEP-41
-		wasms, err := tdb.protocolWasmModel.GetUnclassified(ctx)
-		require.NoError(t, err)
-		assert.Empty(t, wasms, "token WASM should no longer be unclassified")
-
-		// Assert protocol classification status is success
-		protocols, err := tdb.protocolModel.GetByIDs(ctx, []string{"SEP41"})
-		require.NoError(t, err)
-		require.Len(t, protocols, 1)
-		assert.Equal(t, data.StatusSuccess, protocols[0].ClassificationStatus)
 	})
+	s.Require().NoError(err)
 
-	t.Run("non-SEP-41 stays unclassified", func(t *testing.T) {
-		tdb := setupTestDB(t)
-		incrBytes, incrHash, incrHex := loadTestWasm(t, "soroban_increment_contract.wasm")
+	rpcMock := services.NewRPCServiceMock(s.T())
+	rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildRPCResponse(tokenHash, tokenBytes), nil)
 
-		err := db.RunInPgxTransaction(ctx, tdb.pool, func(dbTx pgx.Tx) error {
-			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
-				return err
-			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
-				{WasmHash: types.HashBytea(incrHex)},
-			})
+	specExtractor := services.NewWasmSpecExtractor()
+	validator := services.NewSEP41ProtocolValidator()
+
+	svc := services.NewProtocolSetupService(
+		pool, rpcMock, protocolModel, protocolWasmModel,
+		specExtractor, []services.ProtocolValidator{validator},
+	)
+	s.Require().NoError(svc.Run(ctx, []string{"SEP41"}))
+
+	wasms, err := protocolWasmModel.GetUnclassified(ctx)
+	s.Require().NoError(err)
+	s.Assert().Empty(wasms, "token WASM should no longer be unclassified")
+
+	protocols, err := protocolModel.GetByIDs(ctx, []string{"SEP41"})
+	s.Require().NoError(err)
+	s.Require().Len(protocols, 1)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].ClassificationStatus)
+}
+
+func (s *ProtocolSetupTestSuite) TestNonSEP41StaysUnclassified() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+	protocolModel, protocolWasmModel := s.setupModels(pool)
+
+	incrBytes, incrHash, incrHex := loadTestWasmSuite(&s.Suite, "soroban_increment_contract.wasm")
+
+	err := db.RunInPgxTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		if err := protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
+			return err
+		}
+		return protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
+			{WasmHash: types.HashBytea(incrHex)},
 		})
-		require.NoError(t, err)
-
-		rpcMock := services.NewRPCServiceMock(t)
-		rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildRPCResponse(incrHash, incrBytes), nil)
-
-		specExtractor := services.NewWasmSpecExtractor()
-		validator := services.NewSEP41ProtocolValidator()
-
-		svc := services.NewProtocolSetupService(
-			tdb.pool, rpcMock, tdb.protocolModel, tdb.protocolWasmModel,
-			specExtractor, []services.ProtocolValidator{validator},
-		)
-		require.NoError(t, svc.Run(ctx, []string{"SEP41"}))
-
-		// Assert WASM is still unclassified (protocol_id IS NULL)
-		wasms, err := tdb.protocolWasmModel.GetUnclassified(ctx)
-		require.NoError(t, err)
-		require.Len(t, wasms, 1)
-		assert.Equal(t, types.HashBytea(incrHex), wasms[0].WasmHash)
-		assert.Nil(t, wasms[0].ProtocolID)
-
-		// Assert protocol classification status is success
-		protocols, err := tdb.protocolModel.GetByIDs(ctx, []string{"SEP41"})
-		require.NoError(t, err)
-		require.Len(t, protocols, 1)
-		assert.Equal(t, data.StatusSuccess, protocols[0].ClassificationStatus)
 	})
+	s.Require().NoError(err)
 
-	t.Run("mixed WASMs — token classified, increment not", func(t *testing.T) {
-		tdb := setupTestDB(t)
-		tokenBytes, tokenHash, tokenHex := loadTestWasm(t, "soroban_token_contract.wasm")
-		incrBytes, incrHash, incrHex := loadTestWasm(t, "soroban_increment_contract.wasm")
+	rpcMock := services.NewRPCServiceMock(s.T())
+	rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildRPCResponse(incrHash, incrBytes), nil)
 
-		err := db.RunInPgxTransaction(ctx, tdb.pool, func(dbTx pgx.Tx) error {
-			if err := tdb.protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
-				return err
-			}
-			return tdb.protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
-				{WasmHash: types.HashBytea(tokenHex)},
-				{WasmHash: types.HashBytea(incrHex)},
-			})
+	specExtractor := services.NewWasmSpecExtractor()
+	validator := services.NewSEP41ProtocolValidator()
+
+	svc := services.NewProtocolSetupService(
+		pool, rpcMock, protocolModel, protocolWasmModel,
+		specExtractor, []services.ProtocolValidator{validator},
+	)
+	s.Require().NoError(svc.Run(ctx, []string{"SEP41"}))
+
+	wasms, err := protocolWasmModel.GetUnclassified(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(wasms, 1)
+	s.Assert().Equal(types.HashBytea(incrHex), wasms[0].WasmHash)
+	s.Assert().Nil(wasms[0].ProtocolID)
+
+	protocols, err := protocolModel.GetByIDs(ctx, []string{"SEP41"})
+	s.Require().NoError(err)
+	s.Require().Len(protocols, 1)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].ClassificationStatus)
+}
+
+func (s *ProtocolSetupTestSuite) TestMixedWasms() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+	protocolModel, protocolWasmModel := s.setupModels(pool)
+
+	tokenBytes, tokenHash, tokenHex := loadTestWasmSuite(&s.Suite, "soroban_token_contract.wasm")
+	incrBytes, incrHash, incrHex := loadTestWasmSuite(&s.Suite, "soroban_increment_contract.wasm")
+
+	err := db.RunInPgxTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		if err := protocolModel.InsertIfNotExists(ctx, dbTx, "SEP41"); err != nil {
+			return err
+		}
+		return protocolWasmModel.BatchInsert(ctx, dbTx, []data.ProtocolWasms{
+			{WasmHash: types.HashBytea(tokenHex)},
+			{WasmHash: types.HashBytea(incrHex)},
 		})
-		require.NoError(t, err)
-
-		// Mock RPC returns both WASMs
-		rpcMock := services.NewRPCServiceMock(t)
-		rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildMultiRPCResponse([]struct {
-			hash xdr.Hash
-			code []byte
-		}{
-			{hash: tokenHash, code: tokenBytes},
-			{hash: incrHash, code: incrBytes},
-		}), nil)
-
-		specExtractor := services.NewWasmSpecExtractor()
-		validator := services.NewSEP41ProtocolValidator()
-
-		svc := services.NewProtocolSetupService(
-			tdb.pool, rpcMock, tdb.protocolModel, tdb.protocolWasmModel,
-			specExtractor, []services.ProtocolValidator{validator},
-		)
-		require.NoError(t, svc.Run(ctx, []string{"SEP41"}))
-
-		// Only the increment WASM should remain unclassified
-		wasms, err := tdb.protocolWasmModel.GetUnclassified(ctx)
-		require.NoError(t, err)
-		require.Len(t, wasms, 1)
-		assert.Equal(t, types.HashBytea(incrHex), wasms[0].WasmHash)
-		assert.Nil(t, wasms[0].ProtocolID)
-
-		// Protocol status should be success
-		protocols, err := tdb.protocolModel.GetByIDs(ctx, []string{"SEP41"})
-		require.NoError(t, err)
-		require.Len(t, protocols, 1)
-		assert.Equal(t, data.StatusSuccess, protocols[0].ClassificationStatus)
 	})
+	s.Require().NoError(err)
+
+	rpcMock := services.NewRPCServiceMock(s.T())
+	rpcMock.On("GetLedgerEntries", mock.Anything).Return(buildMultiRPCResponse([]struct {
+		hash xdr.Hash
+		code []byte
+	}{
+		{hash: tokenHash, code: tokenBytes},
+		{hash: incrHash, code: incrBytes},
+	}), nil)
+
+	specExtractor := services.NewWasmSpecExtractor()
+	validator := services.NewSEP41ProtocolValidator()
+
+	svc := services.NewProtocolSetupService(
+		pool, rpcMock, protocolModel, protocolWasmModel,
+		specExtractor, []services.ProtocolValidator{validator},
+	)
+	s.Require().NoError(svc.Run(ctx, []string{"SEP41"}))
+
+	wasms, err := protocolWasmModel.GetUnclassified(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(wasms, 1)
+	s.Assert().Equal(types.HashBytea(incrHex), wasms[0].WasmHash)
+	s.Assert().Nil(wasms[0].ProtocolID)
+
+	protocols, err := protocolModel.GetByIDs(ctx, []string{"SEP41"})
+	s.Require().NoError(err)
+	s.Require().Len(protocols, 1)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].ClassificationStatus)
 }

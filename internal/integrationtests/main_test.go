@@ -35,6 +35,11 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
 
+	// Protocol setup tests — only needs DB + migrations, not running ingest
+	t.Run("ProtocolSetupTestSuite", func(t *testing.T) {
+		suite.Run(t, &ProtocolSetupTestSuite{testEnv: testEnv})
+	})
+
 	// Phase 2: Test parallel live + backfill ingestion
 	t.Run("BackfillTestSuite", func(t *testing.T) {
 		suite.Run(t, &BackfillTestSuite{
