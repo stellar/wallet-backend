@@ -12,7 +12,7 @@ import (
 func parseStateChangeIDs(stateChangeIDs []string) ([]int64, []int64, []int64, error) {
 	toIDs := make([]int64, len(stateChangeIDs))
 	opIDs := make([]int64, len(stateChangeIDs))
-	orders := make([]int64, len(stateChangeIDs))
+	stateChangeIDValues := make([]int64, len(stateChangeIDs))
 
 	for i, id := range stateChangeIDs {
 		parts := strings.Split(id, "-")
@@ -30,15 +30,15 @@ func parseStateChangeIDs(stateChangeIDs []string) ([]int64, []int64, []int64, er
 			return nil, nil, nil, fmt.Errorf("invalid operation_id in state change ID %s: %w", id, err)
 		}
 
-		order, err := strconv.ParseInt(parts[2], 10, 64)
+		stateChangeID, err := strconv.ParseInt(parts[2], 10, 64)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("invalid state_change_id in state change ID %s: %w", id, err)
 		}
 
 		toIDs[i] = toID
 		opIDs[i] = opID
-		orders[i] = order
+		stateChangeIDValues[i] = stateChangeID
 	}
 
-	return toIDs, opIDs, orders, nil
+	return toIDs, opIDs, stateChangeIDValues, nil
 }
