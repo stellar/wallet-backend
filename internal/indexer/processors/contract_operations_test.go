@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -134,7 +134,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 	type TestCase struct {
 		name             string
 		op               *TransactionOperationWrapper
-		wantParticipants set.Set[string]
+		wantParticipants types.StringSet
 	}
 
 	testCases := []TestCase{}
@@ -159,7 +159,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount),
+					wantParticipants: types.NewStringSet(txSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly/op.SourceAccount", prefix),
@@ -175,7 +175,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount),
+					wantParticipants: types.NewStringSet(opSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly&ReadWrite/tx.SourceAccount", prefix),
@@ -194,7 +194,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount),
+					wantParticipants: types.NewStringSet(txSourceAccount),
 				},
 			)
 		}
@@ -232,12 +232,12 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 	testCases := []struct {
 		name             string
 		op               *TransactionOperationWrapper
-		wantParticipants set.Set[string]
+		wantParticipants types.StringSet
 	}{
 		{
 			name:             "🟢upload_wasm/tx.SourceAccount",
 			op:               uploadWasmOp(),
-			wantParticipants: set.NewSet(txSourceAccount),
+			wantParticipants: types.NewStringSet(txSourceAccount),
 		},
 		{
 			name: "🟢upload_wasm/tx.SourceAccount",
@@ -246,12 +246,12 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 				op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 				return op
 			}(),
-			wantParticipants: set.NewSet(opSourceAccount),
+			wantParticipants: types.NewStringSet(opSourceAccount),
 		},
 		{
 			name:             "🟢feeBump(upload_wasm)/tx.SourceAccount",
 			op:               makeFeeBumpOp(txSourceAccount, uploadWasmOp()),
-			wantParticipants: set.NewSet(txSourceAccount),
+			wantParticipants: types.NewStringSet(txSourceAccount),
 		},
 	}
 
@@ -378,6 +378,14 @@ func includeSubInvocations(op *TransactionOperationWrapper) {
 	}
 }
 
+func mergeStringSets(sets ...types.StringSet) types.StringSet {
+	result := types.NewStringSet()
+	for _, s := range sets {
+		result.Append(s.ToSlice()...)
+	}
+	return result
+}
+
 func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.T) {
 	const (
 		opSourceAccount       = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
@@ -391,7 +399,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	type TestCase struct {
 		name             string
 		op               *TransactionOperationWrapper
-		wantParticipants set.Set[string]
+		wantParticipants types.StringSet
 	}
 
 	testCases := []TestCase{}
@@ -399,10 +407,10 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		for _, feeBump := range []bool{false, true} {
 			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
 				prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
-				subInvocationsParticipants := set.NewSet[string]()
+				subInvocationsParticipants := types.NewStringSet()
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
-					subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+					subInvocationsParticipants = types.NewStringSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 				}
 				if feeBump {
 					prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -422,7 +430,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
+						wantParticipants: mergeStringSets(types.NewStringSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF"), subInvocationsParticipants),
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
@@ -439,7 +447,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
+						wantParticipants: mergeStringSets(types.NewStringSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF"), subInvocationsParticipants),
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
@@ -455,7 +463,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(txSourceAccount, usdcSACContractID).Union(subInvocationsParticipants),
+						wantParticipants: mergeStringSets(types.NewStringSet(txSourceAccount, usdcSACContractID), subInvocationsParticipants),
 					},
 				)
 			}
@@ -472,7 +480,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 			}
 			return op
 		}(),
-		wantParticipants: set.NewSet(
+		wantParticipants: types.NewStringSet(
 			txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF",
 		),
 	})
@@ -529,17 +537,17 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	type TestCase struct {
 		name             string
 		op               *TransactionOperationWrapper
-		wantParticipants set.Set[string]
+		wantParticipants types.StringSet
 	}
 
 	testCases := []TestCase{}
 	for _, withSubinvocations := range []bool{false, true} {
 		for _, feeBump := range []bool{false, true} {
 			prefix := ""
-			subInvocationsParticipants := set.NewSet[string]()
+			subInvocationsParticipants := types.NewStringSet()
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
-				subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+				subInvocationsParticipants = types.NewStringSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 			}
 			if feeBump {
 				prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -558,7 +566,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: mergeStringSets(types.NewStringSet(txSourceAccount, invokedContractID), subInvocationsParticipants),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
@@ -574,7 +582,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: mergeStringSets(types.NewStringSet(opSourceAccount, invokedContractID), subInvocationsParticipants),
 				},
 			)
 		}

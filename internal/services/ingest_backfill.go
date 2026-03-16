@@ -3,38 +3,18 @@ package services
 import (
 	"context"
 	"fmt"
-	"maps"
-	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-)
-
-// BackfillMode indicates the purpose of backfilling.
-type BackfillMode int
-
-func (m BackfillMode) isHistorical() bool {
-	return m == BackfillModeHistorical
-}
-
-func (m BackfillMode) isCatchup() bool {
-	return m == BackfillModeCatchup
-}
-
-const (
-	// BackfillModeHistorical fills gaps within already-ingested ledger range.
-	BackfillModeHistorical BackfillMode = iota
-	// BackfillModeCatchup fills forward gaps to catch up to network tip.
-	BackfillModeCatchup
 )
 
 // BackfillBatch represents a contiguous range of ledgers to process as a unit.
@@ -43,78 +23,19 @@ type BackfillBatch struct {
 	EndLedger   uint32
 }
 
+type CompressBatch struct {
+	batch           *BackfillBatch
+	ledgerCloseTime time.Time
+}
+
 // BackfillResult tracks the outcome of processing a single batch.
 type BackfillResult struct {
 	Batch        BackfillBatch
 	LedgersCount int
 	Duration     time.Duration
 	Error        error
-	BatchChanges *BatchChanges // Only populated for catchup mode
-	StartTime    time.Time     // First ledger close time in batch (for compression)
-	EndTime      time.Time     // Last ledger close time in batch (for compression)
-}
-
-// BatchChanges holds data collected from a backfill batch for catchup mode.
-// This data is processed after all parallel batches complete to ensure proper ordering.
-type BatchChanges struct {
-	TrustlineChangesByKey     map[indexer.TrustlineChangeKey]types.TrustlineChange
-	ContractChanges           []types.ContractChange
-	AccountChangesByAccountID map[string]types.AccountChange
-	SACBalanceChangesByKey    map[indexer.SACBalanceChangeKey]types.SACBalanceChange
-	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
-	UniqueContractTokensByID  map[string]types.ContractType
-	SACContractsByID          map[string]*data.Contract // SAC contract metadata extracted from instance entries
-}
-
-// mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
-// Handles ADD→REMOVE no-op case where a trustline is created and removed in the same batch.
-func mergeTrustlineChanges(dest, source map[indexer.TrustlineChangeKey]types.TrustlineChange) {
-	for key, change := range source {
-		existing, exists := dest[key]
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-		// Handle ADD→REMOVE no-op case
-		if exists && change.Operation == types.TrustlineOpRemove && existing.Operation == types.TrustlineOpAdd {
-			delete(dest, key)
-			continue
-		}
-		dest[key] = change
-	}
-}
-
-// mergeAccountChanges merges source account changes into dest, keeping highest OperationID per account.
-// Handles CREATE→REMOVE no-op case where an account is created and removed in the same batch.
-func mergeAccountChanges(dest, source map[string]types.AccountChange) {
-	for accountID, change := range source {
-		existing, exists := dest[accountID]
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-		// Handle CREATE→REMOVE no-op case
-		if exists && change.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
-			delete(dest, accountID)
-			continue
-		}
-		dest[accountID] = change
-	}
-}
-
-// mergeSACBalanceChanges merges source SAC balance changes into dest, keeping highest OperationID per key.
-// Handles ADD→REMOVE no-op case where a SAC balance is created and removed in the same batch.
-func mergeSACBalanceChanges(dest, source map[indexer.SACBalanceChangeKey]types.SACBalanceChange) {
-	for key, change := range source {
-		existing, exists := dest[key]
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-		// Handle ADD→REMOVE no-op case
-		if exists && change.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
-			delete(dest, key)
-			continue
-		}
-		dest[key] = change
-	}
+	StartTime    time.Time // First ledger close time in batch (for compression)
+	EndTime      time.Time // Last ledger close time in batch (for compression)
 }
 
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
@@ -131,124 +52,112 @@ func analyzeBatchResults(ctx context.Context, results []BackfillResult) int {
 	return numFailed
 }
 
-// startBackfilling processes ledgers in the specified range, identifying gaps
-// and processing them in parallel batches. The mode parameter determines:
-// - BackfillModeHistorical: fills gaps within already-ingested range
-// - BackfillModeCatchup: catches up to network tip from latest ingested ledger
-func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32, mode BackfillMode) error {
+// fetchLedgerCloseTime fetches the ClosedAt timestamp for a ledger
+// It creates a temporary ledger backend, fetches the ledger via single-ledger PrepareRange calls, and returns the time.
+func (m *ingestService) fetchLedgerCloseTime(ctx context.Context, ledger uint32) (time.Time, error) {
+	backend, err := m.ledgerBackendFactory(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("creating backend for boundary timestamps: %w", err)
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing boundary timestamp backend: %v", closeErr)
+		}
+	}()
+	err = backend.PrepareRange(ctx, ledgerbackend.BoundedRange(ledger, ledger))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("preparing range for start ledger %d: %w", ledger, err)
+	}
+	meta, err := backend.GetLedger(ctx, ledger)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("getting start ledger %d: %w", ledger, err)
+	}
+	return meta.ClosedAt(), nil
+}
+
+// startHistoricalBackfill processes ledgers in the specified range, identifying gaps
+// and processing them in parallel batches. Fills gaps within already-ingested range.
+func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger, endLedger uint32) error {
 	if startLedger > endLedger {
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
 	}
-
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
-
-	// Validate based on mode
-	switch mode {
-	case BackfillModeHistorical:
-		if endLedger > latestIngestedLedger {
-			return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
-		}
-	case BackfillModeCatchup:
-		if startLedger != latestIngestedLedger+1 {
-			return fmt.Errorf("catchup must start from ledger %d (latestIngestedLedger + 1), got %d", latestIngestedLedger+1, startLedger)
-		}
+	if endLedger > latestIngestedLedger {
+		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
 	}
 
-	// Determine gaps to fill based on mode
-	var gaps []data.LedgerRange
-	if mode.isCatchup() {
-		// For catchup, treat entire range as a single gap (no existing data in this range)
-		gaps = []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
-	} else {
-		gaps, err = m.calculateBackfillGaps(ctx, startLedger, endLedger)
-		if err != nil {
-			return fmt.Errorf("calculating backfill gaps: %w", err)
-		}
+	// Calculate the gaps in DB first.
+	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
+	if err != nil {
+		return fmt.Errorf("calculating backfill gaps: %w", err)
 	}
 	if len(gaps) == 0 {
 		log.Ctx(ctx).Infof("No gaps to backfill in range [%d - %d]", startLedger, endLedger)
 		return nil
 	}
 
-	backfillBatches := m.splitGapsIntoBatches(gaps)
-
-	// Create progressive recompressor for historical mode.
-	// Recompresses chunks as contiguous batches complete rather than waiting until the end.
-	var recompressor *progressiveRecompressor
-	if mode.isHistorical() {
-		tables := []string{
-			"transactions", "transactions_accounts", "operations",
-			"operations_accounts", "state_changes",
-		}
-		recompressor = newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
+	// Must match ingest.Hypertables — duplicated here to avoid import cycle.
+	tables := []string{
+		"transactions", "transactions_accounts", "operations",
+		"operations_accounts", "state_changes",
 	}
 
+	// Fetch boundary timestamps for chunk pre-creation and recompression scoping.
+	rangeStartTime, err := m.fetchLedgerCloseTime(ctx, gaps[0].GapStart)
+	if err != nil {
+		return fmt.Errorf("fetching start ledger %d timestamp: %w", gaps[0].GapStart, err)
+	}
+	rangeEndTime, err := m.fetchLedgerCloseTime(ctx, gaps[len(gaps)-1].GapEnd)
+	if err != nil {
+		return fmt.Errorf("fetching end ledger %d timestamp: %w", gaps[len(gaps)-1].GapEnd, err)
+	}
+
+	// Suppress insert-triggered autovacuum on parent hypertables during backfill
+	// to avoid I/O contention with COPY inserts and compress_chunk.
+	if err := db.DisableInsertAutovacuum(ctx, m.models.DB, tables); err != nil {
+		return fmt.Errorf("disabling insert autovacuum: %w", err)
+	}
+	defer func() {
+		if restoreErr := db.RestoreInsertAutovacuum(ctx, m.models.DB, tables); restoreErr != nil {
+			log.Ctx(ctx).Warnf("Failed to restore insert autovacuum: %v", restoreErr)
+		}
+	}()
+
+	chunks, err := db.PreCreateChunks(ctx, m.models.DB, tables, rangeStartTime, rangeEndTime)
+	if err != nil {
+		return fmt.Errorf("pre-creating chunks: %w", err)
+	}
+	gapBatches, chunksByBatch, err := m.mapBatchesToChunks(ctx, gaps, chunks)
+	if err != nil {
+		return err
+	}
+
+	// Start the parallel chunk compressor goroutine.
+	compressorCh := make(chan *CompressBatch, 64)
+	compressor := newProgressiveCompressor(ctx, m.models.DB, chunksByBatch, compressorCh)
+	compressor.runCompression()
+
+	pipelinedProcessor := func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult {
+		return m.processLedgersInBatch(ctx, backend, batch, m.flushHistoricalBatch, compressorCh)
+	}
+
+	// Start backfill.
 	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, mode, backfillBatches, recompressor)
+	results := m.processBackfillBatchesParallel(ctx, gapBatches, pipelinedProcessor)
 	duration := time.Since(startTime)
 
-	numFailedBatches := analyzeBatchResults(ctx, results)
+	close(compressorCh)
+	analyzeBatchResults(ctx, results)
 
-	// Wait for progressive compression to finish (historical mode only).
+	// Wait for progressive compression to finish.
 	// Compression proceeds even if some batches failed — already-compressed
 	// chunks contain valid data and compress_chunk is idempotent.
-	if recompressor != nil {
-		recompressor.Wait()
-	}
+	compressor.Wait()
 
-	// Update latest ledger cursor and process catchup data for catchup mode
-	if mode.isCatchup() {
-		if numFailedBatches > 0 {
-			return fmt.Errorf("optimized catchup failed: %d/%d batches failed", numFailedBatches, len(backfillBatches))
-		}
-
-		// Merge all batch changes into single maps
-		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
-		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
-		mergedUniqueContractTokens := make(map[string]types.ContractType)
-		mergedSACContracts := make(map[string]*data.Contract)
-		mergedAccountChanges := make(map[string]types.AccountChange)
-		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
-		var allContractChanges []types.ContractChange
-		for _, result := range results {
-			if result.BatchChanges != nil {
-				mergeTrustlineChanges(mergedTrustlineChanges, result.BatchChanges.TrustlineChangesByKey)
-				allContractChanges = append(allContractChanges, result.BatchChanges.ContractChanges...)
-				mergeAccountChanges(mergedAccountChanges, result.BatchChanges.AccountChangesByAccountID)
-				mergeSACBalanceChanges(mergedSACBalanceChanges, result.BatchChanges.SACBalanceChangesByKey)
-				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
-				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
-				// Merge SAC contracts (first-write wins)
-				for id, contract := range result.BatchChanges.SACContractsByID {
-					if _, exists := mergedSACContracts[id]; !exists {
-						mergedSACContracts[id] = contract
-					}
-				}
-			}
-		}
-
-		// Update latest ledger cursor after all catchup processing succeeds
-		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts)
-			if innerErr != nil {
-				return fmt.Errorf("processing batch changes: %w", innerErr)
-			}
-			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger)
-			if innerErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", endLedger, innerErr)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("updating latest cursor after catchup: %w", err)
-		}
-	}
-
-	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches", duration, len(backfillBatches))
+	log.Ctx(ctx).Infof("Historical backfill completed in %v: %d gaps", duration, len(gapBatches))
 	return nil
 }
 
@@ -313,59 +222,38 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 	return newGaps, nil
 }
 
-// splitGapsIntoBatches divides ledger gaps into fixed-size batches for parallel processing.
-func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []BackfillBatch {
-	var batches []BackfillBatch
-
-	for _, gap := range gaps {
-		start := gap.GapStart
-		for start <= gap.GapEnd {
-			end := min(start+m.backfillBatchSize-1, gap.GapEnd)
-			batches = append(batches, BackfillBatch{
-				StartLedger: start,
-				EndLedger:   end,
-			})
-			start = end + 1
-		}
-	}
-
-	return batches
-}
+// batchProcessor is a function that processes all ledgers in a batch and returns its result.
+type batchProcessor func(ctx context.Context, backend ledgerbackend.LedgerBackend, batch BackfillBatch) BackfillResult
 
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
-// For historical mode, data is inserted uncompressed; the optional progressive compressor
-// compresses chunks via compress_chunk() as contiguous batches complete.
-func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, mode BackfillMode, batches []BackfillBatch, recompressor *progressiveRecompressor) []BackfillResult {
+// Each batch is processed by the provided batchProcessor function.
+// The optional onBatchComplete callback is called after each successful batch.
+func (m *ingestService) processBackfillBatchesParallel(
+	ctx context.Context,
+	batches []BackfillBatch,
+	processBatch batchProcessor,
+) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
-
 	for i, batch := range batches {
 		group.Submit(func() {
-			results[i] = m.processSingleBatch(ctx, mode, batch, i, len(batches))
-			if recompressor != nil && results[i].Error == nil {
-				recompressor.MarkDone(i, results[i].StartTime, results[i].EndTime)
-			}
+			results[i] = m.processSingleBatch(ctx, batch, i, len(batches), processBatch)
 		})
 	}
-
 	if err := group.Wait(); err != nil {
 		log.Ctx(ctx).Warnf("Backfill batch group wait returned error: %v", err)
 	}
-
 	return results
 }
 
 // processSingleBatch processes a single backfill batch with its own ledger backend.
-func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMode, batch BackfillBatch, batchIndex, totalBatches int) BackfillResult {
+func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBatch, batchIndex, totalBatches int, processBatch batchProcessor) BackfillResult {
 	start := time.Now()
-	result := BackfillResult{Batch: batch}
 
 	// Setup backend
 	backend, err := m.setupBatchBackend(ctx, batch)
 	if err != nil {
-		result.Error = err
-		result.Duration = time.Since(start)
-		return result
+		return BackfillResult{Batch: batch, Error: err, Duration: time.Since(start)}
 	}
 	defer func() {
 		if closeErr := backend.Close(); closeErr != nil {
@@ -373,26 +261,13 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 		}
 	}()
 
-	// Process all ledgers in batch (cursor is updated atomically with final flush for historical mode)
-	ledgersCount, batchChanges, batchStartTime, batchEndTime, err := m.processLedgersInBatch(ctx, backend, batch, mode)
-	result.LedgersCount = ledgersCount
-	result.BatchChanges = batchChanges
-	result.StartTime = batchStartTime
-	result.EndTime = batchEndTime
-	if err != nil {
-		result.Error = err
-		result.Duration = time.Since(start)
-		return result
-	}
-
-	// Record metrics for historical backfill cursor updates
-	if mode.isHistorical() {
-		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
-	}
-
+	result := processBatch(ctx, backend, batch)
 	result.Duration = time.Since(start)
-	log.Ctx(ctx).Infof("Batch %d/%d [%d - %d] completed: %d ledgers in %v",
-		batchIndex+1, totalBatches, batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
+
+	if result.Error == nil {
+		log.Ctx(ctx).Infof("Batch %d/%d [%d - %d] completed: %d ledgers in %v",
+			batchIndex+1, totalBatches, batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
+	}
 
 	return result
 }
@@ -413,67 +288,30 @@ func (m *ingestService) setupBatchBackend(ctx context.Context, batch BackfillBat
 	return backend, nil
 }
 
-// flushBatchBufferWithRetry persists buffered data to the database within a transaction.
-// If updateCursorTo is non-nil, it also updates the oldest cursor atomically.
-func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer, updateCursorTo *uint32, batchChanges *BatchChanges) error {
+// flushHistoricalBatch persists buffered data to the database within a transaction.
+func (m *ingestService) flushHistoricalBatch(ctx context.Context, buffers []*LedgerBuffer) error {
 	var lastErr error
-	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
+	for attempt := range maxIngestProcessedDataRetries {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		default:
 		}
 
-		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-			// Disable synchronous commit for this transaction only — safe for backfill
-			// since data can be re-ingested if a crash occurs before WAL flush.
-			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
-			}
-			// Collect changes for post-catchup processing if requested
-			if batchChanges != nil {
-				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
-				batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
-				mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
-				mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
-				// Collect unique assets (iterate slice into map)
-				for _, asset := range buffer.GetUniqueTrustlineAssets() {
-					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
-				}
-				// Collect unique contract tokens
-				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
-				// Collect SAC contract metadata (first-write wins for deduplication)
-				for id, contract := range buffer.GetSACContracts() {
-					if _, exists := batchChanges.SACContractsByID[id]; !exists {
-						batchChanges.SACContractsByID[id] = contract
-					}
-				}
-			}
-			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
-				return fmt.Errorf("inserting processed data into db: %w", err)
-			}
-			// Unlock channel accounts using all transactions (not filtered)
-			if err := m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
-			// Update cursor atomically with data insertion if requested
-			if updateCursorTo != nil {
-				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
-					return fmt.Errorf("updating oldest cursor: %w", err)
-				}
-			}
-			return nil
-		})
+		_, _, err := m.insertBatchIntoDB(ctx, buffers, insertOpts{backfillMode: true})
 		if err == nil {
 			return nil
 		}
 		lastErr = err
 
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxIngestProcessedDataRetryBackoff {
-			backoff = maxIngestProcessedDataRetryBackoff
+		if attempt >= maxIngestProcessedDataRetries-1 {
+			log.Ctx(ctx).Errorf("Error flushing historical batch (attempt %d/%d): %v, giving up",
+				attempt+1, maxIngestProcessedDataRetries, lastErr)
+			break
 		}
-		log.Ctx(ctx).Warnf("Error flushing batch buffer (attempt %d/%d): %v, retrying in %v...",
+
+		backoff := min(time.Duration(1<<attempt)*time.Second, maxIngestProcessedDataRetryBackoff)
+		log.Ctx(ctx).Warnf("Error flushing historical batch (attempt %d/%d): %v, retrying in %v...",
 			attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
 
 		select {
@@ -485,81 +323,386 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 	return lastErr
 }
 
-// processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
-// For historical backfill mode, the cursor is updated atomically with the final data flush.
-// For catchup mode, returns collected batch changes for post-catchup processing.
-// Returns the count of ledgers processed, batch changes (nil for historical mode), and time range.
+const (
+	// pipelineWorkerLimit controls parallel ledger processors in Stage 2.
+	// Tuned to ~NumCPU + margin for I/O overlap during buffer sends.
+	pipelineWorkerLimit = 11
+
+	// pipelineReaderBuffer keeps the reader ahead of workers to hide GetLedger latency.
+	pipelineReaderBuffer = 200
+)
+
+// pipelineMetrics tracks worker-side timing for pipeline observability.
+// Stage 2 workers update atomics; Stage 3 consumer reads deltas per flush.
+type pipelineMetrics struct {
+	processDuration   atomic.Int64
+	workerBlockedTime atomic.Int64
+	workerLedgers     atomic.Int64
+	lastProcess       int64
+	lastBlocked       int64
+	lastLedgers       int64
+}
+
+// deltas returns the change in worker metrics since the last call.
+func (pm *pipelineMetrics) deltas() (process, blocked time.Duration, ledgers int64) {
+	currProcess := pm.processDuration.Load()
+	currBlocked := pm.workerBlockedTime.Load()
+	currLedgers := pm.workerLedgers.Load()
+	process = time.Duration(currProcess - pm.lastProcess)
+	blocked = time.Duration(currBlocked - pm.lastBlocked)
+	ledgers = currLedgers - pm.lastLedgers
+	pm.lastProcess = currProcess
+	pm.lastBlocked = currBlocked
+	pm.lastLedgers = currLedgers
+	return
+}
+
+// metaWithTime pairs a ledger's close metadata with its parsed close time.
+type metaWithTime struct {
+	meta     xdr.LedgerCloseMeta
+	closedAt time.Time
+}
+
+type LedgerBuffer struct {
+	buffer    *indexer.IndexerBuffer
+	ledgerSeq uint32
+	closeTime time.Time
+}
+
+// processLedgersInBatch processes ledgers using a 3-stage streaming pipeline:
+//   - Stage 1 (Reader): Sequential GetLedger calls into metaCh
+//   - Stage 2 (Workers): Parallel ledger processing into flushCh
+//   - Stage 3 (Consumer): Merge buffers + periodic flush to DB
+//
+// A pipeline-scoped context ensures all stages stop promptly when any stage fails,
+// preventing partial DB writes and goroutine leaks.
 func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
-	mode BackfillMode,
-) (int, *BatchChanges, time.Time, time.Time, error) {
-	batchBuffer := indexer.NewIndexerBuffer()
-	ledgersInBuffer := uint32(0)
-	ledgersProcessed := 0
-	var startTime, endTime time.Time
+	flush func(context.Context, []*LedgerBuffer) error,
+	compressorCh chan<- *CompressBatch,
+) BackfillResult {
+	result := BackfillResult{Batch: batch}
 
-	// Initialize batch changes collector for catchup mode
-	var batchChanges *BatchChanges
-	if mode.isCatchup() {
-		batchChanges = &BatchChanges{
-			TrustlineChangesByKey:     make(map[indexer.TrustlineChangeKey]types.TrustlineChange),
-			AccountChangesByAccountID: make(map[string]types.AccountChange),
-			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
-			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
-			UniqueContractTokensByID:  make(map[string]types.ContractType),
-			SACContractsByID:          make(map[string]*data.Contract),
-		}
+	// Pipeline-scoped context: any stage failure cancels all stages.
+	pipeCtx, pipeCancel := context.WithCancel(ctx)
+	defer pipeCancel()
+
+	metaCh := make(chan metaWithTime, pipelineReaderBuffer)
+	flushCh := make(chan *LedgerBuffer, m.backfillDBInsertBatchSize*2)
+	var metrics pipelineMetrics
+
+	// Launch pipeline stages
+	startTime, endTime, readerErr := m.startLedgerReader(pipeCtx, backend, batch, metaCh, pipeCancel)
+	workerErr := m.startLedgerWorkers(pipeCtx, metaCh, flushCh, &metrics, pipeCancel)
+
+	// Consume + flush
+	batchStart := time.Now()
+	ledgersCount, flushDuration, flushErr := m.consumeAndFlush(ctx, &batch, pipeCtx, flushCh, flush, &metrics, pipeCancel, compressorCh)
+	result.LedgersCount = ledgersCount
+	if flushErr != nil {
+		result.Error = flushErr
+		return result
 	}
 
-	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
-		if err != nil {
-			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
-		}
+	// Check upstream errors
+	if err := collectPipelineErrors(readerErr, workerErr); err != nil {
+		result.Error = err
+		return result
+	}
 
-		// Track time range for compression
-		ledgerTime := ledgerMeta.ClosedAt()
-		if startTime.IsZero() {
-			startTime = ledgerTime
-		}
-		endTime = ledgerTime
+	// Finalize
+	if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
+		result.Error = err
+		return result
+	}
+	result.StartTime = *startTime
+	result.EndTime = *endTime
+	m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
 
-		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
-			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
-		}
-		ledgersProcessed++
-		ledgersInBuffer++
+	// Summary log
+	elapsed := time.Since(batchStart)
+	log.Ctx(ctx).Infof("Batch [%d-%d] complete — %d ledgers in %v (%.1f l/s), process: %v, flush: %v",
+		batch.StartLedger, batch.EndLedger,
+		result.LedgersCount, elapsed, float64(result.LedgersCount)/elapsed.Seconds(),
+		time.Duration(metrics.processDuration.Load()), flushDuration)
 
-		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
-		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
-			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil, batchChanges); err != nil {
-				return ledgersProcessed, batchChanges, startTime, endTime, err
+	return result
+}
+
+// startLedgerReader spawns a goroutine that sequentially fetches ledgers via
+// GetLedger and sends them to metaCh. It closes metaCh on completion or error.
+// The caller reads boundary timestamps from the returned pointers after metaCh drains.
+func (m *ingestService) startLedgerReader(
+	pipeCtx context.Context,
+	backend ledgerbackend.LedgerBackend,
+	batch BackfillBatch,
+	metaCh chan<- metaWithTime,
+	cancel context.CancelFunc,
+) (startTime, endTime *time.Time, errCh <-chan error) {
+	readerErr := make(chan error, 1)
+	var st, et time.Time
+	startTime = &st
+	endTime = &et
+
+	go func() {
+		defer close(metaCh)
+		for seq := batch.StartLedger; seq <= batch.EndLedger; seq++ {
+			meta, err := m.getLedgerWithRetry(pipeCtx, backend, seq)
+			if err != nil {
+				readerErr <- fmt.Errorf("getting ledger %d: %w", seq, err)
+				cancel()
+				return
 			}
-			batchBuffer.Clear()
-			ledgersInBuffer = 0
+			lt := meta.ClosedAt()
+			if st.IsZero() {
+				st = lt
+			}
+			et = lt
+
+			select {
+			case metaCh <- metaWithTime{meta: meta, closedAt: lt}:
+			case <-pipeCtx.Done():
+				readerErr <- pipeCtx.Err()
+				return
+			}
+		}
+	}()
+
+	return startTime, endTime, readerErr
+}
+
+// startLedgerWorkers spawns a goroutine that reads from metaCh, processes
+// ledgers in parallel (up to pipelineWorkerLimit), and sends IndexerBuffers
+// to flushCh. It closes flushCh on completion.
+// Channel ownership: caller creates and closes metaCh; workers only read from it.
+func (m *ingestService) startLedgerWorkers(
+	pipeCtx context.Context,
+	metaCh <-chan metaWithTime,
+	flushCh chan<- *LedgerBuffer,
+	metrics *pipelineMetrics,
+	cancel context.CancelFunc,
+) <-chan error {
+	workerErr := make(chan error, 1)
+
+	go func() {
+		defer close(flushCh)
+		g, gCtx := errgroup.WithContext(pipeCtx)
+		g.SetLimit(pipelineWorkerLimit)
+
+		for item := range metaCh {
+			// Check if an upstream stage has failed before merging more data.
+			if pipeCtx.Err() != nil {
+				break
+			}
+
+			g.Go(func() error {
+				t := time.Now()
+				buf := indexer.NewIndexerBuffer()
+				if err := m.processLedgerSequential(gCtx, item.meta, buf); err != nil {
+					return err
+				}
+				metrics.processDuration.Add(int64(time.Since(t)))
+
+				t2 := time.Now()
+				select {
+				case flushCh <- &LedgerBuffer{
+					buffer:    buf,
+					ledgerSeq: item.meta.LedgerSequence(),
+					closeTime: item.meta.ClosedAt(),
+				}:
+				case <-gCtx.Done():
+					return gCtx.Err()
+				}
+				metrics.workerBlockedTime.Add(int64(time.Since(t2)))
+				metrics.workerLedgers.Add(1)
+				return nil
+			})
+		}
+		if err := g.Wait(); err != nil {
+			workerErr <- err
+			cancel()
+		}
+	}()
+
+	return workerErr
+}
+
+// watermarkTracker tracks the highest contiguously-flushed ledger sequence
+// to signal safe compression windows. Single-goroutine use only.
+type watermarkTracker struct {
+	gapBatch     *BackfillBatch
+	flushed      []bool
+	closeTimes   map[uint32]time.Time
+	watermark    uint32
+	compressorCh chan<- *CompressBatch
+}
+
+func newWatermarkTracker(gapBatch *BackfillBatch, compressorCh chan<- *CompressBatch) *watermarkTracker {
+	return &watermarkTracker{
+		gapBatch:     gapBatch,
+		flushed:      make([]bool, gapBatch.EndLedger-gapBatch.StartLedger+1),
+		closeTimes:   make(map[uint32]time.Time),
+		watermark:    gapBatch.StartLedger,
+		compressorCh: compressorCh,
+	}
+}
+
+// advance marks ledgers as flushed and signals compression for any new
+// contiguously-complete prefix. Prunes consumed closeTimes entries.
+func (w *watermarkTracker) advance(buffers []*LedgerBuffer) {
+	for _, item := range buffers {
+		w.flushed[item.ledgerSeq-w.gapBatch.StartLedger] = true
+		w.closeTimes[item.ledgerSeq] = item.closeTime
+	}
+	prev := w.watermark
+	for w.watermark <= w.gapBatch.EndLedger && w.flushed[w.watermark-w.gapBatch.StartLedger] {
+		w.watermark++
+	}
+	if w.watermark > prev {
+		// watermark points to first unflushed; watermark-1 is the last flushed.
+		closeTime := w.closeTimes[w.watermark-1]
+		// Prune consumed entries below new watermark.
+		for seq := prev; seq < w.watermark; seq++ {
+			delete(w.closeTimes, seq)
+		}
+		w.compressorCh <- &CompressBatch{
+			batch:           w.gapBatch,
+			ledgerCloseTime: closeTime,
+		}
+	}
+}
+
+// executeFlush persists a batch to DB and advances the watermark.
+func executeFlush(
+	pipeCtx context.Context,
+	batch []*LedgerBuffer,
+	flush func(context.Context, []*LedgerBuffer) error,
+	wt *watermarkTracker,
+) (time.Duration, error) {
+	t := time.Now()
+	if err := flush(pipeCtx, batch); err != nil {
+		return 0, err
+	}
+	elapsed := time.Since(t)
+	wt.advance(batch)
+	return elapsed, nil
+}
+
+// consumeAndFlush collects incoming IndexerBuffers and periodically flushes to DB.
+// Runs as a single goroutine per batch — watermark mutations are safe without locks.
+// Returns the number of ledgers processed, total flush duration, and any flush error.
+func (m *ingestService) consumeAndFlush(
+	ctx context.Context,
+	gapBatch *BackfillBatch,
+	pipeCtx context.Context,
+	flushCh <-chan *LedgerBuffer,
+	flush func(context.Context, []*LedgerBuffer) error,
+	metrics *pipelineMetrics,
+	cancel context.CancelFunc,
+	compressorCh chan<- *CompressBatch,
+) (ledgersCount int, flushDuration time.Duration, err error) {
+	batch := make([]*LedgerBuffer, 0, m.backfillDBInsertBatchSize)
+	flushCount := 0
+	lastFlushEnd := time.Now()
+	wt := newWatermarkTracker(gapBatch, compressorCh)
+
+	doFlush := func() error {
+		fillTime := time.Since(lastFlushEnd)
+		flushCount++
+
+		flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
+		if flushErr != nil {
+			cancel()
+			return flushErr
+		}
+		flushDuration += flushElapsed
+		lastFlushEnd = time.Now()
+
+		deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
+		log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chBacklog=%d/%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+			flushCount, fillTime, flushElapsed, len(flushCh), cap(flushCh), ledgersCount,
+			deltaProcess, deltaBlocked, deltaLedgers)
+
+		batch = batch[:0]
+		return nil
+	}
+
+	for ledgerBuffer := range flushCh {
+		// Check if an upstream stage has failed before collecting more data.
+		if pipeCtx.Err() != nil {
+			break
+		}
+
+		batch = append(batch, ledgerBuffer)
+		ledgersCount++
+
+		if len(batch) >= int(m.backfillDBInsertBatchSize) {
+			if err = doFlush(); err != nil {
+				return ledgersCount, flushDuration, err
+			}
 		}
 	}
 
-	// Final flush with cursor update for historical backfill
-	if ledgersInBuffer > 0 {
-		var cursorUpdate *uint32
-		if mode.isHistorical() {
-			cursorUpdate = &batch.StartLedger
-		}
-		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, cursorUpdate, batchChanges); err != nil {
-			return ledgersProcessed, batchChanges, startTime, endTime, err
-		}
-	} else if mode.isHistorical() {
-		// All data was flushed in intermediate batches, but we still need to update the cursor
-		// This happens when ledgersInBuffer == 0 (exact multiple of batch size)
-		if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
-			return ledgersProcessed, nil, startTime, endTime, err
+	// Final flush for remaining items after channel closes.
+	if len(batch) > 0 && pipeCtx.Err() == nil {
+		if err = doFlush(); err != nil {
+			return ledgersCount, flushDuration, err
 		}
 	}
 
-	return ledgersProcessed, batchChanges, startTime, endTime, nil
+	return ledgersCount, flushDuration, nil
+}
+
+// collectPipelineErrors drains the reader and worker error channels,
+// returning the first error found (if any).
+func collectPipelineErrors(readerErr, workerErr <-chan error) error {
+	select {
+	case err := <-readerErr:
+		return err
+	default:
+	}
+	select {
+	case err := <-workerErr:
+		return err
+	default:
+	}
+	return nil
+}
+
+// timeRangesOverlap returns true if [aStart, aEnd] overlaps [bStart, bEnd].
+func timeRangesOverlap(aStart, aEnd, bStart, bEnd time.Time) bool {
+	return !aStart.After(bEnd) && !aEnd.Before(bStart)
+}
+
+// mapBatchesToChunks converts gaps to BackfillBatches and maps each batch to the
+// pre-created chunks whose time range overlaps the batch's ledger close times.
+func (m *ingestService) mapBatchesToChunks(
+	ctx context.Context,
+	gaps []data.LedgerRange,
+	chunks []*db.Chunk,
+) ([]BackfillBatch, map[BackfillBatch][]*db.Chunk, error) {
+	batches := make([]BackfillBatch, len(gaps))
+	chunksByBatch := make(map[BackfillBatch][]*db.Chunk)
+	for i, gap := range gaps {
+		batches[i] = BackfillBatch{StartLedger: gap.GapStart, EndLedger: gap.GapEnd}
+		startTime, err := m.fetchLedgerCloseTime(ctx, gap.GapStart)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetching start ledger %d timestamp: %w", gap.GapStart, err)
+		}
+		endTime, err := m.fetchLedgerCloseTime(ctx, gap.GapEnd)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetching end ledger %d timestamp: %w", gap.GapEnd, err)
+		}
+		for _, chunk := range chunks {
+			if timeRangesOverlap(startTime, endTime, chunk.Start, chunk.End) {
+				chunk.NumWriters.Add(1)
+				chunksByBatch[batches[i]] = append(chunksByBatch[batches[i]], chunk)
+			}
+		}
+	}
+	return batches, chunksByBatch, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
@@ -571,195 +714,4 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 		return fmt.Errorf("updating oldest ledger cursor: %w", err)
 	}
 	return nil
-}
-
-// processBatchChanges processes aggregated batch changes after all parallel batches complete.
-// Unique assets and contracts are pre-collected during batch processing.
-func (m *ingestService) processBatchChanges(
-	ctx context.Context,
-	dbTx pgx.Tx,
-	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
-	contractChanges []types.ContractChange,
-	accountChangesByAccountID map[string]types.AccountChange,
-	sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange,
-	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
-	uniqueContractTokens map[string]types.ContractType,
-	sacContracts map[string]*data.Contract,
-) error {
-	// 1. Convert unique assets map to slice for BatchInsert
-	assetSlice := make([]data.TrustlineAsset, 0, len(uniqueAssets))
-	for _, asset := range uniqueAssets {
-		assetSlice = append(assetSlice, asset)
-	}
-
-	// 2. Insert unique trustline assets
-	if len(assetSlice) > 0 {
-		if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, assetSlice); txErr != nil {
-			return fmt.Errorf("inserting trustline assets: %w", txErr)
-		}
-	}
-
-	// 3. Insert new contract tokens (filter existing, fetch metadata, insert)
-	if len(uniqueContractTokens) > 0 {
-		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, uniqueContractTokens, sacContracts)
-		if txErr != nil {
-			return fmt.Errorf("preparing contracts: %w", txErr)
-		}
-		if len(contracts) > 0 {
-			if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-				return fmt.Errorf("inserting contracts: %w", txErr)
-			}
-		}
-	}
-
-	// 4. Apply token changes to PostgreSQL
-	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey); txErr != nil {
-		return fmt.Errorf("processing token changes: %w", txErr)
-	}
-
-	log.Ctx(ctx).Infof("Processed batch changes: %d trustline, %d contract, %d account, %d SAC balance changes",
-		len(trustlineChangesByKey), len(contractChanges), len(accountChangesByAccountID), len(sacBalanceChangesByKey))
-
-	return nil
-}
-
-// progressiveRecompressor compresses uncompressed TimescaleDB chunks as they become safe during backfill.
-// Tracks batch completion via a watermark to determine when chunks are fully written.
-type progressiveRecompressor struct {
-	pool   *pgxpool.Pool
-	tables []string
-	ctx    context.Context
-
-	mu           sync.Mutex
-	completed    []bool
-	endTimes     []time.Time
-	watermarkIdx int       // index of highest contiguous completed batch (-1 = none)
-	globalStart  time.Time // lower bound for chunk queries (batch 0's StartTime)
-
-	triggerCh chan time.Time // safeEnd for recompression window
-	done      chan struct{}
-}
-
-// newProgressiveRecompressor creates a compressor that progressively compresses uncompressed chunks
-// as contiguous batches complete. Starts a background goroutine for compression work.
-func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables []string, totalBatches int) *progressiveRecompressor {
-	r := &progressiveRecompressor{
-		pool:         pool,
-		tables:       tables,
-		ctx:          ctx,
-		completed:    make([]bool, totalBatches),
-		endTimes:     make([]time.Time, totalBatches),
-		watermarkIdx: -1,
-		triggerCh:    make(chan time.Time, totalBatches),
-		done:         make(chan struct{}),
-	}
-	go r.runCompression()
-	return r
-}
-
-// MarkDone records a batch as complete and advances the watermark if possible.
-// If the watermark advances, triggers recompression of chunks in the safe window.
-func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
-	var safeEnd time.Time
-	r.mu.Lock()
-	r.completed[batchIdx] = true
-	r.endTimes[batchIdx] = endTime
-
-	// Record global start from batch 0 (earliest time boundary for queries)
-	if batchIdx == 0 {
-		r.globalStart = startTime
-	}
-
-	// Advance watermark past contiguous completed batches
-	oldWatermark := r.watermarkIdx
-	for r.watermarkIdx+1 < len(r.completed) && r.completed[r.watermarkIdx+1] {
-		r.watermarkIdx++
-	}
-
-	sendToChannel := (r.watermarkIdx > oldWatermark)
-	if sendToChannel {
-		safeEnd = r.endTimes[r.watermarkIdx]
-	}
-	r.mu.Unlock()
-
-	// If watermark advanced then we trigger recompression outside the lock
-	if sendToChannel {
-		r.triggerCh <- safeEnd
-	}
-}
-
-// Wait closes the trigger channel and waits for background compression to finish.
-func (r *progressiveRecompressor) Wait() {
-	close(r.triggerCh)
-	<-r.done
-}
-
-// runCompression processes compression triggers in the background.
-// For each safe window, queries and compresses uncompressed chunks per table.
-func (r *progressiveRecompressor) runCompression() {
-	defer close(r.done)
-
-	totalCompressed := 0
-	for safeEnd := range r.triggerCh {
-		for _, table := range r.tables {
-			count := r.compressTableChunks(table, safeEnd)
-			totalCompressed += count
-		}
-	}
-
-	log.Ctx(r.ctx).Infof("Progressive compression complete: %d total chunks compressed", totalCompressed)
-}
-
-// compressTableChunks compresses uncompressed chunks for a single table within the safe window.
-// Queries chunks where range_end falls within (globalStart, safeEnd) to catch the leading
-// boundary chunk that overlaps globalStart.
-func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time.Time) int {
-	rows, err := r.pool.Query(r.ctx,
-		`SELECT c.chunk_schema || '.' || c.chunk_name
-		 FROM timescaledb_information.chunks c
-		 WHERE c.hypertable_name = $1
-		   AND NOT c.is_compressed
-		   AND c.range_end < $2::timestamptz
-		   AND c.range_end > $3::timestamptz`,
-		table, safeEnd, r.globalStart)
-	if err != nil {
-		log.Ctx(r.ctx).Warnf("Failed to get chunks for %s: %v", table, err)
-		return 0
-	}
-	defer rows.Close()
-
-	var chunks []string
-	for rows.Next() {
-		var chunk string
-		if err := rows.Scan(&chunk); err != nil {
-			log.Ctx(r.ctx).Warnf("Failed to scan chunk row for table %s: %v", table, err)
-			continue
-		}
-		chunks = append(chunks, chunk)
-	}
-
-	compressed := 0
-	for _, chunk := range chunks {
-		select {
-		case <-r.ctx.Done():
-			log.Ctx(r.ctx).Warnf("Compression cancelled for %s after %d chunks", table, compressed)
-			return compressed
-		default:
-		}
-
-		_, err := r.pool.Exec(r.ctx, `SELECT compress_chunk($1::regclass)`, chunk)
-		if err != nil {
-			log.Ctx(r.ctx).Warnf("Failed to compress chunk %s: %v", chunk, err)
-			continue
-		}
-		compressed++
-		log.Ctx(r.ctx).Debugf("Compressed chunk for %s: %s", table, chunk)
-	}
-
-	if compressed > 0 {
-		log.Ctx(r.ctx).Infof("Compressed %d chunks for table %s (window end: %s)",
-			compressed, table, safeEnd.Format(time.RFC3339))
-	}
-
-	return compressed
 }

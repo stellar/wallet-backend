@@ -105,7 +105,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	}
 
 	// Get operation changes to access old values when needed
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.GetCachedOperationChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}
@@ -535,7 +535,7 @@ func (p *EffectsProcessor) getTrustlineFlagsFromChanges(trustorAddress, assetCod
 		}
 
 		// Match the trustline by trustor address
-		if trustlineEntry.AccountId.Address() != trustorAddress {
+		if types.CachedAccountAddress(trustlineEntry.AccountId) != trustorAddress {
 			continue
 		}
 
@@ -551,12 +551,12 @@ func (p *EffectsProcessor) getTrustlineFlagsFromChanges(trustorAddress, assetCod
 			alphaNum4 := asset.MustAlphaNum4()
 			assetCodeBytes := alphaNum4.AssetCode[:]
 			entryAssetCode = string(assetCodeBytes)
-			entryAssetIssuer = alphaNum4.Issuer.Address()
+			entryAssetIssuer = types.CachedAccountAddress(alphaNum4.Issuer)
 		case xdr.AssetTypeAssetTypeCreditAlphanum12:
 			alphaNum12 := asset.MustAlphaNum12()
 			assetCodeBytes := alphaNum12.AssetCode[:]
 			entryAssetCode = string(assetCodeBytes)
-			entryAssetIssuer = alphaNum12.Issuer.Address()
+			entryAssetIssuer = types.CachedAccountAddress(alphaNum12.Issuer)
 		}
 
 		// Remove null bytes from asset code
@@ -752,7 +752,7 @@ func (p *EffectsProcessor) getPrevLedgerEntryState(effect *EffectOutput, ledgerE
 			if beforeEntry != nil {
 				if ledgerEntryType == xdr.LedgerEntryTypeAccount {
 					beforeAccount := beforeEntry.Data.MustAccount()
-					if beforeAccount.AccountId.Address() == effect.Address {
+					if types.CachedAccountAddress(beforeAccount.AccountId) == effect.Address {
 						return beforeEntry
 					}
 				}

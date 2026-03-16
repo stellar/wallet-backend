@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -25,8 +24,8 @@ type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
 	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
-	GetTransactionsParticipants() map[int64]set.Set[string]
-	GetOperationsParticipants() map[int64]set.Set[string]
+	GetTransactionsParticipants() map[int64]types.StringSet
+	GetOperationsParticipants() map[int64]types.StringSet
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
@@ -53,7 +52,7 @@ type TokenTransferProcessorInterface interface {
 }
 
 type ParticipantsProcessorInterface interface {
-	GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error)
+	GetTransactionParticipants(transaction ingest.LedgerTransaction) (types.StringSet, error)
 	GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error)
 }
 
@@ -171,23 +170,23 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope, i.networkPassphrase)
+	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta, i.skipTxEnvelope)
 	if err != nil {
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}
 
 	// Count all unique participants for metrics
-	allParticipants := set.NewSet[string]()
-	allParticipants = allParticipants.Union(txParticipants)
+	allParticipants := types.NewStringSet()
+	allParticipants.Append(txParticipants.ToSlice()...)
 	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
+		allParticipants.Append(opParticipants.Participants.ToSlice()...)
 	}
 	for _, stateChange := range stateChanges {
 		allParticipants.Add(string(stateChange.AccountID))
 	}
 
 	// Insert transaction participants
-	for participant := range txParticipants.Iter() {
+	for participant := range txParticipants {
 		buffer.PushTransaction(participant, *dataTx)
 	}
 
@@ -202,7 +201,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("creating data operation: %w", opErr)
 		}
 		operationsMap[opID] = dataOp
-		for participant := range opParticipants.Participants.Iter() {
+		for participant := range opParticipants.Participants {
 			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
 	}
@@ -300,7 +299,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 
-	return allParticipants.Cardinality(), nil
+	return allParticipants.Len(), nil
 }
 
 // getTransactionStateChanges processes operations of a transaction and calculates all state changes
@@ -367,4 +366,33 @@ func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr
 	}
 
 	return participantCount, nil
+}
+
+// ProcessLedgerTransactionsSequential processes transactions sequentially (no goroutine pool).
+// Used by the pipelined backfill where ledger-level parallelism replaces tx-level parallelism.
+func (i *Indexer) ProcessLedgerTransactionsSequential(
+	ctx context.Context,
+	transactions []ingest.LedgerTransaction,
+	buffer *IndexerBuffer,
+) (int, error) {
+	totalParticipants := 0
+	for _, tx := range transactions {
+		count, err := i.processTransaction(ctx, tx, buffer)
+		if err != nil {
+			return 0, fmt.Errorf("processing tx at ledger=%d tx=%d: %w",
+				tx.Ledger.LedgerSequence(), tx.Index, err)
+		}
+		totalParticipants += count
+	}
+	return totalParticipants, nil
+}
+
+// ProcessLedgerSequential extracts transactions from a ledger and indexes them sequentially.
+// Used by the pipelined backfill where ledger-level parallelism replaces tx-level parallelism.
+func ProcessLedgerSequential(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	return ledgerIndexer.ProcessLedgerTransactionsSequential(ctx, transactions, buffer)
 }

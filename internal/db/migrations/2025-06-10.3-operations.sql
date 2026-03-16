@@ -22,8 +22,8 @@ CREATE TABLE operations (
     successful BOOLEAN NOT NULL,
     ledger_number INTEGER NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
+    -- PRIMARY KEY (id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -38,8 +38,8 @@ SELECT enable_chunk_skipping('operations', 'id');
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, operation_id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
+    -- PRIMARY KEY (account_id, operation_id, ledger_created_at)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',

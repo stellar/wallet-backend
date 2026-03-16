@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -334,7 +333,6 @@ func (m *OperationModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]set.Set[string],
 ) (int, error) {
 	if len(operations) == 0 {
 		return 0, nil
@@ -368,51 +366,67 @@ func (m *OperationModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
 	}
 
-	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures that
-	// account address is not NULL here.
-	if len(stellarAddressesByOpID) > 0 {
-		// Build OpID -> LedgerCreatedAt lookup from operations
-		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
-		for _, op := range operations {
-			ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
-		}
-
-		var oaRows [][]any
-		for opID, addresses := range stellarAddressesByOpID {
-			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				oaRows = append(oaRows, []any{
-					ledgerCreatedAtPgtype,
-					opIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"operations_accounts"},
-			[]string{"ledger_created_at", "operation_id", "account_id"},
-			pgx.CopyFromRows(oaRows),
-		)
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
-	}
-
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
 	m.MetricsService.IncDBQuery("BatchCopy", "operations")
 
 	return len(operations), nil
+}
+
+// BatchCopyParticipants inserts only the operations_accounts rows using pgx binary COPY.
+func (m *OperationModel) BatchCopyParticipants(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	operations []*types.Operation,
+	stellarAddressesByOpID map[int64]types.StringSet,
+) (int, error) {
+	if len(stellarAddressesByOpID) == 0 {
+		return 0, nil
+	}
+
+	start := time.Now()
+
+	// Build OpID -> LedgerCreatedAt lookup from operations
+	ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
+	for _, op := range operations {
+		ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
+	}
+
+	// Pre-allocate with estimated capacity (avg ~2 addresses per operation)
+	oaRows := make([][]any, 0, len(stellarAddressesByOpID)*2)
+	for opID, addresses := range stellarAddressesByOpID {
+		ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
+		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
+		opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
+		for _, addr := range addresses.ToSlice() {
+			addrBytes, addrErr := types.AddressBytea(addr).Value()
+			if addrErr != nil {
+				return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+			}
+			oaRows = append(oaRows, []any{
+				ledgerCreatedAtPgtype,
+				opIDPgtype,
+				addrBytes,
+			})
+		}
+	}
+
+	_, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"operations_accounts"},
+		[]string{"ledger_created_at", "operation_id", "account_id"},
+		pgx.CopyFromRows(oaRows),
+	)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchCopyParticipants", "operations_accounts", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchCopyParticipants", "operations_accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchCopyParticipants", "operations_accounts", len(oaRows))
+	m.MetricsService.IncDBQuery("BatchCopyParticipants", "operations_accounts")
+
+	return len(oaRows), nil
 }

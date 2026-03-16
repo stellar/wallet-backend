@@ -38,11 +38,32 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// addressByteaCache caches strkey string → 33-byte []byte (version + raw key).
+// Safe for concurrent use. Read-heavy with high hit rate (~99%).
+var addressByteaCache sync.Map
+
+// addressEncodeCache caches Ed25519 public key [32]byte → G-address string.
+// Safe for concurrent use. Called from operationSourceAccount, participants, effects.
+var addressEncodeCache sync.Map
+
+// CachedAccountAddress returns the strkey-encoded address for an AccountId,
+// caching the result keyed by the raw 32-byte Ed25519 public key.
+func CachedAccountAddress(accountID xdr.AccountId) string {
+	key := accountID.MustEd25519()
+	if v, ok := addressEncodeCache.Load(key); ok {
+		return v.(string)
+	}
+	addr := accountID.Address()
+	addressEncodeCache.Store(key, addr)
+	return addr
+}
 
 // AddressBytea represents a Stellar address stored as BYTEA in the database.
 // Storage format: 33 bytes (1 version byte + 32 raw key bytes)
@@ -72,10 +93,16 @@ func (a *AddressBytea) Scan(value any) error {
 	return nil
 }
 
-// Value implements driver.Valuer - converts StrKey string to 33-byte []byte
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte.
+// Results are cached in a sync.Map since the same addresses repeat frequently
+// across state changes, transaction accounts, and operation accounts.
+// The cached []byte is safe to share: pgx's COPY encoder only reads (never mutates) input slices.
 func (a AddressBytea) Value() (driver.Value, error) {
 	if a == "" {
 		return nil, nil
+	}
+	if cached, ok := addressByteaCache.Load(string(a)); ok {
+		return cached.([]byte), nil
 	}
 	versionByte, rawBytes, err := strkey.DecodeAny(string(a))
 	if err != nil {
@@ -84,6 +111,7 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	result := make([]byte, 33)
 	result[0] = byte(versionByte)
 	copy(result[1:], rawBytes)
+	addressByteaCache.Store(string(a), result)
 	return result, nil
 }
 

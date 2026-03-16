@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/hash"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
-	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -158,7 +158,16 @@ func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags
 	result[prefix+"_flags_s"] = s
 }
 
+// contractIDCache caches asset details → contract ID string.
+// Keyed by "assetType:code:issuer". ~20 unique entries in practice.
+var contractIDCache sync.Map
+
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+	key := assetType + ":" + assetCode + ":" + assetIssuer
+	if v, ok := contractIDCache.Load(key); ok {
+		return v.(string), nil
+	}
+
 	var asset xdr.Asset
 
 	switch assetType {
@@ -177,7 +186,9 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 		return "", fmt.Errorf("getting asset contract ID: %w", err)
 	}
 
-	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
+	encoded := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	contractIDCache.Store(key, encoded)
+	return encoded, nil
 }
 
 // getContractIDFromAssetString converts an asset string in "CODE:ISSUER" format to a contract ID.
@@ -205,24 +216,18 @@ func getContractIDFromAssetString(networkPassphrase string, assetStr string) (st
 	return getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
 }
 
-// isLiquidityPool checks if the given account ID is a liquidity pool
+// isLiquidityPool checks if the given account ID is a liquidity pool.
+// LP strkeys always start with 'L' (VersionByte 88). Inputs are SDK-parsed,
+// so a prefix check is sufficient — no need for full base32 decode + CRC.
 func isLiquidityPool(accountID string) bool {
-	// Try to decode the account ID as a strkey
-	versionByte, _, err := strkey.DecodeAny(accountID)
-	if err != nil {
-		return false
-	}
-	// Check if it's a liquidity pool strkey
-	return versionByte == strkey.VersionByteLiquidityPool
+	return len(accountID) > 0 && accountID[0] == 'L'
 }
 
-// isClaimableBalance checks if the given ID is a claimable balance
+// isClaimableBalance checks if the given ID is a claimable balance.
+// CB strkeys always start with 'B' (VersionByte 8). Inputs are SDK-parsed,
+// so a prefix check is sufficient — no need for full base32 decode + CRC.
 func isClaimableBalance(id string) bool {
-	versionByte, _, err := strkey.DecodeAny(id)
-	if err != nil {
-		return false
-	}
-	return versionByte == strkey.VersionByteClaimableBalance
+	return len(id) > 0 && id[0] == 'B'
 }
 
 // operationSourceAccount returns the source account for an operation,
@@ -230,10 +235,10 @@ func isClaimableBalance(id string) bool {
 func operationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) string {
 	acc := op.SourceAccount
 	if acc != nil {
-		return acc.ToAccountId().Address()
+		return types.CachedAccountAddress(acc.ToAccountId())
 	}
 	res := tx.Envelope.SourceAccount()
-	return res.ToAccountId().Address()
+	return types.CachedAccountAddress(res.ToAccountId())
 }
 
 // convertToInt32 safely converts values to int32
@@ -262,46 +267,37 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
-	var envelopeXDR *string
-	envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
-	}
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool) (*types.Transaction, error) {
+	feeCharged, _ := transaction.FeeCharged()
 
+	// Only marshal envelope when we need to store it
+	var envelopeXDR *string
 	if !skipTxEnvelope {
+		envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
+		}
 		envelopeXDR = &envelopeXDRStr
 	}
 
-	feeCharged, _ := transaction.FeeCharged()
-
 	var metaXDR *string
 	if !skipTxMeta {
-		metaXDRStr, marshalErr := xdr.MarshalBase64(transaction.UnsafeMeta)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("marshalling transaction meta: %w", marshalErr)
+		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
 		}
 		metaXDR = &metaXDRStr
 	}
 
-	// Calculate inner transaction hash
-	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRStr)
-	if err != nil {
-		return nil, fmt.Errorf("deserializing envelope xdr: %w", err)
-	}
-
-	var innerTx *txnbuild.Transaction
-	if feeBumpTx, ok := genericTx.FeeBump(); ok {
-		innerTx = feeBumpTx.InnerTransaction()
-	} else if tx, ok := genericTx.Transaction(); ok {
-		innerTx = tx
+	// Reuse hashes already computed by Stellar Core — no XDR marshal + sha256 needed.
+	// For non-fee-bump: inner hash = transaction hash (outer = inner).
+	// For fee-bump: inner hash is stored in the transaction result by Core.
+	var innerTxHash string
+	if transaction.Envelope.IsFeeBump() {
+		innerHash := transaction.Result.InnerHash()
+		innerTxHash = hex.EncodeToString(innerHash[:])
 	} else {
-		return nil, fmt.Errorf("transaction is neither fee bump nor inner transaction")
-	}
-
-	innerTxHash, err := innerTx.HashHex(networkPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("generating inner hash hex: %w", err)
+		innerTxHash = transaction.Hash.HexString()
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()

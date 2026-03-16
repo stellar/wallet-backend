@@ -41,7 +41,7 @@ func (p *SACBalancesProcessor) Name() string {
 // Returns SACBalanceChange structs with absolute balance values for database upsert.
 // Only processes changes for contract addresses (C...) since G-addresses use trustlines.
 func (p *SACBalancesProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.SACBalanceChange, error) {
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.GetCachedOperationChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}

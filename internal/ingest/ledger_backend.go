@@ -16,6 +16,8 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 	switch cfg.LedgerBackendType {
 	case LedgerBackendTypeDatastore:
 		return newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+	case LedgerBackendTypeBackfill:
+		return newBackfillLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	case LedgerBackendTypeRPC:
 		return newRPCLedgerBackend(cfg)
 	default:
@@ -79,6 +81,41 @@ func loadDatastoreBackendConfig(configPath string) (StorageBackendConfig, error)
 	}
 
 	return storageBackendConfig, nil
+}
+
+func newBackfillLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
+	storageBackendConfig, err := loadDatastoreBackendConfig(datastoreConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading datastore config: %w", err)
+	}
+
+	storageBackendConfig.DataStoreConfig.NetworkPassphrase = networkPassphrase
+
+	dataStore, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
+	if err != nil {
+		return nil, fmt.Errorf("creating datastore: %w", err)
+	}
+
+	schema, err := datastore.LoadSchema(ctx, dataStore, storageBackendConfig.DataStoreConfig)
+	if err != nil {
+		return nil, fmt.Errorf("loading datastore schema: %w", err)
+	}
+
+	cfg := storageBackendConfig.BufferedStorageBackendConfig
+	backfillConfig := BackfillLedgerBackendConfig{
+		BufferSize: cfg.BufferSize,
+		NumWorkers: cfg.NumWorkers,
+		RetryLimit: cfg.RetryLimit,
+		RetryWait:  cfg.RetryWait,
+	}
+
+	backend, err := NewBackfillLedgerBackend(backfillConfig, dataStore, schema)
+	if err != nil {
+		return nil, fmt.Errorf("creating backfill ledger backend: %w", err)
+	}
+
+	logBufferStats(backfillConfig)
+	return backend, nil
 }
 
 // LoadtestBackendConfig holds configuration for the loadtest ledger backend.
