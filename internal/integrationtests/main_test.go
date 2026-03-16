@@ -35,11 +35,6 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
 
-	// Protocol setup tests — only needs DB + migrations, not running ingest
-	t.Run("ProtocolSetupTestSuite", func(t *testing.T) {
-		suite.Run(t, &ProtocolSetupTestSuite{testEnv: testEnv})
-	})
-
 	// Phase 2: Test parallel live + backfill ingestion
 	t.Run("BackfillTestSuite", func(t *testing.T) {
 		suite.Run(t, &BackfillTestSuite{
@@ -65,6 +60,11 @@ func TestIntegrationTests(t *testing.T) {
 	if t.Failed() {
 		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
 	}
+
+	// Protocol setup tests — needs ingest to have populated protocol_wasms + real RPC
+	t.Run("ProtocolSetupTestSuite", func(t *testing.T) {
+		suite.Run(t, &ProtocolSetupTestSuite{testEnv: testEnv})
+	})
 
 	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
 		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
