@@ -84,4 +84,19 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, lockAcquired2, "should be able to acquire the lock since we called ReleaseAdvisoryLock")
 	})
+
+	t.Run("release_returns_error_when_lock_not_held", func(t *testing.T) {
+		pool, err := OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer pool.Close()
+
+		// Try to release a lock that was never acquired on this connection.
+		conn, err := pool.Acquire(ctx)
+		require.NoError(t, err)
+		defer conn.Release()
+
+		err = ReleaseAdvisoryLock(ctx, conn, lockKey)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "lock was not held by this session")
+	})
 }
