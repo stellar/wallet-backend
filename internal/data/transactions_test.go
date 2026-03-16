@@ -475,7 +475,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Len(t, transactions, 3)
 
 	// Verify transactions are for correct state change IDs (format: to_id-operation_id-state_change_id)
-	// State change (to_id, operation_id, order) should return transaction with matching to_id
+	// State change (to_id, operation_id, state_change_id) should return transaction with matching to_id
 	stateChangeIDsFound := make(map[string]types.HashBytea)
 	for _, tx := range transactions {
 		stateChangeIDsFound[tx.StateChangeID] = tx.Hash
