@@ -3,11 +3,11 @@
 package processors
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/binary"
+	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -171,11 +171,14 @@ func (b *StateChangeBuilder) Build() types.StateChange {
 	return b.base
 }
 
-// generateID produces a random positive int64 from a UUID v4.
-// Takes the first 8 bytes of the UUID and masks to ensure a positive value.
+// generateID produces a random positive int64 from crypto/rand.
+// Full 63 bits of entropy, masked to ensure a positive value.
 func generateID() int64 {
-	id := uuid.New()
-	return int64(binary.BigEndian.Uint64(id[:8]) & 0x7FFFFFFFFFFFFFFF)
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic(fmt.Sprintf("generating state change ID: %v", err))
+	}
+	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF)
 }
 
 // Clone returns a shallow copy of the builder, sharing the same metrics service.
