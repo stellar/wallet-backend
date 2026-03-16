@@ -19,7 +19,7 @@ func (r *accountChangeResolver) Type(ctx context.Context, obj *types.AccountStat
 
 // Reason is the resolver for the reason field.
 func (r *accountChangeResolver) Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -49,7 +49,7 @@ func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *type
 
 // Reason is the resolver for the reason field.
 func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -93,7 +93,7 @@ func (r *flagsChangeResolver) Type(ctx context.Context, obj *types.FlagsStateCha
 
 // Reason is the resolver for the reason field.
 func (r *flagsChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -127,7 +127,7 @@ func (r *metadataChangeResolver) Type(ctx context.Context, obj *types.MetadataSt
 
 // Reason is the resolver for the reason field.
 func (r *metadataChangeResolver) Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -157,7 +157,7 @@ func (r *reservesChangeResolver) Type(ctx context.Context, obj *types.ReservesSt
 
 // Reason is the resolver for the reason field.
 func (r *reservesChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -212,7 +212,7 @@ func (r *signerChangeResolver) Type(ctx context.Context, obj *types.SignerStateC
 
 // Reason is the resolver for the reason field.
 func (r *signerChangeResolver) Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -265,7 +265,7 @@ func (r *signerThresholdsChangeResolver) Type(ctx context.Context, obj *types.Si
 
 // Reason is the resolver for the reason field.
 func (r *signerThresholdsChangeResolver) Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -310,7 +310,7 @@ func (r *standardBalanceChangeResolver) Type(ctx context.Context, obj *types.Sta
 
 // Reason is the resolver for the reason field.
 func (r *standardBalanceChangeResolver) Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -345,7 +345,7 @@ func (r *trustlineChangeResolver) Type(ctx context.Context, obj *types.Trustline
 
 // Reason is the resolver for the reason field.
 func (r *trustlineChangeResolver) Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
+	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.

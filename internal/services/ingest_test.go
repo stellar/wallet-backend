@@ -560,7 +560,7 @@ func createTestStateChange(toID int64, accountID string, opID int64) types.State
 		ToID:                toID,
 		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
+		StateChangeReason:   reason,
 		AccountID:           types.AddressBytea(accountID),
 		OperationID:         opID,
 		LedgerNumber:        1000,

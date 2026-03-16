@@ -74,7 +74,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		assertFeeEvent(t, changes[0], "100")
 		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountB.ToAccountId().Address(), "", "")
-		require.Equal(t, types.StateChangeReasonCreate, *changes[1].StateChangeReason)
+		require.Equal(t, types.StateChangeReasonCreate, changes[1].StateChangeReason)
 		require.Equal(t, accountA.ToAccountId().Address(), changes[1].FunderAccountID.String())
 		assertDebitEvent(t, changes[2], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
 		assertCreditEvent(t, changes[3], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
@@ -107,7 +107,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		assertFeeEvent(t, changes[0], "100")
 		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountB.ToAccountId().Address(), "", "")
-		require.Equal(t, types.StateChangeReasonMerge, *changes[1].StateChangeReason)
+		require.Equal(t, types.StateChangeReasonMerge, changes[1].StateChangeReason)
 		assertDebitEvent(t, changes[2], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
 		assertCreditEvent(t, changes[3], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
 	})
