@@ -56,9 +56,6 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 	if len(s.validators) == 0 {
 		return fmt.Errorf("no protocol validators provided")
 	}
-	if s.specExtractor == nil {
-		return fmt.Errorf("no spec extractor provided")
-	}
 
 	// Step 1: Validate that validators match requested protocol IDs
 	validatorsByProtocol := make(map[string]ProtocolValidator, len(s.validators))
@@ -69,6 +66,10 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		if _, ok := validatorsByProtocol[pid]; !ok {
 			return fmt.Errorf("no validator found for protocol %q", pid)
 		}
+	}
+
+	if s.specExtractor == nil {
+		return fmt.Errorf("no spec extractor provided")
 	}
 
 	defer func() {
