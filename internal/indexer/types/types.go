@@ -562,7 +562,7 @@ type StateChange struct {
 	ToID                int64               `json:"toId,omitempty" db:"to_id"`
 	StateChangeID       int64               `json:"stateChangeId,omitempty" db:"state_change_id"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
-	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
+	StateChangeReason   StateChangeReason   `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
@@ -697,7 +697,7 @@ func (sc StateChange) GetType() StateChangeCategory {
 // GetReason returns the reason for this state change for GraphQL 'reason' field.
 // This method satisfies the GraphQL BaseStateChange interface requirement.
 func (sc StateChange) GetReason() StateChangeReason {
-	return *sc.StateChangeReason
+	return sc.StateChangeReason
 }
 
 // GetIngestedAt returns when this state change was processed by the indexer.

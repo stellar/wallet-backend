@@ -53,12 +53,9 @@ func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}
 }
 
-// pgtypeTextFromReasonPtr converts *types.StateChangeReason to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromReasonPtr(r *types.StateChangeReason) pgtype.Text {
-	if r == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: string(*r), Valid: true}
+// pgtypeTextFromReason converts types.StateChangeReason to pgtype.Text for efficient binary COPY.
+func pgtypeTextFromReason(r types.StateChangeReason) pgtype.Text {
+	return pgtype.Text{String: string(r), Valid: true}
 }
 
 // jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.

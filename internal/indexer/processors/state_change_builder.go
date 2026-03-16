@@ -40,7 +40,7 @@ func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *S
 
 // WithReason sets the state change reason
 func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
-	b.base.StateChangeReason = &reason
+	b.base.StateChangeReason = reason
 	return b
 }
 
@@ -176,10 +176,7 @@ func (b *StateChangeBuilder) Build() types.StateChange {
 
 // generateHashKey creates a deterministic string representation of a state change for hashing purposes.
 func (b *StateChangeBuilder) generateHashKey() string {
-	reason := ""
-	if b.base.StateChangeReason != nil {
-		reason = string(*b.base.StateChangeReason)
-	}
+	reason := string(b.base.StateChangeReason)
 
 	// For JSON fields, marshal to get a canonical string
 	keyValue, err := json.Marshal(b.base.KeyValue)

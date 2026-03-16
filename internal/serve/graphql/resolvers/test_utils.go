@@ -102,18 +102,16 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 
 	// Create 2 state changes per operation (20 total: 2 per operation × 8 operations + 4 fee state changes)
 	stateChanges := make([]*types.StateChange, 0, 20)
-	creditReason := types.StateChangeReasonCredit
-	addReason := types.StateChangeReasonAdd
 	for i, op := range ops {
 		for scOrder := range 2 {
 			// Vary the categories and reasons for different operations
 			category := types.StateChangeCategoryBalance
-			reason := &creditReason
+			reason := types.StateChangeReasonCredit
 
 			// Make some state changes use SIGNER category and ADD reason
 			if i%2 == 0 && scOrder == 1 {
 				category = types.StateChangeCategorySigner
-				reason = &addReason
+				reason = types.StateChangeReasonAdd
 			}
 
 			stateChanges = append(stateChanges, &types.StateChange{
@@ -129,13 +127,12 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 		}
 	}
 	// Create fee state changes per transaction
-	debitReason := types.StateChangeReasonDebit
 	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
 			StateChangeID:       int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
-			StateChangeReason:   &debitReason,
+			StateChangeReason:   types.StateChangeReasonDebit,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     now,
 			LedgerNumber:        1000,

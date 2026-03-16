@@ -530,8 +530,8 @@ func (m *metricsService) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
 		},
 	))
 
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
 			Name: "db_pool_acquire_duration_seconds",
 			Help: "Total time spent waiting to acquire connections",
 		},

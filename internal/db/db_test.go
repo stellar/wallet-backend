@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +17,12 @@ import (
 type queryHelperPerson struct {
 	Name string `db:"name"`
 	Age  int32  `db:"age"`
+}
+
+// queryHelperPersonWithCursor embeds a tagged struct, mimicking types like OperationWithCursor.
+type queryHelperPersonWithCursor struct {
+	queryHelperPerson
+	Cursor int32 `db:"cursor_val"`
 }
 
 func openTestPool(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -66,6 +73,25 @@ func TestQueryOne(t *testing.T) {
 		answer, err := QueryOne[int32](ctx, pool, `SELECT 42::int4`)
 		require.NoError(t, err)
 		assert.EqualValues(t, 42, answer)
+	})
+
+	t.Run("scalar-like struct (time.Time)", func(t *testing.T) {
+		ts, err := QueryOne[time.Time](ctx, pool, `SELECT NOW()`)
+		require.NoError(t, err)
+		assert.False(t, ts.IsZero(), "expected non-zero time.Time but got zero value")
+	})
+
+	t.Run("embedded struct with db tags", func(t *testing.T) {
+		result, err := QueryOne[queryHelperPersonWithCursor](ctx, pool, `
+			SELECT *
+			FROM (
+				VALUES ('alice', 30, 99)
+			) AS people(name, age, cursor_val)
+		`)
+		require.NoError(t, err)
+		assert.Equal(t, "alice", result.Name)
+		assert.EqualValues(t, 30, result.Age)
+		assert.EqualValues(t, 99, result.Cursor)
 	})
 
 	t.Run("lax struct mapping", func(t *testing.T) {

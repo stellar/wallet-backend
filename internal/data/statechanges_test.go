@@ -34,7 +34,7 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			ToID:                startToID + int64(i),
 			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
-			StateChangeReason:   &reason,
+			StateChangeReason:   reason,
 			LedgerCreatedAt:     now,
 			LedgerNumber:        uint32(i + 1),
 			AccountID:           types.AddressBytea(accountID),
@@ -115,7 +115,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                1,
 		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
+		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp1.Address()),
@@ -127,7 +127,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                2,
 		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
-		StateChangeReason:   &reason,
+		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
 		AccountID:           types.AddressBytea(kp2.Address()),
@@ -138,7 +138,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		ToID:                1,
 		StateChangeID:       2, // Different order to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
-		StateChangeReason:   nil,
+		StateChangeReason:   types.StateChangeReasonAdd,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        3,
 		AccountID:           types.AddressBytea(kp1.Address()),
@@ -259,11 +259,11 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', $1, 3, $3, 789)
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $3, 789)
 	`, now, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
@@ -438,7 +438,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonAdd, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -461,7 +461,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
 			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
-			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonAdd, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -488,7 +488,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			assert.Equal(t, int64(1), sc.StateChange.ToID)
 			assert.Equal(t, int64(123), sc.StateChange.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
-			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
+			assert.Equal(t, types.StateChangeReasonCredit, sc.StateChangeReason)
 			assert.Equal(t, address, sc.AccountID.String())
 		}
 	})
@@ -567,11 +567,11 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', $1, 3, $2, 789)
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $2, 789)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
@@ -614,14 +614,14 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 
 	// Create test state changes - multiple state changes per to_id to test ranking
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', $1, 1, $2, 123),
-			(1, 2, 'BALANCE', $1, 2, $2, 124),
-			(1, 3, 'BALANCE', $1, 3, $2, 125),
-			(2, 1, 'BALANCE', $1, 4, $2, 456),
-			(2, 2, 'BALANCE', $1, 5, $2, 457),
-			(3, 1, 'BALANCE', $1, 6, $2, 789)
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(1, 2, 'BALANCE', 'CREDIT', $1, 2, $2, 124),
+			(1, 3, 'BALANCE', 'CREDIT', $1, 3, $2, 125),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 4, $2, 456),
+			(2, 2, 'BALANCE', 'CREDIT', $1, 5, $2, 457),
+			(3, 1, 'BALANCE', 'CREDIT', $1, 6, $2, 789)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
@@ -770,11 +770,11 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', $1, 3, $2, 123)
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
+			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $2, 123)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
@@ -828,12 +828,12 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	// Create test state changes for to_id=1 (multiple state_change_ids)
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', $1, 1, $2, 123),
-			(1, 2, 'BALANCE', $1, 2, $2, 124),
-			(1, 3, 'BALANCE', $1, 3, $2, 125),
-			(2, 1, 'BALANCE', $1, 4, $2, 456)
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(1, 2, 'BALANCE', 'CREDIT', $1, 2, $2, 124),
+			(1, 3, 'BALANCE', 'CREDIT', $1, 3, $2, 125),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 4, $2, 456)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 

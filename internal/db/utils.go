@@ -25,5 +25,8 @@ func ReleaseAdvisoryLock(ctx context.Context, q Querier, lockKey int) error {
 	if err != nil {
 		return fmt.Errorf("executing pg_advisory_unlock(%v): %w", lockKey, err)
 	}
+	if !released {
+		return fmt.Errorf("pg_advisory_unlock(%v) returned false: lock was not held by this session", lockKey)
+	}
 	return nil
 }

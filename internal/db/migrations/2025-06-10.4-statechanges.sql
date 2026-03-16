@@ -13,8 +13,8 @@ CREATE TABLE state_changes (
             'BALANCE_AUTHORIZATION', 'AUTHORIZATION'
         )
     ),
-    state_change_reason TEXT CHECK (
-        state_change_reason IS NULL OR state_change_reason IN (
+    state_change_reason TEXT NOT NULL CHECK (
+        state_change_reason IN (
             'CREATE', 'MERGE', 'DEBIT', 'CREDIT', 'MINT', 'BURN',
             'ADD', 'REMOVE', 'UPDATE', 'LOW', 'MEDIUM', 'HIGH',
             'HOME_DOMAIN', 'SET', 'CLEAR', 'DATA_ENTRY', 'SPONSOR', 'UNSPONSOR'
