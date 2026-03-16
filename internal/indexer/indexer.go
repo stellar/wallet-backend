@@ -272,7 +272,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		if stateChange.OperationID != 0 {
 			correctOp := operationsMap[stateChange.OperationID]
 			if correctOp == nil {
-				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", stateChange.OperationID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeID))
+				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, state_change_id=%d)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeID)
 				continue
 			}
 			operation = *correctOp
