@@ -183,15 +183,15 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
 
 		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 1, AccountID: "alice", OperationID: 1, HashKey: "1-1"},
+			{ToID: 1, AccountID: "alice", OperationID: 1},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 2, AccountID: "charlie", OperationID: 1, HashKey: "1-2"},
+			{ToID: 2, AccountID: "charlie", OperationID: 1},
 		}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-			{ToID: 3, AccountID: "dave", OperationID: 0, HashKey: "0-1"},
+			{ToID: 3, AccountID: "dave", OperationID: 0},
 		}, nil)
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
@@ -607,9 +607,9 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
 
 		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 1, AccountID: "alice", OperationID: 1, HashKey: "1-1"},
-			{ToID: 2, AccountID: "alice", OperationID: 1, HashKey: "1-2"},
-			{ToID: 3, AccountID: "alice", OperationID: 1, HashKey: "1-3"},
+			{ToID: 1, AccountID: "alice", OperationID: 1},
+			{ToID: 2, AccountID: "alice", OperationID: 1},
+			{ToID: 3, AccountID: "alice", OperationID: 1},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)

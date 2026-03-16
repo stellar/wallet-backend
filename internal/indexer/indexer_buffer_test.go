@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -19,7 +18,6 @@ func buildStateChange(toID int64, reason types.StateChangeReason, accountID stri
 		StateChangeReason:   reason,
 		AccountID:           types.AddressBytea(accountID),
 		OperationID:         operationID,
-		HashKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
 }
 

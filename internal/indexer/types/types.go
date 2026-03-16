@@ -125,6 +125,11 @@ func (n NullAddressBytea) String() string {
 	return string(n.AddressBytea)
 }
 
+// NullString converts to sql.NullString for uniform nullable-string handling.
+func (n NullAddressBytea) NullString() sql.NullString {
+	return sql.NullString{String: string(n.AddressBytea), Valid: n.Valid}
+}
+
 // HashBytea represents a transaction hash stored as BYTEA in the database.
 // Storage format: 32 bytes (raw SHA-256 hash)
 // Go representation: hex string (64 characters)
@@ -609,8 +614,6 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty"`
 	Transaction *Transaction `json:"transaction,omitempty"`
 
-	// Internal: hash key used to derive StateChangeID via FNV-64a.
-	HashKey string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
 	ContractType ContractType `json:"-"`
 }

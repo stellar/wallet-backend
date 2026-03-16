@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"hash/fnv"
+	"strconv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -165,48 +167,90 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 	return b
 }
 
-// Build returns the constructed state change
+// Build returns the constructed state change with a deterministic content-based ID.
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.HashKey = b.generateHashKey()
-	h := fnv.New64a()
-	h.Write([]byte(b.base.HashKey))
-	b.base.StateChangeID = int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
+	b.base.StateChangeID = b.computeHashID()
 	return b.base
 }
 
-// generateHashKey creates a deterministic string representation of a state change for hashing purposes.
-func (b *StateChangeBuilder) generateHashKey() string {
-	reason := string(b.base.StateChangeReason)
+// computeHashID produces a deterministic FNV-64a hash of all content fields.
+// It uses binary writes with null-tags (0x00 = NULL, 0x01 = present) to avoid
+// ambiguity between NULL and zero-value fields.
+func (b *StateChangeBuilder) computeHashID() int64 {
+	h := fnv.New64a()
 
-	// For JSON fields, marshal to get a canonical string
+	// Non-nullable fields
+	writeInt64(h, b.base.ToID)
+	hashString(h, string(b.base.StateChangeCategory))
+	hashString(h, string(b.base.StateChangeReason))
+	hashString(h, string(b.base.AccountID))
+	writeInt64(h, b.base.OperationID)
+
+	// Nullable fields (addresses coerced to sql.NullString for uniform handling)
+	writeNullString(h, b.base.TokenID.NullString())
+	writeNullString(h, b.base.SignerAccountID.NullString())
+	writeNullString(h, b.base.SpenderAccountID.NullString())
+	writeNullString(h, b.base.SponsoredAccountID.NullString())
+	writeNullString(h, b.base.SponsorAccountID.NullString())
+	writeNullString(h, b.base.DeployerAccountID.NullString())
+	writeNullString(h, b.base.FunderAccountID.NullString())
+	writeNullString(h, b.base.Amount)
+	writeNullString(h, b.base.ClaimableBalanceID)
+	writeNullString(h, b.base.LiquidityPoolID)
+	writeNullString(h, b.base.SponsoredData)
+	writeNullString(h, b.base.TrustlineLimitOld)
+	writeNullString(h, b.base.TrustlineLimitNew)
+
+	// Nullable int16s
+	writeNullInt16(h, b.base.SignerWeightOld)
+	writeNullInt16(h, b.base.SignerWeightNew)
+	writeNullInt16(h, b.base.ThresholdOld)
+	writeNullInt16(h, b.base.ThresholdNew)
+	writeNullInt16(h, b.base.Flags)
+
+	// JSONB (canonical JSON marshal)
 	keyValue, err := json.Marshal(b.base.KeyValue)
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal key value: %v", err))
 	}
+	hashString(h, string(keyValue))
 
-	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
-		b.base.ToID,
-		b.base.StateChangeCategory,
-		reason,
-		b.base.AccountID,
-		b.base.TokenID.String(),
-		b.base.Amount.String,
-		b.base.SignerAccountID.String(),
-		b.base.SpenderAccountID.String(),
-		b.base.SponsoredAccountID.String(),
-		b.base.SponsorAccountID.String(),
-		b.base.SignerWeightOld.Int16,
-		b.base.SignerWeightNew.Int16,
-		b.base.ThresholdOld.Int16,
-		b.base.ThresholdNew.Int16,
-		b.base.TrustlineLimitOld.String,
-		b.base.TrustlineLimitNew.String,
-		b.base.Flags.Int16,
-		string(keyValue),
-	)
+	return int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
 }
 
+// Binary hash helpers — each writes a null-tag byte followed by length-prefixed data.
+
+func hashString(h hash.Hash, s string) {
+	// Length prefix prevents collision between adjacent fields
+	// (e.g. "ab"+"cd" vs "a"+"bcd").
+	fmt.Fprint(h, len(s))
+	h.Write([]byte{':'})
+	h.Write([]byte(s))
+}
+
+func writeInt64(h hash.Hash, v int64) {
+	hashString(h, strconv.FormatInt(v, 10))
+}
+
+func writeNullString(h hash.Hash, n sql.NullString) {
+	if !n.Valid {
+		h.Write([]byte{0x00})
+		return
+	}
+	h.Write([]byte{0x01})
+	hashString(h, n.String)
+}
+
+func writeNullInt16(h hash.Hash, n sql.NullInt16) {
+	if !n.Valid {
+		h.Write([]byte{0x00})
+		return
+	}
+	h.Write([]byte{0x01})
+	hashString(h, strconv.FormatInt(int64(n.Int16), 10))
+}
+
+// Clone returns a shallow copy of the builder, sharing the same metrics service.
 func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base:           b.base,
