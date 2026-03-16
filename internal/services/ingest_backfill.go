@@ -81,16 +81,15 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 	if startLedger > endLedger {
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
 	}
-
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
-
 	if endLedger > latestIngestedLedger {
 		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
 	}
 
+	// Calculate the gaps in DB first.
 	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("calculating backfill gaps: %w", err)
@@ -115,6 +114,7 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 	if err != nil {
 		return fmt.Errorf("fetching end ledger %d timestamp: %w", gaps[len(gaps)-1].GapEnd, err)
 	}
+
 	// Suppress insert-triggered autovacuum on parent hypertables during backfill
 	// to avoid I/O contention with COPY inserts and compress_chunk.
 	if err := db.DisableInsertAutovacuum(ctx, m.models.DB, tables); err != nil {
@@ -130,11 +130,12 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 	if err != nil {
 		return fmt.Errorf("pre-creating chunks: %w", err)
 	}
-
 	gapBatches, chunksByBatch, err := m.mapBatchesToChunks(ctx, gaps, chunks)
 	if err != nil {
 		return err
 	}
+
+	// Start the parallel chunk compressor goroutine.
 	compressorCh := make(chan *CompressBatch, 64)
 	compressor := newProgressiveCompressor(ctx, m.models.DB, chunksByBatch, compressorCh)
 	compressor.runCompression()
@@ -143,6 +144,7 @@ func (m *ingestService) startHistoricalBackfill(ctx context.Context, startLedger
 		return m.processLedgersInBatch(ctx, backend, batch, m.flushHistoricalBatch, compressorCh)
 	}
 
+	// Start backfill.
 	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, gapBatches, pipelinedProcessor)
 	duration := time.Since(startTime)
@@ -606,6 +608,27 @@ func (m *ingestService) consumeAndFlush(
 	lastFlushEnd := time.Now()
 	wt := newWatermarkTracker(gapBatch, compressorCh)
 
+	doFlush := func() error {
+		fillTime := time.Since(lastFlushEnd)
+		flushCount++
+
+		flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
+		if flushErr != nil {
+			cancel()
+			return flushErr
+		}
+		flushDuration += flushElapsed
+		lastFlushEnd = time.Now()
+
+		deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
+		log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v chBacklog=%d/%d total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
+			flushCount, fillTime, flushElapsed, len(flushCh), cap(flushCh), ledgersCount,
+			deltaProcess, deltaBlocked, deltaLedgers)
+
+		batch = batch[:0]
+		return nil
+	}
+
 	for ledgerBuffer := range flushCh {
 		// Check if an upstream stage has failed before collecting more data.
 		if pipeCtx.Err() != nil {
@@ -616,41 +639,17 @@ func (m *ingestService) consumeAndFlush(
 		ledgersCount++
 
 		if len(batch) >= int(m.backfillDBInsertBatchSize) {
-			fillTime := time.Since(lastFlushEnd)
-			flushCount++
-
-			flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
-			if flushErr != nil {
-				cancel()
-				return ledgersCount, flushDuration, flushErr
+			if err = doFlush(); err != nil {
+				return ledgersCount, flushDuration, err
 			}
-			flushDuration += flushElapsed
-			lastFlushEnd = time.Now()
-
-			deltaProcess, deltaBlocked, deltaLedgers := metrics.deltas()
-			log.Ctx(ctx).Infof("Pipeline flush #%d: fill=%v flush=%v total=%d | workers: Δcpu=%v Δblocked=%v (%d processed)",
-				flushCount, fillTime, flushElapsed, ledgersCount,
-				deltaProcess, deltaBlocked, deltaLedgers)
-
-			batch = batch[:0]
 		}
 	}
 
-	// Final flush
+	// Final flush for remaining items after channel closes.
 	if len(batch) > 0 && pipeCtx.Err() == nil {
-		fillTime := time.Since(lastFlushEnd)
-		chLen := len(flushCh)
-		flushCount++
-
-		flushElapsed, flushErr := executeFlush(pipeCtx, batch, flush, wt)
-		if flushErr != nil {
-			cancel()
-			return ledgersCount, flushDuration, flushErr
+		if err = doFlush(); err != nil {
+			return ledgersCount, flushDuration, err
 		}
-		flushDuration += flushElapsed
-
-		log.Ctx(ctx).Infof("Pipeline flush #%d (final): fill=%v flush=%v chBacklog=%d/%d total=%d",
-			flushCount, fillTime, flushElapsed, chLen, cap(flushCh), ledgersCount)
 	}
 
 	return ledgersCount, flushDuration, nil
