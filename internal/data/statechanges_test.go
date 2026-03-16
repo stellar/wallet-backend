@@ -136,7 +136,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	// State change with typed signer/threshold fields (uses to_id=1 to reference tx1)
 	sc3 := types.StateChange{
 		ToID:                1,
-		StateChangeID:       2, // Different order to avoid PK conflict with sc1
+		StateChangeID:       2, // Different StateChangeID to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
 		StateChangeReason:   types.StateChangeReasonAdd,
 		LedgerCreatedAt:     now,
