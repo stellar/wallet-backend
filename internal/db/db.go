@@ -189,12 +189,17 @@ func rowPtrScanner[T any]() func(pgx.CollectableRow) (*T, error) {
 	return pgx.RowToAddrOf[T]
 }
 
-// hasDBTags reports whether the given struct type has any fields with a "db" tag.
-// This distinguishes model structs (which use RowToStructByNameLax) from scalar-like
-// structs such as time.Time and uuid.UUID (which use RowTo).
+// hasDBTags reports whether the given struct type has any fields with a "db" tag,
+// recursing into embedded (anonymous) struct fields. This distinguishes model structs
+// (which use RowToStructByNameLax) from scalar-like structs such as time.Time and
+// uuid.UUID (which use RowTo).
 func hasDBTags(t reflect.Type) bool {
 	for i := range t.NumField() {
-		if _, ok := t.Field(i).Tag.Lookup("db"); ok {
+		f := t.Field(i)
+		if _, ok := f.Tag.Lookup("db"); ok {
+			return true
+		}
+		if f.Anonymous && f.Type.Kind() == reflect.Struct && hasDBTags(f.Type) {
 			return true
 		}
 	}
