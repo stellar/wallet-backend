@@ -5,7 +5,7 @@
 CREATE TABLE state_changes (
     to_id BIGINT NOT NULL,
     operation_id BIGINT NOT NULL,
-    state_change_id BIGINT NOT NULL CHECK (state_change_id >= 1),
+    state_change_id BIGINT NOT NULL,
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
