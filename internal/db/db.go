@@ -175,7 +175,7 @@ func QueryManyPtrs[T any](ctx context.Context, q Querier, query string, args ...
 
 func rowScanner[T any]() func(pgx.CollectableRow) (T, error) {
 	var t T
-	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct {
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct && hasDBTags(typ) {
 		return pgx.RowToStructByNameLax[T]
 	}
 	return pgx.RowTo[T]
@@ -183,8 +183,20 @@ func rowScanner[T any]() func(pgx.CollectableRow) (T, error) {
 
 func rowPtrScanner[T any]() func(pgx.CollectableRow) (*T, error) {
 	var t T
-	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct {
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct && hasDBTags(typ) {
 		return pgx.RowToAddrOfStructByNameLax[T]
 	}
 	return pgx.RowToAddrOf[T]
+}
+
+// hasDBTags reports whether the given struct type has any fields with a "db" tag.
+// This distinguishes model structs (which use RowToStructByNameLax) from scalar-like
+// structs such as time.Time and uuid.UUID (which use RowTo).
+func hasDBTags(t reflect.Type) bool {
+	for i := range t.NumField() {
+		if _, ok := t.Field(i).Tag.Lookup("db"); ok {
+			return true
+		}
+	}
+	return false
 }

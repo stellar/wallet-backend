@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,6 +67,12 @@ func TestQueryOne(t *testing.T) {
 		answer, err := QueryOne[int32](ctx, pool, `SELECT 42::int4`)
 		require.NoError(t, err)
 		assert.EqualValues(t, 42, answer)
+	})
+
+	t.Run("scalar-like struct (time.Time)", func(t *testing.T) {
+		ts, err := QueryOne[time.Time](ctx, pool, `SELECT NOW()`)
+		require.NoError(t, err)
+		assert.False(t, ts.IsZero(), "expected non-zero time.Time but got zero value")
 	})
 
 	t.Run("lax struct mapping", func(t *testing.T) {
