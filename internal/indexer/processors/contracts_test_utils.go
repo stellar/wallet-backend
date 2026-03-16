@@ -152,11 +152,13 @@ func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *TransactionOperationWrap
 }
 
 // assertStateChangeEqual compares two state changes and fails if they are not equal.
+// It normalizes IngestedAt (non-deterministic wall clock) and StateChangeID (random).
 func assertStateChangeEqual(t *testing.T, want types.StateChange, got types.StateChange) {
 	t.Helper()
 
 	gotV2 := got
 	gotV2.IngestedAt = want.IngestedAt
+	gotV2.StateChangeID = want.StateChangeID
 	assert.Equal(t, want, gotV2)
 }
 

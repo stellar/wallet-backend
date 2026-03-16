@@ -4,12 +4,10 @@ package processors
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"hash"
-	"hash/fnv"
-	"strconv"
+	"encoding/binary"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -167,90 +165,17 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 	return b
 }
 
-// Build returns the constructed state change with a deterministic content-based ID.
+// Build returns the constructed state change with a randomly generated ID.
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.StateChangeID = b.computeHashID()
+	b.base.StateChangeID = generateID()
 	return b.base
 }
 
-// computeHashID produces a deterministic FNV-64a hash of all content fields.
-// It uses binary writes with null-tags (0x00 = NULL, 0x01 = present) to avoid
-// ambiguity between NULL and zero-value fields.
-func (b *StateChangeBuilder) computeHashID() int64 {
-	h := fnv.New64a()
-
-	// Non-nullable fields
-	writeInt64(h, b.base.ToID)
-	hashString(h, string(b.base.StateChangeCategory))
-	hashString(h, string(b.base.StateChangeReason))
-	hashString(h, string(b.base.AccountID))
-	writeInt64(h, b.base.OperationID)
-
-	// Nullable fields (addresses coerced to sql.NullString for uniform handling)
-	writeNullString(h, b.base.TokenID.NullString())
-	writeNullString(h, b.base.SignerAccountID.NullString())
-	writeNullString(h, b.base.SpenderAccountID.NullString())
-	writeNullString(h, b.base.SponsoredAccountID.NullString())
-	writeNullString(h, b.base.SponsorAccountID.NullString())
-	writeNullString(h, b.base.DeployerAccountID.NullString())
-	writeNullString(h, b.base.FunderAccountID.NullString())
-	writeNullString(h, b.base.Amount)
-	writeNullString(h, b.base.ClaimableBalanceID)
-	writeNullString(h, b.base.LiquidityPoolID)
-	writeNullString(h, b.base.SponsoredData)
-	writeNullString(h, b.base.TrustlineLimitOld)
-	writeNullString(h, b.base.TrustlineLimitNew)
-
-	// Nullable int16s
-	writeNullInt16(h, b.base.SignerWeightOld)
-	writeNullInt16(h, b.base.SignerWeightNew)
-	writeNullInt16(h, b.base.ThresholdOld)
-	writeNullInt16(h, b.base.ThresholdNew)
-	writeNullInt16(h, b.base.Flags)
-
-	// JSONB (canonical JSON marshal)
-	keyValue, err := json.Marshal(b.base.KeyValue)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal key value: %v", err))
-	}
-	hashString(h, string(keyValue))
-
-	return int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
-}
-
-// Binary hash helpers.
-
-func hashString(h hash.Hash, s string) {
-	// Length prefix prevents collision between adjacent fields
-	// (e.g. "ab"+"cd" vs "a"+"bcd").
-	_, err := fmt.Fprint(h, len(s))
-	if err != nil {
-		panic(fmt.Sprintf("hashing state change string %q: %v", s, err))
-	}
-	h.Write([]byte{':'})
-	h.Write([]byte(s))
-}
-
-func writeInt64(h hash.Hash, v int64) {
-	hashString(h, strconv.FormatInt(v, 10))
-}
-
-func writeNullString(h hash.Hash, n sql.NullString) {
-	if !n.Valid {
-		h.Write([]byte{0x00})
-		return
-	}
-	h.Write([]byte{0x01})
-	hashString(h, n.String)
-}
-
-func writeNullInt16(h hash.Hash, n sql.NullInt16) {
-	if !n.Valid {
-		h.Write([]byte{0x00})
-		return
-	}
-	h.Write([]byte{0x01})
-	hashString(h, strconv.FormatInt(int64(n.Int16), 10))
+// generateID produces a random positive int64 from a UUID v4.
+// Takes the first 8 bytes of the UUID and masks to ensure a positive value.
+func generateID() int64 {
+	id := uuid.New()
+	return int64(binary.BigEndian.Uint64(id[:8]) & 0x7FFFFFFFFFFFFFFF)
 }
 
 // Clone returns a shallow copy of the builder, sharing the same metrics service.
