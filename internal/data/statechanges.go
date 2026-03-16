@@ -173,7 +173,6 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 }
 
 // BatchCopy inserts state changes using pgx's binary COPY protocol.
-// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 //
 // IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY

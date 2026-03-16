@@ -218,7 +218,7 @@ func (b *StateChangeBuilder) computeHashID() int64 {
 	return int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
 }
 
-// Binary hash helpers — each writes a null-tag byte followed by length-prefixed data.
+// Binary hash helpers.
 
 func hashString(h hash.Hash, s string) {
 	// Length prefix prevents collision between adjacent fields
