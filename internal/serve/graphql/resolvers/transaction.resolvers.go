@@ -46,7 +46,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	}
 
 	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
-		return o.Cursor.ID
+		return o.CompositeCursor.ID
 	})
 
 	edges := make([]*graphql1.OperationEdge, len(conn.Edges))

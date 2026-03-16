@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -20,7 +20,7 @@ var ErrUnavailableChannelAccounts = errors.New("no available channel account cou
 
 type channelAccountDBSignatureClient struct {
 	networkPassphrase    string
-	dbConnectionPool     db.ConnectionPool
+	dbConnectionPool     *pgxpool.Pool
 	encryptionPassphrase string
 	privateKeyEncrypter  signingutils.PrivateKeyEncrypter
 	channelAccountStore  store.ChannelAccountStore
@@ -35,11 +35,11 @@ const (
 
 var _ SignatureClient = (*channelAccountDBSignatureClient)(nil)
 
-func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, networkPassphrase string, privateKeyEncrypter signingutils.PrivateKeyEncrypter, encryptionPassphrase string) (*channelAccountDBSignatureClient, error) {
+func NewChannelAccountDBSignatureClient(pool *pgxpool.Pool, networkPassphrase string, privateKeyEncrypter signingutils.PrivateKeyEncrypter, encryptionPassphrase string) (*channelAccountDBSignatureClient, error) {
 	return &channelAccountDBSignatureClient{
 		networkPassphrase:    networkPassphrase,
-		dbConnectionPool:     dbConnectionPool,
-		channelAccountStore:  store.NewChannelAccountModel(dbConnectionPool),
+		dbConnectionPool:     pool,
+		channelAccountStore:  store.NewChannelAccountModel(pool),
 		privateKeyEncrypter:  privateKeyEncrypter,
 		encryptionPassphrase: encryptionPassphrase,
 		retryInterval:        DefaultRetryInterval,
@@ -105,7 +105,7 @@ func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Conte
 		return nil, fmt.Errorf("no accounts provided")
 	}
 
-	channelAccounts, err := sc.channelAccountStore.GetAllByPublicKey(ctx, sc.dbConnectionPool, stellarAccounts...)
+	channelAccounts, err := sc.channelAccountStore.GetAllByPublicKey(ctx, stellarAccounts...)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel accounts %v: %w", stellarAccounts, err)
 	}

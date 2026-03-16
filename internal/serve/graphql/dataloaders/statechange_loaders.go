@@ -54,7 +54,7 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, columns, &maxLimit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
-			return item.ToID
+			return item.StateChange.ToID
 		},
 		func(key StateChangeColumnsKey) int64 {
 			return key.ToID
@@ -93,7 +93,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 			return models.StateChanges.BatchGetByOperationIDs(ctx, operationIDs, columns, limit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
-			return item.OperationID
+			return item.StateChange.OperationID
 		},
 		func(key StateChangeColumnsKey) int64 {
 			return key.OperationID

@@ -9,7 +9,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -18,17 +18,16 @@ import (
 )
 
 type TransactionModel struct {
-	DB             db.ConnectionPool
+	DB             *pgxpool.Pool
 	MetricsService metrics.MetricsService
 }
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
-	var transaction types.Transaction
 	start := time.Now()
 	hashBytea := types.HashBytea(hash)
-	err := m.DB.GetContext(ctx, &transaction, query, hashBytea)
+	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, hashBytea)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetByHash", "transactions", duration)
 	if err != nil {
@@ -45,7 +44,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	var args []interface{}
 	argIndex := 1
 
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as "cursor.cursor_ledger_created_at", to_id as "cursor.cursor_id" FROM transactions`, columns))
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_id FROM transactions`, columns))
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -72,12 +71,11 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 
 	query := queryBuilder.String()
 	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions.cursor_ledger_created_at ASC, transactions.cursor_id ASC`, query)
 	}
 
-	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("GetAll", "transactions", duration)
 	if err != nil {
@@ -137,7 +135,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	// Close CTE and LATERAL join to fetch full transaction rows
 	queryBuilder.WriteString(fmt.Sprintf(`
 		)
-		SELECT %s, t.ledger_created_at as "cursor.cursor_ledger_created_at", t.to_id as "cursor.cursor_id"
+		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
 		FROM account_txns ta
 		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
 		WHERE t.to_id IS NOT NULL`, columns))
@@ -154,12 +152,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	// For backward pagination, wrap query to reverse the final order
 	if orderBy == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions."cursor.cursor_ledger_created_at" ASC, transactions."cursor.cursor_id" ASC`, query)
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions.cursor_ledger_created_at ASC, transactions.cursor_id ASC`, query)
 	}
 
-	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "transactions", duration)
 	if err != nil {
@@ -192,9 +189,9 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 		INNER JOIN transactions
 		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
 		WHERE o.id = ANY($1)`, columns)
-	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
+	// QueryManyPtrs uses RowToAddrOfStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "transactions", len(operationIDs))
@@ -224,9 +221,8 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		WHERE (sc.to_id, sc.operation_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 
-	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "transactions", duration)
 	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "transactions", len(scOrders))

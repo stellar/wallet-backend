@@ -100,6 +100,28 @@ type Configs struct {
 	// 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during
 	// backfill to prevent long-running jobs from blocking their next scheduled start.
 	MaxChunksToCompress int
+	// DB pool tuning — all default to db.Default* constants when zero.
+	DBMaxConns        int
+	DBMinConns        int
+	DBMaxConnLifetime time.Duration
+	DBMaxConnIdleTime time.Duration
+}
+
+func (c Configs) BuildPoolConfig() db.PoolConfig {
+	cfg := db.DefaultPoolConfig()
+	if c.DBMaxConns > 0 {
+		cfg.MaxConns = int32(c.DBMaxConns)
+	}
+	if c.DBMinConns > 0 {
+		cfg.MinConns = int32(c.DBMinConns)
+	}
+	if c.DBMaxConnLifetime > 0 {
+		cfg.MaxConnLifetime = c.DBMaxConnLifetime
+	}
+	if c.DBMaxConnIdleTime > 0 {
+		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
+	}
+	return cfg
 }
 
 func Ingest(cfg Configs) error {
@@ -120,32 +142,10 @@ func Ingest(cfg Configs) error {
 func setupDeps(cfg Configs) (services.IngestService, error) {
 	ctx := context.Background()
 
-	var dbConnectionPool db.ConnectionPool
-	var err error
-	switch cfg.IngestionMode {
-	// Use optimized connection pool for backfill mode with async commit and increased work_mem
-	case services.IngestionModeBackfill:
-		dbConnectionPool, err = db.OpenDBConnectionPoolForBackfill(cfg.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("connecting to the database (backfill mode): %w", err)
-		}
-
-		// Disable FK constraint checking for faster inserts (requires elevated privileges)
-		if fkErr := db.ConfigureBackfillSession(ctx, dbConnectionPool); fkErr != nil {
-			log.Ctx(ctx).Warnf("Could not disable FK checks (may require superuser privileges): %v", fkErr)
-			// Continue anyway - other optimizations (async commit, work_mem) still apply
-		} else {
-			log.Ctx(ctx).Info("Backfill session configured: FK checks disabled, async commit enabled")
-		}
-	default:
-		dbConnectionPool, err = db.OpenDBConnectionPool(cfg.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("connecting to the database: %w", err)
-		}
-	}
-	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	poolCfg := cfg.BuildPoolConfig()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
-		return nil, fmt.Errorf("getting sqlx db: %w", err)
+		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
 
 	if cfg.IngestionMode == services.IngestionModeLive {
@@ -154,7 +154,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		}
 	}
 
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMetricsService()
+	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)

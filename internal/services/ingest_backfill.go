@@ -183,7 +183,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			"transactions", "transactions_accounts", "operations",
 			"operations_accounts", "state_changes",
 		}
-		recompressor = newProgressiveRecompressor(ctx, m.models.DB.PgxPool(), tables, len(backfillBatches))
+		recompressor = newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
 	}
 
 	startTime := time.Now()
@@ -231,7 +231,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
 			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts)
 			if innerErr != nil {
@@ -424,7 +424,12 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		default:
 		}
 
-		err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			// Disable synchronous commit for this transaction only — safe for backfill
+			// since data can be re-ingested if a crash occurs before WAL flush.
+			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
+				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
+			}
 			// Collect changes for post-catchup processing if requested
 			if batchChanges != nil {
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
@@ -559,7 +564,7 @@ func (m *ingestService) processLedgersInBatch(
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
 func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32) error {
-	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		return m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, ledgerSeq)
 	})
 	if err != nil {

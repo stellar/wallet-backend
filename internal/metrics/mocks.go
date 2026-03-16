@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"github.com/alitto/pond/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 )
@@ -18,6 +19,10 @@ func NewMockMetricsService() *MockMetricsService {
 
 func (m *MockMetricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
 	m.Called(channel, pool)
+}
+
+func (m *MockMetricsService) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
+	m.Called(pool)
 }
 
 func (m *MockMetricsService) GetRegistry() *prometheus.Registry {

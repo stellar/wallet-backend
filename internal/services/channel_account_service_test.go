@@ -23,7 +23,8 @@ import (
 func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
@@ -122,9 +123,9 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Once()
 
 				channelAccountStore.
-					On("BatchInsert", mock.Anything, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).
+					On("BatchInsert", mock.Anything, mock.AnythingOfType("[]*store.ChannelAccount")).
 					Run(func(args mock.Arguments) {
-						channelAccounts, ok := args.Get(2).([]*store.ChannelAccount)
+						channelAccounts, ok := args.Get(1).([]*store.ChannelAccount)
 						require.True(t, ok)
 
 						channelAccountsAddresses := make([]string, 0, len(channelAccounts))
@@ -393,11 +394,10 @@ func TestSubmitTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
@@ -447,11 +447,10 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}

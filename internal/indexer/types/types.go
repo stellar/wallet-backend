@@ -324,7 +324,7 @@ type CompositeCursor struct {
 
 type TransactionWithCursor struct {
 	Transaction
-	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
+	CompositeCursor
 }
 
 type TransactionWithStateChangeID struct {
@@ -430,7 +430,7 @@ type Operation struct {
 
 type OperationWithCursor struct {
 	Operation
-	Cursor CompositeCursor `json:"cursor,omitempty" db:"cursor"`
+	CompositeCursor
 }
 
 type OperationWithStateChangeID struct {
@@ -617,7 +617,7 @@ type StateChange struct {
 
 type StateChangeWithCursor struct {
 	StateChange
-	Cursor StateChangeCursor `db:"cursor"`
+	StateChangeCursor
 }
 
 type StateChangeCursor struct {

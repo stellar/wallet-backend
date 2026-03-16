@@ -18,14 +18,14 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	// Insert test assets for foreign key references
 	assetID1 := DeterministicAssetID("USDC", "ISSUER1")
 	assetID2 := DeterministicAssetID("EURC", "ISSUER2")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO trustline_assets (id, code, issuer) VALUES
 		($1, 'USDC', 'ISSUER1'),
 		($2, 'EURC', 'ISSUER2')
@@ -33,7 +33,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
 	}
 
@@ -82,7 +82,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		}
 
 		accountAddr := "GACCOUNT1"
-		_, err := dbConnectionPool.ExecContext(ctx, `
+		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO trustline_balances
 			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
 			VALUES ($1, $2, 1000, 10000, 100, 50, 1, 12345)
@@ -119,7 +119,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		}
 
 		accountAddr := "GACCOUNT2"
-		_, err := dbConnectionPool.ExecContext(ctx, `
+		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO trustline_balances
 			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
 			VALUES
@@ -144,14 +144,14 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	// Insert test assets for foreign key references
 	assetID1 := DeterministicAssetID("USDC", "ISSUER1")
 	assetID2 := DeterministicAssetID("EURC", "ISSUER2")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO trustline_assets (id, code, issuer) VALUES
 		($1, 'USDC', 'ISSUER1'),
 		($2, 'EURC', 'ISSUER2')
@@ -159,7 +159,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
 	}
 
@@ -172,7 +172,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -192,7 +192,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []TrustlineBalance{
@@ -214,7 +214,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify insert
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
 	})
@@ -232,7 +232,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
 			{
@@ -248,7 +248,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update with new values
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts[0].Balance = 2000
 		upserts[0].LedgerNumber = 200
@@ -259,7 +259,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		// Verify update
 		var balance int64
 		var ledger uint32
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance, last_modified_ledger FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`,
 			"GACCOUNT1", assetID1).Scan(&balance, &ledger)
 		require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// First insert
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
 			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
@@ -290,7 +290,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Delete
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		deletes := []TrustlineBalance{
 			{AccountAddress: "GACCOUNT1", AssetID: assetID1},
@@ -301,7 +301,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify delete
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 	})
@@ -319,7 +319,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		}
 
 		// Insert two trustlines
-		pgxTx1, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
 			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
@@ -330,7 +330,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, pgxTx1.Commit(ctx))
 
 		// Update one, delete one, add new one for different account
-		pgxTx2, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []TrustlineBalance{
 			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1500, LedgerNumber: 200}, // update
@@ -345,12 +345,12 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify results
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 2, count) // GACCOUNT1:assetID1 (updated) + GACCOUNT2:assetID1 (new)
 
 		var balance int64
-		err = dbConnectionPool.PgxPool().QueryRow(ctx,
+		err = dbConnectionPool.QueryRow(ctx,
 			`SELECT balance FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`,
 			"GACCOUNT1", assetID1).Scan(&balance)
 		require.NoError(t, err)
@@ -363,14 +363,14 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
 	// Insert test assets for foreign key references
 	assetID1 := DeterministicAssetID("USDC", "ISSUER1")
 	assetID2 := DeterministicAssetID("EURC", "ISSUER2")
-	_, err = dbConnectionPool.ExecContext(ctx, `
+	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO trustline_assets (id, code, issuer) VALUES
 		($1, 'USDC', 'ISSUER1'),
 		($2, 'EURC', 'ISSUER2')
@@ -378,7 +378,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
 	}
 
@@ -391,7 +391,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		defer pgxTx.Rollback(ctx) //nolint:errcheck
 
@@ -411,7 +411,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []TrustlineBalance{
@@ -433,7 +433,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify all fields
 		var b TrustlineBalance
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `
+		err = dbConnectionPool.QueryRow(ctx, `
 			SELECT account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger
 			FROM trustline_balances WHERE account_address = $1
 		`, "GACCOUNT1").Scan(&b.AccountAddress, &b.AssetID, &b.Balance, &b.Limit, &b.BuyingLiabilities, &b.SellingLiabilities, &b.Flags, &b.LedgerNumber)
@@ -460,7 +460,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []TrustlineBalance{
@@ -475,7 +475,7 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 
 		// Verify count
 		var count int
-		err = dbConnectionPool.PgxPool().QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances`).Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances`).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 3, count)
 	})

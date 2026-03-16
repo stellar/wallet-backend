@@ -5,226 +5,97 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
 
-type ConnectionPool interface {
-	SQLExecuter
-	BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error)
-	Close() error
-	Ping(ctx context.Context) error
-	SqlDB(ctx context.Context) (*sql.DB, error)
-	SqlxDB(ctx context.Context) (*sqlx.DB, error)
-	PgxPool() *pgxpool.Pool
-}
-
-// Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
-var _ ConnectionPool = (*ConnectionPoolImplementation)(nil)
-
-type ConnectionPoolImplementation struct {
-	*sqlx.DB
-	pgxPool *pgxpool.Pool
-}
-
 const (
-	MaxDBConnIdleTime = 10 * time.Second
-	MaxOpenDBConns    = 30
-	MaxIdleDBConns    = 20              // Keep warm connections ready in the pool
-	MaxDBConnLifetime = 5 * time.Minute // Recycle connections periodically
+	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
+	DefaultMaxConns        int32         = 10
+	DefaultMinConns        int32         = 5
+	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
 )
 
-func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
-	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
+// PoolConfig holds configurable pgxpool settings. Zero values fall back to Default* constants.
+type PoolConfig struct {
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
+// DefaultPoolConfig returns a PoolConfig populated with the default values.
+func DefaultPoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxConns:        DefaultMaxConns,
+		MinConns:        DefaultMinConns,
+		MaxConnLifetime: DefaultMaxConnLifetime,
+		MaxConnIdleTime: DefaultMaxConnIdleTime,
+	}
+}
+
+// resolvePoolConfig returns the first config provided, or DefaultPoolConfig() if none.
+func resolvePoolConfig(configs []PoolConfig) PoolConfig {
+	if len(configs) > 0 {
+		return configs[0]
+	}
+	return DefaultPoolConfig()
+}
+
+// Querier is the minimal interface shared by *pgxpool.Pool and pgx.Tx.
+// It allows QueryOne/QueryMany to work with both pool and transaction.
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// Compile-time checks that *pgxpool.Pool and pgx.Tx satisfy Querier.
+var (
+	_ Querier = (*pgxpool.Pool)(nil)
+	_ Querier = (pgx.Tx)(nil)
+)
+
+func OpenDBConnectionPool(ctx context.Context, dataSourceName string, poolConfigs ...PoolConfig) (*pgxpool.Pool, error) {
+	poolCfg := resolvePoolConfig(poolConfigs)
+	cfg, err := pgxpool.ParseConfig(dataSourceName)
+	if err != nil {
+		return nil, fmt.Errorf("parsing DB connection string: %w", err)
+	}
+	cfg.MaxConns = poolCfg.MaxConns
+	cfg.MinConns = poolCfg.MinConns
+	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
+	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error creating app DB connection pool: %w", err)
 	}
-	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
-	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
-	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
-	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
 
-	err = sqlxDB.Ping()
-	if err != nil {
+	if err = pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
-	// Create pgx pool for binary COPY operations
-	pgxPool, err := pgxpool.New(context.Background(), dataSourceName)
-	if err != nil {
-		_ = sqlxDB.Close() //nolint:errcheck // Best effort cleanup; primary error is pgx pool creation
-		return nil, fmt.Errorf("error creating pgx pool: %w", err)
-	}
-
-	return &ConnectionPoolImplementation{DB: sqlxDB, pgxPool: pgxPool}, nil
+	return pool, nil
 }
 
-// OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// It configures session-level settings (synchronous_commit=off) via the connection
-// string, which are applied to every new connection in the pool.
-// This should ONLY be used for backfill instances, NOT for live ingestion.
-func OpenDBConnectionPoolForBackfill(dataSourceName string) (ConnectionPool, error) {
-	// Append session parameters to connection string for automatic configuration.
-	// URL-encoded: -c synchronous_commit=off
-	backfillParams := "options=-c%20synchronous_commit%3Doff"
-
-	separator := "?"
-	if strings.Contains(dataSourceName, "?") {
-		separator = "&"
-	}
-	backfillDSN := dataSourceName + separator + backfillParams
-
-	sqlxDB, err := sqlx.Open("postgres", backfillDSN)
-	if err != nil {
-		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
-	}
-	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
-	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
-	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
-	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
-
-	err = sqlxDB.Ping()
-	if err != nil {
-		return nil, fmt.Errorf("error pinging backfill DB connection pool: %w", err)
-	}
-
-	// Create pgx pool for binary COPY operations with backfill settings
-	pgxPool, err := pgxpool.New(context.Background(), backfillDSN)
-	if err != nil {
-		_ = sqlxDB.Close() //nolint:errcheck // Best effort cleanup; primary error is pgx pool creation
-		return nil, fmt.Errorf("error creating pgx pool for backfill: %w", err)
-	}
-
-	return &ConnectionPoolImplementation{DB: sqlxDB, pgxPool: pgxPool}, nil
+// SQLDBFromPool returns a *sql.DB backed by the given pgx pool.
+// This is only needed for libraries that require database/sql (e.g. sql-migrate).
+func SQLDBFromPool(pool *pgxpool.Pool) *sql.DB {
+	return stdlib.OpenDBFromPool(pool)
 }
 
-// ConfigureBackfillSession sets session_replication_role to 'replica' which disables FK constraint
-// checking. This cannot be set via connection string and requires elevated privileges (superuser
-// or replication role). Call this ONCE at backfill startup after creating the connection pool.
-func ConfigureBackfillSession(ctx context.Context, db ConnectionPool) error {
-	_, err := db.ExecContext(ctx, "SET session_replication_role = 'replica'")
-	if err != nil {
-		return fmt.Errorf("setting session_replication_role: %w", err)
-	}
-	return nil
-}
-
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.BeginTxx method
-func (db *ConnectionPoolImplementation) BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error) {
-	return db.DB.BeginTxx(ctx, opts)
-}
-
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.PingContext method
-func (db *ConnectionPoolImplementation) Ping(ctx context.Context) error {
-	return db.DB.PingContext(ctx)
-}
-
-func (db *ConnectionPoolImplementation) SqlDB(ctx context.Context) (*sql.DB, error) {
-	return db.DB.DB, nil
-}
-
-func (db *ConnectionPoolImplementation) SqlxDB(ctx context.Context) (*sqlx.DB, error) {
-	return db.DB, nil
-}
-
-func (db *ConnectionPoolImplementation) PgxPool() *pgxpool.Pool {
-	return db.pgxPool
-}
-
-// Close closes both the sqlx and pgx pools.
-//
-//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.Close method
-func (db *ConnectionPoolImplementation) Close() error {
-	if db.pgxPool != nil {
-		db.pgxPool.Close()
-	}
-	return db.DB.Close()
-}
-
-// Transaction is an interface that wraps the sqlx.Tx structs methods.
-type Transaction interface {
-	SQLExecuter
-	Rollback() error
-	Commit() error
-}
-
-// Make sure *sqlx.Tx implements DBTransaction:
-var _ Transaction = (*sqlx.Tx)(nil)
-
-// SQLExecuter is an interface that wraps the *sqlx.DB and *sqlx.Tx structs methods.
-type SQLExecuter interface {
-	DriverName() string
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	NamedExecContext(ctx context.Context, query string, arg interface{}) (sql.Result, error)
-	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
-	sqlx.PreparerContext
-	sqlx.QueryerContext
-	Rebind(query string) string
-	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
-}
-
-// Make sure *sqlx.DB implements SQLExecuter:
-var _ SQLExecuter = (*sqlx.DB)(nil)
-
-// Make sure DBConnectionPool implements SQLExecuter:
-var _ SQLExecuter = (ConnectionPool)(nil)
-
-// Make sure *sqlx.Tx implements SQLExecuter:
-var _ SQLExecuter = (*sqlx.Tx)(nil)
-
-// Make sure DBTransaction implements SQLExecuter:
-var _ SQLExecuter = (Transaction)(nil)
-
-// RunInTransaction runs the given atomic function in an atomic database transaction and returns an error. Boilerplate
-// code for database transactions.
-func RunInTransaction(ctx context.Context, dbConnectionPool ConnectionPool, opts *sql.TxOptions, atomicFunction func(dbTx Transaction) error) error {
-	// wrap the atomic function with a function that returns nil and an error so we can call RunInTransactionWithResult
-	wrappedFunction := func(dbTx Transaction) (interface{}, error) {
-		return nil, atomicFunction(dbTx)
-	}
-
-	_, err := RunInTransactionWithResult(ctx, dbConnectionPool, opts, wrappedFunction)
-	return err
-}
-
-// RunInTransactionWithResult runs the given atomic function in an atomic database transaction and returns a result and
-// an error. Boilerplate code for database transactions.
-func RunInTransactionWithResult[T any](ctx context.Context, dbConnectionPool ConnectionPool, opts *sql.TxOptions, atomicFunction func(dbTx Transaction) (T, error)) (result T, err error) {
-	dbTx, err := dbConnectionPool.BeginTxx(ctx, opts)
-	if err != nil {
-		return *new(T), fmt.Errorf("creating db transaction for RunInTransactionWithResult: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			log.Ctx(ctx).Errorf("Rolling back transaction due to error: %v", err)
-			errRollBack := dbTx.Rollback()
-			if errRollBack != nil {
-				log.Ctx(ctx).Errorf("Error in database transaction rollback: %v", errRollBack)
-			}
-		}
-	}()
-
-	result, err = atomicFunction(dbTx)
-	if err != nil {
-		return *new(T), fmt.Errorf("running atomic function in RunInTransactionWithResult: %w", err)
-	}
-
-	err = dbTx.Commit()
-	if err != nil {
-		return *new(T), fmt.Errorf("committing transaction in RunInTransactionWithResult: %w", err)
-	}
-
-	return result, nil
-}
-
-func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, atomicFunction func(pgxTx pgx.Tx) error) error {
-	pgxTx, err := dbConnectionPool.PgxPool().Begin(ctx)
+// RunInTransaction runs the given atomic function in a pgx transaction.
+// It automatically rolls back on error and commits on success.
+func RunInTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
+	pgxTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning pgx transaction: %w", err)
 	}
@@ -235,8 +106,8 @@ func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, a
 		}
 	}()
 
-	if err := atomicFunction(pgxTx); err != nil {
-		return fmt.Errorf("running atomic function in RunInPgxTransaction: %w", err)
+	if err := fn(pgxTx); err != nil {
+		return fmt.Errorf("running atomic function in RunInTransaction: %w", err)
 	}
 
 	if err := pgxTx.Commit(ctx); err != nil {
@@ -244,4 +115,93 @@ func RunInPgxTransaction(ctx context.Context, dbConnectionPool ConnectionPool, a
 	}
 
 	return nil
+}
+
+// QueryOne executes a query and scans the single result row into T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
+// Returns pgx.ErrNoRows if no row is found.
+func QueryOne[T any](ctx context.Context, q Querier, query string, args ...any) (T, error) {
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		var zero T
+		return zero, fmt.Errorf("executing query: %w", err)
+	}
+	result, err := pgx.CollectOneRow(rows, rowScanner[T]())
+	if err != nil {
+		var zero T
+		return zero, err //nolint:wrapcheck // pgx.ErrNoRows must propagate unwrapped for errors.Is checks
+	}
+	return result, nil
+}
+
+// QueryMany executes a query and scans all result rows into []T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
+// Returns an empty slice (not nil) if no rows are found.
+func QueryMany[T any](ctx context.Context, q Querier, query string, args ...any) ([]T, error) {
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("executing query: %w", err)
+	}
+	results, err := pgx.CollectRows(rows, rowScanner[T]())
+	if err != nil {
+		return nil, fmt.Errorf("collecting rows: %w", err)
+	}
+	if results == nil {
+		results = []T{}
+	}
+	return results, nil
+}
+
+// QueryManyPtrs executes a query and scans all result rows into []*T.
+// For struct types, it uses pgx named-field scanning (db tags).
+// For scalar types (int, bool, string, etc.), it uses direct column scanning.
+// Returns an empty slice (not nil) if no rows are found.
+func QueryManyPtrs[T any](ctx context.Context, q Querier, query string, args ...any) ([]*T, error) {
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("executing query: %w", err)
+	}
+	results, err := pgx.CollectRows(rows, rowPtrScanner[T]())
+	if err != nil {
+		return nil, fmt.Errorf("collecting rows: %w", err)
+	}
+	if results == nil {
+		results = []*T{}
+	}
+	return results, nil
+}
+
+func rowScanner[T any]() func(pgx.CollectableRow) (T, error) {
+	var t T
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct && hasDBTags(typ) {
+		return pgx.RowToStructByNameLax[T]
+	}
+	return pgx.RowTo[T]
+}
+
+func rowPtrScanner[T any]() func(pgx.CollectableRow) (*T, error) {
+	var t T
+	if typ := reflect.TypeOf(t); typ != nil && typ.Kind() == reflect.Struct && hasDBTags(typ) {
+		return pgx.RowToAddrOfStructByNameLax[T]
+	}
+	return pgx.RowToAddrOf[T]
+}
+
+// hasDBTags reports whether the given struct type has any fields with a "db" tag,
+// recursing into embedded (anonymous) struct fields. This distinguishes model structs
+// (which use RowToStructByNameLax) from scalar-like structs such as time.Time and
+// uuid.UUID (which use RowTo).
+func hasDBTags(t reflect.Type) bool {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if _, ok := f.Tag.Lookup("db"); ok {
+			return true
+		}
+		if f.Anonymous && f.Type.Kind() == reflect.Struct && hasDBTags(f.Type) {
+			return true
+		}
+	}
+	return false
 }
