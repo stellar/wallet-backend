@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -676,32 +677,40 @@ func TestDBPoolMetrics(t *testing.T) {
 	metricFamilies, err := ms.GetRegistry().Gather()
 	require.NoError(t, err)
 
-	registeredMetrics := make(map[string]bool)
+	metricsByName := make(map[string]*dto.MetricFamily)
 	for _, mf := range metricFamilies {
-		registeredMetrics[mf.GetName()] = true
+		metricsByName[mf.GetName()] = mf
 	}
 
-	expectedMetrics := []string{
+	// Verify all expected metrics are registered with the correct Prometheus types.
+	// Counters are for monotonically increasing values; gauges are for point-in-time snapshots.
+	expectedCounters := []string{
 		"db_pool_acquire_total",
+		"db_pool_acquire_duration_seconds",
+		"db_pool_empty_acquire_total",
+	}
+	for _, name := range expectedCounters {
+		mf, ok := metricsByName[name]
+		require.True(t, ok, "Expected counter metric %s to be registered", name)
+		assert.Equal(t, dto.MetricType_COUNTER, mf.GetType(), "Expected %s to be a COUNTER", name)
+	}
+
+	expectedGauges := []string{
 		"db_pool_acquired_conns",
 		"db_pool_idle_conns",
 		"db_pool_total_conns",
 		"db_pool_max_conns",
-		"db_pool_acquire_duration_seconds",
 		"db_pool_constructing_conns",
-		"db_pool_empty_acquire_total",
 	}
-	for _, name := range expectedMetrics {
-		assert.True(t, registeredMetrics[name], "Expected metric %s to be registered", name)
+	for _, name := range expectedGauges {
+		mf, ok := metricsByName[name]
+		require.True(t, ok, "Expected gauge metric %s to be registered", name)
+		assert.Equal(t, dto.MetricType_GAUGE, mf.GetType(), "Expected %s to be a GAUGE", name)
 	}
 
 	// Verify max_conns reflects the pool's configured value
-	for _, mf := range metricFamilies {
-		if mf.GetName() == "db_pool_max_conns" {
-			value := mf.GetMetric()[0].GetGauge().GetValue()
-			assert.Greater(t, value, float64(0), "max_conns should be greater than 0")
-		}
-	}
+	value := metricsByName["db_pool_max_conns"].GetMetric()[0].GetGauge().GetValue()
+	assert.Greater(t, value, float64(0), "max_conns should be greater than 0")
 }
 
 func TestRPCMethodMetrics(t *testing.T) {
