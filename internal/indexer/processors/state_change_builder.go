@@ -223,7 +223,10 @@ func (b *StateChangeBuilder) computeHashID() int64 {
 func hashString(h hash.Hash, s string) {
 	// Length prefix prevents collision between adjacent fields
 	// (e.g. "ab"+"cd" vs "a"+"bcd").
-	fmt.Fprint(h, len(s))
+	_, err := fmt.Fprint(h, len(s))
+	if err != nil {
+		panic(fmt.Sprintf("hashing state change string %q: %v", s, err))
+	}
 	h.Write([]byte{':'})
 	h.Write([]byte(s))
 }
