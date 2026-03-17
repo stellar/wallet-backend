@@ -106,6 +106,13 @@ func (s *ProtocolSetupTestSuite) TestProtocolSetupClassifiesIngestedWasms() {
 	s.Require().Len(protocols, 1)
 	s.Assert().Equal(data.StatusSuccess, protocols[0].ClassificationStatus)
 
+	var cursorCount int
+	err = pool.GetContext(ctx, &cursorCount,
+		`SELECT COUNT(*) FROM ingest_store WHERE key IN ($1, $2)`,
+		"protocol_SEP41_history_cursor", "protocol_SEP41_current_state_cursor")
+	s.Require().NoError(err)
+	s.Assert().Zero(cursorCount, "protocol-setup should not initialize protocol cursors")
+
 	// 7. Assert: some WASMs remain unclassified (increment contract, SAC WASMs, etc.)
 	s.Assert().NotEmpty(unclassifiedAfter, "some WASMs (increment contract, SAC WASMs) should remain unclassified")
 	s.T().Logf("%d WASMs remain unclassified", len(unclassifiedAfter))

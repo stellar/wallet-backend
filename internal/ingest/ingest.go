@@ -220,6 +220,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}
 
+	// Resolve protocol processors from registry
+	var protocolProcessors []services.ProtocolProcessor
+	for _, factory := range services.GetAllProcessors() {
+		protocolProcessors = append(protocolProcessors, factory())
+	}
+
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
 		Models:                    models,
@@ -243,6 +249,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		CatchupThreshold:          cfg.CatchupThreshold,
+		ProtocolProcessors:        protocolProcessors,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

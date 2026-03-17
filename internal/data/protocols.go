@@ -34,6 +34,7 @@ type Protocols struct {
 type ProtocolsModelInterface interface {
 	UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
 	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error)
+	GetClassified(ctx context.Context) ([]Protocols, error)
 	InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error
 }
 
@@ -103,6 +104,39 @@ func (m *ProtocolsModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]
 
 	m.MetricsService.ObserveDBQueryDuration("GetByIDs", "protocols", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByIDs", "protocols")
+	return protocols, nil
+}
+
+// GetClassified returns all protocols with classification_status = 'success'.
+func (m *ProtocolsModel) GetClassified(ctx context.Context) ([]Protocols, error) {
+	const query = `
+		SELECT id, classification_status, history_migration_status, current_state_migration_status, created_at, updated_at
+		FROM protocols
+		WHERE classification_status = 'success'
+	`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetClassified", "protocols", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying classified protocols: %w", err)
+	}
+	defer rows.Close()
+
+	var protocols []Protocols
+	for rows.Next() {
+		var p Protocols
+		if err := rows.Scan(&p.ID, &p.ClassificationStatus, &p.HistoryMigrationStatus, &p.CurrentStateMigrationStatus, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning classified protocol row: %w", err)
+		}
+		protocols = append(protocols, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating classified protocol rows: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetClassified", "protocols", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetClassified", "protocols")
 	return protocols, nil
 }
 

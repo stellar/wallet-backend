@@ -66,6 +66,9 @@ type IngestServiceConfig struct {
 	TokenIngestionService TokenIngestionService
 	CheckpointService     CheckpointService
 
+	// === Protocol Processors ===
+	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
+
 	// === Processing Options ===
 	GetLedgersLimit int
 	SkipTxMeta      bool
@@ -119,6 +122,8 @@ type ingestService struct {
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	knownContractIDs          set.Set[string]
+	protocolProcessors        map[string]ProtocolProcessor
+	protocolContractCache     *protocolContractCache
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -134,6 +139,19 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
+
+	// Build protocol processor map from slice
+	ppMap := make(map[string]ProtocolProcessor, len(cfg.ProtocolProcessors))
+	for _, p := range cfg.ProtocolProcessors {
+		ppMap[p.ProtocolID()] = p
+	}
+
+	var ppCache *protocolContractCache
+	if len(ppMap) > 0 {
+		ppCache = &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		}
+	}
 
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
@@ -158,6 +176,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		knownContractIDs:          set.NewSet[string](),
+		protocolProcessors:        ppMap,
+		protocolContractCache:     ppCache,
 	}, nil
 }
 

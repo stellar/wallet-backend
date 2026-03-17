@@ -25,6 +25,7 @@ type ProtocolContracts struct {
 // ProtocolContractsModelInterface defines the interface for protocol_contracts operations.
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
+	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
 }
 
 // ProtocolContractsModel implements ProtocolContractsModelInterface.
@@ -83,4 +84,38 @@ func (m *ProtocolContractsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, c
 	m.MetricsService.ObserveDBBatchSize("BatchInsert", "protocol_contracts", len(contracts))
 	m.MetricsService.IncDBQuery("BatchInsert", "protocol_contracts")
 	return nil
+}
+
+// GetByProtocolID returns all contracts associated with a protocol via protocol_wasms.
+func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+	const query = `
+		SELECT pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
+		FROM protocol_contracts pc
+		JOIN protocol_wasms pw ON pc.wasm_hash = pw.wasm_hash
+		WHERE pw.protocol_id = $1
+	`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, protocolID)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("GetByProtocolID", "protocol_contracts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("querying contracts for protocol %s: %w", protocolID, err)
+	}
+	defer rows.Close()
+
+	var contracts []ProtocolContracts
+	for rows.Next() {
+		var c ProtocolContracts
+		if err := rows.Scan(&c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning protocol contract row: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating protocol contract rows: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("GetByProtocolID", "protocol_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("GetByProtocolID", "protocol_contracts")
+	return contracts, nil
 }
