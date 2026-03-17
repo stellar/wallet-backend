@@ -182,7 +182,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 				if histErr != nil {
 					return fmt.Errorf("reading history cursor for %s: %w", protocolID, histErr)
 				}
-				if historyVal >= ledgerSeq-1 {
+				if protocolStateCursorReady(historyVal, ledgerSeq) {
 					expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 					next := strconv.FormatUint(uint64(ledgerSeq), 10)
 					swapped, casErr := m.models.IngestStore.CompareAndSwap(ctx, dbTx, historyCursor, expected, next)
@@ -190,7 +190,10 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 						return fmt.Errorf("CAS history cursor for %s: %w", protocolID, casErr)
 					}
 					if swapped {
-						if persistErr := processor.PersistHistory(ctx, dbTx); persistErr != nil {
+						start := time.Now()
+						persistErr := processor.PersistHistory(ctx, dbTx)
+						m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_history", time.Since(start).Seconds())
+						if persistErr != nil {
 							return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
 						}
 					}
@@ -203,7 +206,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 				if csErr != nil {
 					return fmt.Errorf("reading current state cursor for %s: %w", protocolID, csErr)
 				}
-				if csVal >= ledgerSeq-1 {
+				if protocolStateCursorReady(csVal, ledgerSeq) {
 					expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 					next := strconv.FormatUint(uint64(ledgerSeq), 10)
 					swapped, casErr := m.models.IngestStore.CompareAndSwap(ctx, dbTx, currentStateCursor, expected, next)
@@ -211,7 +214,10 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 						return fmt.Errorf("CAS current state cursor for %s: %w", protocolID, casErr)
 					}
 					if swapped {
-						if persistErr := processor.PersistCurrentState(ctx, dbTx); persistErr != nil {
+						start := time.Now()
+						persistErr := processor.PersistCurrentState(ctx, dbTx)
+						m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_current_state", time.Since(start).Seconds())
+						if persistErr != nil {
 							return fmt.Errorf("persisting current state for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
 						}
 					}
@@ -386,7 +392,7 @@ func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, l
 	if len(processors) == 0 {
 		return nil
 	}
-	for protocolID, processor := range m.protocolProcessors {
+	for protocolID, processor := range processors {
 		contracts := m.getProtocolContracts(ctx, protocolID, ledgerSeq)
 		input := ProtocolProcessorInput{
 			LedgerSequence:    ledgerSeq,
@@ -394,9 +400,12 @@ func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, l
 			ProtocolContracts: contracts,
 			NetworkPassphrase: m.networkPassphrase,
 		}
+		start := time.Now()
 		if err := processor.ProcessLedger(ctx, input); err != nil {
+			m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "process_ledger", time.Since(start).Seconds())
 			return fmt.Errorf("processing ledger %d for protocol %s: %w", ledgerSeq, protocolID, err)
 		}
+		m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "process_ledger", time.Since(start).Seconds())
 	}
 	return nil
 }
@@ -410,6 +419,12 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
 		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
 	m.protocolContractCache.mu.RUnlock()
+
+	if stale {
+		m.metricsService.IncProtocolContractCacheAccess(protocolID, "miss")
+	} else {
+		m.metricsService.IncProtocolContractCacheAccess(protocolID, "hit")
+	}
 
 	if stale {
 		m.refreshProtocolContractCache(ctx, currentLedger)

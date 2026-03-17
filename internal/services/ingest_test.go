@@ -2753,6 +2753,9 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		mockMetrics.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
 		mockMetrics.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("ObserveProtocolStateProcessingDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("IncProtocolContractCacheAccess", mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Maybe()
 
 		models, err := data.NewModels(pool, mockMetrics)
 		require.NoError(t, err)
