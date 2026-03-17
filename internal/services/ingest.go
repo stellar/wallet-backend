@@ -124,10 +124,6 @@ type ingestService struct {
 	knownContractIDs          set.Set[string]
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolContractCache     *protocolContractCache
-	// eligibleProtocolProcessors is set by ingestLiveLedgers before each call
-	// to PersistLedgerData, scoping the CAS loop to only processors that had
-	// ProcessLedger called. Only accessed from the single-threaded live ingestion loop.
-	eligibleProtocolProcessors map[string]ProtocolProcessor
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -146,15 +142,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 
 	// Build protocol processor map from slice
 	ppMap := make(map[string]ProtocolProcessor, len(cfg.ProtocolProcessors))
-	for i, p := range cfg.ProtocolProcessors {
-		if p == nil {
-			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
-		}
-		id := p.ProtocolID()
-		if _, exists := ppMap[id]; exists {
-			return nil, fmt.Errorf("duplicate protocol processor ID %q", id)
-		}
-		ppMap[id] = p
+	for _, p := range cfg.ProtocolProcessors {
+		ppMap[p.ProtocolID()] = p
 	}
 
 	var ppCache *protocolContractCache
