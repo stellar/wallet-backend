@@ -113,6 +113,18 @@ func (m *MockMetricsService) IncStateChanges(stateChangeType, category string, c
 	m.Called(stateChangeType, category, count)
 }
 
+func (m *MockMetricsService) ObserveProtocolStateProcessingDuration(protocolID, phase string, duration float64) {
+	m.Called(protocolID, phase, duration)
+}
+
+func (m *MockMetricsService) IncProtocolContractCacheAccess(protocolID, result string) {
+	m.Called(protocolID, result)
+}
+
+func (m *MockMetricsService) ObserveProtocolContractCacheRefreshDuration(duration float64) {
+	m.Called(duration)
+}
+
 // Ingestion Phase Metrics
 func (m *MockMetricsService) ObserveIngestionPhaseDuration(phase string, duration float64) {
 	m.Called(phase, duration)

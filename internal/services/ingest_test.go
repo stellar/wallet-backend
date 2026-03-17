@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -2834,6 +2835,9 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		mockMetrics.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetrics.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
 		mockMetrics.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("ObserveProtocolStateProcessingDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("IncProtocolContractCacheAccess", mock.Anything, mock.Anything).Return().Maybe()
+		mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Maybe()
 
 		models, err := data.NewModels(pool, mockMetrics)
 		require.NoError(t, err)
@@ -3009,4 +3013,129 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), mainCursor)
 	})
+}
+
+func Test_protocolStateCursorReady(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		cursorValue uint32
+		ledgerSeq   uint32
+		want        bool
+	}{
+		{name: "ledger zero", cursorValue: 0, ledgerSeq: 0, want: true},
+		{name: "cursor at previous ledger", cursorValue: 99, ledgerSeq: 100, want: true},
+		{name: "cursor ahead", cursorValue: 100, ledgerSeq: 100, want: true},
+		{name: "cursor behind", cursorValue: 98, ledgerSeq: 100, want: false},
+		{name: "missing row semantics", cursorValue: 0, ledgerSeq: 100, want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, protocolStateCursorReady(tc.cursorValue, tc.ledgerSeq))
+		})
+	}
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("ObserveProtocolStateProcessingDuration", "selected", "process_ledger", mock.Anything).Return().Once()
+	mockMetrics.On("IncProtocolContractCacheAccess", "selected", "hit").Return().Once()
+
+	selectedProcessor := NewProtocolProcessorMock(t)
+	skippedProcessor := NewProtocolProcessorMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	selectedProcessor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		metricsService:    mockMetrics,
+		networkPassphrase: "test-passphrase",
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"selected": expectedContracts,
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]ProtocolProcessor{
+		"selected": selectedProcessor,
+	})
+	require.NoError(t, err)
+
+	skippedProcessor.AssertNotCalled(t, "ProcessLedger", mock.Anything, mock.Anything)
+	mockMetrics.AssertExpectations(t)
+}
+
+func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("ObserveProtocolStateProcessingDuration", "testproto", "process_ledger", mock.Anything).Return().Once()
+	mockMetrics.On("IncProtocolContractCacheAccess", "testproto", "hit").Return().Once()
+
+	processor := NewProtocolProcessorMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	processor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		metricsService:    mockMetrics,
+		networkPassphrase: "test-passphrase",
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": processor,
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"testproto": expectedContracts,
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolState(ctx, xdr.LedgerCloseMeta{}, 123)
+	require.NoError(t, err)
+	mockMetrics.AssertExpectations(t)
+}
+
+func Test_ingestService_getProtocolContracts_RefreshesAndRecordsMetrics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("IncProtocolContractCacheAccess", "testproto", "miss").Return().Once()
+	mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Once()
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	protocolContractsModel.On("GetByProtocolID", ctx, "testproto").Return(expectedContracts, nil).Once()
+
+	svc := &ingestService{
+		metricsService: mockMetrics,
+		models: &data.Models{
+			ProtocolContracts: protocolContractsModel,
+		},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	contracts := svc.getProtocolContracts(ctx, "testproto", 100)
+	assert.Equal(t, expectedContracts, contracts)
+	mockMetrics.AssertExpectations(t)
 }

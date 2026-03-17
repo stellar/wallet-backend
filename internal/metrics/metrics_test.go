@@ -1007,3 +1007,90 @@ func TestStateChangeMetrics(t *testing.T) {
 		}
 	})
 }
+
+func TestProtocolStateMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("protocol state processing duration", func(t *testing.T) {
+		ms.ObserveProtocolStateProcessingDuration("SEP41", "process_ledger", 0.05)
+		ms.ObserveProtocolStateProcessingDuration("SEP41", "persist_history", 0.10)
+		ms.ObserveProtocolStateProcessingDuration("BLEND", "persist_current_state", 0.03)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		phaseCounts := make(map[string]uint64)
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_protocol_state_processing_duration_seconds" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["protocol_id"] == "SEP41" {
+						phaseCounts[labels["phase"]] = metric.GetHistogram().GetSampleCount()
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "ingestion_protocol_state_processing_duration_seconds metric not found")
+		assert.Equal(t, uint64(1), phaseCounts["process_ledger"])
+		assert.Equal(t, uint64(1), phaseCounts["persist_history"])
+	})
+
+	t.Run("protocol contract cache access", func(t *testing.T) {
+		ms.IncProtocolContractCacheAccess("SEP41", "hit")
+		ms.IncProtocolContractCacheAccess("SEP41", "miss")
+		ms.IncProtocolContractCacheAccess("BLEND", "hit")
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		values := make(map[string]float64)
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_protocol_contract_cache_access_total" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					key := labels["protocol_id"] + "|" + labels["result"]
+					values[key] = metric.GetCounter().GetValue()
+				}
+			}
+		}
+
+		assert.True(t, found, "ingestion_protocol_contract_cache_access_total metric not found")
+		assert.Equal(t, float64(1), values["SEP41|hit"])
+		assert.Equal(t, float64(1), values["SEP41|miss"])
+		assert.Equal(t, float64(1), values["BLEND|hit"])
+	})
+
+	t.Run("protocol contract cache refresh duration", func(t *testing.T) {
+		ms.ObserveProtocolContractCacheRefreshDuration(0.02)
+		ms.ObserveProtocolContractCacheRefreshDuration(0.08)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_protocol_contract_cache_refresh_duration_seconds" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(2), metric.GetHistogram().GetSampleCount())
+				assert.InDelta(t, 0.10, metric.GetHistogram().GetSampleSum(), 0.001)
+			}
+		}
+
+		assert.True(t, found, "ingestion_protocol_contract_cache_refresh_duration_seconds metric not found")
+	})
+}
