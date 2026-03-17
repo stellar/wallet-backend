@@ -2960,7 +2960,7 @@ func Test_protocolStateCursorReady(t *testing.T) {
 	}
 }
 
-func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedProcessors(t *testing.T) {
+func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -2969,6 +2969,7 @@ func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedP
 	mockMetrics.On("IncProtocolContractCacheAccess", "selected", "hit").Return().Once()
 
 	selectedProcessor := NewProtocolProcessorMock(t)
+	skippedProcessor := NewProtocolProcessorMock(t)
 	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
 	selectedProcessor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
 		return input.LedgerSequence == 123 &&
@@ -2992,6 +2993,7 @@ func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedP
 	})
 	require.NoError(t, err)
 
+	skippedProcessor.AssertNotCalled(t, "ProcessLedger", mock.Anything, mock.Anything)
 	mockMetrics.AssertExpectations(t)
 }
 
