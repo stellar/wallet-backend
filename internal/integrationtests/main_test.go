@@ -66,6 +66,11 @@ func TestIntegrationTests(t *testing.T) {
 		suite.Run(t, &DataMigrationTestSuite{testEnv: testEnv})
 	})
 
+	// Protocol state production tests — dual CAS gating during live ingestion
+	t.Run("ProtocolStateProductionTestSuite", func(t *testing.T) {
+		suite.Run(t, &ProtocolStateProductionTestSuite{testEnv: testEnv})
+	})
+
 	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
 		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
 			testEnv: testEnv,
