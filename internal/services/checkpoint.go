@@ -108,10 +108,6 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 type checkpointData struct {
 	// contractTokensByHolderAddress maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
 	contractTokensByHolderAddress map[string][]uuid.UUID
-	// contractIDsByWasmHash groups contract IDs by their WASM hash for batch validation
-	contractIDsByWasmHash map[xdr.Hash][]string
-	// contractTypesByWasmHash maps WASM hashes to their contract code bytes
-	contractTypesByWasmHash map[xdr.Hash]types.ContractType
 	// uniqueAssets stores unique asset metadata extracted from ledger (no RPC needed)
 	uniqueAssets map[uuid.UUID]*wbdata.TrustlineAsset
 	// uniqueContractTokens stores unique contract metadata extracted from ledger (no RPC needed)
@@ -121,8 +117,6 @@ type checkpointData struct {
 func newCheckpointData() checkpointData {
 	return checkpointData{
 		contractTokensByHolderAddress: make(map[string][]uuid.UUID),
-		contractIDsByWasmHash:         make(map[xdr.Hash][]string),
-		contractTypesByWasmHash:       make(map[xdr.Hash]types.ContractType),
 		uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
 		uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
 	}
@@ -213,8 +207,8 @@ type checkpointProcessor struct {
 	checkpointLedger                                  uint32
 	data                                              checkpointData
 	batch                                             *batch
-	wasmHashes                                        map[xdr.Hash]struct{}
-	protocolContractIDsByWasmHash                     map[xdr.Hash][]types.HashBytea
+	wasmClassifications                               map[xdr.Hash]types.ContractType
+	contractAddressesByWasmHash                       map[xdr.Hash][]xdr.Hash
 	entries, trustlineCount, accountCount, batchCount int
 	startTime                                         time.Time
 }
@@ -251,15 +245,15 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		}
 
 		proc := &checkpointProcessor{
-			service:                       s,
-			contractValidator:             s.contractValidator,
-			dbTx:                          dbTx,
-			checkpointLedger:              checkpointLedger,
-			data:                          newCheckpointData(),
-			batch:                         newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
-			wasmHashes:                    make(map[xdr.Hash]struct{}),
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
-			startTime:                     time.Now(),
+			service:                     s,
+			contractValidator:           s.contractValidator,
+			dbTx:                        dbTx,
+			checkpointLedger:            checkpointLedger,
+			data:                        newCheckpointData(),
+			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
+			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
+			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
+			startTime:                   time.Now(),
 		}
 
 		for {
@@ -354,12 +348,14 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			p.entries++
 
 			// Track contract-to-WASM mapping for protocol contracts
-			p.processWasmContractData(contractDataEntry, xdr.Hash(contractAddress))
+			if result.WasmHash != nil {
+				p.contractAddressesByWasmHash[*result.WasmHash] = append(
+					p.contractAddressesByWasmHash[*result.WasmHash], xdr.Hash(contractAddress))
+			}
 
 			if result.IsSAC {
 				return
 			}
-			p.data.contractIDsByWasmHash[*result.WasmHash] = append(p.data.contractIDsByWasmHash[*result.WasmHash], contractAddressStr)
 			p.entries++
 		} else {
 			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
@@ -400,32 +396,15 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 	}
 }
 
-// processContractCode handles both SEP-41 validation AND WASM hash tracking.
+// processContractCode validates WASM code and classifies the contract type.
 func (p *checkpointProcessor) processContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) {
-	// Track hash for protocol_wasms persistence
-	p.wasmHashes[wasmHash] = struct{}{}
-
-	// Validate against SEP-41 spec
 	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
 	if err != nil {
-		return // intentionally skip invalid entries
+		p.wasmClassifications[wasmHash] = types.ContractTypeUnknown
+		return
 	}
-	p.data.contractTypesByWasmHash[wasmHash] = contractType
+	p.wasmClassifications[wasmHash] = contractType
 	p.entries++
-}
-
-// processWasmContractData extracts contract-to-WASM-hash mappings from ContractData Instance entries.
-func (p *checkpointProcessor) processWasmContractData(contractDataEntry xdr.ContractDataEntry, contractAddress xdr.Hash) {
-	contractInstance := contractDataEntry.Val.MustInstance()
-	if contractInstance.Executable.Type != xdr.ContractExecutableTypeContractExecutableWasm {
-		return
-	}
-	if contractInstance.Executable.WasmHash == nil {
-		return
-	}
-
-	hash := *contractInstance.Executable.WasmHash
-	p.protocolContractIDsByWasmHash[hash] = append(p.protocolContractIDsByWasmHash[hash], types.HashBytea(hex.EncodeToString(contractAddress[:])))
 }
 
 // flushBatchIfNeeded flushes the batch to DB if it has reached the flush size.
@@ -475,7 +454,7 @@ func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
 	}
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	sep41Tokens, err := p.service.fetchSep41Metadata(ctx, p.data.contractIDsByWasmHash, p.data.contractTypesByWasmHash)
+	sep41Tokens, err := p.service.fetchSep41Metadata(ctx, p.contractAddressesByWasmHash, p.wasmClassifications)
 	if err != nil {
 		return fmt.Errorf("fetching SEP-41 token metadata: %w", err)
 	}
@@ -500,12 +479,12 @@ func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
 	}
 
 	// Persist protocol WASMs
-	if err := p.service.persistProtocolWasms(ctx, dbTx, p.wasmHashes); err != nil {
+	if err := p.service.persistProtocolWasms(ctx, dbTx, p.wasmClassifications); err != nil {
 		return fmt.Errorf("persisting protocol wasms: %w", err)
 	}
 
 	// Persist protocol contracts (must come after WASMs due to FK)
-	if err := p.service.persistProtocolContracts(ctx, dbTx, p.wasmHashes, p.protocolContractIDsByWasmHash); err != nil {
+	if err := p.service.persistProtocolContracts(ctx, dbTx, p.wasmClassifications, p.contractAddressesByWasmHash); err != nil {
 		return fmt.Errorf("persisting protocol contracts: %w", err)
 	}
 
@@ -622,15 +601,17 @@ func (s *checkpointService) processContractInstanceChange(
 // fetchSep41Metadata validates contract specs and enriches with SEP-41 classifications.
 func (s *checkpointService) fetchSep41Metadata(
 	ctx context.Context,
-	contractIDsByWasmHash map[xdr.Hash][]string,
-	contractTypesByWasmHash map[xdr.Hash]types.ContractType,
+	contractAddressesByWasmHash map[xdr.Hash][]xdr.Hash,
+	wasmClassifications map[xdr.Hash]types.ContractType,
 ) ([]*wbdata.Contract, error) {
 	var sep41ContractIDs []string
-	for wasmHash, contractType := range contractTypesByWasmHash {
+	for wasmHash, contractType := range wasmClassifications {
 		if contractType != types.ContractTypeSEP41 {
 			continue
 		}
-		sep41ContractIDs = append(sep41ContractIDs, contractIDsByWasmHash[wasmHash]...)
+		for _, addr := range contractAddressesByWasmHash[wasmHash] {
+			sep41ContractIDs = append(sep41ContractIDs, strkey.MustEncode(strkey.VersionByteContract, addr[:]))
+		}
 	}
 
 	var sep41ContractsWithMetadata []*wbdata.Contract
@@ -757,13 +738,13 @@ func (s *checkpointService) extractSACBalanceFields(val xdr.ScVal) (balance stri
 }
 
 // persistProtocolWasms writes all accumulated WASM hashes to the protocol_wasms table.
-func (s *checkpointService) persistProtocolWasms(ctx context.Context, dbTx pgx.Tx, wasmHashes map[xdr.Hash]struct{}) error {
-	if len(wasmHashes) == 0 {
+func (s *checkpointService) persistProtocolWasms(ctx context.Context, dbTx pgx.Tx, wasmClassifications map[xdr.Hash]types.ContractType) error {
+	if len(wasmClassifications) == 0 {
 		return nil
 	}
 
-	wasms := make([]wbdata.ProtocolWasm, 0, len(wasmHashes))
-	for hash := range wasmHashes {
+	wasms := make([]wbdata.ProtocolWasm, 0, len(wasmClassifications))
+	for hash := range wasmClassifications {
 		wasms = append(wasms, wbdata.ProtocolWasm{
 			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			ProtocolID: nil,
@@ -780,21 +761,21 @@ func (s *checkpointService) persistProtocolWasms(ctx context.Context, dbTx pgx.T
 
 // persistProtocolContracts writes all accumulated contract-to-WASM mappings to the protocol_contracts table.
 // Contracts referencing WASM hashes not present in wasmHashes are skipped (e.g., expired/evicted WASMs).
-func (s *checkpointService) persistProtocolContracts(ctx context.Context, dbTx pgx.Tx, wasmHashes map[xdr.Hash]struct{}, contractIDsByWasmHash map[xdr.Hash][]types.HashBytea) error {
-	if len(contractIDsByWasmHash) == 0 {
+func (s *checkpointService) persistProtocolContracts(ctx context.Context, dbTx pgx.Tx, wasmClassifications map[xdr.Hash]types.ContractType, contractAddressesByWasmHash map[xdr.Hash][]xdr.Hash) error {
+	if len(contractAddressesByWasmHash) == 0 {
 		return nil
 	}
 
 	var contracts []wbdata.ProtocolContracts
 	var skipped int
-	for hash, contractIDs := range contractIDsByWasmHash {
-		if _, exists := wasmHashes[hash]; !exists {
-			skipped += len(contractIDs)
+	for hash, addrs := range contractAddressesByWasmHash {
+		if _, exists := wasmClassifications[hash]; !exists {
+			skipped += len(addrs)
 			continue
 		}
-		for _, contractID := range contractIDs {
+		for _, addr := range addrs {
 			contracts = append(contracts, wbdata.ProtocolContracts{
-				ContractID: contractID,
+				ContractID: types.HashBytea(hex.EncodeToString(addr[:])),
 				WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			})
 		}

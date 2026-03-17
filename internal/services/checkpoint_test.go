@@ -353,10 +353,8 @@ func TestCheckpointProcessor_ProcessContractCode(t *testing.T) {
 	t.Run("tracks_hash_and_validates_sep41", func(t *testing.T) {
 		contractValidatorMock := NewContractValidatorMock(t)
 		proc := &checkpointProcessor{
-			contractValidator:             contractValidatorMock,
-			data:                          newCheckpointData(),
-			wasmHashes:                    make(map[xdr.Hash]struct{}),
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+			contractValidator:   contractValidatorMock,
+			wasmClassifications: make(map[xdr.Hash]types.ContractType),
 		}
 
 		hash := xdr.Hash{1, 2, 3}
@@ -366,22 +364,15 @@ func TestCheckpointProcessor_ProcessContractCode(t *testing.T) {
 
 		proc.processContractCode(ctx, hash, code)
 
-		// WASM hash tracked
-		_, tracked := proc.wasmHashes[hash]
-		assert.True(t, tracked, "hash should be tracked in wasmHashes")
-
-		// SEP-41 type stored
-		assert.Equal(t, types.ContractTypeSEP41, proc.data.contractTypesByWasmHash[hash])
+		assert.Equal(t, types.ContractTypeSEP41, proc.wasmClassifications[hash])
 		assert.Equal(t, 1, proc.entries)
 	})
 
 	t.Run("duplicate_hash_deduplicated", func(t *testing.T) {
 		contractValidatorMock := NewContractValidatorMock(t)
 		proc := &checkpointProcessor{
-			contractValidator:             contractValidatorMock,
-			data:                          newCheckpointData(),
-			wasmHashes:                    make(map[xdr.Hash]struct{}),
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+			contractValidator:   contractValidatorMock,
+			wasmClassifications: make(map[xdr.Hash]types.ContractType),
 		}
 
 		hash := xdr.Hash{1, 2, 3}
@@ -392,16 +383,14 @@ func TestCheckpointProcessor_ProcessContractCode(t *testing.T) {
 		proc.processContractCode(ctx, hash, code)
 		proc.processContractCode(ctx, hash, code)
 
-		assert.Len(t, proc.wasmHashes, 1, "duplicate hash should be deduplicated in map")
+		assert.Len(t, proc.wasmClassifications, 1, "duplicate hash should be deduplicated in map")
 	})
 
-	t.Run("validator_error_still_tracks_hash", func(t *testing.T) {
+	t.Run("validator_error_stores_unknown", func(t *testing.T) {
 		contractValidatorMock := NewContractValidatorMock(t)
 		proc := &checkpointProcessor{
-			contractValidator:             contractValidatorMock,
-			data:                          newCheckpointData(),
-			wasmHashes:                    make(map[xdr.Hash]struct{}),
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+			contractValidator:   contractValidatorMock,
+			wasmClassifications: make(map[xdr.Hash]types.ContractType),
 		}
 
 		hash := xdr.Hash{4, 5, 6}
@@ -411,78 +400,9 @@ func TestCheckpointProcessor_ProcessContractCode(t *testing.T) {
 
 		proc.processContractCode(ctx, hash, code)
 
-		// WASM hash should still be tracked for protocol_wasms
-		_, tracked := proc.wasmHashes[hash]
-		assert.True(t, tracked, "hash should be tracked even when validation fails")
-
-		// But no SEP-41 type stored
-		assert.Empty(t, proc.data.contractTypesByWasmHash)
+		// WASM hash should be tracked with ContractTypeUnknown
+		assert.Equal(t, types.ContractTypeUnknown, proc.wasmClassifications[hash])
 		assert.Equal(t, 0, proc.entries)
-	})
-}
-
-func TestCheckpointProcessor_ProcessWasmContractData(t *testing.T) {
-	t.Run("wasm_contract_tracked", func(t *testing.T) {
-		proc := &checkpointProcessor{
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
-		}
-
-		contractHash := [32]byte{10, 20, 30}
-		wasmHash := xdr.Hash{40, 50, 60}
-		change := makeContractInstanceChange(contractHash, wasmHash)
-		contractDataEntry := change.Post.Data.MustContractData()
-
-		proc.processWasmContractData(contractDataEntry, xdr.Hash(contractHash))
-
-		require.Contains(t, proc.protocolContractIDsByWasmHash, wasmHash)
-		expectedContractID := types.HashBytea(hex.EncodeToString(contractHash[:]))
-		assert.Equal(t, []types.HashBytea{expectedContractID}, proc.protocolContractIDsByWasmHash[wasmHash])
-	})
-
-	t.Run("multiple_contracts_same_wasm_hash", func(t *testing.T) {
-		proc := &checkpointProcessor{
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
-		}
-
-		wasmHash := xdr.Hash{1, 2, 3}
-		contractHash1 := [32]byte{10}
-		contractHash2 := [32]byte{20}
-
-		change1 := makeContractInstanceChange(contractHash1, wasmHash)
-		change2 := makeContractInstanceChange(contractHash2, wasmHash)
-
-		proc.processWasmContractData(change1.Post.Data.MustContractData(), xdr.Hash(contractHash1))
-		proc.processWasmContractData(change2.Post.Data.MustContractData(), xdr.Hash(contractHash2))
-
-		require.Contains(t, proc.protocolContractIDsByWasmHash, wasmHash)
-		assert.Len(t, proc.protocolContractIDsByWasmHash[wasmHash], 2)
-	})
-
-	t.Run("sac_contract_skipped", func(t *testing.T) {
-		proc := &checkpointProcessor{
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
-		}
-
-		contractHash := [32]byte{5, 6, 7}
-		contractDataEntry := xdr.ContractDataEntry{
-			Contract: xdr.ScAddress{
-				Type:       xdr.ScAddressTypeScAddressTypeContract,
-				ContractId: (*xdr.ContractId)(&contractHash),
-			},
-			Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
-			Durability: xdr.ContractDataDurabilityPersistent,
-			Val: xdr.ScVal{
-				Type: xdr.ScValTypeScvContractInstance,
-				Instance: &xdr.ScContractInstance{
-					Executable: xdr.ContractExecutable{
-						Type: xdr.ContractExecutableTypeContractExecutableStellarAsset,
-					},
-				},
-			},
-		}
-
-		proc.processWasmContractData(contractDataEntry, xdr.Hash(contractHash))
-		assert.Empty(t, proc.protocolContractIDsByWasmHash, "SAC contract should be skipped")
 	})
 }
 
@@ -493,7 +413,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
-		err := svc.persistProtocolWasms(ctx, nil, map[xdr.Hash]struct{}{})
+		err := svc.persistProtocolWasms(ctx, nil, map[xdr.Hash]types.ContractType{})
 		require.NoError(t, err)
 		protocolWasmModelMock.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
 	})
@@ -503,7 +423,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{10, 20, 30}
-		wasmHashes := map[xdr.Hash]struct{}{hash: {}}
+		wasmClassifications := map[xdr.Hash]types.ContractType{hash: types.ContractTypeSEP41}
 
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(wasms []wbdata.ProtocolWasm) bool {
@@ -514,7 +434,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		err := svc.persistProtocolWasms(ctx, nil, wasmHashes)
+		err := svc.persistProtocolWasms(ctx, nil, wasmClassifications)
 		require.NoError(t, err)
 	})
 
@@ -523,13 +443,13 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{99}
-		wasmHashes := map[xdr.Hash]struct{}{hash: {}}
+		wasmClassifications := map[xdr.Hash]types.ContractType{hash: types.ContractTypeUnknown}
 		insertErr := errors.New("db connection lost")
 
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).
 			Return(insertErr).Once()
 
-		err := svc.persistProtocolWasms(ctx, nil, wasmHashes)
+		err := svc.persistProtocolWasms(ctx, nil, wasmClassifications)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "persisting protocol wasms")
 		assert.ErrorIs(t, err, insertErr)
@@ -543,7 +463,7 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 		protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 		svc := &checkpointService{protocolContractsModel: protocolContractsModelMock}
 
-		err := svc.persistProtocolContracts(ctx, nil, map[xdr.Hash]struct{}{}, map[xdr.Hash][]types.HashBytea{})
+		err := svc.persistProtocolContracts(ctx, nil, map[xdr.Hash]types.ContractType{}, map[xdr.Hash][]xdr.Hash{})
 		require.NoError(t, err)
 		protocolContractsModelMock.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
 	})
@@ -554,9 +474,9 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 
 		contractHash := [32]byte{10, 20, 30}
 		wasmHash := xdr.Hash{40, 50, 60}
-		wasmHashes := map[xdr.Hash]struct{}{wasmHash: {}}
-		contractIDsByWasmHash := map[xdr.Hash][]types.HashBytea{
-			wasmHash: {types.HashBytea(hex.EncodeToString(contractHash[:]))},
+		wasmClassifications := map[xdr.Hash]types.ContractType{wasmHash: types.ContractTypeSEP41}
+		contractAddressesByWasmHash := map[xdr.Hash][]xdr.Hash{
+			wasmHash: {xdr.Hash(contractHash)},
 		}
 
 		protocolContractsModelMock.On("BatchInsert", mock.Anything, mock.Anything,
@@ -570,7 +490,7 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		err := svc.persistProtocolContracts(ctx, nil, wasmHashes, contractIDsByWasmHash)
+		err := svc.persistProtocolContracts(ctx, nil, wasmClassifications, contractAddressesByWasmHash)
 		require.NoError(t, err)
 	})
 
@@ -583,10 +503,10 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 		contractHash1 := [32]byte{10}
 		contractHash2 := [32]byte{20}
 
-		wasmHashes := map[xdr.Hash]struct{}{knownWasm: {}}
-		contractIDsByWasmHash := map[xdr.Hash][]types.HashBytea{
-			knownWasm:   {types.HashBytea(hex.EncodeToString(contractHash1[:]))},
-			unknownWasm: {types.HashBytea(hex.EncodeToString(contractHash2[:]))},
+		wasmClassifications := map[xdr.Hash]types.ContractType{knownWasm: types.ContractTypeSEP41}
+		contractAddressesByWasmHash := map[xdr.Hash][]xdr.Hash{
+			knownWasm:   {xdr.Hash(contractHash1)},
+			unknownWasm: {xdr.Hash(contractHash2)},
 		}
 
 		protocolContractsModelMock.On("BatchInsert", mock.Anything, mock.Anything,
@@ -595,7 +515,7 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		err := svc.persistProtocolContracts(ctx, nil, wasmHashes, contractIDsByWasmHash)
+		err := svc.persistProtocolContracts(ctx, nil, wasmClassifications, contractAddressesByWasmHash)
 		require.NoError(t, err)
 	})
 }
@@ -607,11 +527,11 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 	newTestCheckpointProcessor := func() *checkpointProcessor {
 		svc := &checkpointService{networkPassphrase: network.TestNetworkPassphrase}
 		return &checkpointProcessor{
-			service:                       svc,
-			checkpointLedger:              100,
-			data:                          newCheckpointData(),
-			wasmHashes:                    make(map[xdr.Hash]struct{}),
-			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+			service:                     svc,
+			checkpointLedger:            100,
+			data:                        newCheckpointData(),
+			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
+			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
 			batch: &batch{
 				nativeBalances:    make([]wbdata.NativeBalance, 0),
 				trustlineBalances: make([]wbdata.TrustlineBalance, 0),
@@ -678,11 +598,9 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assert.Equal(t, contractAddr, contract.ContractID)
 		assert.Equal(t, string(types.ContractTypeUnknown), contract.Type)
 
-		require.Contains(t, proc.data.contractIDsByWasmHash, wasmHash)
-		assert.Equal(t, []string{contractAddr}, proc.data.contractIDsByWasmHash[wasmHash])
-
-		// Also tracked for protocol contracts
-		require.Contains(t, proc.protocolContractIDsByWasmHash, wasmHash)
+		// Tracked for protocol contracts
+		require.Contains(t, proc.contractAddressesByWasmHash, wasmHash)
+		assert.Equal(t, []xdr.Hash{xdr.Hash(contractHash)}, proc.contractAddressesByWasmHash[wasmHash])
 
 		assert.Equal(t, 2, proc.entries)
 	})
