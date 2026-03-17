@@ -158,7 +158,6 @@ func assertStateChangeEqual(t *testing.T, want types.StateChange, got types.Stat
 
 	gotV2 := got
 	gotV2.IngestedAt = want.IngestedAt
-	gotV2.StateChangeID = want.StateChangeID
 	assert.Equal(t, want, gotV2)
 }
 

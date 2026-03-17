@@ -2,6 +2,8 @@ package data
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"time"
@@ -205,6 +207,10 @@ func (m *StateChangeModel) BatchCopy(
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
 
+			// Generate a fresh random ID at insertion time so retries on PK collision
+			// produce new IDs automatically.
+			stateChangeID := generateStateChangeID()
+
 			// Convert account_id to BYTEA (required field)
 			accountBytes, err := sc.AccountID.Value()
 			if err != nil {
@@ -243,7 +249,7 @@ func (m *StateChangeModel) BatchCopy(
 
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
-				pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
+				pgtype.Int8{Int64: stateChangeID, Valid: true},
 				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
 				pgtypeTextFromReason(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
@@ -286,6 +292,16 @@ func (m *StateChangeModel) BatchCopy(
 	m.MetricsService.IncDBQuery("BatchCopy", "state_changes")
 
 	return len(stateChanges), nil
+}
+
+// generateStateChangeID produces a random positive int64 from crypto/rand.
+// Full 63 bits of entropy, masked to ensure a positive value.
+func generateStateChangeID() int64 {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic(fmt.Sprintf("generating state change ID: %v", err))
+	}
+	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF)
 }
 
 // BatchGetByToID gets state changes for a single transaction with pagination support.

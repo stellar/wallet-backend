@@ -3,10 +3,7 @@
 package processors
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -165,20 +162,11 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 	return b
 }
 
-// Build returns the constructed state change with a randomly generated ID.
+// Build returns the constructed state change.
+// Note: StateChangeID is assigned at insertion time by BatchCopy, not here.
+// This ensures retries on PK collision generate fresh IDs automatically.
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.StateChangeID = generateID()
 	return b.base
-}
-
-// generateID produces a random positive int64 from crypto/rand.
-// Full 63 bits of entropy, masked to ensure a positive value.
-func generateID() int64 {
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		panic(fmt.Sprintf("generating state change ID: %v", err))
-	}
-	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF)
 }
 
 // Clone returns a shallow copy of the builder, sharing the same metrics service.

@@ -14,46 +14,7 @@ type noopMetrics struct{}
 
 func (noopMetrics) ObserveStateChangeProcessingDuration(string, float64) {}
 
-// baseBuilder returns a fully-populated builder for testing.
-func baseBuilder() *StateChangeBuilder {
-	b := NewStateChangeBuilder(1, 1000, 42, noopMetrics{})
-	b.WithCategory(types.StateChangeCategoryBalance).
-		WithReason(types.StateChangeReasonCredit).
-		WithAccount("GABC").
-		WithOperationID(999).
-		WithToken("CTOKEN").
-		WithAmount("100").
-		WithSigner("GSIGNER", int16Ptr(1), int16Ptr(2)).
-		WithThreshold(int16Ptr(10), int16Ptr(20)).
-		WithTrustlineLimit(strPtr("500"), strPtr("1000")).
-		WithFlags([]string{"auth_required"}).
-		WithKeyValue(map[string]any{"key": "value"}).
-		WithDeployer("GDEPLOYER").
-		WithFunder("GFUNDER").
-		WithClaimableBalanceID("cb123").
-		WithLiquidityPoolID("lp456").
-		WithSponsoredData("mydata").
-		WithSponsoredAccountID("GSPONSORED").
-		WithSponsor("GSPONSOR")
-
-	return b
-}
-
 func int16Ptr(v int16) *int16 { return &v }
-
-func TestStateChangeBuilder_Build_RandomID(t *testing.T) {
-	sc1 := baseBuilder().Build()
-	sc2 := baseBuilder().Build()
-
-	assert.NotEqual(t, sc1.StateChangeID, sc2.StateChangeID,
-		"each Build() call must produce a unique StateChangeID")
-}
-
-func TestStateChangeBuilder_Build_PositiveID(t *testing.T) {
-	sc := baseBuilder().Build()
-	assert.Greater(t, sc.StateChangeID, int64(0),
-		"StateChangeID must be positive (high bit masked off)")
-}
 
 func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 	t.Run("chainable", func(t *testing.T) {
