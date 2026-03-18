@@ -365,6 +365,36 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 	}
 }
 
+func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", mock.Anything, mock.Anything).Return().Maybe()
+
+	baseCfg := IngestServiceConfig{
+		MetricsService: mockMetricsService,
+	}
+
+	t.Run("nil processor returns error", func(t *testing.T) {
+		cfg := baseCfg
+		cfg.ProtocolProcessors = []ProtocolProcessor{nil}
+		_, err := NewIngestService(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "protocol processor at index 0 is nil")
+	})
+
+	t.Run("duplicate ProtocolID returns error", func(t *testing.T) {
+		p1 := NewProtocolProcessorMock(t)
+		p1.On("ProtocolID").Return("dup-id")
+		p2 := NewProtocolProcessorMock(t)
+		p2.On("ProtocolID").Return("dup-id")
+
+		cfg := baseCfg
+		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
+		_, err := NewIngestService(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `duplicate protocol processor ID "dup-id"`)
+	})
+}
+
 func Test_BackfillMode_Validation(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
