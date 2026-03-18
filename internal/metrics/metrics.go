@@ -1,13 +1,54 @@
 package metrics
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// Metrics holds all Prometheus collectors for the wallet-backend service.
+type Metrics struct {
+	DB        *DBMetrics
+	RPC       *RPCMetrics
+	Ingestion *IngestionMetrics
+	HTTP      *HTTPMetrics
+	GraphQL   *GraphQLMetrics
+	Auth      *AuthMetrics
+	registry  *prometheus.Registry
+}
+
+// NewMetrics creates a new Metrics instance with all sub-struct collectors registered.
+func NewMetrics(reg *prometheus.Registry) *Metrics {
+	return &Metrics{
+		DB:        newDBMetrics(reg),
+		RPC:       newRPCMetrics(reg),
+		Ingestion: newIngestionMetrics(reg),
+		HTTP:      newHTTPMetrics(reg),
+		GraphQL:   newGraphQLMetrics(reg),
+		Auth:      newAuthMetrics(reg),
+		registry:  reg,
+	}
+}
+
+// Registry returns the prometheus registry.
+func (m *Metrics) Registry() *prometheus.Registry { return m.registry }
+
+// RegisterPoolMetrics registers pond worker pool metrics on this Metrics' registry.
+func (m *Metrics) RegisterPoolMetrics(channel string, pool pond.Pool) {
+	RegisterPoolMetrics(m.registry, channel, pool)
+}
+
+// RegisterDBPoolMetrics registers pgxpool connection pool metrics on this Metrics' registry.
+func (m *Metrics) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
+	RegisterDBPoolMetrics(m.registry, pool)
+}
+
+// ---------------------------------------------------------------------------
+// Legacy interface — kept temporarily so the codebase compiles during migration.
+// Will be deleted once all consumers are migrated to use concrete Metrics struct.
+// ---------------------------------------------------------------------------
 
 type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool pond.Pool)
@@ -52,652 +93,152 @@ type MetricsService interface {
 	IncGraphQLError(operationName, errorType string)
 }
 
-// MetricsService handles all metrics for the wallet-backend
+// metricsService implements MetricsService by delegating to the new Metrics struct.
 type metricsService struct {
-	registry *prometheus.Registry
-
-	// Ingest Service Metrics
-	latestLedgerIngested prometheus.Gauge
-	oldestLedgerIngested prometheus.Gauge
-	ingestionDuration    *prometheus.HistogramVec
-
-	// RPC Service Metrics (transport-level)
-	rpcRequestsTotal     *prometheus.CounterVec
-	rpcRequestsDuration  *prometheus.SummaryVec
-	rpcEndpointFailures  *prometheus.CounterVec
-	rpcEndpointSuccesses *prometheus.CounterVec
-	rpcServiceHealth     prometheus.Gauge
-	rpcLatestLedger      prometheus.Gauge
-
-	// RPC Method Metrics (application-level)
-	rpcMethodCallsTotal  *prometheus.CounterVec
-	rpcMethodDuration    *prometheus.SummaryVec
-	rpcMethodErrorsTotal *prometheus.CounterVec
-
-	// HTTP Request Metrics
-	numRequestsTotal *prometheus.CounterVec
-	requestsDuration *prometheus.SummaryVec
-
-	// DB Query Metrics
-	dbQueryDuration *prometheus.SummaryVec
-	dbQueriesTotal  *prometheus.CounterVec
-	dbQueryErrors   *prometheus.CounterVec
-	dbTransactions  *prometheus.CounterVec
-	dbTxnDuration   *prometheus.SummaryVec
-	dbBatchSize     *prometheus.HistogramVec
-
-	// Signature Verification Metrics
-	signatureVerificationExpired *prometheus.CounterVec
-
-	// State Change Metrics
-	stateChangeProcessingDuration *prometheus.HistogramVec
-	stateChangesTotal             *prometheus.CounterVec
-
-	// Ingestion Phase Metrics
-	ingestionPhaseDuration     *prometheus.HistogramVec
-	ingestionLedgersProcessed  prometheus.Counter
-	ingestionTransactionsTotal prometheus.Counter
-	ingestionOperationsTotal   prometheus.Counter
-	ingestionBatchSize         prometheus.Histogram
-	ingestionParticipantsCount prometheus.Histogram
-
-	// GraphQL Metrics
-	graphqlFieldDuration *prometheus.SummaryVec
-	graphqlFieldsTotal   *prometheus.CounterVec
-	graphqlComplexity    *prometheus.SummaryVec
-	graphqlErrorsTotal   *prometheus.CounterVec
+	*Metrics
 }
 
-// NewMetricsService creates a new metrics service with all metrics registered
+// NewMetricsService creates a new MetricsService backed by the new Metrics struct.
 func NewMetricsService() MetricsService {
-	m := &metricsService{
-		registry: prometheus.NewRegistry(),
-	}
-
-	// Ingest Service Metrics
-	m.latestLedgerIngested = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "ingestion_ledger_latest",
-			Help: "Latest ledger ingested",
-		},
-	)
-	m.oldestLedgerIngested = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "ingestion_ledger_oldest",
-			Help: "Oldest ledger ingested (backfill boundary)",
-		},
-	)
-	m.ingestionDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_duration_seconds",
-			Help:    "Duration of ledger ingestion",
-			Buckets: []float64{0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 10},
-		},
-		[]string{},
-	)
-
-	// RPC Service Metrics
-	m.rpcRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "rpc_requests_total",
-			Help: "Total number of RPC requests",
-		},
-		[]string{"endpoint"},
-	)
-	m.rpcRequestsDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "rpc_requests_duration_seconds",
-			Help:       "Duration of RPC requests in seconds",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"endpoint"},
-	)
-	m.rpcEndpointFailures = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "rpc_endpoint_failures_total",
-			Help: "Total number of RPC endpoint failures",
-		},
-		[]string{"endpoint"},
-	)
-	m.rpcEndpointSuccesses = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "rpc_endpoint_successes_total",
-			Help: "Total number of successful RPC requests",
-		},
-		[]string{"endpoint"},
-	)
-	m.rpcServiceHealth = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "rpc_service_health",
-			Help: "RPC service health status (1 for healthy, 0 for unhealthy)",
-		},
-	)
-	m.rpcLatestLedger = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "rpc_latest_ledger",
-			Help: "Latest ledger number reported by the RPC service",
-		},
-	)
-
-	// RPC Method Metrics (application-level)
-	m.rpcMethodCallsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "rpc_method_calls_total",
-			Help: "Total number of RPC method calls at the application level",
-		},
-		[]string{"method"},
-	)
-	m.rpcMethodDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "rpc_method_duration_seconds",
-			Help:       "Duration of RPC method execution including parsing and validation",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"method"},
-	)
-	m.rpcMethodErrorsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "rpc_method_errors_total",
-			Help: "Total number of RPC method errors by error type",
-		},
-		[]string{"method", "error_type"},
-	)
-
-	// HTTP Request Metrics
-	m.numRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "http_requests_total",
-			Help: "Total number of HTTP requests",
-		},
-		[]string{"endpoint", "method", "status_code"},
-	)
-	m.requestsDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "http_request_duration_seconds",
-			Help:       "Duration of HTTP requests in seconds",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"endpoint", "method"},
-	)
-
-	// DB Query Metrics
-	m.dbQueryDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "db_query_duration_seconds",
-			Help:       "Duration of database queries",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"query_type", "table"},
-	)
-	m.dbQueriesTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "db_queries_total",
-			Help: "Total number of database queries",
-		},
-		[]string{"query_type", "table"},
-	)
-	m.dbQueryErrors = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "db_query_errors_total",
-			Help: "Total number of database query errors",
-		},
-		[]string{"query_type", "table", "error_type"},
-	)
-	m.dbTransactions = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "db_transactions_total",
-			Help: "Total number of database transactions",
-		},
-		[]string{"status"},
-	)
-	m.dbTxnDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "db_transaction_duration_seconds",
-			Help:       "Duration of database transactions",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"status"},
-	)
-	m.dbBatchSize = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "db_batch_operation_size",
-			Help:    "Size of batch database operations",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
-		},
-		[]string{"operation", "table"},
-	)
-
-	// Signature Verification Metrics
-	m.signatureVerificationExpired = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "signature_verification_expired_total",
-			Help: "Total number of signature verifications that failed due to expiration",
-		},
-		[]string{"expired_seconds"},
-	)
-
-	// State Change Metrics
-	m.stateChangeProcessingDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_state_change_processing_duration_seconds",
-			Help:    "Duration of state change processing by processor type",
-			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
-		},
-		[]string{"processor"},
-	)
-	m.stateChangesTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingestion_state_changes_total",
-			Help: "Total number of state changes persisted to database by type and category",
-		},
-		[]string{"type", "category"},
-	)
-
-	// Ingestion Phase Metrics
-	m.ingestionPhaseDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_phase_duration_seconds",
-			Help:    "Duration of each ingestion phase",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 10, 30, 60},
-		},
-		[]string{"phase"},
-	)
-	m.ingestionLedgersProcessed = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "ingestion_ledgers_processed_total",
-			Help: "Total number of ledgers processed during ingestion",
-		},
-	)
-	m.ingestionTransactionsTotal = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "ingestion_transactions_processed_total",
-			Help: "Total number of transactions processed during ingestion",
-		},
-	)
-	m.ingestionOperationsTotal = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "ingestion_operations_processed_total",
-			Help: "Total number of operations processed during ingestion",
-		},
-	)
-	m.ingestionBatchSize = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_batch_size",
-			Help:    "Number of ledgers processed per ingestion batch",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 8), // 1, 2, 4, 8, 16, 32, 64, 128
-		},
-	)
-	m.ingestionParticipantsCount = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_participants_count",
-			Help:    "Number of unique participants per ingestion batch",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
-		},
-	)
-
-	// GraphQL Metrics
-	m.graphqlFieldDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "graphql_field_duration_seconds",
-			Help:       "Duration of GraphQL field resolver execution",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"operation_name", "field_name"},
-	)
-	m.graphqlFieldsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "graphql_fields_total",
-			Help: "Total number of GraphQL field resolutions",
-		},
-		[]string{"operation_name", "field_name", "success"},
-	)
-	m.graphqlComplexity = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "graphql_complexity",
-			Help:       "GraphQL query complexity values",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"operation_name"},
-	)
-	m.graphqlErrorsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "graphql_errors_total",
-			Help: "Total number of GraphQL errors",
-		},
-		[]string{"operation_name", "error_type"},
-	)
-
-	m.registerMetrics()
-	return m
+	reg := prometheus.NewRegistry()
+	return &metricsService{Metrics: NewMetrics(reg)}
 }
 
-func (m *metricsService) registerMetrics() {
-	m.registry.MustRegister(
-		m.latestLedgerIngested,
-		m.oldestLedgerIngested,
-		m.ingestionDuration,
-		m.rpcRequestsTotal,
-		m.rpcRequestsDuration,
-		m.rpcEndpointFailures,
-		m.rpcEndpointSuccesses,
-		m.rpcServiceHealth,
-		m.rpcLatestLedger,
-		m.rpcMethodCallsTotal,
-		m.rpcMethodDuration,
-		m.rpcMethodErrorsTotal,
-		m.numRequestsTotal,
-		m.requestsDuration,
-		m.dbQueryDuration,
-		m.dbQueriesTotal,
-		m.dbQueryErrors,
-		m.dbTransactions,
-		m.dbTxnDuration,
-		m.dbBatchSize,
-		m.signatureVerificationExpired,
-		m.stateChangeProcessingDuration,
-		m.stateChangesTotal,
-		m.ingestionPhaseDuration,
-		m.ingestionLedgersProcessed,
-		m.ingestionTransactionsTotal,
-		m.ingestionOperationsTotal,
-		m.ingestionBatchSize,
-		m.ingestionParticipantsCount,
-		m.graphqlFieldDuration,
-		m.graphqlFieldsTotal,
-		m.graphqlComplexity,
-		m.graphqlErrorsTotal,
-	)
-}
-
-// RegisterPool registers a worker pool for metrics collection
-func (m *metricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name:        "pool_workers_running",
-			Help:        "Number of running worker goroutines",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.RunningWorkers())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "pool_tasks_submitted_total",
-			Help:        "Number of tasks submitted",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.SubmittedTasks())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name:        "pool_tasks_waiting",
-			Help:        "Number of tasks currently waiting in the queue",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.WaitingTasks())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "pool_tasks_successful_total",
-			Help:        "Number of tasks that completed successfully",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.SuccessfulTasks())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "pool_tasks_failed_total",
-			Help:        "Number of tasks that completed with panic",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.FailedTasks())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "pool_tasks_completed_total",
-			Help:        "Number of tasks that completed either successfully or with panic",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.CompletedTasks())
-		},
-	))
-}
-
-// RegisterDBPoolMetrics registers Prometheus metrics for pgxpool connection pool statistics.
-func (m *metricsService) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "db_pool_acquire_total",
-			Help: "Total number of connection acquisitions from the pool",
-		},
-		func() float64 {
-			return float64(pool.Stat().AcquireCount())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "db_pool_acquired_conns",
-			Help: "Number of currently acquired connections",
-		},
-		func() float64 {
-			return float64(pool.Stat().AcquiredConns())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "db_pool_idle_conns",
-			Help: "Number of currently idle connections",
-		},
-		func() float64 {
-			return float64(pool.Stat().IdleConns())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "db_pool_total_conns",
-			Help: "Total number of connections currently open",
-		},
-		func() float64 {
-			return float64(pool.Stat().TotalConns())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "db_pool_max_conns",
-			Help: "Maximum number of connections allowed",
-		},
-		func() float64 {
-			return float64(pool.Stat().MaxConns())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "db_pool_acquire_duration_seconds",
-			Help: "Total time spent waiting to acquire connections",
-		},
-		func() float64 {
-			return pool.Stat().AcquireDuration().Seconds()
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "db_pool_constructing_conns",
-			Help: "Number of connections currently being established",
-		},
-		func() float64 {
-			return float64(pool.Stat().ConstructingConns())
-		},
-	))
-
-	m.registry.MustRegister(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "db_pool_empty_acquire_total",
-			Help: "Total number of acquires that had to wait because no idle connections were available",
-		},
-		func() float64 {
-			return float64(pool.Stat().EmptyAcquireCount())
-		},
-	))
-}
-
-// GetRegistry returns the prometheus registry
-func (m *metricsService) GetRegistry() *prometheus.Registry {
-	return m.registry
-}
+func (m *metricsService) GetRegistry() *prometheus.Registry { return m.registry }
 
 // Ingest Service Metrics
 
 func (m *metricsService) SetLatestLedgerIngested(value float64) {
-	m.latestLedgerIngested.Set(value)
+	m.Ingestion.LatestLedger.Set(value)
 }
 
 func (m *metricsService) SetOldestLedgerIngested(value float64) {
-	m.oldestLedgerIngested.Set(value)
+	m.Ingestion.OldestLedger.Set(value)
 }
 
 func (m *metricsService) ObserveIngestionDuration(duration float64) {
-	m.ingestionDuration.WithLabelValues().Observe(duration)
+	m.Ingestion.Duration.WithLabelValues().Observe(duration)
 }
 
 // RPC Service Metrics
 func (m *metricsService) IncRPCRequests(endpoint string) {
-	m.rpcRequestsTotal.WithLabelValues(endpoint).Inc()
+	m.RPC.RequestsTotal.WithLabelValues(endpoint).Inc()
 }
 
 func (m *metricsService) ObserveRPCRequestDuration(endpoint string, duration float64) {
-	m.rpcRequestsDuration.WithLabelValues(endpoint).Observe(duration)
+	m.RPC.RequestsDuration.WithLabelValues(endpoint).Observe(duration)
 }
 
 func (m *metricsService) IncRPCEndpointFailure(endpoint string) {
-	m.rpcEndpointFailures.WithLabelValues(endpoint).Inc()
+	m.RPC.EndpointFailures.WithLabelValues(endpoint).Inc()
 }
 
 func (m *metricsService) IncRPCEndpointSuccess(endpoint string) {
-	m.rpcEndpointSuccesses.WithLabelValues(endpoint).Inc()
+	m.RPC.EndpointSuccesses.WithLabelValues(endpoint).Inc()
 }
 
 func (m *metricsService) SetRPCServiceHealth(healthy bool) {
 	if healthy {
-		m.rpcServiceHealth.Set(1)
+		m.RPC.ServiceHealth.Set(1)
 	} else {
-		m.rpcServiceHealth.Set(0)
+		m.RPC.ServiceHealth.Set(0)
 	}
 }
 
 func (m *metricsService) SetRPCLatestLedger(ledger int64) {
-	m.rpcLatestLedger.Set(float64(ledger))
+	m.RPC.LatestLedger.Set(float64(ledger))
 }
 
 // RPC Method Metrics (application-level)
 func (m *metricsService) IncRPCMethodCalls(method string) {
-	m.rpcMethodCallsTotal.WithLabelValues(method).Inc()
+	m.RPC.MethodCallsTotal.WithLabelValues(method).Inc()
 }
 
 func (m *metricsService) ObserveRPCMethodDuration(method string, duration float64) {
-	m.rpcMethodDuration.WithLabelValues(method).Observe(duration)
+	m.RPC.MethodDuration.WithLabelValues(method).Observe(duration)
 }
 
 func (m *metricsService) IncRPCMethodErrors(method, errorType string) {
-	m.rpcMethodErrorsTotal.WithLabelValues(method, errorType).Inc()
+	m.RPC.MethodErrorsTotal.WithLabelValues(method, errorType).Inc()
 }
 
 // HTTP Request Metrics
 func (m *metricsService) IncNumRequests(endpoint, method string, statusCode int) {
-	m.numRequestsTotal.WithLabelValues(endpoint, method, strconv.Itoa(statusCode)).Inc()
+	m.HTTP.RequestsTotal.WithLabelValues(endpoint, method, strconv.Itoa(statusCode)).Inc()
 }
 
 func (m *metricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
-	m.requestsDuration.WithLabelValues(endpoint, method).Observe(duration)
+	m.HTTP.RequestsDuration.WithLabelValues(endpoint, method).Observe(duration)
 }
 
 // DB Query Metrics
 func (m *metricsService) ObserveDBQueryDuration(queryType, table string, duration float64) {
-	m.dbQueryDuration.WithLabelValues(queryType, table).Observe(duration)
+	m.DB.QueryDuration.WithLabelValues(queryType, table).Observe(duration)
 }
 
 func (m *metricsService) IncDBQuery(queryType, table string) {
-	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
+	m.DB.QueriesTotal.WithLabelValues(queryType, table).Inc()
 }
 
 func (m *metricsService) IncDBQueryError(queryType, table, errorType string) {
-	m.dbQueryErrors.WithLabelValues(queryType, table, errorType).Inc()
+	m.DB.QueryErrors.WithLabelValues(queryType, table, errorType).Inc()
 }
 
 func (m *metricsService) IncDBTransaction(status string) {
-	m.dbTransactions.WithLabelValues(status).Inc()
+	m.DB.TransactionsTotal.WithLabelValues(status).Inc()
 }
 
 func (m *metricsService) ObserveDBTransactionDuration(status string, duration float64) {
-	m.dbTxnDuration.WithLabelValues(status).Observe(duration)
+	m.DB.TransactionDuration.WithLabelValues(status).Observe(duration)
 }
 
 func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
-	m.dbBatchSize.WithLabelValues(operation, table).Observe(float64(size))
+	m.DB.BatchSize.WithLabelValues(operation, table).Observe(float64(size))
 }
 
 // Signature Verification Metrics
 func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
-	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
+	m.Auth.ExpiredSignaturesTotal.Inc()
+	_ = expiredSeconds // Previously used as label; now just count occurrences.
 }
 
 // State Change Metrics
 func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
-	m.stateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
+	m.Ingestion.StateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
 }
 
 func (m *metricsService) IncStateChanges(stateChangeType, category string, count int) {
-	m.stateChangesTotal.WithLabelValues(stateChangeType, category).Add(float64(count))
+	m.Ingestion.StateChangesTotal.WithLabelValues(stateChangeType, category).Add(float64(count))
 }
 
 // Ingestion Phase Metrics
 func (m *metricsService) ObserveIngestionPhaseDuration(phase string, duration float64) {
-	m.ingestionPhaseDuration.WithLabelValues(phase).Observe(duration)
+	m.Ingestion.PhaseDuration.WithLabelValues(phase).Observe(duration)
 }
 
 func (m *metricsService) IncIngestionLedgersProcessed(count int) {
-	m.ingestionLedgersProcessed.Add(float64(count))
+	m.Ingestion.LedgersProcessed.Add(float64(count))
 }
 
 func (m *metricsService) IncIngestionTransactionsProcessed(count int) {
-	m.ingestionTransactionsTotal.Add(float64(count))
+	m.Ingestion.TransactionsTotal.Add(float64(count))
 }
 
 func (m *metricsService) IncIngestionOperationsProcessed(count int) {
-	m.ingestionOperationsTotal.Add(float64(count))
+	m.Ingestion.OperationsTotal.Add(float64(count))
 }
 
 func (m *metricsService) ObserveIngestionBatchSize(size int) {
-	m.ingestionBatchSize.Observe(float64(size))
+	m.Ingestion.BatchSize.Observe(float64(size))
 }
 
 func (m *metricsService) ObserveIngestionParticipantsCount(count int) {
-	m.ingestionParticipantsCount.Observe(float64(count))
+	m.Ingestion.ParticipantsCount.Observe(float64(count))
 }
 
 // GraphQL Metrics
 func (m *metricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
-	m.graphqlFieldDuration.WithLabelValues(operationName, fieldName).Observe(duration)
+	m.GraphQL.FieldDuration.WithLabelValues(operationName, fieldName).Observe(duration)
 }
 
 func (m *metricsService) IncGraphQLField(operationName, fieldName string, success bool) {
@@ -705,13 +246,24 @@ func (m *metricsService) IncGraphQLField(operationName, fieldName string, succes
 	if !success {
 		successStr = "false"
 	}
-	m.graphqlFieldsTotal.WithLabelValues(operationName, fieldName, successStr).Inc()
+	m.GraphQL.FieldsTotal.WithLabelValues(operationName, fieldName, successStr).Inc()
 }
 
 func (m *metricsService) ObserveGraphQLComplexity(operationName string, complexity int) {
-	m.graphqlComplexity.WithLabelValues(operationName).Observe(float64(complexity))
+	m.GraphQL.Complexity.WithLabelValues(operationName).Observe(float64(complexity))
 }
 
 func (m *metricsService) IncGraphQLError(operationName, errorType string) {
-	m.graphqlErrorsTotal.WithLabelValues(operationName, errorType).Inc()
+	m.GraphQL.ErrorsTotal.WithLabelValues(operationName, errorType).Inc()
 }
+
+// Legacy compatibility: RegisterPoolMetrics on metricsService delegates to the new function.
+func (m *metricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
+	RegisterPoolMetrics(m.registry, channel, pool)
+}
+
+// Legacy compatibility: RegisterDBPoolMetrics on metricsService delegates to the new function.
+func (m *metricsService) RegisterDBPoolMetrics(pool *pgxpool.Pool) {
+	RegisterDBPoolMetrics(m.registry, pool)
+}
+
