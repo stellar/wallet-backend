@@ -168,6 +168,10 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		// 5.5: Per-protocol dual CAS gating for state production
 		if len(m.protocolProcessors) > 0 {
 			for protocolID, processor := range m.protocolProcessors {
+				if ledgerSeq == 0 {
+					// No previous ledger to form an expected cursor value; skip CAS for this ledger.
+					continue
+				}
 				historyCursor := fmt.Sprintf("protocol_%s_history_cursor", protocolID)
 				currentStateCursor := fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
 
