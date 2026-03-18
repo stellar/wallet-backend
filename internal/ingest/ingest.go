@@ -161,7 +161,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, metricsService)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, metricsService.RPCMetrics())
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}

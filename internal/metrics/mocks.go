@@ -171,3 +171,11 @@ func (m *MockMetricsService) DBMetrics() *DBMetrics {
 	}
 	return args.Get(0).(*DBMetrics)
 }
+
+func (m *MockMetricsService) RPCMetrics() *RPCMetrics {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*RPCMetrics)
+}

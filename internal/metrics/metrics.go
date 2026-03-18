@@ -56,6 +56,8 @@ type MetricsService interface {
 	GetRegistry() *prometheus.Registry
 	// DBMetrics returns the underlying DBMetrics struct for direct use by data models.
 	DBMetrics() *DBMetrics
+	// RPCMetrics returns the underlying RPCMetrics struct for direct use by the RPC service.
+	RPCMetrics() *RPCMetrics
 	SetLatestLedgerIngested(value float64)
 	SetOldestLedgerIngested(value float64)
 	ObserveIngestionDuration(duration float64)
@@ -107,7 +109,8 @@ func NewMetricsService() MetricsService {
 }
 
 func (m *metricsService) GetRegistry() *prometheus.Registry { return m.registry }
-func (m *metricsService) DBMetrics() *DBMetrics               { return m.DB }
+func (m *metricsService) DBMetrics() *DBMetrics   { return m.DB }
+func (m *metricsService) RPCMetrics() *RPCMetrics { return m.RPC }
 
 // Ingest Service Metrics
 

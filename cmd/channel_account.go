@@ -110,7 +110,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 
 			metricsService := metrics.NewMetricsService()
 			httpClient := http.Client{Timeout: 30 * time.Second}
-			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
+			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService.RPCMetrics())
 			if err != nil {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}
