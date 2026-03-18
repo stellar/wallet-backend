@@ -142,8 +142,15 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 
 	// Build protocol processor map from slice
 	ppMap := make(map[string]ProtocolProcessor, len(cfg.ProtocolProcessors))
-	for _, p := range cfg.ProtocolProcessors {
-		ppMap[p.ProtocolID()] = p
+	for i, p := range cfg.ProtocolProcessors {
+		if p == nil {
+			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
+		}
+		id := p.ProtocolID()
+		if _, exists := ppMap[id]; exists {
+			return nil, fmt.Errorf("duplicate protocol processor ID %q", id)
+		}
+		ppMap[id] = p
 	}
 
 	var ppCache *protocolContractCache
