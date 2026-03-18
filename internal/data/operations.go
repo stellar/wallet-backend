@@ -19,7 +19,7 @@ import (
 
 type OperationModel struct {
 	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	Metrics *metrics.DBMetrics
 }
 
 func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
@@ -28,12 +28,12 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	start := time.Now()
 	operation, err := db.QueryOne[types.Operation](ctx, m.DB, query, id)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByID", "operations", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByID", "operations").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByID", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("GetByID", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operation by id: %w", err)
 	}
-	m.MetricsService.IncDBQuery("GetByID", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("GetByID", "operations").Inc()
 	return &operation, nil
 }
 
@@ -75,12 +75,12 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	start := time.Now()
 	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetAll", "operations", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetAll", "operations").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetAll", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("GetAll", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operations: %w", err)
 	}
-	m.MetricsService.IncDBQuery("GetAll", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "operations").Inc()
 	return operations, nil
 }
 
@@ -151,13 +151,13 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 	start := time.Now()
 	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "operations", len(toIDs))
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByToIDs", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetByToIDs", "operations").Observe(float64(len(toIDs)))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByToIDs", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operations by to_ids: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByToIDs", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByToIDs", "operations").Inc()
 	return operations, nil
 }
 
@@ -201,12 +201,12 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	start := time.Now()
 	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByToID", "operations", duration)
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByToID", "operations").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToID", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByToID", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting paginated operations by to_id: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByToID", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByToID", "operations").Inc()
 	return operations, nil
 }
 
@@ -282,12 +282,12 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	start := time.Now()
 	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "operations", duration)
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByAccountAddress", "operations").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByAccountAddress", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operations by account address: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByAccountAddress", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByAccountAddress", "operations").Inc()
 	return operations, nil
 }
 
@@ -313,13 +313,13 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	start := time.Now()
 	operationsWithStateChanges, err := db.QueryManyPtrs[types.OperationWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "operations", len(stateChangeIDs))
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByStateChangeIDs", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetByStateChangeIDs", "operations").Observe(float64(len(stateChangeIDs)))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByStateChangeIDs", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operations by state change IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByStateChangeIDs", "operations")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByStateChangeIDs", "operations").Inc()
 	return operationsWithStateChanges, nil
 }
 
@@ -361,7 +361,7 @@ func (m *OperationModel) BatchCopy(
 		}),
 	)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchCopy", "operations", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom operations: %w", err)
 	}
 	if int(copyCount) != len(operations) {
@@ -402,17 +402,17 @@ func (m *OperationModel) BatchCopy(
 			pgx.CopyFromRows(oaRows),
 		)
 		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchCopy", "operations_accounts", utils.GetDBErrorType(err))
+			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations_accounts", utils.GetDBErrorType(err)).Inc()
 			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
 		}
 
-		m.MetricsService.IncDBQuery("BatchCopy", "operations_accounts")
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations_accounts").Inc()
 	}
 
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchCopy", "operations", len(operations))
-	m.MetricsService.IncDBQuery("BatchCopy", "operations")
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
 
 	return len(operations), nil
 }

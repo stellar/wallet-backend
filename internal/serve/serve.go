@@ -8,6 +8,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go-stellar-sdk/support/http"
@@ -101,6 +102,7 @@ type handlerDeps struct {
 
 	// Services
 	FeeBumpService             services.FeeBumpService
+	Metrics                    *metrics.Metrics
 	MetricsService             metrics.MetricsService
 	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
@@ -146,9 +148,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	metrics.RegisterDBPoolMetrics(m.Registry(), dbConnectionPool)
 	metricsService := metrics.NewMetricsService()
-	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, m.DB)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
@@ -216,6 +219,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RequestAuthVerifier:         requestAuthVerifier,
 		SupportedAssets:             cfg.SupportedAssets,
 		FeeBumpService:              feeBumpService,
+		Metrics:                     m,
 		MetricsService:              metricsService,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
@@ -256,7 +260,7 @@ func handler(deps handlerDeps) http.Handler {
 		RPCService: deps.RPCService,
 		AppTracker: deps.AppTracker,
 	}.GetHealth)
-	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {

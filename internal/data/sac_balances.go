@@ -47,7 +47,7 @@ type SACBalanceModelInterface interface {
 // SACBalanceModel implements SACBalanceModelInterface.
 type SACBalanceModel struct {
 	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	Metrics *metrics.DBMetrics
 }
 
 var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
@@ -70,12 +70,12 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	start := time.Now()
 	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", "query_error").Inc()
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.IncDBQuery("GetByAccount", "sac_balances")
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()
 	return balances, nil
 }
 
@@ -134,8 +134,8 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 		return fmt.Errorf("closing SAC balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "sac_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 	return nil
 }
 
@@ -178,7 +178,7 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "sac_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
 	return nil
 }

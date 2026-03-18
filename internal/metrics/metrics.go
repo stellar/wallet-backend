@@ -54,6 +54,8 @@ type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool pond.Pool)
 	RegisterDBPoolMetrics(pool *pgxpool.Pool)
 	GetRegistry() *prometheus.Registry
+	// DBMetrics returns the underlying DBMetrics struct for direct use by data models.
+	DBMetrics() *DBMetrics
 	SetLatestLedgerIngested(value float64)
 	SetOldestLedgerIngested(value float64)
 	ObserveIngestionDuration(duration float64)
@@ -105,6 +107,7 @@ func NewMetricsService() MetricsService {
 }
 
 func (m *metricsService) GetRegistry() *prometheus.Registry { return m.registry }
+func (m *metricsService) DBMetrics() *DBMetrics               { return m.DB }
 
 // Ingest Service Metrics
 

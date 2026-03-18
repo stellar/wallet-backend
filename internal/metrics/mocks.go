@@ -163,3 +163,11 @@ func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
 func (m *MockMetricsService) SetOldestLedgerIngested(value float64) {
 	m.Called(value)
 }
+
+func (m *MockMetricsService) DBMetrics() *DBMetrics {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*DBMetrics)
+}

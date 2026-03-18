@@ -38,7 +38,7 @@ type ContractModelInterface interface {
 // ContractModel implements ContractModelInterface.
 type ContractModel struct {
 	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	Metrics *metrics.DBMetrics
 }
 
 var _ ContractModelInterface = (*ContractModel)(nil)
@@ -68,12 +68,12 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	start := time.Now()
 	ids, err := db.QueryMany[string](ctx, dbTx, query, contractIDs)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetExisting", "contract_tokens", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetExisting", "contract_tokens").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetExisting", "contract_tokens", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("GetExisting", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("GetExisting", "contract_tokens")
+	m.Metrics.QueriesTotal.WithLabelValues("GetExisting", "contract_tokens").Inc()
 	return ids, nil
 }
 
@@ -114,12 +114,12 @@ func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts 
 	start := time.Now()
 	_, err := dbTx.Exec(ctx, query, ids, contractIDs, types, codes, issuers, names, symbols, decimals)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchInsert", "contract_tokens", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting contracts: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "contract_tokens", time.Since(start).Seconds())
-	m.MetricsService.ObserveDBBatchSize("BatchInsert", "contract_tokens", len(contracts))
-	m.MetricsService.IncDBQuery("BatchInsert", "contract_tokens")
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "contract_tokens").Observe(time.Since(start).Seconds())
+	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "contract_tokens").Observe(float64(len(contracts)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "contract_tokens").Inc()
 	return nil
 }

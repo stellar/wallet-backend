@@ -35,7 +35,7 @@ type TrustlineAssetModelInterface interface {
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
 type TrustlineAssetModel struct {
 	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	Metrics *metrics.DBMetrics
 }
 
 var _ TrustlineAssetModelInterface = (*TrustlineAssetModel)(nil)
@@ -82,7 +82,7 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, asse
 		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "trustline_assets", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "trustline_assets")
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "trustline_assets").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "trustline_assets").Inc()
 	return nil
 }

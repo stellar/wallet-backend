@@ -22,24 +22,24 @@ type LedgerRange struct {
 
 type IngestStoreModel struct {
 	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	Metrics *metrics.DBMetrics
 }
 
 func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, error) {
 	start := time.Now()
 	valueStr, err := db.QueryOne[string](ctx, m.DB, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("Get", "ingest_store", duration)
+	m.Metrics.QueryDuration.WithLabelValues("Get", "ingest_store").Observe(duration)
 	// First run, key does not exist yet
 	if errors.Is(err, pgx.ErrNoRows) {
-		m.MetricsService.IncDBQuery("Get", "ingest_store")
+		m.Metrics.QueriesTotal.WithLabelValues("Get", "ingest_store").Inc()
 		return 0, nil
 	}
 	if err != nil {
-		m.MetricsService.IncDBQueryError("Get", "ingest_store", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("Get", "ingest_store", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("getting latest ledger synced for cursor %s: %w", cursorName, err)
 	}
-	m.MetricsService.IncDBQuery("Get", "ingest_store")
+	m.Metrics.QueriesTotal.WithLabelValues("Get", "ingest_store").Inc()
 
 	v, err := strconv.ParseUint(valueStr, 10, 32)
 	if err != nil {
@@ -56,12 +56,12 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 	start := time.Now()
 	_, err := dbTx.Exec(ctx, query, cursorName, strconv.FormatUint(uint64(ledger), 10))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("Update", "ingest_store", duration)
+	m.Metrics.QueryDuration.WithLabelValues("Update", "ingest_store").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("Update", "ingest_store", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("Update", "ingest_store", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
-	m.MetricsService.IncDBQuery("Update", "ingest_store")
+	m.Metrics.QueriesTotal.WithLabelValues("Update", "ingest_store").Inc()
 	return nil
 }
 
@@ -92,12 +92,12 @@ func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, er
 	start := time.Now()
 	ledgerGaps, err := db.QueryMany[LedgerRange](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetLedgerGaps", "transactions", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetLedgerGaps", "transactions").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetLedgerGaps", "transactions", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("GetLedgerGaps", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting ledger gaps: %w", err)
 	}
-	m.MetricsService.IncDBQuery("GetLedgerGaps", "transactions")
+	m.Metrics.QueriesTotal.WithLabelValues("GetLedgerGaps", "transactions").Inc()
 	return ledgerGaps, nil
 }
 
@@ -106,11 +106,11 @@ func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) 
 	oldest, err := db.QueryOne[uint32](ctx, m.DB,
 		`SELECT ledger_number FROM transactions ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1`)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetOldestLedger", "transactions", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetOldestLedger", "transactions").Observe(duration)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		m.MetricsService.IncDBQueryError("GetOldestLedger", "transactions", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("GetOldestLedger", "transactions", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("getting actual oldest ledger from transactions: %w", err)
 	}
-	m.MetricsService.IncDBQuery("GetOldestLedger", "transactions")
+	m.Metrics.QueriesTotal.WithLabelValues("GetOldestLedger", "transactions").Inc()
 	return oldest, nil
 }

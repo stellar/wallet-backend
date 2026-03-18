@@ -54,7 +54,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	defer dbPool.Close() // nolint:errcheck
 
 	metricsService := metrics.NewMetricsService()
-	models, err := data.NewModels(dbPool, metricsService)
+	models, err := data.NewModels(dbPool, metricsService.DBMetrics())
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
 	}
