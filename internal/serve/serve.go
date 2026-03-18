@@ -252,7 +252,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
 
 	// Add metrics middleware first to capture all requests
-	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
+	mux.Use(middleware.MetricsMiddleware(deps.Metrics.HTTP))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", httphandler.HealthHandler{
@@ -266,7 +266,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux.Group(func(r chi.Router) {
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
-			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
@@ -308,11 +308,11 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
-			reporter := middleware.NewComplexityLogger(deps.MetricsService)
+			reporter := middleware.NewComplexityLogger(deps.Metrics.GraphQL)
 			srv.Use(complexityreporter.NewExtension(reporter))
 
 			// Add field-level metrics tracking
-			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.MetricsService)
+			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.Metrics.GraphQL)
 			srv.AroundFields(fieldMetrics.Middleware)
 
 			r.Handle("/query", srv)
