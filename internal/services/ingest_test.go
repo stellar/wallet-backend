@@ -3171,3 +3171,82 @@ func Test_ingestService_getProtocolContracts_RefreshesAndRecordsMetrics(t *testi
 	assert.Equal(t, expectedContracts, contracts)
 	mockMetrics.AssertExpectations(t)
 }
+
+func Test_ingestService_refreshProtocolContractCache_PartialFailure_StillUpdatesLedger(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Once()
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("GetByProtocolID", ctx, "proto_ok").
+		Return([]data.ProtocolContracts{{ContractID: types.HashBytea(txHash1)}}, nil).Once()
+	protocolContractsModel.On("GetByProtocolID", ctx, "proto_fail").
+		Return(nil, fmt.Errorf("db error")).Once()
+
+	svc := &ingestService{
+		metricsService: mockMetrics,
+		models:         &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	svc.refreshProtocolContractCache(ctx, 200)
+
+	// lastRefreshLedger must advance despite partial failure
+	assert.Equal(t, uint32(200), svc.protocolContractCache.lastRefreshLedger)
+
+	// Calling again at currentLedger+1 should be a no-op (not stale yet).
+	// The .Once() expectations on the mock ensure no extra DB calls happen.
+	svc.refreshProtocolContractCache(ctx, 201)
+
+	mockMetrics.AssertExpectations(t)
+}
+
+func Test_ingestService_refreshProtocolContractCache_PartialFailure_PreservesPreviousEntries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Once()
+
+	previousContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1)}}
+	newContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash2)}}
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("GetByProtocolID", ctx, "proto_ok").
+		Return(newContracts, nil).Once()
+	protocolContractsModel.On("GetByProtocolID", ctx, "proto_fail").
+		Return(nil, fmt.Errorf("db error")).Once()
+
+	svc := &ingestService{
+		metricsService: mockMetrics,
+		models:         &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"proto_ok":   previousContracts,
+				"proto_fail": previousContracts,
+			},
+			lastRefreshLedger: 0, // force refresh
+		},
+	}
+
+	svc.refreshProtocolContractCache(ctx, 300)
+
+	// Successful protocol gets new data
+	assert.Equal(t, newContracts, svc.protocolContractCache.contractsByProtocol["proto_ok"])
+	// Failed protocol retains previous entries
+	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_fail"])
+
+	mockMetrics.AssertExpectations(t)
+}
