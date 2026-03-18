@@ -123,28 +123,6 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			}
 		}
 
-		// 2.5: Persist protocol wasms and contracts
-		protocolWasms := buffer.GetProtocolWasms()
-		if len(protocolWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasms, 0, len(protocolWasms))
-			for _, wasm := range protocolWasms {
-				wasmSlice = append(wasmSlice, wasm)
-			}
-			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
-		protocolContracts := buffer.GetProtocolContracts()
-		if len(protocolContracts) > 0 {
-			contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
-			for _, contract := range protocolContracts {
-				contractSlice = append(contractSlice, contract)
-			}
-			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
-
 		// 3. Insert transactions/operations/state_changes
 		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
 		if txErr != nil {
@@ -449,11 +427,13 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 	m.protocolContractCache.mu.Lock()
 	defer m.protocolContractCache.mu.Unlock()
 	m.protocolContractCache.contractsByProtocol = newMap
-	if allSucceeded {
-		m.protocolContractCache.lastRefreshLedger = currentLedger
-	}
+	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())
-	log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
+	if !allSucceeded {
+		log.Ctx(ctx).Warnf("Protocol contract cache partially refreshed at ledger %d; will retry at next interval", currentLedger)
+	} else {
+		log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
+	}
 }
 
 // ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
