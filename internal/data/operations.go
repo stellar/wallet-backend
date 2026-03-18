@@ -292,14 +292,14 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, stateChangeIDs []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
 	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_id) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
-	tuples := make([]string, len(scOrders))
-	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
+	tuples := make([]string, len(stateChangeIDs))
+	for i := range stateChangeIDs {
+		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], stateChangeIDs[i])
 	}
 
 	query := fmt.Sprintf(`
@@ -314,7 +314,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	operationsWithStateChanges, err := db.QueryManyPtrs[types.OperationWithStateChangeID](ctx, m.DB, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("BatchGetByStateChangeIDs", "operations", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "operations", len(scOrders))
+	m.MetricsService.ObserveDBBatchSize("BatchGetByStateChangeIDs", "operations", len(stateChangeIDs))
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchGetByStateChangeIDs", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operations by state change IDs: %w", err)
