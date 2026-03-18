@@ -209,7 +209,10 @@ func (m *StateChangeModel) BatchCopy(
 
 			// Generate a fresh random ID at insertion time so retries on PK collision
 			// produce new IDs automatically.
-			stateChangeID := generateStateChangeID()
+			stateChangeID, err := generateStateChangeID()
+			if err != nil {
+				return nil, err
+			}
 
 			// Convert account_id to BYTEA (required field)
 			accountBytes, err := sc.AccountID.Value()
@@ -296,12 +299,12 @@ func (m *StateChangeModel) BatchCopy(
 
 // generateStateChangeID produces a random positive int64 from crypto/rand.
 // Full 63 bits of entropy, masked to ensure a positive value.
-func generateStateChangeID() int64 {
+func generateStateChangeID() (int64, error) {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		panic(fmt.Sprintf("generating state change ID: %v", err))
+		return 0, fmt.Errorf("generating state change ID: %w", err)
 	}
-	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF)
+	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF), nil
 }
 
 // BatchGetByToID gets state changes for a single transaction with pagination support.
