@@ -116,7 +116,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID &^ 0xFFF, // Derive transaction to_id from operation_id using TOID bitmask
-				StateChangeOrder:    int64(scOrder + 1),
+				StateChangeID:       int64(scOrder + 1),
 				StateChangeCategory: category,
 				StateChangeReason:   reason,
 				OperationID:         op.ID,
@@ -130,7 +130,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
-			StateChangeOrder:    int64(1),
+			StateChangeID:       int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   types.StateChangeReasonDebit,
 			AccountID:           parentAccount.StellarAddress,
@@ -166,8 +166,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 
 		for _, sc := range stateChanges {
 			_, err := tx.Exec(ctx,
-				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				sc.ToID, sc.StateChangeID, sc.StateChangeCategory, sc.StateChangeReason, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil

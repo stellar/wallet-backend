@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -19,7 +18,6 @@ func buildStateChange(toID int64, reason types.StateChangeReason, accountID stri
 		StateChangeReason:   reason,
 		AccountID:           types.AddressBytea(accountID),
 		OperationID:         operationID,
-		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
 }
 
@@ -150,9 +148,9 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeID: 1}
+		sc3 := types.StateChange{ToID: 3, StateChangeID: 1}
 
 		indexerBuffer.PushStateChange(tx, op, sc1)
 		indexerBuffer.PushStateChange(tx, op, sc2)
@@ -168,9 +166,9 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeID: 1}
+		sc3 := types.StateChange{ToID: 3, StateChangeID: 1}
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
@@ -331,9 +329,9 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, AccountID: "charlie"}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice"}
+		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob"}
+		sc3 := types.StateChange{ToID: 3, StateChangeID: 1, AccountID: "charlie"}
 
 		indexerBuffer.PushStateChange(tx, op, sc1)
 		indexerBuffer.PushStateChange(tx, op, sc2)
@@ -408,8 +406,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
 		op := types.Operation{ID: 1}
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob"}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice"}
+		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob"}
 
 		buffer1.PushStateChange(tx, op, sc1)
 		buffer2.PushStateChange(tx, op, sc2)
@@ -462,7 +460,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		op1 := types.Operation{ID: 1}
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice"}
 
 		buffer2.PushTransaction("alice", tx1)
 		buffer2.PushOperation("bob", op1, tx1)
@@ -527,8 +525,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob", OperationID: 2}
+		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice", OperationID: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob", OperationID: 2}
 
 		// Buffer1
 		buffer1.PushTransaction("alice", tx1)

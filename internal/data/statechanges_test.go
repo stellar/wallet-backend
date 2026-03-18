@@ -32,7 +32,7 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 		auxIdx := i % len(auxAddresses)
 		scs[i] = types.StateChange{
 			ToID:                startToID + int64(i),
-			StateChangeOrder:    1,
+			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 			StateChangeReason:   reason,
 			LedgerCreatedAt:     now,
@@ -113,7 +113,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	reason := types.StateChangeReasonAdd
 	sc1 := types.StateChange{
 		ToID:                1,
-		StateChangeOrder:    1,
+		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
@@ -125,7 +125,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	}
 	sc2 := types.StateChange{
 		ToID:                2,
-		StateChangeOrder:    1,
+		StateChangeID:       1,
 		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   reason,
 		LedgerCreatedAt:     now,
@@ -136,7 +136,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	// State change with typed signer/threshold fields (uses to_id=1 to reference tx1)
 	sc3 := types.StateChange{
 		ToID:                1,
-		StateChangeOrder:    2, // Different order to avoid PK conflict with sc1
+		StateChangeID:       2, // Different StateChangeID to avoid PK conflict with sc1
 		StateChangeCategory: types.StateChangeCategorySigner,
 		StateChangeReason:   types.StateChangeReasonAdd,
 		LedgerCreatedAt:     now,
@@ -224,7 +224,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			assert.Equal(t, tc.wantCount, gotCount)
 
 			// Verify from DB
-			dbInsertedIDs, err := db.QueryMany[string](ctx, dbConnectionPool, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_order) FROM state_changes ORDER BY to_id")
+			dbInsertedIDs, err := db.QueryMany[string](ctx, dbConnectionPool, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_id) FROM state_changes ORDER BY to_id")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
@@ -259,7 +259,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
@@ -323,7 +323,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	// Create test state changes with different operation IDs, categories, and reasons
 	// State changes must reference valid transaction to_ids (1, 2, or 3)
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', 'DEBIT', $1, 2, $2, 456),
@@ -567,7 +567,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
@@ -614,7 +614,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 
 	// Create test state changes - multiple state changes per to_id to test ranking
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(1, 2, 'BALANCE', 'CREDIT', $1, 2, $2, 124),
@@ -726,7 +726,7 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 			// Verify cursor structure for returned state changes
 			for _, sc := range stateChanges {
 				assert.NotZero(t, sc.StateChangeCursor.ToID, "cursor ToID should be set")
-				assert.NotZero(t, sc.StateChangeCursor.StateChangeOrder, "cursor StateChangeOrder should be set")
+				assert.NotZero(t, sc.StateChangeCursor.StateChangeID, "cursor StateChangeID should be set")
 			}
 		})
 	}
@@ -770,7 +770,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
@@ -826,9 +826,9 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
-	// Create test state changes for to_id=1 (multiple state_change_orders)
+	// Create test state changes for to_id=1 (multiple state_change_ids)
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
 			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
 			(1, 2, 'BALANCE', 'CREDIT', $1, 2, $2, 124),
@@ -847,10 +847,10 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 			assert.Equal(t, int64(1), sc.StateChange.ToID)
 		}
 
-		// Verify ordering (ASC by to_id, state_change_order)
-		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeOrder)
+		// Verify ordering (ASC by to_id, state_change_id)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeID)
+		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeID)
 	})
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
@@ -859,20 +859,20 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeID)
 	})
 
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
-		cursor := &types.StateChangeCursor{LedgerCreatedAt: now, ToID: 1, OperationID: 123, StateChangeOrder: 1}
+		cursor := &types.StateChangeCursor{LedgerCreatedAt: now, ToID: 1, OperationID: 123, StateChangeID: 1}
 		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
-		// Should get results after cursor (to_id=1, operation_id=123, state_change_order=1)
-		assert.Equal(t, int64(2), stateChanges[0].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[1].StateChange.StateChangeOrder)
+		// Should get results after cursor (to_id=1, operation_id=123, state_change_id=1)
+		assert.Equal(t, int64(2), stateChanges[0].StateChange.StateChangeID)
+		assert.Equal(t, int64(3), stateChanges[1].StateChange.StateChangeID)
 	})
 
 	t.Run("get state changes with DESC ordering", func(t *testing.T) {
@@ -881,9 +881,9 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 		assert.Len(t, stateChanges, 3)
 
 		// Verify ordering (results should be in ASC order after DESC query transformation)
-		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeOrder)
-		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[0].StateChange.StateChangeID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChange.StateChangeID)
+		assert.Equal(t, int64(3), stateChanges[2].StateChange.StateChangeID)
 	})
 
 	t.Run("no state changes for non-existent to_id", func(t *testing.T) {

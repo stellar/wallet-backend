@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"sync"
 
 	"github.com/alitto/pond/v2"
@@ -261,24 +260,6 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Sort state changes and set order for this transaction
-	sort.Slice(stateChanges, func(i, j int) bool {
-		return stateChanges[i].SortKey < stateChanges[j].SortKey
-	})
-
-	perOpIdx := make(map[int64]int)
-	for idx := range stateChanges {
-		sc := &stateChanges[idx]
-
-		// State changes are 1-indexed within an operation/transaction.
-		if sc.OperationID != 0 {
-			perOpIdx[sc.OperationID]++
-			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
-		} else {
-			sc.StateChangeOrder = 1
-		}
-	}
-
 	// Insert state changes
 	for _, stateChange := range stateChanges {
 		// Skip empty state changes (no account to associate with)
@@ -291,7 +272,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		if stateChange.OperationID != 0 {
 			correctOp := operationsMap[stateChange.OperationID]
 			if correctOp == nil {
-				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", stateChange.OperationID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeOrder))
+				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeCategory)
 				continue
 			}
 			operation = *correctOp

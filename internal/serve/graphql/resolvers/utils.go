@@ -347,7 +347,7 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 
 	parts := strings.Split(*decodedCursor, ":")
 	if len(parts) != 4 {
-		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:to_id:operation_id:state_change_order)", *s)
+		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:to_id:operation_id:state_change_id)", *s)
 	}
 
 	nanos, err := strconv.ParseInt(parts[0], 10, 64)
@@ -365,16 +365,16 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 		return nil, fmt.Errorf("parsing operation_id: %w", err)
 	}
 
-	stateChangeOrder, err := strconv.ParseInt(parts[3], 10, 64)
+	stateChangeID, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing state_change_order: %w", err)
+		return nil, fmt.Errorf("parsing state_change_id: %w", err)
 	}
 
 	return &types.StateChangeCursor{
-		LedgerCreatedAt:  time.Unix(0, nanos),
-		ToID:             toID,
-		OperationID:      operationID,
-		StateChangeOrder: stateChangeOrder,
+		LedgerCreatedAt: time.Unix(0, nanos),
+		ToID:            toID,
+		OperationID:     operationID,
+		StateChangeID:   stateChangeID,
 	}, nil
 }
 

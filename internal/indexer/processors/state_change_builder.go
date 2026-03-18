@@ -4,8 +4,6 @@ package processors
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -164,46 +162,14 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 	return b
 }
 
-// Build returns the constructed state change
+// Build returns the constructed state change.
+// Note: StateChangeID is assigned at insertion time by BatchCopy, not here.
+// This ensures retries on PK collision generate fresh IDs automatically.
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.SortKey = b.generateSortKey()
-
 	return b.base
 }
 
-// generateSortKey creates a deterministic string representation of a state change for sorting purposes.
-func (b *StateChangeBuilder) generateSortKey() string {
-	reason := string(b.base.StateChangeReason)
-
-	// For JSON fields, marshal to get a canonical string
-	keyValue, err := json.Marshal(b.base.KeyValue)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal key value: %v", err))
-	}
-
-	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d:%d:%d:%d:%s:%s:%d:%s",
-		b.base.ToID,
-		b.base.StateChangeCategory,
-		reason,
-		b.base.AccountID,
-		b.base.TokenID.String(),
-		b.base.Amount.String,
-		b.base.SignerAccountID.String(),
-		b.base.SpenderAccountID.String(),
-		b.base.SponsoredAccountID.String(),
-		b.base.SponsorAccountID.String(),
-		b.base.SignerWeightOld.Int16,
-		b.base.SignerWeightNew.Int16,
-		b.base.ThresholdOld.Int16,
-		b.base.ThresholdNew.Int16,
-		b.base.TrustlineLimitOld.String,
-		b.base.TrustlineLimitNew.String,
-		b.base.Flags.Int16,
-		string(keyValue),
-	)
-}
-
+// Clone returns a shallow copy of the builder, sharing the same metrics service.
 func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base:           b.base,

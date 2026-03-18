@@ -157,7 +157,8 @@ func getDBColumns(model any) set.Set[string] {
 	return dbColumns
 }
 
-// PrepareColumnsWithID ensures that the specified ID column is always included in the column list
+// prepareColumnsWithID ensures that all specified identifier columns are always included in the column list.
+// It appends whatever idColumns are passed in, which is useful for tables (such as state_changes) that use composite keys.
 func prepareColumnsWithID(columns string, model any, prefix string, idColumns ...string) string {
 	var dbColumns set.Set[string]
 	if columns == "" {
@@ -175,7 +176,7 @@ func prepareColumnsWithID(columns string, model any, prefix string, idColumns ..
 	if prefix != "" {
 		dbColumns = addPrefixToColumns(dbColumns, prefix)
 	}
-	// State changes has both to_id and state_change_order as id columns
+	// Ensure all provided identifier columns are present (e.g., composite keys in state_changes).
 	for _, idColumn := range idColumns {
 		dbColumns = addIDColumn(dbColumns, prefix, idColumn)
 	}

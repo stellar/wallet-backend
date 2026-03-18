@@ -183,15 +183,15 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
 
 		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
+			{ToID: 1, AccountID: "alice", OperationID: 1},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 2, AccountID: "charlie", OperationID: 1, SortKey: "1-2"},
+			{ToID: 2, AccountID: "charlie", OperationID: 1},
 		}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-			{ToID: 3, AccountID: "dave", OperationID: 0, SortKey: "0-1"},
+			{ToID: 3, AccountID: "dave", OperationID: 0},
 		}, nil)
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
@@ -577,7 +577,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents.AssertExpectations(t)
 	})
 
-	t.Run("🟢 multiple state changes per operation verify ordering", func(t *testing.T) {
+	t.Run("🟢 multiple state changes per operation", func(t *testing.T) {
 		// Create mocks
 		mockParticipants := &MockParticipantsProcessor{}
 		mockTokenTransfer := &MockTokenTransferProcessor{}
@@ -607,9 +607,9 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
 
 		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-			{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
-			{ToID: 2, AccountID: "alice", OperationID: 1, SortKey: "1-2"},
-			{ToID: 3, AccountID: "alice", OperationID: 1, SortKey: "1-3"},
+			{ToID: 1, AccountID: "alice", OperationID: 1},
+			{ToID: 2, AccountID: "alice", OperationID: 1},
+			{ToID: 3, AccountID: "alice", OperationID: 1},
 		}, nil)
 		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
@@ -642,27 +642,14 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, participantCount)
 
-		// Verify state changes with correct ordering
+		// Verify state changes are all present (no ordering guarantee)
 		stateChanges := buffer.GetStateChanges()
 		require.Len(t, stateChanges, 3, "should have 3 state changes")
 
-		// Verify first state change
-		assert.Equal(t, "alice", stateChanges[0].AccountID.String())
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(1), stateChanges[0].OperationID)
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
-
-		// Verify second state change
-		assert.Equal(t, "alice", stateChanges[1].AccountID.String())
-		assert.Equal(t, int64(2), stateChanges[1].ToID)
-		assert.Equal(t, int64(1), stateChanges[1].OperationID)
-		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
-
-		// Verify third state change
-		assert.Equal(t, "alice", stateChanges[2].AccountID.String())
-		assert.Equal(t, int64(3), stateChanges[2].ToID)
-		assert.Equal(t, int64(1), stateChanges[2].OperationID)
-		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
+		for _, sc := range stateChanges {
+			assert.Equal(t, "alice", sc.AccountID.String())
+			assert.Equal(t, int64(1), sc.OperationID)
+		}
 
 		// Verify mock expectations
 		mockParticipants.AssertExpectations(t)
