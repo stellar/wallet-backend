@@ -166,8 +166,8 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		}
 
 		// 5.5: Per-protocol dual CAS gating for state production
-		if len(m.protocolProcessors) > 0 {
-			for protocolID, processor := range m.protocolProcessors {
+		if len(m.eligibleProtocolProcessors) > 0 {
+			for protocolID, processor := range m.eligibleProtocolProcessors {
 				if ledgerSeq == 0 {
 					// No previous ledger to form an expected cursor value; skip CAS for this ledger.
 					continue
@@ -327,6 +327,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		if err != nil {
 			return fmt.Errorf("checking protocol state readiness for ledger %d: %w", currentLedger, err)
 		}
+		m.eligibleProtocolProcessors = eligibleProcessors
 
 		// Run protocol state production (in-memory analysis before DB transaction) only
 		// for processors that may actually persist this ledger.
@@ -412,16 +413,22 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 }
 
 // refreshProtocolContractCache reloads all protocol contracts from the DB.
+// The write lock is held only to check staleness and swap the new data in,
+// keeping DB queries outside the lock to avoid blocking concurrent readers.
 func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) {
+	// 1. Check staleness under write lock, copy previous data for fallback
 	m.protocolContractCache.mu.Lock()
-	defer m.protocolContractCache.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if m.protocolContractCache.lastRefreshLedger != 0 &&
-		(currentLedger-m.protocolContractCache.lastRefreshLedger) < protocolContractRefreshInterval {
+	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
+		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
+	if !stale {
+		m.protocolContractCache.mu.Unlock()
 		return
 	}
+	// Snapshot previous entries for fallback on partial failure
+	prevContracts := m.protocolContractCache.contractsByProtocol
+	m.protocolContractCache.mu.Unlock()
 
+	// 2. Fetch new data outside the lock
 	start := time.Now()
 	newMap := make(map[string][]data.ProtocolContracts, len(m.protocolProcessors))
 	allSucceeded := true
@@ -430,13 +437,17 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 		if err != nil {
 			log.Ctx(ctx).Warnf("Error refreshing protocol contract cache for %s: %v; preserving previous entry", protocolID, err)
 			allSucceeded = false
-			if prev, ok := m.protocolContractCache.contractsByProtocol[protocolID]; ok {
+			if prev, ok := prevContracts[protocolID]; ok {
 				newMap[protocolID] = prev
 			}
 			continue
 		}
 		newMap[protocolID] = contracts
 	}
+
+	// 3. Swap under write lock
+	m.protocolContractCache.mu.Lock()
+	defer m.protocolContractCache.mu.Unlock()
 	m.protocolContractCache.contractsByProtocol = newMap
 	if allSucceeded {
 		m.protocolContractCache.lastRefreshLedger = currentLedger

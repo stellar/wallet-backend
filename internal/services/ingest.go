@@ -124,6 +124,10 @@ type ingestService struct {
 	knownContractIDs          set.Set[string]
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolContractCache     *protocolContractCache
+	// eligibleProtocolProcessors is set by ingestLiveLedgers before each call
+	// to PersistLedgerData, scoping the CAS loop to only processors that had
+	// ProcessLedger called. Only accessed from the single-threaded live ingestion loop.
+	eligibleProtocolProcessors map[string]ProtocolProcessor
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
