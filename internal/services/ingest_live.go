@@ -424,16 +424,23 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 
 	start := time.Now()
 	newMap := make(map[string][]data.ProtocolContracts, len(m.protocolProcessors))
+	allSucceeded := true
 	for protocolID := range m.protocolProcessors {
 		contracts, err := m.models.ProtocolContracts.GetByProtocolID(ctx, protocolID)
 		if err != nil {
-			log.Ctx(ctx).Warnf("Error refreshing protocol contract cache for %s: %v", protocolID, err)
+			log.Ctx(ctx).Warnf("Error refreshing protocol contract cache for %s: %v; preserving previous entry", protocolID, err)
+			allSucceeded = false
+			if prev, ok := m.protocolContractCache.contractsByProtocol[protocolID]; ok {
+				newMap[protocolID] = prev
+			}
 			continue
 		}
 		newMap[protocolID] = contracts
 	}
 	m.protocolContractCache.contractsByProtocol = newMap
-	m.protocolContractCache.lastRefreshLedger = currentLedger
+	if allSucceeded {
+		m.protocolContractCache.lastRefreshLedger = currentLedger
+	}
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())
 	log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
 }
