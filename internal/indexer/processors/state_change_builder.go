@@ -7,17 +7,18 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // StateChangeBuilder provides a fluent interface for creating state changes
 type StateChangeBuilder struct {
 	base           types.StateChange
-	metricsService MetricsServiceInterface
+	metricsService *metrics.IngestionMetrics
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64, metricsService *metrics.IngestionMetrics) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,

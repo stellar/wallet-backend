@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 const (
@@ -20,11 +21,11 @@ const (
 
 // AccountsProcessor processes ledger changes to extract account balance modifications.
 type AccountsProcessor struct {
-	metricsService MetricsServiceInterface
+	metricsService *metrics.IngestionMetrics
 }
 
 // NewAccountsProcessor creates a new accounts processor.
-func NewAccountsProcessor(metricsService MetricsServiceInterface) *AccountsProcessor {
+func NewAccountsProcessor(metricsService *metrics.IngestionMetrics) *AccountsProcessor {
 	return &AccountsProcessor{
 		metricsService: metricsService,
 	}
@@ -42,7 +43,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("AccountsProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("AccountsProcessor").Observe(duration)
 		}
 	}()
 

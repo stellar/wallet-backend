@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -154,14 +155,14 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		}
 	}
 
-	metricsService := metrics.NewMetricsService()
-	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
-	models, err := data.NewModels(dbConnectionPool, metricsService.DBMetrics())
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	metrics.RegisterDBPoolMetrics(m.Registry(), dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, m.DB)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, metricsService.RPCMetrics())
+	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
@@ -177,7 +178,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("contract_metadata", contractMetadataPool)
+	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
 
 	// Create ContractMetadataService for fetching and storing token metadata
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
@@ -216,7 +217,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		ChannelAccountStore:       chAccStore,
 		TokenIngestionService:     tokenIngestionService,
 		ContractMetadataService:   contractMetadataService,
-		MetricsService:            metricsService,
+		Metrics:                   m,
 		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
@@ -233,7 +234,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	// Start ingest server which serves metrics and health check endpoints.
-	servers := startServers(cfg, models, rpcService, metricsService)
+	servers := startServers(cfg, models, rpcService, m)
 
 	// Wait for termination signal to gracefully shut down the servers.
 	quit := make(chan os.Signal, 1)
@@ -258,7 +259,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 // startServers initializes and starts the ingest server which serves metrics and health check endpoints.
 // If AdminEndpoint port is configured, also starts a separate admin server for pprof endpoints.
-func startServers(cfg Configs, models *data.Models, rpcService services.RPCService, metricsSvc metrics.MetricsService) []*http.Server {
+func startServers(cfg Configs, models *data.Models, rpcService services.RPCService, m *metrics.Metrics) []*http.Server {
 	servers := make([]*http.Server, 0, 2)
 
 	// Start main ingest server with health and metrics endpoints
@@ -273,7 +274,7 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 		RPCService: rpcService,
 		AppTracker: cfg.AppTracker,
 	}
-	mux.Handle("/ingest-metrics", promhttp.HandlerFor(metricsSvc.GetRegistry(), promhttp.HandlerOpts{}))
+	mux.Handle("/ingest-metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))
 
 	go func() {
