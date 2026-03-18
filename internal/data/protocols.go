@@ -154,11 +154,13 @@ func (m *ProtocolsModel) GetClassified(ctx context.Context) ([]Protocols, error)
 	for rows.Next() {
 		var p Protocols
 		if err := rows.Scan(&p.ID, &p.ClassificationStatus, &p.HistoryMigrationStatus, &p.CurrentStateMigrationStatus, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			m.MetricsService.IncDBQueryError("GetClassified", "protocols", utils.GetDBErrorType(err))
 			return nil, fmt.Errorf("scanning classified protocol row: %w", err)
 		}
 		protocols = append(protocols, p)
 	}
 	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("GetClassified", "protocols", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("iterating classified protocol rows: %w", err)
 	}
 

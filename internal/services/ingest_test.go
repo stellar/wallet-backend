@@ -2794,6 +2794,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Set ingestStore after models are created, and simulate ProcessLedger
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
@@ -2826,6 +2827,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, "testproto", 100, 100)
@@ -2858,6 +2860,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, "testproto", 98, 98)
@@ -2890,6 +2893,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		// No protocol cursors inserted — simulates first run

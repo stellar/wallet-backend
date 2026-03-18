@@ -107,11 +107,13 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 	for rows.Next() {
 		var c ProtocolContracts
 		if err := rows.Scan(&c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
+			m.MetricsService.IncDBQueryError("GetByProtocolID", "protocol_contracts", utils.GetDBErrorType(err))
 			return nil, fmt.Errorf("scanning protocol contract row: %w", err)
 		}
 		contracts = append(contracts, c)
 	}
 	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("GetByProtocolID", "protocol_contracts", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("iterating protocol contract rows: %w", err)
 	}
 
