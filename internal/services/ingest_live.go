@@ -177,49 +177,34 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
 				currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
 
+				expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
+				next := strconv.FormatUint(uint64(ledgerSeq), 10)
+
 				// --- History State Changes ---
-				historyVal, histErr := m.models.IngestStore.Get(ctx, historyCursor)
-				if histErr != nil {
-					return fmt.Errorf("reading history cursor for %s: %w", protocolID, histErr)
+				swapped, casErr := m.models.IngestStore.CompareAndSwap(ctx, dbTx, historyCursor, expected, next)
+				if casErr != nil {
+					return fmt.Errorf("CAS history cursor for %s: %w", protocolID, casErr)
 				}
-				if protocolStateCursorReady(historyVal, ledgerSeq) {
-					expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
-					next := strconv.FormatUint(uint64(ledgerSeq), 10)
-					swapped, casErr := m.models.IngestStore.CompareAndSwap(ctx, dbTx, historyCursor, expected, next)
-					if casErr != nil {
-						return fmt.Errorf("CAS history cursor for %s: %w", protocolID, casErr)
+				if swapped {
+					start := time.Now()
+					persistErr := processor.PersistHistory(ctx, dbTx)
+					m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_history", time.Since(start).Seconds())
+					if persistErr != nil {
+						return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
 					}
-					if swapped {
-						start := time.Now()
-						persistErr := processor.PersistHistory(ctx, dbTx)
-						m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_history", time.Since(start).Seconds())
-						if persistErr != nil {
-							return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
-						}
-					}
-					// CAS failed: migration already wrote them — skip
 				}
-				// historyVal < ledgerSeq-1: migration hasn't caught up — skip
 
 				// --- Current State ---
-				csVal, csErr := m.models.IngestStore.Get(ctx, currentStateCursor)
-				if csErr != nil {
-					return fmt.Errorf("reading current state cursor for %s: %w", protocolID, csErr)
+				swapped, casErr = m.models.IngestStore.CompareAndSwap(ctx, dbTx, currentStateCursor, expected, next)
+				if casErr != nil {
+					return fmt.Errorf("CAS current state cursor for %s: %w", protocolID, casErr)
 				}
-				if protocolStateCursorReady(csVal, ledgerSeq) {
-					expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
-					next := strconv.FormatUint(uint64(ledgerSeq), 10)
-					swapped, casErr := m.models.IngestStore.CompareAndSwap(ctx, dbTx, currentStateCursor, expected, next)
-					if casErr != nil {
-						return fmt.Errorf("CAS current state cursor for %s: %w", protocolID, casErr)
-					}
-					if swapped {
-						start := time.Now()
-						persistErr := processor.PersistCurrentState(ctx, dbTx)
-						m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_current_state", time.Since(start).Seconds())
-						if persistErr != nil {
-							return fmt.Errorf("persisting current state for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
-						}
+				if swapped {
+					start := time.Now()
+					persistErr := processor.PersistCurrentState(ctx, dbTx)
+					m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_current_state", time.Since(start).Seconds())
+					if persistErr != nil {
+						return fmt.Errorf("persisting current state for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
 					}
 				}
 			}
