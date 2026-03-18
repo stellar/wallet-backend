@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -39,13 +39,13 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns error for empty account address", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns error for empty account address", func(t *testing.T) {
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balances, err := m.GetByAccount(ctx, "")
@@ -56,14 +56,10 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns empty slice for account with no SAC balances", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balances, err := m.GetByAccount(ctx, "CNOTEXISTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
@@ -73,14 +69,10 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns single SAC balance with correct data from JOIN", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		accountAddr := "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -111,14 +103,10 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns multiple SAC balances for account", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		accountAddr := "CACCOUNT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -168,13 +156,13 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -187,14 +175,10 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("inserts new SAC balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -226,14 +210,10 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("updates existing SAC balance on conflict", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "sac_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "sac_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -278,14 +258,10 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("deletes SAC balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "sac_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "sac_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -324,14 +300,10 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("handles combined upserts and deletes", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "sac_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "sac_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// Insert two balances
@@ -400,13 +372,13 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty input", func(t *testing.T) {
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -419,14 +391,10 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts single balance via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -465,14 +433,10 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts multiple balances via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "sac_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "sac_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &SACBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)

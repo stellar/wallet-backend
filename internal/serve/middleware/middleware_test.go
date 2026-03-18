@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -43,7 +43,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	testCases := []struct {
 		name            string
 		setupRequest    func() *http.Request
-		setupMocks      func(t *testing.T, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService)
+		setupMocks      func(t *testing.T, mAppTracker *apptracker.MockAppTracker)
 		expectedStatus  int
 		expectedMessage string
 	}{
@@ -95,11 +95,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 				require.NoError(t, err)
 				return req
 			},
-			setupMocks: func(t *testing.T, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
-				mMetricsService.
-					On("IncSignatureVerificationExpired", mock.AnythingOfType("float64")).
-					Once()
-			},
+			setupMocks: func(t *testing.T, mAppTracker *apptracker.MockAppTracker) {},
 			expectedStatus:  http.StatusUnauthorized,
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
@@ -141,14 +137,11 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mAppTracker := apptracker.NewMockAppTracker(t)
-			mMetricsService := metrics.NewMockMetricsService()
-			t.Cleanup(func() {
-				mMetricsService.AssertExpectations(t)
-			})
+			authMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Auth
 			if tc.setupMocks != nil {
-				tc.setupMocks(t, mAppTracker, mMetricsService)
+				tc.setupMocks(t, mAppTracker)
 			}
-			authMiddleware := AuthenticationMiddleware(reqJWTVerifier, mAppTracker, mMetricsService)
+			authMiddleware := AuthenticationMiddleware(reqJWTVerifier, mAppTracker, authMetrics)
 
 			r := chi.NewRouter()
 			r.Use(authMiddleware)

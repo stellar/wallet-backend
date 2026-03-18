@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	wbdata "github.com/stellar/wallet-backend/internal/data"
@@ -259,12 +259,9 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 	t.Run("account with no trustlines returns empty", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		got, err := trustlineBalanceModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
@@ -273,13 +270,10 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 	t.Run("account with trustlines returns assets", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
@@ -324,12 +318,9 @@ func TestGetAccountContracts(t *testing.T) {
 
 	t.Run("account with no contracts returns empty", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		got, err := accountContractTokensModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 		assert.NoError(t, err)
@@ -340,14 +331,10 @@ func TestGetAccountContracts(t *testing.T) {
 		cleanUpDB()
 		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
@@ -400,15 +387,14 @@ func TestProcessTokenChanges(t *testing.T) {
 
 	t.Run("empty changes returns no error", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
 
@@ -422,18 +408,14 @@ func TestProcessTokenChanges(t *testing.T) {
 		cleanUpDB()
 		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
+		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
 

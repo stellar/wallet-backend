@@ -102,9 +102,8 @@ type handlerDeps struct {
 
 	// Services
 	FeeBumpService             services.FeeBumpService
-	Metrics                    *metrics.Metrics
-	MetricsService             metrics.MetricsService
-	TransactionService         services.TransactionService
+	Metrics            *metrics.Metrics
+	TransactionService services.TransactionService
 	RPCService                 services.RPCService
 	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
 	NativeBalanceModel         data.NativeBalanceModelInterface
@@ -150,7 +149,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	metrics.RegisterDBPoolMetrics(m.Registry(), dbConnectionPool)
-	metricsService := metrics.NewMetricsService()
 	models, err := data.NewModels(dbConnectionPool, m.DB)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
@@ -220,7 +218,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		SupportedAssets:             cfg.SupportedAssets,
 		FeeBumpService:              feeBumpService,
 		Metrics:                     m,
-		MetricsService:              metricsService,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
 		NativeBalanceModel:          models.NativeBalance,
@@ -280,7 +277,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
 				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
-				deps.MetricsService,
+				deps.Metrics,
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
 					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,

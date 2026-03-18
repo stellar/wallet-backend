@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -17,18 +17,14 @@ import (
 )
 
 func TestOperationResolver_Transaction(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "transactions").Return().Maybe()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &operationResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -67,18 +63,14 @@ func TestOperationResolver_Transaction(t *testing.T) {
 }
 
 func TestOperationResolver_Accounts(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "operations_accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &operationResolver{&Resolver{
 		models: &data.Models{
 			Account: &data.AccountModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -117,26 +109,18 @@ func TestOperationResolver_Accounts(t *testing.T) {
 }
 
 func TestOperationResolver_StateChanges(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationID", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationID", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationID", "state_changes", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationID", "state_changes", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return().Maybe()
-	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "operations", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBBatchSize", "GetAll", "operations", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "GetAll", "operations", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &operationResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 			Operations: &data.OperationModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}

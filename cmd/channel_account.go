@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
@@ -108,9 +109,9 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("resolving channel account signature client: %w", err)
 			}
 
-			metricsService := metrics.NewMetricsService()
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 			httpClient := http.Client{Timeout: 30 * time.Second}
-			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService.RPCMetrics())
+			rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, m.RPC)
 			if err != nil {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}

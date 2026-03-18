@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -27,13 +27,13 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns error for empty account address", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns error for empty account address", func(t *testing.T) {
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balance, err := m.GetByAccount(ctx, "")
@@ -44,12 +44,10 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns nil for account not found", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balance, err := m.GetByAccount(ctx, "GNOTEXIST")
@@ -59,14 +57,10 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns balance with correct data", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "native_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "native_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		accountAddr := "GACCOUNT1"
@@ -103,13 +97,13 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -122,14 +116,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("inserts new native balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "native_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "native_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -158,14 +148,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("updates existing balance on conflict", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "native_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "native_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -204,14 +190,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("deletes native balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "native_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "native_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -241,14 +223,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("handles combined upserts and deletes", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "native_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "native_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// Insert two balances
@@ -303,13 +281,13 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty input", func(t *testing.T) {
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -322,14 +300,10 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts single balance via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "native_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "native_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -365,14 +339,10 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts multiple balances via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "native_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "native_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &NativeBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)

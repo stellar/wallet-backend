@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -331,13 +331,8 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 
 	// Create RPC service for health checks
 	httpClient := s.httpClient
-	metricsService := metrics.NewMockMetricsService()
-	metricsService.On("IncRPCMethodCalls", "GetHealth")
-	metricsService.On("IncRPCEndpointSuccess", "getHealth")
-	metricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64"))
-	metricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64"))
-	metricsService.On("IncRPCRequests", "getHealth")
-	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService.RPCMetrics())
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)
 	}
@@ -548,8 +543,8 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 
 	// Initialize RPC service
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	metricsService := metrics.NewMetricsService()
-	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService.RPCMetrics())
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RPC service: %w", err)
 	}
