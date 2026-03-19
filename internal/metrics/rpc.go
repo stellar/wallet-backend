@@ -21,7 +21,6 @@ type RPCMetrics struct {
 	//
 	// Labels: method (JSON-RPC method name, e.g. "getTransaction", "sendTransaction").
 	RequestDuration *prometheus.HistogramVec
-
 	// RequestsTotal counts completed JSON-RPC HTTP requests by method and outcome.
 	// Use for throughput dashboards and transport-layer error-rate alerting.
 	//
@@ -30,13 +29,11 @@ type RPCMetrics struct {
 	//
 	// Labels: method (JSON-RPC method name), status ("success" / "failure").
 	RequestsTotal *prometheus.CounterVec
-
 	// InFlightRequests tracks the number of RPC HTTP requests currently in progress.
 	// A sustained high value signals connection pool exhaustion or RPC node slowness.
 	//
 	//	wallet_rpc_in_flight_requests > 10
 	InFlightRequests prometheus.Gauge
-
 	// ResponseSizeBytes tracks RPC response body sizes.
 	// Detects unexpectedly large responses that may indicate pagination issues or RPC misbehavior.
 	//
@@ -44,13 +41,11 @@ type RPCMetrics struct {
 	//
 	// Labels: method (JSON-RPC method name).
 	ResponseSizeBytes *prometheus.HistogramVec
-
 	// ServiceHealth reports the last-known RPC service health status (1 = healthy, 0 = unhealthy).
 	// Updated on every GetHealth call.
 	//
 	//	wallet_rpc_service_health == 0
 	ServiceHealth prometheus.Gauge
-
 	// LatestLedger reports the latest ledger sequence number from the RPC service.
 	// Updated on every successful GetHealth call. Use to detect RPC node stalls.
 	//
@@ -66,7 +61,6 @@ type RPCMetrics struct {
 	//
 	// Labels: method (Go method name, e.g. "GetTransaction", "SendTransaction").
 	MethodCallsTotal *prometheus.CounterVec
-
 	// MethodDuration tracks end-to-end latency of application-level RPC methods.
 	// Includes transport time, JSON parsing, validation, and any post-processing.
 	//
@@ -74,7 +68,6 @@ type RPCMetrics struct {
 	//
 	// Labels: method (Go method name).
 	MethodDuration *prometheus.HistogramVec
-
 	// MethodErrorsTotal counts application-level RPC method errors classified by type.
 	// Types: rpc_error, json_unmarshal_error, validation_error, not_found_error, xdr_decode_error.
 	//
