@@ -24,7 +24,7 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 		RPC:       newRPCMetrics(reg),
 		Ingestion: newIngestionMetrics(reg),
 		HTTP:      newHTTPMetrics(reg),
-		GraphQL:   newGraphQLMetrics(reg),
+		GraphQL:   NewGraphQLMetrics(reg),
 		Auth:      newAuthMetrics(reg),
 		registry:  reg,
 	}

@@ -308,7 +308,11 @@ func handler(deps handlerDeps) http.Handler {
 			reporter := middleware.NewComplexityLogger(deps.Metrics.GraphQL)
 			srv.Use(complexityreporter.NewExtension(reporter))
 
-			// Add field-level metrics tracking
+			// Add operation-level metrics (duration, in-flight, throughput, errors, response size)
+			opMetrics := middleware.NewGraphQLOperationMetrics(deps.Metrics.GraphQL)
+			srv.AroundOperations(opMetrics.Middleware)
+
+			// Add field-level deprecated field tracking
 			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.Metrics.GraphQL)
 			srv.AroundFields(fieldMetrics.Middleware)
 
