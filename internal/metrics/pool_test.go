@@ -38,7 +38,7 @@ func TestRegisterPoolMetrics_Registration(t *testing.T) {
 		"wallet_pool_tasks_waiting",
 		"wallet_pool_tasks_successful_total",
 		"wallet_pool_tasks_failed_total",
-		"wallet_pool_tasks_completed_total",
+		"wallet_pool_tasks_dropped_total",
 	}
 	gathered := make(map[string]bool, len(families))
 	for _, f := range families {
@@ -66,21 +66,17 @@ func TestRegisterPoolMetrics_CallbackValues(t *testing.T) {
 	require.NotNil(t, submitted)
 	assert.GreaterOrEqual(t, submitted.GetMetric()[0].GetCounter().GetValue(), 1.0)
 
-	completed := findMetricFamily(t, families, "wallet_pool_tasks_completed_total")
-	require.NotNil(t, completed)
-	assert.GreaterOrEqual(t, completed.GetMetric()[0].GetCounter().GetValue(), 1.0)
-
 	successful := findMetricFamily(t, families, "wallet_pool_tasks_successful_total")
 	require.NotNil(t, successful)
 	assert.GreaterOrEqual(t, successful.GetMetric()[0].GetCounter().GetValue(), 1.0)
 }
 
-func TestRegisterPoolMetrics_ConstLabels(t *testing.T) {
+func TestRegisterPoolMetrics_Labels(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	pool := pond.NewPool(1)
 	defer pool.StopAndWait()
 
-	RegisterPoolMetrics(reg, "mychannel", pool)
+	RegisterPoolMetrics(reg, "mypool", pool)
 
 	families, err := reg.Gather()
 	require.NoError(t, err)
@@ -89,25 +85,25 @@ func TestRegisterPoolMetrics_ConstLabels(t *testing.T) {
 		for _, m := range f.GetMetric() {
 			found := false
 			for _, lp := range m.GetLabel() {
-				if lp.GetName() == "channel" && lp.GetValue() == "mychannel" {
+				if lp.GetName() == "pool_name" && lp.GetValue() == "mypool" {
 					found = true
 				}
 			}
-			assert.True(t, found, "metric %s missing channel=mychannel label", f.GetName())
+			assert.True(t, found, "metric %s missing pool_name=mypool label", f.GetName())
 		}
 	}
 }
 
-func TestRegisterPoolMetrics_TwoChannels(t *testing.T) {
+func TestRegisterPoolMetrics_TwoPools(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	pool1 := pond.NewPool(1)
 	pool2 := pond.NewPool(1)
 	defer pool1.StopAndWait()
 	defer pool2.StopAndWait()
 
-	// Two channels on the same registry should not panic.
-	RegisterPoolMetrics(reg, "channel_a", pool1)
-	RegisterPoolMetrics(reg, "channel_b", pool2)
+	// Two pools on the same registry should not panic.
+	RegisterPoolMetrics(reg, "pool_a", pool1)
+	RegisterPoolMetrics(reg, "pool_b", pool2)
 
 	families, err := reg.Gather()
 	require.NoError(t, err)
