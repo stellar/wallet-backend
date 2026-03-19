@@ -21,7 +21,7 @@ type LedgerRange struct {
 }
 
 type IngestStoreModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

@@ -39,7 +39,7 @@ type NativeBalanceModelInterface interface {
 
 // NativeBalanceModel implements NativeBalanceModelInterface.
 type NativeBalanceModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

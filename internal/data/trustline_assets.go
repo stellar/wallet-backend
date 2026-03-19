@@ -34,7 +34,7 @@ type TrustlineAssetModelInterface interface {
 
 // TrustlineAssetModel implements TrustlineAssetModelInterface.
 type TrustlineAssetModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

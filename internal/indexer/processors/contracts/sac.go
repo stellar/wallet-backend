@@ -13,8 +13,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
-	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 var (

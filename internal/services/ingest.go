@@ -42,10 +42,10 @@ type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
 	// === Core ===
-	IngestionMode  string
-	Models         *data.Models
-	AppTracker     apptracker.AppTracker
-	Metrics *metrics.Metrics
+	IngestionMode string
+	Models        *data.Models
+	AppTracker    apptracker.AppTracker
+	Metrics       *metrics.Metrics
 
 	// === Stellar Network ===
 	Network           string
@@ -109,7 +109,7 @@ type ingestService struct {
 	chAccStore                store.ChannelAccountStore
 	tokenIngestionService     TokenIngestionService
 	contractMetadataService   ContractMetadataService
-	appMetrics *metrics.Metrics
+	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
@@ -148,7 +148,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		chAccStore:                cfg.ChannelAccountStore,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		contractMetadataService:   cfg.ContractMetadataService,
-		appMetrics: cfg.Metrics,
+		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
 		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion, cfg.SkipTxMeta, cfg.SkipTxEnvelope),

@@ -41,7 +41,7 @@ type rpcService struct {
 	rpcURL                     string
 	httpClient                 utils.HTTPClient
 	heartbeatChannel           chan entities.RPCGetHealthResult
-	metrics *metrics.RPCMetrics
+	metrics                    *metrics.RPCMetrics
 	healthCheckWarningInterval time.Duration
 	healthCheckTickInterval    time.Duration
 	networkPassphrase          string
@@ -70,7 +70,7 @@ func NewRPCService(rpcURL, networkPassphrase string, httpClient utils.HTTPClient
 		rpcURL:                     rpcURL,
 		httpClient:                 httpClient,
 		heartbeatChannel:           heartbeatChannel,
-		metrics: rpcMetrics,
+		metrics:                    rpcMetrics,
 		healthCheckWarningInterval: defaultHealthCheckWarningInterval,
 		healthCheckTickInterval:    defaultHealthCheckTickInterval,
 		networkPassphrase:          networkPassphrase,

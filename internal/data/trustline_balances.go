@@ -43,7 +43,7 @@ type TrustlineBalanceModelInterface interface {
 
 // TrustlineBalanceModel implements TrustlineBalanceModelInterface.
 type TrustlineBalanceModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

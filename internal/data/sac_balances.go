@@ -46,7 +46,7 @@ type SACBalanceModelInterface interface {
 
 // SACBalanceModel implements SACBalanceModelInterface.
 type SACBalanceModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

@@ -26,7 +26,7 @@ type AccountContractTokensModelInterface interface {
 
 // AccountContractTokensModel implements AccountContractTokensModelInterface.
 type AccountContractTokensModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

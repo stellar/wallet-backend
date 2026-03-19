@@ -37,7 +37,7 @@ type ContractModelInterface interface {
 
 // ContractModel implements ContractModelInterface.
 type ContractModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

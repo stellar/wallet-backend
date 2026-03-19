@@ -16,7 +16,7 @@ import (
 )
 
 type AccountModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 

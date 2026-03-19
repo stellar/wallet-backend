@@ -18,7 +18,7 @@ import (
 )
 
 type OperationModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 
