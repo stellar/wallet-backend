@@ -15,6 +15,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const (
+	LatestLedgerCursorName = "latest_ingest_ledger"
+	OldestLedgerCursorName = "oldest_ingest_ledger"
+)
+
 type LedgerRange struct {
 	GapStart uint32 `db:"gap_start"`
 	GapEnd   uint32 `db:"gap_end"`
