@@ -147,7 +147,7 @@ func TestGraphQLFieldMetrics_ResolverError(t *testing.T) {
 	fm := NewGraphQLFieldMetrics(m)
 
 	deprecatedDirectives := ast.DirectiveList{{Name: "deprecated"}}
-	ctx := fieldTestContext("GetAccount", "oldField", deprecatedDirectives)
+	ctx := fieldTestContext("SubmitTx", "oldField", deprecatedDirectives)
 
 	resolver := func(ctx context.Context) (interface{}, error) {
 		return nil, assert.AnError
@@ -158,7 +158,7 @@ func TestGraphQLFieldMetrics_ResolverError(t *testing.T) {
 	assert.ErrorIs(t, err, assert.AnError)
 
 	// Deprecated field should still be counted even when resolver errors.
-	assert.Equal(t, 1.0, testutil.ToFloat64(m.DeprecatedFieldsTotal.WithLabelValues("GetAccount", "oldField")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.DeprecatedFieldsTotal.WithLabelValues("SubmitTx", "oldField")))
 }
 
 func TestGraphQLFieldMetrics_MultipleDeprecatedAccesses(t *testing.T) {
@@ -174,7 +174,8 @@ func TestGraphQLFieldMetrics_MultipleDeprecatedAccesses(t *testing.T) {
 	}
 
 	for range 3 {
-		_, _ = fm.Middleware(ctx, resolver)
+		_, err := fm.Middleware(ctx, resolver)
+		require.NoError(t, err)
 	}
 
 	assert.Equal(t, 3.0, testutil.ToFloat64(m.DeprecatedFieldsTotal.WithLabelValues("GetAccount", "oldField")))
