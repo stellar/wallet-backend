@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -62,6 +63,21 @@ func TestGraphQLMetrics_Durations(t *testing.T) {
 	// internal structure (quantiles, _sum, _count). Two observed label combos = 2.
 	assert.Equal(t, 2, testutil.CollectAndCount(m.FieldDuration))
 	assert.Equal(t, 1, testutil.CollectAndCount(m.Complexity))
+}
+
+func TestGraphQLMetrics_GoldenExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newGraphQLMetrics(reg)
+
+	m.ErrorsTotal.WithLabelValues("GetAccount", "validation").Add(2)
+
+	expected := strings.NewReader(`
+		# HELP wallet_graphql_errors_total Total number of GraphQL errors.
+		# TYPE wallet_graphql_errors_total counter
+		wallet_graphql_errors_total{error_type="validation",operation_name="GetAccount"} 2
+	`)
+	err := testutil.CollectAndCompare(m.ErrorsTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestGraphQLMetrics_Lint(t *testing.T) {

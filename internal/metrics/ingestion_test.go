@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -127,6 +128,23 @@ func TestIngestionMetrics_StateChanges(t *testing.T) {
 
 	assert.Equal(t, 5.0, testutil.ToFloat64(m.StateChangesTotal.WithLabelValues("balance", "created")))
 	assert.Equal(t, 3.0, testutil.ToFloat64(m.StateChangesTotal.WithLabelValues("balance", "updated")))
+}
+
+func TestIngestionMetrics_GoldenExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.StateChangesTotal.WithLabelValues("balance", "created").Add(42)
+	m.StateChangesTotal.WithLabelValues("balance", "removed").Add(3)
+
+	expected := strings.NewReader(`
+		# HELP wallet_ingestion_state_changes_total Total number of state changes persisted to database by type and category.
+		# TYPE wallet_ingestion_state_changes_total counter
+		wallet_ingestion_state_changes_total{category="created",type="balance"} 42
+		wallet_ingestion_state_changes_total{category="removed",type="balance"} 3
+	`)
+	err := testutil.CollectAndCompare(m.StateChangesTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestIngestionMetrics_Lint(t *testing.T) {

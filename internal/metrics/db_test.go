@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -99,6 +100,21 @@ func TestDBMetrics_BatchSize_Buckets(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDBMetrics_GoldenExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newDBMetrics(reg)
+
+	m.QueriesTotal.WithLabelValues("select", "accounts").Add(7)
+
+	expected := strings.NewReader(`
+		# HELP wallet_db_queries_total Total number of database queries.
+		# TYPE wallet_db_queries_total counter
+		wallet_db_queries_total{query_type="select",table="accounts"} 7
+	`)
+	err := testutil.CollectAndCompare(m.QueriesTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestDBMetrics_Lint(t *testing.T) {

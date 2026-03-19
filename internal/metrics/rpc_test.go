@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -95,6 +96,21 @@ func TestRPCMetrics_MethodMetrics(t *testing.T) {
 	assert.Equal(t, 1.0, testutil.ToFloat64(m.MethodErrorsTotal.WithLabelValues("getTransaction", "not_found")))
 	// CollectAndCount counts label combos, not quantiles — one method observed = 1.
 	assert.Equal(t, 1, testutil.CollectAndCount(m.MethodDuration))
+}
+
+func TestRPCMetrics_GoldenExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newRPCMetrics(reg)
+
+	m.MethodCallsTotal.WithLabelValues("getTransaction").Add(10)
+
+	expected := strings.NewReader(`
+		# HELP wallet_rpc_method_calls_total Total number of RPC method calls at the application level.
+		# TYPE wallet_rpc_method_calls_total counter
+		wallet_rpc_method_calls_total{method="getTransaction"} 10
+	`)
+	err := testutil.CollectAndCompare(m.MethodCallsTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestRPCMetrics_Lint(t *testing.T) {

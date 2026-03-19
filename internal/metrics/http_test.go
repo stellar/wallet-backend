@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -40,6 +41,21 @@ func TestHTTPMetrics_RequestsDuration(t *testing.T) {
 	// internal structure (quantiles, buckets, _sum, _count). A SummaryVec with two
 	// observed label combos returns 2, regardless of how many quantiles it tracks.
 	assert.Equal(t, 2, testutil.CollectAndCount(m.RequestsDuration))
+}
+
+func TestHTTPMetrics_GoldenExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newHTTPMetrics(reg)
+
+	m.RequestsTotal.WithLabelValues("/health", "GET", "200").Add(3)
+
+	expected := strings.NewReader(`
+		# HELP wallet_http_requests_total Total number of HTTP requests.
+		# TYPE wallet_http_requests_total counter
+		wallet_http_requests_total{endpoint="/health",method="GET",status_code="200"} 3
+	`)
+	err := testutil.CollectAndCompare(m.RequestsTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestHTTPMetrics_Lint(t *testing.T) {

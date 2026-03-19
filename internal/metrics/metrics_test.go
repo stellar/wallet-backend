@@ -1,9 +1,11 @@
 package metrics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,6 +22,24 @@ func TestNewMetrics(t *testing.T) {
 	require.NotNil(t, m.Auth)
 
 	assert.Same(t, reg, m.Registry())
+}
+
+// TestNewMetrics_CrossSubstructExposition verifies that metrics from different
+// sub-structs coexist on the same registry without collision.
+func TestNewMetrics_CrossSubstructExposition(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	m.Auth.ExpiredSignaturesTotal.Inc()
+	m.HTTP.RequestsTotal.WithLabelValues("/health", "GET", "200").Inc()
+
+	expected := strings.NewReader(`
+		# HELP wallet_auth_expired_signatures_total Total number of signature verifications that failed due to expiration.
+		# TYPE wallet_auth_expired_signatures_total counter
+		wallet_auth_expired_signatures_total 1
+	`)
+	err := testutil.CollectAndCompare(m.Auth.ExpiredSignaturesTotal, expected)
+	require.NoError(t, err)
 }
 
 func TestNewMetrics_IndependentRegistries(t *testing.T) {
