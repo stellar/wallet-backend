@@ -177,7 +177,13 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 // getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
 // It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
+// LedgerFetchDuration is always observed (including on error/exhaustion paths) to capture full retry latency.
 func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
+	fetchStart := time.Now()
+	defer func() {
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
+	}()
+
 	var lastErr error
 	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
 		select {
@@ -192,6 +198,8 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 		}
 		lastErr = err
 
+		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxRetryBackoff {
 			backoff = maxRetryBackoff
@@ -205,6 +213,8 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 		case <-time.After(backoff):
 		}
 	}
+	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("ledger_fetch").Inc()
+	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ledger_fetch").Inc()
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
