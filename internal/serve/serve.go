@@ -102,8 +102,8 @@ type handlerDeps struct {
 
 	// Services
 	FeeBumpService             services.FeeBumpService
-	Metrics            *metrics.Metrics
-	TransactionService services.TransactionService
+	Metrics                    *metrics.Metrics
+	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
 	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
 	NativeBalanceModel         data.NativeBalanceModelInterface

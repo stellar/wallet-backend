@@ -95,7 +95,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 				require.NoError(t, err)
 				return req
 			},
-			setupMocks: func(t *testing.T, mAppTracker *apptracker.MockAppTracker) {},
+			setupMocks:      func(t *testing.T, mAppTracker *apptracker.MockAppTracker) {},
 			expectedStatus:  http.StatusUnauthorized,
 			expectedMessage: `{"error":"Not authorized."}`,
 		},

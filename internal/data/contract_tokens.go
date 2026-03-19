@@ -37,7 +37,7 @@ type ContractModelInterface interface {
 
 // ContractModel implements ContractModelInterface.
 type ContractModel struct {
-	DB             *pgxpool.Pool
+	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
 }
 
@@ -69,11 +69,11 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	ids, err := db.QueryMany[string](ctx, dbTx, query, contractIDs)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetExisting", "contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetExisting", "contract_tokens").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetExisting", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("GetExisting", "contract_tokens").Inc()
 	return ids, nil
 }
 
@@ -113,13 +113,13 @@ func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts 
 
 	start := time.Now()
 	_, err := dbTx.Exec(ctx, query, ids, contractIDs, types, codes, issuers, names, symbols, decimals)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "contract_tokens").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "contract_tokens").Observe(float64(len(contracts)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "contract_tokens").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting contracts: %w", err)
 	}
-
-	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "contract_tokens").Observe(time.Since(start).Seconds())
-	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "contract_tokens").Observe(float64(len(contracts)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "contract_tokens").Inc()
 	return nil
 }

@@ -122,7 +122,6 @@ func TestSendRPCRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
-
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
 			Body: io.NopCloser(strings.NewReader(`{
@@ -152,7 +151,6 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("rpc_post_call_fails", func(t *testing.T) {
-
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -165,7 +163,6 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("unmarshaling_rpc_response_fails", func(t *testing.T) {
-
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(&errorReader{}),
@@ -182,7 +179,6 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("unmarshaling_json_fails", func(t *testing.T) {
-
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(`{invalid-json`)),
@@ -199,7 +195,6 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("response_has_no_result_field", func(t *testing.T) {
-
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(`{"status": "success"}`)),
@@ -273,8 +268,6 @@ func TestSendTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
-
-
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -476,8 +469,6 @@ func TestGetTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
-
-
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 		params := entities.RPCParams{Hash: transactionHash}
 
@@ -536,8 +527,6 @@ func TestGetTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
-
-
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -565,8 +554,6 @@ func TestGetTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
-
-
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -580,8 +567,6 @@ func TestGetTransactions(t *testing.T) {
 	})
 
 	t.Run("successful", func(t *testing.T) {
-
-
 		params := entities.RPCParams{StartLedger: 10, Pagination: entities.RPCPagination{Limit: 5}}
 
 		payload := map[string]interface{}{
@@ -641,8 +626,6 @@ func TestSendGetHealth(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
-
-
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -673,8 +656,6 @@ func TestSendGetHealth(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
-
-
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
