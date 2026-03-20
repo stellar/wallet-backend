@@ -8,6 +8,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -89,6 +90,9 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	if c.DBMaxConnIdleTime > 0 {
 		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
 	}
+	// Use Exec mode to avoid server-side prepared statement caching, which
+	// conflicts with PgBouncer in transaction pooling mode (SQLSTATE 42P05).
+	cfg.QueryExecMode = pgx.QueryExecModeExec
 	return cfg
 }
 
