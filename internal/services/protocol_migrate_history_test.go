@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -52,6 +53,36 @@ func (b *multiLedgerBackend) IsPrepared(context.Context, ledgerbackend.Range) (b
 
 func (b *multiLedgerBackend) Close() error {
 	return nil
+}
+
+// transientErrorBackend wraps multiLedgerBackend and injects transient errors
+// on convergence-poll calls (unbounded PrepareRange, missing-ledger GetLedger)
+// before delegating normally. This simulates RPC blips that should not be
+// mistaken for convergence.
+type transientErrorBackend struct {
+	multiLedgerBackend
+	// unboundedPrepareFailsLeft counts how many unbounded PrepareRange calls
+	// (convergence polls) should return a transient error before succeeding.
+	unboundedPrepareFailsLeft atomic.Int32
+	// missingGetLedgerFailsLeft counts how many GetLedger calls for missing
+	// ledgers should return a transient error instead of blocking.
+	missingGetLedgerFailsLeft atomic.Int32
+}
+
+func (b *transientErrorBackend) PrepareRange(ctx context.Context, r ledgerbackend.Range) error {
+	if !r.Bounded() && b.unboundedPrepareFailsLeft.Add(-1) >= 0 {
+		return fmt.Errorf("transient RPC error: connection refused")
+	}
+	return b.multiLedgerBackend.PrepareRange(ctx, r)
+}
+
+func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
+	if _, ok := b.multiLedgerBackend.ledgers[sequence]; !ok {
+		if b.missingGetLedgerFailsLeft.Add(-1) >= 0 {
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("transient RPC error: connection reset")
+		}
+	}
+	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
 
 // recordingProcessor is a test double that records all ProcessLedger inputs
@@ -781,6 +812,107 @@ func TestProtocolMigrateHistory(t *testing.T) {
 
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err) // No-op, nothing to do
+	})
+
+	t.Run("transient PrepareRange error retries then converges", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		processor := &recordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &transientErrorBackend{
+			multiLedgerBackend: multiLedgerBackend{
+				ledgers: map[uint32]xdr.LedgerCloseMeta{
+					100: dummyLedgerMeta(100),
+					101: dummyLedgerMeta(101),
+				},
+			},
+		}
+		// First PrepareRange call for the convergence poll will fail transiently.
+		// The bounded-range PrepareRange calls (for processing) always succeed because
+		// the counter is only 1 and multiLedgerBackend.PrepareRange is a no-op.
+		backend.unboundedPrepareFailsLeft.Store(1)
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"testproto"})
+		require.NoError(t, err)
+
+		// Verify all ledgers were processed — the transient error did not cause premature convergence.
+		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
+		assert.Equal(t, uint32(101), cursorVal)
+		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
+	})
+
+	t.Run("transient GetLedger error retries then converges", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		processor := &recordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &transientErrorBackend{
+			multiLedgerBackend: multiLedgerBackend{
+				ledgers: map[uint32]xdr.LedgerCloseMeta{
+					100: dummyLedgerMeta(100),
+					101: dummyLedgerMeta(101),
+				},
+			},
+		}
+		// First GetLedger call for the convergence poll (ledger 102, which doesn't exist)
+		// will fail transiently instead of blocking until context done.
+		backend.missingGetLedgerFailsLeft.Store(1)
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"testproto"})
+		require.NoError(t, err)
+
+		// Verify all ledgers were processed — the transient error did not cause premature convergence.
+		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
+		assert.Equal(t, uint32(101), cursorVal)
+		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
 	})
 }
 

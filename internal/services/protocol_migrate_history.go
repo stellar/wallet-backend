@@ -343,17 +343,32 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 
 		// At tip — poll briefly for convergence
 		pollCtx, cancel := context.WithTimeout(ctx, convergencePollTimeout)
-		if err := s.ledgerBackend.PrepareRange(pollCtx, ledgerbackend.UnboundedRange(latestLedger+1)); err != nil {
+		prepErr := s.ledgerBackend.PrepareRange(pollCtx, ledgerbackend.UnboundedRange(latestLedger+1))
+		if prepErr != nil {
 			cancel()
-			log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-			return nil
+			if ctx.Err() != nil {
+				return fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
+			}
+			if pollCtx.Err() == context.DeadlineExceeded {
+				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
+				return nil
+			}
+			log.Ctx(ctx).Warnf("Transient error during convergence poll PrepareRange: %v, retrying", prepErr)
+			continue
 		}
 
 		_, getLedgerErr := s.ledgerBackend.GetLedger(pollCtx, latestLedger+1)
 		cancel()
 		if getLedgerErr != nil {
-			log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-			return nil
+			if ctx.Err() != nil {
+				return fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
+			}
+			if pollCtx.Err() == context.DeadlineExceeded {
+				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
+				return nil
+			}
+			log.Ctx(ctx).Warnf("Transient error during convergence poll GetLedger: %v, retrying", getLedgerErr)
+			continue
 		}
 
 		// New ledger available, loop again
