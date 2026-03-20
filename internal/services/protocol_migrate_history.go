@@ -109,15 +109,30 @@ func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []s
 	}
 
 	// Phase 2: Process each protocol
-	if err := s.processAllProtocols(ctx, activeProtocolIDs); err != nil {
-		// Best-effort set status to failed
+	handedOffIDs, err := s.processAllProtocols(ctx, activeProtocolIDs)
+	if err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if txErr := db.RunInPgxTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
-			return s.protocolsModel.UpdateHistoryMigrationStatus(cleanupCtx, dbTx, activeProtocolIDs, data.StatusFailed)
-		}); txErr != nil {
-			log.Ctx(ctx).Errorf("error setting history migration status to failed: %v", txErr)
+
+		// Mark handed-off protocols as success — live ingestion owns them now
+		if len(handedOffIDs) > 0 {
+			if txErr := db.RunInPgxTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
+				return s.protocolsModel.UpdateHistoryMigrationStatus(cleanupCtx, dbTx, handedOffIDs, data.StatusSuccess)
+			}); txErr != nil {
+				log.Ctx(ctx).Errorf("error setting handed-off protocols to success: %v", txErr)
+			}
 		}
+
+		// Mark only non-handed-off protocols as failed
+		failedIDs := subtract(activeProtocolIDs, handedOffIDs)
+		if len(failedIDs) > 0 {
+			if txErr := db.RunInPgxTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
+				return s.protocolsModel.UpdateHistoryMigrationStatus(cleanupCtx, dbTx, failedIDs, data.StatusFailed)
+			}); txErr != nil {
+				log.Ctx(ctx).Errorf("error setting history migration status to failed: %v", txErr)
+			}
+		}
+
 		return fmt.Errorf("processing protocols: %w", err)
 	}
 
@@ -182,14 +197,14 @@ func (s *protocolMigrateHistoryService) validate(ctx context.Context, protocolID
 
 // processAllProtocols runs history migration for all protocols using ledger-first iteration.
 // Each ledger is fetched once and processed by all eligible protocols, avoiding redundant RPC calls.
-func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context, protocolIDs []string) error {
+func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context, protocolIDs []string) ([]string, error) {
 	// Read oldest_ingest_ledger
 	oldestLedger, err := s.ingestStore.Get(ctx, s.oldestLedgerCursorName)
 	if err != nil {
-		return fmt.Errorf("reading oldest ingest ledger: %w", err)
+		return nil, fmt.Errorf("reading oldest ingest ledger: %w", err)
 	}
 	if oldestLedger == 0 {
-		return fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
+		return nil, fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
 	}
 
 	// Initialize trackers: read/initialize cursor for each protocol
@@ -198,7 +213,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		cursorName := protocolHistoryCursorName(pid)
 		cursorValue, readErr := s.ingestStore.Get(ctx, cursorName)
 		if readErr != nil {
-			return fmt.Errorf("reading history cursor for %s: %w", pid, readErr)
+			return nil, fmt.Errorf("reading history cursor for %s: %w", pid, readErr)
 		}
 
 		if cursorValue == 0 {
@@ -206,7 +221,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			if initErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 				return s.ingestStore.Update(ctx, dbTx, cursorName, initValue)
 			}); initErr != nil {
-				return fmt.Errorf("initializing history cursor for %s: %w", pid, initErr)
+				return nil, fmt.Errorf("initializing history cursor for %s: %w", pid, initErr)
 			}
 			cursorValue = initValue
 		}
@@ -225,19 +240,19 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 	for _, t := range trackers {
 		contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
 		if err != nil {
-			return fmt.Errorf("loading contracts for %s: %w", t.protocolID, err)
+			return nil, fmt.Errorf("loading contracts for %s: %w", t.protocolID, err)
 		}
 		contractsByProtocol[t.protocolID] = contracts
 	}
 
 	for {
 		if allHandedOff(trackers) {
-			return nil
+			return handedOffProtocolIDs(trackers), nil
 		}
 
 		latestLedger, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
 		if err != nil {
-			return fmt.Errorf("reading latest ingest ledger: %w", err)
+			return handedOffProtocolIDs(trackers), fmt.Errorf("reading latest ingest ledger: %w", err)
 		}
 
 		// Find minimum cursor among non-handed-off trackers
@@ -256,19 +271,19 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		startLedger := minCursor + 1
 		if startLedger > latestLedger {
 			log.Ctx(ctx).Infof("All protocols at or past tip %d, migration complete", latestLedger)
-			return nil
+			return handedOffProtocolIDs(trackers), nil
 		}
 
 		log.Ctx(ctx).Infof("Processing ledgers %d to %d for %d protocol(s)", startLedger, latestLedger, len(protocolIDs))
 
 		if err := s.ledgerBackend.PrepareRange(ctx, ledgerbackend.BoundedRange(startLedger, latestLedger)); err != nil {
-			return fmt.Errorf("preparing ledger range [%d, %d]: %w", startLedger, latestLedger, err)
+			return handedOffProtocolIDs(trackers), fmt.Errorf("preparing ledger range [%d, %d]: %w", startLedger, latestLedger, err)
 		}
 
 		for seq := startLedger; seq <= latestLedger; seq++ {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("context cancelled: %w", ctx.Err())
+				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", ctx.Err())
 			default:
 			}
 
@@ -287,7 +302,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			// Fetch ledger ONCE for all protocols
 			ledgerMeta, fetchErr := getLedgerWithRetry(ctx, s.ledgerBackend, seq)
 			if fetchErr != nil {
-				return fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
+				return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 			}
 
 			// Process each eligible tracker
@@ -304,7 +319,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 					NetworkPassphrase: s.networkPassphrase,
 				}
 				if err := t.processor.ProcessLedger(ctx, input); err != nil {
-					return fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, err)
+					return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, err)
 				}
 
 				// CAS + persist in a transaction
@@ -323,7 +338,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 					}
 					return nil
 				}); err != nil {
-					return fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, err)
+					return handedOffProtocolIDs(trackers), fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, err)
 				}
 
 				if !swapped {
@@ -335,7 +350,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			}
 
 			if allHandedOff(trackers) {
-				return nil
+				return handedOffProtocolIDs(trackers), nil
 			}
 
 			if seq%100 == 0 {
@@ -344,13 +359,13 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		}
 
 		if allHandedOff(trackers) {
-			return nil
+			return handedOffProtocolIDs(trackers), nil
 		}
 
 		// Check if tip has advanced
 		newLatest, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
 		if err != nil {
-			return fmt.Errorf("re-reading latest ingest ledger: %w", err)
+			return handedOffProtocolIDs(trackers), fmt.Errorf("re-reading latest ingest ledger: %w", err)
 		}
 		if newLatest > latestLedger {
 			continue
@@ -369,11 +384,11 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		if prepErr != nil {
 			cancel()
 			if ctx.Err() != nil {
-				return fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
+				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
 			}
 			if pollCtx.Err() == context.DeadlineExceeded {
 				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return nil
+				return handedOffProtocolIDs(trackers), nil
 			}
 			log.Ctx(ctx).Warnf("Transient error during convergence poll PrepareRange: %v, retrying", prepErr)
 			continue
@@ -383,11 +398,11 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		cancel()
 		if getLedgerErr != nil {
 			if ctx.Err() != nil {
-				return fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
+				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
 			}
 			if pollCtx.Err() == context.DeadlineExceeded {
 				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return nil
+				return handedOffProtocolIDs(trackers), nil
 			}
 			log.Ctx(ctx).Warnf("Transient error during convergence poll GetLedger: %v, retrying", getLedgerErr)
 			continue
@@ -405,4 +420,30 @@ func allHandedOff(trackers []*protocolTracker) bool {
 		}
 	}
 	return true
+}
+
+// handedOffProtocolIDs returns the IDs of trackers that have been handed off to live ingestion.
+func handedOffProtocolIDs(trackers []*protocolTracker) []string {
+	var ids []string
+	for _, t := range trackers {
+		if t.handedOff {
+			ids = append(ids, t.protocolID)
+		}
+	}
+	return ids
+}
+
+// subtract returns all elements in `all` that are not in `remove`.
+func subtract(all, remove []string) []string {
+	removeSet := make(map[string]struct{}, len(remove))
+	for _, id := range remove {
+		removeSet[id] = struct{}{}
+	}
+	var result []string
+	for _, id := range all {
+		if _, ok := removeSet[id]; !ok {
+			result = append(result, id)
+		}
+	}
+	return result
 }

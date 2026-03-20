@@ -172,6 +172,20 @@ func (p *cursorAdvancingProcessor) ProcessLedger(ctx context.Context, input Prot
 	return p.recordingProcessor.ProcessLedger(ctx, input)
 }
 
+// errorAtSeqProcessor wraps recordingProcessor and returns an error when
+// ProcessLedger is called for a specific ledger sequence.
+type errorAtSeqProcessor struct {
+	recordingProcessor
+	errorAtSeq uint32
+}
+
+func (p *errorAtSeqProcessor) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
+	if input.LedgerSequence == p.errorAtSeq {
+		return fmt.Errorf("simulated error at ledger %d", p.errorAtSeq)
+	}
+	return p.recordingProcessor.ProcessLedger(ctx, input)
+}
+
 func getHistorySentinel(t *testing.T, ctx context.Context, dbPool db.ConnectionPool, protocolID string, seq uint32) (uint32, bool) {
 	t.Helper()
 	var val uint32
@@ -825,6 +839,71 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			require.True(t, ok, "sentinel for proto2 ledger %d should exist", seq)
 			assert.Equal(t, seq, val)
 		}
+	})
+
+	t.Run("multi-protocol failure with handoff — handed-off gets success, other gets failed", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+
+		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('proto1', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('proto2', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+
+		// proto1: hands off via CAS failure at ledger 100
+		proc1 := &cursorAdvancingProcessor{
+			recordingProcessor: recordingProcessor{id: "proto1", ingestStore: ingestStore},
+			dbPool:             dbPool,
+			advanceAtSeq:       100,
+		}
+		// proto2: errors at ledger 101
+		proc2 := &errorAtSeqProcessor{
+			recordingProcessor: recordingProcessor{id: "proto2", ingestStore: ingestStore},
+			errorAtSeq:         101,
+		}
+
+		protocolsModel.On("GetByIDs", ctx, []string{"proto1", "proto2"}).Return([]data.Protocols{
+			{ID: "proto1", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "proto2", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
+		// proto1 should be marked success (handed off to live ingestion)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1"}, data.StatusSuccess).Return(nil)
+		// proto2 should be marked failed (ProcessLedger error)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto2"}, data.StatusFailed).Return(nil)
+
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+				102: dummyLedgerMeta(102),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+
+			Processors: []ProtocolProcessor{proc1, proc2},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"proto1", "proto2"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "simulated error at ledger 101")
+
+		// Verify the mock expectations — proto1 got StatusSuccess, proto2 got StatusFailed
+		protocolsModel.AssertExpectations(t)
 	})
 
 	t.Run("already success — skips without error", func(t *testing.T) {
