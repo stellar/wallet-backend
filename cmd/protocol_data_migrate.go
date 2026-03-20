@@ -42,6 +42,8 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 	var networkPassphrase string
 	var protocolIDs []string
 	var logLevel string
+	var latestLedgerCursorName string
+	var oldestLedgerCursorName string
 
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&databaseURL),
@@ -75,7 +77,7 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return c.RunHistory(databaseURL, rpcURL, networkPassphrase, protocolIDs)
+			return c.RunHistory(databaseURL, rpcURL, networkPassphrase, protocolIDs, latestLedgerCursorName, oldestLedgerCursorName)
 		},
 	}
 
@@ -85,11 +87,13 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
 	cmd.Flags().StringVar(&logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
+	cmd.Flags().StringVar(&latestLedgerCursorName, "latest-ledger-cursor-name", data.LatestLedgerCursorName, "Name of the latest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+	cmd.Flags().StringVar(&oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
 
 	return cmd
 }
 
-func (c *protocolMigrateCmd) RunHistory(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string) error {
+func (c *protocolMigrateCmd) RunHistory(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string, latestLedgerCursorName, oldestLedgerCursorName string) error {
 	ctx := context.Background()
 
 	// Build processors from protocol IDs using the dynamic registry
@@ -136,13 +140,15 @@ func (c *protocolMigrateCmd) RunHistory(databaseURL, rpcURL, networkPassphrase s
 	}()
 
 	service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
-		DB:                     dbPool,
-		LedgerBackend:          ledgerBackend,
-		ProtocolsModel:         models.Protocols,
-		ProtocolContractsModel: models.ProtocolContracts,
-		IngestStore:            models.IngestStore,
-		NetworkPassphrase:      networkPassphrase,
-		Processors:             processors,
+		DB:                      dbPool,
+		LedgerBackend:           ledgerBackend,
+		ProtocolsModel:          models.Protocols,
+		ProtocolContractsModel:  models.ProtocolContracts,
+		IngestStore:             models.IngestStore,
+		NetworkPassphrase:       networkPassphrase,
+		Processors:              processors,
+		LatestLedgerCursorName:  latestLedgerCursorName,
+		OldestLedgerCursorName:  oldestLedgerCursorName,
 	})
 	if err != nil {
 		return fmt.Errorf("creating protocol migrate history service: %w", err)
