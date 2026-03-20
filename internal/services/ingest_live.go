@@ -53,13 +53,13 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 
 	eligible := make(map[string]ProtocolProcessor, len(m.protocolProcessors))
 	for protocolID, processor := range m.protocolProcessors {
-		historyCursor := fmt.Sprintf("protocol_%s_history_cursor", protocolID)
+		historyCursor := protocolHistoryCursorName(protocolID)
 		historyVal, err := m.models.IngestStore.Get(ctx, historyCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading history cursor for %s: %w", protocolID, err)
 		}
 
-		currentStateCursor := fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
+		currentStateCursor := protocolCurrentStateCursorName(protocolID)
 		currentStateVal, err := m.models.IngestStore.Get(ctx, currentStateCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading current state cursor for %s: %w", protocolID, err)
@@ -150,8 +150,8 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 					// No previous ledger to form an expected cursor value; skip CAS for this ledger.
 					continue
 				}
-				historyCursor := fmt.Sprintf("protocol_%s_history_cursor", protocolID)
-				currentStateCursor := fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
+				historyCursor := protocolHistoryCursorName(protocolID)
+				currentStateCursor := protocolCurrentStateCursorName(protocolID)
 
 				expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 				next := strconv.FormatUint(uint64(ledgerSeq), 10)
@@ -287,7 +287,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+		ledgerMeta, ledgerErr := getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}

@@ -678,13 +678,7 @@ func Test_analyzeBatchResults(t *testing.T) {
 	}
 }
 
-func Test_ingestService_getLedgerWithRetry(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
+func Test_getLedgerWithRetry(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
@@ -740,41 +734,14 @@ func Test_ingestService_getLedgerWithRetry(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			defer mockMetricsService.AssertExpectations(t)
-
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-			require.NoError(t, err)
-
 			mockLedgerBackend := &LedgerBackendMock{}
 			tc.setupBackend(mockLedgerBackend)
 			defer mockLedgerBackend.AssertExpectations(t)
 
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-
-			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				MetricsService:         mockMetricsService,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-			})
-			require.NoError(t, err)
-
 			testCtx, cancel := tc.ctxFunc()
 			defer cancel()
 
-			ledger, err := svc.getLedgerWithRetry(testCtx, mockLedgerBackend, 100)
+			ledger, err := getLedgerWithRetry(testCtx, mockLedgerBackend, 100)
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.wantErrContains != "" {
@@ -2840,11 +2807,11 @@ func setupProtocolCursors(t *testing.T, ctx context.Context, pool db.ConnectionP
 	t.Helper()
 	_, err := pool.ExecContext(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		fmt.Sprintf("protocol_%s_history_cursor", protocolID), historyCursor)
+		protocolHistoryCursorName(protocolID), historyCursor)
 	require.NoError(t, err)
 	_, err = pool.ExecContext(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		fmt.Sprintf("protocol_%s_current_state_cursor", protocolID), currentStateCursor)
+		protocolCurrentStateCursorName(protocolID), currentStateCursor)
 	require.NoError(t, err)
 }
 

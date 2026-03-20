@@ -521,7 +521,7 @@ func (m *ingestService) processLedgersInBatch(
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+		ledgerMeta, err := getLedgerWithRetry(ctx, backend, ledgerSeq)
 		if err != nil {
 			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}

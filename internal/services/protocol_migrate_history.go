@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -59,16 +58,9 @@ type ProtocolMigrateHistoryConfig struct {
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
 func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protocolMigrateHistoryService, error) {
-	ppMap := make(map[string]ProtocolProcessor, len(cfg.Processors))
-	for i, p := range cfg.Processors {
-		if p == nil {
-			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
-		}
-		id := p.ProtocolID()
-		if _, exists := ppMap[id]; exists {
-			return nil, fmt.Errorf("duplicate protocol processor ID %q", id)
-		}
-		ppMap[id] = p
+	ppMap, err := buildProtocolProcessorMap(cfg.Processors)
+	if err != nil {
+		return nil, err
 	}
 
 	return &protocolMigrateHistoryService{
@@ -188,7 +180,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 	// Initialize trackers: read/initialize cursor for each protocol
 	trackers := make([]*protocolTracker, 0, len(protocolIDs))
 	for _, pid := range protocolIDs {
-		cursorName := fmt.Sprintf("protocol_%s_history_cursor", pid)
+		cursorName := protocolHistoryCursorName(pid)
 		cursorValue, readErr := s.ingestStore.Get(ctx, cursorName)
 		if readErr != nil {
 			return fmt.Errorf("reading history cursor for %s: %w", pid, readErr)
@@ -278,7 +270,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			}
 
 			// Fetch ledger ONCE for all protocols
-			ledgerMeta, fetchErr := s.getLedgerWithRetry(ctx, seq)
+			ledgerMeta, fetchErr := getLedgerWithRetry(ctx, s.ledgerBackend, seq)
 			if fetchErr != nil {
 				return fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 			}
@@ -376,36 +368,4 @@ func allHandedOff(trackers []*protocolTracker) bool {
 		}
 	}
 	return true
-}
-
-// getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
-func (s *protocolMigrateHistoryService) getLedgerWithRetry(ctx context.Context, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
-	var lastErr error
-	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
-		default:
-		}
-
-		ledgerMeta, err := s.ledgerBackend.GetLedger(ctx, ledgerSeq)
-		if err == nil {
-			return ledgerMeta, nil
-		}
-		lastErr = err
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxRetryBackoff {
-			backoff = maxRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-	}
-	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }

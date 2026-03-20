@@ -95,7 +95,7 @@ func (p *cursorAdvancingProcessor) ProcessLedger(ctx context.Context, input Prot
 		_, _ = p.dbPool.ExecContext(ctx,
 			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
 			strconv.FormatUint(uint64(p.advanceAtSeq+100), 10),
-			fmt.Sprintf("protocol_%s_history_cursor", p.id))
+			protocolHistoryCursorName(p.id))
 	}
 	return p.recordingProcessor.ProcessLedger(ctx, input)
 }
