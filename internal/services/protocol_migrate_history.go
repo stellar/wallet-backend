@@ -36,24 +36,28 @@ type ProtocolMigrateHistoryService interface {
 var _ ProtocolMigrateHistoryService = (*protocolMigrateHistoryService)(nil)
 
 type protocolMigrateHistoryService struct {
-	db                     db.ConnectionPool
-	ledgerBackend          ledgerbackend.LedgerBackend
-	protocolsModel         data.ProtocolsModelInterface
-	protocolContractsModel data.ProtocolContractsModelInterface
-	ingestStore            *data.IngestStoreModel
-	networkPassphrase      string
-	processors             map[string]ProtocolProcessor
+	db                      db.ConnectionPool
+	ledgerBackend           ledgerbackend.LedgerBackend
+	protocolsModel          data.ProtocolsModelInterface
+	protocolContractsModel  data.ProtocolContractsModelInterface
+	ingestStore             *data.IngestStoreModel
+	networkPassphrase       string
+	processors              map[string]ProtocolProcessor
+	latestLedgerCursorName  string
+	oldestLedgerCursorName  string
 }
 
 // ProtocolMigrateHistoryConfig holds the configuration for creating a protocolMigrateHistoryService.
 type ProtocolMigrateHistoryConfig struct {
-	DB                     db.ConnectionPool
-	LedgerBackend          ledgerbackend.LedgerBackend
-	ProtocolsModel         data.ProtocolsModelInterface
-	ProtocolContractsModel data.ProtocolContractsModelInterface
-	IngestStore            *data.IngestStoreModel
-	NetworkPassphrase      string
-	Processors             []ProtocolProcessor
+	DB                      db.ConnectionPool
+	LedgerBackend           ledgerbackend.LedgerBackend
+	ProtocolsModel          data.ProtocolsModelInterface
+	ProtocolContractsModel  data.ProtocolContractsModelInterface
+	IngestStore             *data.IngestStoreModel
+	NetworkPassphrase       string
+	Processors              []ProtocolProcessor
+	LatestLedgerCursorName  string
+	OldestLedgerCursorName  string
 }
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
@@ -63,14 +67,25 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		return nil, err
 	}
 
+	latestCursor := cfg.LatestLedgerCursorName
+	if latestCursor == "" {
+		latestCursor = data.LatestLedgerCursorName
+	}
+	oldestCursor := cfg.OldestLedgerCursorName
+	if oldestCursor == "" {
+		oldestCursor = data.OldestLedgerCursorName
+	}
+
 	return &protocolMigrateHistoryService{
-		db:                     cfg.DB,
-		ledgerBackend:          cfg.LedgerBackend,
-		protocolsModel:         cfg.ProtocolsModel,
-		protocolContractsModel: cfg.ProtocolContractsModel,
-		ingestStore:            cfg.IngestStore,
-		networkPassphrase:      cfg.NetworkPassphrase,
-		processors:             ppMap,
+		db:                      cfg.DB,
+		ledgerBackend:           cfg.LedgerBackend,
+		protocolsModel:          cfg.ProtocolsModel,
+		protocolContractsModel:  cfg.ProtocolContractsModel,
+		ingestStore:             cfg.IngestStore,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		processors:              ppMap,
+		latestLedgerCursorName:  latestCursor,
+		oldestLedgerCursorName:  oldestCursor,
 	}, nil
 }
 
@@ -169,7 +184,7 @@ func (s *protocolMigrateHistoryService) validate(ctx context.Context, protocolID
 // Each ledger is fetched once and processed by all eligible protocols, avoiding redundant RPC calls.
 func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context, protocolIDs []string) error {
 	// Read oldest_ingest_ledger
-	oldestLedger, err := s.ingestStore.Get(ctx, data.OldestLedgerCursorName)
+	oldestLedger, err := s.ingestStore.Get(ctx, s.oldestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("reading oldest ingest ledger: %w", err)
 	}
@@ -220,7 +235,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			return nil
 		}
 
-		latestLedger, err := s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+		latestLedger, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
 		if err != nil {
 			return fmt.Errorf("reading latest ingest ledger: %w", err)
 		}
@@ -333,7 +348,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		}
 
 		// Check if tip has advanced
-		newLatest, err := s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+		newLatest, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
 		if err != nil {
 			return fmt.Errorf("re-reading latest ingest ledger: %w", err)
 		}

@@ -279,13 +279,15 @@ func (s *DataMigrationTestSuite) newHistoryMigrationService(
 	processor services.ProtocolProcessor,
 ) services.ProtocolMigrateHistoryService {
 	svc, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
-		DB:                     pool,
-		LedgerBackend:          ledgerBackend,
-		ProtocolsModel:         models.Protocols,
-		ProtocolContractsModel: models.ProtocolContracts,
-		IngestStore:            models.IngestStore,
-		NetworkPassphrase:      "Test SDF Network ; September 2015",
-		Processors:             []services.ProtocolProcessor{processor},
+		DB:                      pool,
+		LedgerBackend:           ledgerBackend,
+		ProtocolsModel:          models.Protocols,
+		ProtocolContractsModel:  models.ProtocolContracts,
+		IngestStore:             models.IngestStore,
+		NetworkPassphrase:       "Test SDF Network ; September 2015",
+		Processors:              []services.ProtocolProcessor{processor},
+		LatestLedgerCursorName:  data.LatestLedgerCursorName,
+		OldestLedgerCursorName:  data.OldestLedgerCursorName,
 	})
 	s.Require().NoError(err)
 	return svc
