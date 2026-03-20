@@ -150,6 +150,17 @@ func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []s
 // validate checks that all protocol IDs are valid and ready for history migration.
 // Returns the list of protocol IDs that need processing (excludes already-success ones).
 func (s *protocolMigrateHistoryService) validate(ctx context.Context, protocolIDs []string) ([]string, error) {
+	// De-duplicate protocolIDs, preserving order.
+	seen := make(map[string]struct{}, len(protocolIDs))
+	unique := make([]string, 0, len(protocolIDs))
+	for _, pid := range protocolIDs {
+		if _, dup := seen[pid]; !dup {
+			seen[pid] = struct{}{}
+			unique = append(unique, pid)
+		}
+	}
+	protocolIDs = unique
+
 	// Check each protocol has a registered processor
 	for _, pid := range protocolIDs {
 		if _, ok := s.processors[pid]; !ok {

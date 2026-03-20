@@ -440,6 +440,58 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		assert.Contains(t, err.Error(), "no processor registered")
 	})
 
+	t.Run("duplicate protocol IDs are deduplicated — each processed once", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		processor := &recordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		// Mock expects the deduplicated slice (single element), not the duplicated input.
+		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor},
+		})
+		require.NoError(t, err)
+
+		// Pass duplicate IDs — should be deduplicated internally.
+		err = svc.Run(ctx, []string{"testproto", "testproto", "testproto"})
+		require.NoError(t, err)
+
+		// Single cursor write — only one tracker was created.
+		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
+		assert.Equal(t, uint32(101), cursorVal)
+
+		// Each ledger processed exactly once.
+		require.Len(t, processor.processedInputs, 2)
+		assert.Equal(t, uint32(100), processor.processedInputs[0].LedgerSequence)
+		assert.Equal(t, uint32(101), processor.processedInputs[1].LedgerSequence)
+		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
+	})
+
 	t.Run("resume from cursor — cursor already at N, process from N+1", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
