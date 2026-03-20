@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -81,6 +82,46 @@ func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) 
 		if b.missingGetLedgerFailsLeft.Add(-1) >= 0 {
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("transient RPC error: connection reset")
 		}
+	}
+	return b.multiLedgerBackend.GetLedger(ctx, sequence)
+}
+
+// rangeTrackingBackend wraps multiLedgerBackend and records the sequence of
+// PrepareRange calls, capturing whether each was bounded or unbounded.
+// An optional onUnbounded callback fires synchronously on the first unbounded
+// PrepareRange, allowing tests to inject new ledgers deterministically before
+// the subsequent GetLedger call.
+type rangeTrackingBackend struct {
+	multiLedgerBackend
+	mu              sync.Mutex
+	ranges          []rangeCall
+	onUnbounded     func()
+	onUnboundedOnce sync.Once
+}
+
+type rangeCall struct {
+	bounded bool
+	r       ledgerbackend.Range
+}
+
+func (b *rangeTrackingBackend) PrepareRange(ctx context.Context, r ledgerbackend.Range) error {
+	b.mu.Lock()
+	b.ranges = append(b.ranges, rangeCall{bounded: r.Bounded(), r: r})
+	b.mu.Unlock()
+	if !r.Bounded() && b.onUnbounded != nil {
+		b.onUnboundedOnce.Do(b.onUnbounded)
+	}
+	return b.multiLedgerBackend.PrepareRange(ctx, r)
+}
+
+// GetLedger checks for ledgers under the mutex (supporting ledgers added by
+// the onUnbounded callback), then falls back to the base blocking behavior.
+func (b *rangeTrackingBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
+	b.mu.Lock()
+	meta, ok := b.multiLedgerBackend.ledgers[sequence]
+	b.mu.Unlock()
+	if ok {
+		return meta, nil
 	}
 	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
@@ -913,6 +954,82 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
 		assert.Equal(t, uint32(101), cursorVal)
 		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
+	})
+
+	t.Run("tip advances during convergence poll triggers bounded-unbounded-bounded transition", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		processor := &recordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &rangeTrackingBackend{
+			multiLedgerBackend: multiLedgerBackend{
+				ledgers: map[uint32]xdr.LedgerCloseMeta{
+					100: dummyLedgerMeta(100),
+					101: dummyLedgerMeta(101),
+				},
+			},
+		}
+
+		// When the service reaches the convergence poll and calls
+		// PrepareRange(UnboundedRange), this callback fires synchronously
+		// to simulate tip advancement: it adds new ledgers and updates the
+		// ingest store before GetLedger is called.
+		backend.onUnbounded = func() {
+			backend.mu.Lock()
+			backend.multiLedgerBackend.ledgers[102] = dummyLedgerMeta(102)
+			backend.multiLedgerBackend.ledgers[103] = dummyLedgerMeta(103)
+			backend.mu.Unlock()
+			setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 103)
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"testproto"})
+		require.NoError(t, err)
+
+		// Verify Bounded → Unbounded → Bounded range transition sequence
+		backend.mu.Lock()
+		ranges := make([]rangeCall, len(backend.ranges))
+		copy(ranges, backend.ranges)
+		backend.mu.Unlock()
+
+		require.GreaterOrEqual(t, len(ranges), 3, "expected at least 3 PrepareRange calls, got %d", len(ranges))
+		assert.True(t, ranges[0].bounded, "first PrepareRange should be bounded")
+		assert.False(t, ranges[1].bounded, "second PrepareRange should be unbounded (convergence poll)")
+		assert.True(t, ranges[2].bounded, "third PrepareRange should be bounded (re-entered loop after tip advance)")
+
+		// Verify all ledgers 100-103 were processed and persisted
+		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
+		assert.Equal(t, uint32(103), cursorVal)
+		assert.Equal(t, []uint32{100, 101, 102, 103}, processor.persistedSeqs)
+
+		for _, seq := range []uint32{100, 101, 102, 103} {
+			val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
+			require.True(t, ok, "sentinel for ledger %d should exist", seq)
+			assert.Equal(t, seq, val, "sentinel value for ledger %d", seq)
+		}
 	})
 }
 

@@ -356,7 +356,14 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			continue
 		}
 
-		// At tip — poll briefly for convergence
+		// At tip — poll briefly for convergence.
+		//
+		// This transitions the backend from BoundedRange (line 264) to UnboundedRange
+		// on the same instance. The captive core implementation handles this internally
+		// by closing the existing subprocess before starting a new one (see
+		// CaptiveStellarCore.startPreparingRange). If the poll succeeds and a new ledger
+		// is detected, the outer loop iterates again and re-prepares a BoundedRange —
+		// the same implicit close-and-reopen applies in that direction too.
 		pollCtx, cancel := context.WithTimeout(ctx, convergencePollTimeout)
 		prepErr := s.ledgerBackend.PrepareRange(pollCtx, ledgerbackend.UnboundedRange(latestLedger+1))
 		if prepErr != nil {
