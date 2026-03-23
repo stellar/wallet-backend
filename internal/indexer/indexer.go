@@ -41,9 +41,13 @@ type IndexerBufferInterface interface {
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
+	PushProtocolWasm(wasm data.ProtocolWasm)
+	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
+	GetProtocolWasms() map[string]data.ProtocolWasm
+	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
@@ -69,28 +73,32 @@ type LedgerChangeProcessor[T any] interface {
 }
 
 type Indexer struct {
-	participantsProcessor  ParticipantsProcessorInterface
-	tokenTransferProcessor TokenTransferProcessorInterface
-	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
-	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
-	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
-	sacInstancesProcessor  LedgerChangeProcessor[*data.Contract]
-	processors             []OperationProcessorInterface
-	pool                   pond.Pool
-	metricsService         processors.MetricsServiceInterface
-	skipTxMeta             bool
-	skipTxEnvelope         bool
-	networkPassphrase      string
+	participantsProcessor      ParticipantsProcessorInterface
+	tokenTransferProcessor     TokenTransferProcessorInterface
+	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
+	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
+	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasm]
+	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
+	processors                 []OperationProcessorInterface
+	pool                       pond.Pool
+	metricsService             processors.MetricsServiceInterface
+	skipTxMeta                 bool
+	skipTxEnvelope             bool
+	networkPassphrase          string
 }
 
 func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
-		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
-		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
-		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
+		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
+		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
+		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(metricsService),
+		protocolContractsProcessor: processors.NewProtocolContractsProcessor(metricsService),
+		accountsProcessor:          processors.NewAccountsProcessor(metricsService),
+		trustlinesProcessor:        processors.NewTrustlinesProcessor(metricsService),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
@@ -239,6 +247,22 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, c := range sacContracts {
 			buffer.PushSACContract(c)
+		}
+
+		protocolWasms, pwErr := i.protocolWasmsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if pwErr != nil {
+			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
+		}
+		for _, wasm := range protocolWasms {
+			buffer.PushProtocolWasm(wasm)
+		}
+
+		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if pcErr != nil {
+			return 0, fmt.Errorf("processing protocol contracts: %w", pcErr)
+		}
+		for _, contract := range protocolContracts {
+			buffer.PushProtocolContracts(contract)
 		}
 	}
 
