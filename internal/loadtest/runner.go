@@ -81,14 +81,13 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
 
 	// Create TokenIngestionService for token change processing
-	tokenIngestionService := services.NewTokenIngestionServiceForLoadtest(
-		dbPool,
-		cfg.NetworkPassphrase,
-		models.TrustlineBalance,
-		models.NativeBalance,
-		models.SACBalance,
-		models.AccountContractTokens,
-	)
+	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+		TrustlineBalanceModel:      models.TrustlineBalance,
+		NativeBalanceModel:         models.NativeBalance,
+		SACBalanceModel:            models.SACBalance,
+		AccountContractTokensModel: models.AccountContractTokens,
+	})
 
 	// Create ingest service for shared persistence logic
 	ingestSvc, err := services.NewIngestService(services.IngestServiceConfig{

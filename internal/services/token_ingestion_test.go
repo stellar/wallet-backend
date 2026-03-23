@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -48,124 +49,159 @@ func ptrToScVec(vals []xdr.ScVal) **xdr.ScVec {
 	return &ptr
 }
 
-func TestExtractHolderAddress(t *testing.T) {
-	service := &tokenIngestionService{}
+func boolPtr(b bool) *bool {
+	return &b
+}
 
-	tests := []struct {
-		name    string
-		key     xdr.ScVal
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "valid balance entry",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{
-						Type: xdr.ScValTypeScvSymbol,
-						Sym:  ptrToScSymbol("Balance"),
-					},
-					{
-						Type: xdr.ScValTypeScvAddress,
-						Address: &xdr.ScAddress{
-							Type:      xdr.ScAddressTypeScAddressTypeAccount,
-							AccountId: ptrToAccountID("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
+func ptrToScMap(m xdr.ScMap) **xdr.ScMap {
+	ptr := &m
+	return &ptr
+}
+
+// makeAccountChangeWithBalance builds an ingest.Change for an Account entry with the given balance and liabilities.
+func makeAccountChangeWithBalance(address string, balance xdr.Int64, numSubEntries xdr.Uint32, buyingLiab, sellingLiab xdr.Int64) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeAccount,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeAccount,
+				Account: &xdr.AccountEntry{
+					AccountId:     accountID,
+					Balance:       balance,
+					NumSubEntries: numSubEntries,
+					Ext: xdr.AccountEntryExt{
+						V: 1,
+						V1: &xdr.AccountEntryExtensionV1{
+							Liabilities: xdr.Liabilities{
+								Buying:  buyingLiab,
+								Selling: sellingLiab,
+							},
+							Ext: xdr.AccountEntryExtensionV1Ext{V: 0},
 						},
 					},
-				}),
+				},
 			},
-			want:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-			wantErr: false,
-		},
-		{
-			name: "not a vector",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvU32,
-				U32:  ptrToUint32(123),
-			},
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name: "wrong vector length - too short",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{
-						Type: xdr.ScValTypeScvSymbol,
-						Sym:  ptrToScSymbol("Balance"),
-					},
-				}),
-			},
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name: "wrong vector length - too long",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
-					{Type: xdr.ScValTypeScvU32, U32: ptrToUint32(1)},
-					{Type: xdr.ScValTypeScvU32, U32: ptrToUint32(2)},
-				}),
-			},
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name: "wrong first element - not 'Balance' symbol",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{
-						Type: xdr.ScValTypeScvSymbol,
-						Sym:  ptrToScSymbol("NotBalance"),
-					},
-					{
-						Type: xdr.ScValTypeScvAddress,
-						Address: &xdr.ScAddress{
-							Type:      xdr.ScAddressTypeScAddressTypeAccount,
-							AccountId: ptrToAccountID("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
-						},
-					},
-				}),
-			},
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name: "second element not an address",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{
-						Type: xdr.ScValTypeScvSymbol,
-						Sym:  ptrToScSymbol("Balance"),
-					},
-					{
-						Type: xdr.ScValTypeScvU32,
-						U32:  ptrToUint32(123),
-					},
-				}),
-			},
-			want:    "",
-			wantErr: true,
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := service.extractHolderAddress(tt.key)
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Empty(t, got)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
-		})
+// makeTrustlineChange builds an ingest.Change for a CreditAlphanum4 trustline.
+func makeTrustlineChange(address, assetCode, assetIssuer string, balance, limit xdr.Int64) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	asset, err := xdr.NewCreditAsset(assetCode, assetIssuer)
+	if err != nil {
+		panic(err)
+	}
+	trustlineAsset := asset.ToTrustLineAsset()
+
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: accountID,
+					Asset:     trustlineAsset,
+					Balance:   balance,
+					Limit:     limit,
+					Flags:     xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag),
+					Ext: xdr.TrustLineEntryExt{
+						V: 1,
+						V1: &xdr.TrustLineEntryV1{
+							Liabilities: xdr.Liabilities{Buying: 100, Selling: 200},
+							Ext:         xdr.TrustLineEntryV1Ext{V: 0},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// makePoolShareTrustlineChange builds an ingest.Change for a pool share trustline (should be skipped).
+func makePoolShareTrustlineChange(address string) ingest.Change {
+	accountID := xdr.MustAddress(address)
+	poolID := xdr.PoolId{1, 2, 3}
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: accountID,
+					Asset: xdr.TrustLineAsset{
+						Type:            xdr.AssetTypeAssetTypePoolShare,
+						LiquidityPoolId: &poolID,
+					},
+					Balance: 1000,
+					Limit:   2000,
+					Ext:     xdr.TrustLineEntryExt{V: 0},
+				},
+			},
+		},
+	}
+}
+
+// makeContractBalanceChange builds an ingest.Change for a ContractData entry with
+// a Balance key (non-SAC). The holder is an account G-address.
+func makeContractBalanceChange(contractHash [32]byte, holderAddress string) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&contractHash),
+					},
+					Key: xdr.ScVal{
+						Type: xdr.ScValTypeScvVec,
+						Vec: ptrToScVec([]xdr.ScVal{
+							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
+							{
+								Type: xdr.ScValTypeScvAddress,
+								Address: &xdr.ScAddress{
+									Type:      xdr.ScAddressTypeScAddressTypeAccount,
+									AccountId: ptrToAccountID(holderAddress),
+								},
+							},
+						}),
+					},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        makeBalanceMapVal(1000, true, false),
+				},
+			},
+		},
+	}
+}
+
+// makeBalanceMapVal creates a ScVal map with amount, authorized, and clawback fields.
+func makeBalanceMapVal(amountLo xdr.Uint64, authorized, clawback bool) xdr.ScVal {
+	m := xdr.ScMap{
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("amount")},
+			Val: xdr.ScVal{
+				Type: xdr.ScValTypeScvI128,
+				I128: &xdr.Int128Parts{
+					Hi: 0,
+					Lo: amountLo,
+				},
+			},
+		},
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("authorized")},
+			Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(authorized)},
+		},
+		{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("clawback")},
+			Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: boolPtr(clawback)},
+		},
+	}
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  ptrToScMap(m),
 	}
 }
 
@@ -278,7 +314,6 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
-		// Insert trustline assets first using deterministic IDs
 		assetID := wbdata.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return trustlineAssetModel.BatchInsert(ctx, dbTx, []wbdata.TrustlineAsset{
@@ -340,7 +375,6 @@ func TestGetAccountContracts(t *testing.T) {
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 
-		// Insert contract into contract_tokens using deterministic ID
 		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
@@ -363,10 +397,6 @@ func TestGetAccountContracts(t *testing.T) {
 		assert.Equal(t, contractID, got[0].ContractID)
 	})
 }
-
-// Note: The streaming checkpoint functionality (streamCheckpointData) is tested via
-// integration tests since it requires database transactions for streaming inserts.
-// Unit tests for helper functions like processTrustlineChange are kept below.
 
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
@@ -392,12 +422,16 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
+		service := NewTokenIngestionService(TokenIngestionServiceConfig{
+			TrustlineBalanceModel:      trustlineBalanceModel,
+			NativeBalanceModel:         nativeBalanceModel,
+			SACBalanceModel:            sacBalanceModel,
+			AccountContractTokensModel: accountContractTokensModel,
+			NetworkPassphrase:          "Test SDF Network ; September 2015",
+		})
 
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
@@ -413,17 +447,21 @@ func TestProcessTokenChanges(t *testing.T) {
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		trustlineAssetModel := &wbdata.TrustlineAssetModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-		service := NewTokenIngestionService(dbConnectionPool, "Test SDF Network ; September 2015", nil, nil, nil, trustlineAssetModel, trustlineBalanceModel, nativeBalanceModel, sacBalanceModel, accountContractTokensModel, contractModel)
+		service := NewTokenIngestionService(TokenIngestionServiceConfig{
+			TrustlineBalanceModel:      trustlineBalanceModel,
+			NativeBalanceModel:         nativeBalanceModel,
+			SACBalanceModel:            sacBalanceModel,
+			AccountContractTokensModel: accountContractTokensModel,
+			NetworkPassphrase:          "Test SDF Network ; September 2015",
+		})
 
 		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 
-		// First insert the contract into contract_tokens using deterministic ID (simulating FetchAndStoreMetadata)
 		numericID := wbdata.DeterministicContractID(contractID)
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
@@ -445,7 +483,6 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		// Verify contract relationship is stored
 		contracts, err := accountContractTokensModel.GetByAccount(ctx, accountAddress)
 		assert.NoError(t, err)
 		require.Len(t, contracts, 1)

@@ -46,6 +46,32 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Error(0)
 }
 
+// TrustlineAssetModelMock is a mock implementation of TrustlineAssetModelInterface.
+type TrustlineAssetModelMock struct {
+	mock.Mock
+}
+
+var _ TrustlineAssetModelInterface = (*TrustlineAssetModelMock)(nil)
+
+// NewTrustlineAssetModelMock creates a new instance of TrustlineAssetModelMock.
+func NewTrustlineAssetModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *TrustlineAssetModelMock {
+	mockModel := &TrustlineAssetModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *TrustlineAssetModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, assets []TrustlineAsset) error {
+	args := m.Called(ctx, dbTx, assets)
+	return args.Error(0)
+}
+
 // TrustlineBalanceModelMock is a mock implementation of TrustlineBalanceModelInterface.
 type TrustlineBalanceModelMock struct {
 	mock.Mock
@@ -202,5 +228,57 @@ func (m *AccountContractTokensModelMock) GetSEP41ByAccount(ctx context.Context, 
 
 func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
 	args := m.Called(ctx, dbTx, contractsByAccount)
+	return args.Error(0)
+}
+
+// ProtocolWasmModelMock is a mock implementation of ProtocolWasmModelInterface.
+type ProtocolWasmModelMock struct {
+	mock.Mock
+}
+
+var _ ProtocolWasmModelInterface = (*ProtocolWasmModelMock)(nil)
+
+// NewProtocolWasmModelMock creates a new instance of ProtocolWasmModelMock.
+func NewProtocolWasmModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolWasmModelMock {
+	mockModel := &ProtocolWasmModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
+	args := m.Called(ctx, dbTx, wasms)
+	return args.Error(0)
+}
+
+// ProtocolContractsModelMock is a mock implementation of ProtocolContractsModelInterface.
+type ProtocolContractsModelMock struct {
+	mock.Mock
+}
+
+var _ ProtocolContractsModelInterface = (*ProtocolContractsModelMock)(nil)
+
+// NewProtocolContractsModelMock creates a new instance of ProtocolContractsModelMock.
+func NewProtocolContractsModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolContractsModelMock {
+	mockModel := &ProtocolContractsModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error {
+	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
 }
