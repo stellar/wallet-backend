@@ -27,7 +27,9 @@ func (c *protocolMigrateCmd) Command() *cobra.Command {
 		Short: "Data migration commands for protocol state",
 		Long:  "Parent command for protocol data migrations. Use subcommands to run specific migration tasks.",
 		Run: func(cmd *cobra.Command, args []string) {
-			_ = cmd.Help()
+			if err := cmd.Help(); err != nil {
+				log.Fatalf("Error calling help command: %s", err.Error())
+			}
 		},
 	}
 
@@ -140,15 +142,15 @@ func (c *protocolMigrateCmd) RunHistory(databaseURL, rpcURL, networkPassphrase s
 	}()
 
 	service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
-		DB:                      dbPool,
-		LedgerBackend:           ledgerBackend,
-		ProtocolsModel:          models.Protocols,
-		ProtocolContractsModel:  models.ProtocolContracts,
-		IngestStore:             models.IngestStore,
-		NetworkPassphrase:       networkPassphrase,
-		Processors:              processors,
-		LatestLedgerCursorName:  latestLedgerCursorName,
-		OldestLedgerCursorName:  oldestLedgerCursorName,
+		DB:                     dbPool,
+		LedgerBackend:          ledgerBackend,
+		ProtocolsModel:         models.Protocols,
+		ProtocolContractsModel: models.ProtocolContracts,
+		IngestStore:            models.IngestStore,
+		NetworkPassphrase:      networkPassphrase,
+		Processors:             processors,
+		LatestLedgerCursorName: latestLedgerCursorName,
+		OldestLedgerCursorName: oldestLedgerCursorName,
 	})
 	if err != nil {
 		return fmt.Errorf("creating protocol migrate history service: %w", err)

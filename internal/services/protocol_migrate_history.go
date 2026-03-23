@@ -36,28 +36,28 @@ type ProtocolMigrateHistoryService interface {
 var _ ProtocolMigrateHistoryService = (*protocolMigrateHistoryService)(nil)
 
 type protocolMigrateHistoryService struct {
-	db                      db.ConnectionPool
-	ledgerBackend           ledgerbackend.LedgerBackend
-	protocolsModel          data.ProtocolsModelInterface
-	protocolContractsModel  data.ProtocolContractsModelInterface
-	ingestStore             *data.IngestStoreModel
-	networkPassphrase       string
-	processors              map[string]ProtocolProcessor
-	latestLedgerCursorName  string
-	oldestLedgerCursorName  string
+	db                     db.ConnectionPool
+	ledgerBackend          ledgerbackend.LedgerBackend
+	protocolsModel         data.ProtocolsModelInterface
+	protocolContractsModel data.ProtocolContractsModelInterface
+	ingestStore            *data.IngestStoreModel
+	networkPassphrase      string
+	processors             map[string]ProtocolProcessor
+	latestLedgerCursorName string
+	oldestLedgerCursorName string
 }
 
 // ProtocolMigrateHistoryConfig holds the configuration for creating a protocolMigrateHistoryService.
 type ProtocolMigrateHistoryConfig struct {
-	DB                      db.ConnectionPool
-	LedgerBackend           ledgerbackend.LedgerBackend
-	ProtocolsModel          data.ProtocolsModelInterface
-	ProtocolContractsModel  data.ProtocolContractsModelInterface
-	IngestStore             *data.IngestStoreModel
-	NetworkPassphrase       string
-	Processors              []ProtocolProcessor
-	LatestLedgerCursorName  string
-	OldestLedgerCursorName  string
+	DB                     db.ConnectionPool
+	LedgerBackend          ledgerbackend.LedgerBackend
+	ProtocolsModel         data.ProtocolsModelInterface
+	ProtocolContractsModel data.ProtocolContractsModelInterface
+	IngestStore            *data.IngestStoreModel
+	NetworkPassphrase      string
+	Processors             []ProtocolProcessor
+	LatestLedgerCursorName string
+	OldestLedgerCursorName string
 }
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
@@ -77,15 +77,15 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 	}
 
 	return &protocolMigrateHistoryService{
-		db:                      cfg.DB,
-		ledgerBackend:           cfg.LedgerBackend,
-		protocolsModel:          cfg.ProtocolsModel,
-		protocolContractsModel:  cfg.ProtocolContractsModel,
-		ingestStore:             cfg.IngestStore,
-		networkPassphrase:       cfg.NetworkPassphrase,
-		processors:              ppMap,
-		latestLedgerCursorName:  latestCursor,
-		oldestLedgerCursorName:  oldestCursor,
+		db:                     cfg.DB,
+		ledgerBackend:          cfg.LedgerBackend,
+		protocolsModel:         cfg.ProtocolsModel,
+		protocolContractsModel: cfg.ProtocolContractsModel,
+		ingestStore:            cfg.IngestStore,
+		networkPassphrase:      cfg.NetworkPassphrase,
+		processors:             ppMap,
+		latestLedgerCursorName: latestCursor,
+		oldestLedgerCursorName: oldestCursor,
 	}, nil
 }
 

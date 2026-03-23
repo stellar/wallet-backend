@@ -164,10 +164,12 @@ type cursorAdvancingProcessor struct {
 
 func (p *cursorAdvancingProcessor) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
 	if input.LedgerSequence == p.advanceAtSeq {
-		_, _ = p.dbPool.ExecContext(ctx,
+		if _, err := p.dbPool.ExecContext(ctx,
 			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
 			strconv.FormatUint(uint64(p.advanceAtSeq+100), 10),
-			protocolHistoryCursorName(p.id))
+			protocolHistoryCursorName(p.id)); err != nil {
+			return fmt.Errorf("advancing cursor for test: %w", err)
+		}
 	}
 	return p.recordingProcessor.ProcessLedger(ctx, input)
 }
