@@ -17,6 +17,8 @@ type Models struct {
 	NativeBalance         NativeBalanceModelInterface
 	SACBalance            SACBalanceModelInterface
 	AccountContractTokens AccountContractTokensModelInterface
+	ProtocolWasm          ProtocolWasmModelInterface
+	ProtocolContracts     ProtocolContractsModelInterface
 	IngestStore           *IngestStoreModel
 	Operations            *OperationModel
 	Transactions          *TransactionModel
@@ -37,6 +39,8 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error
 		NativeBalance:         &NativeBalanceModel{DB: pool, Metrics: dbMetrics},
 		SACBalance:            &SACBalanceModel{DB: pool, Metrics: dbMetrics},
 		AccountContractTokens: &AccountContractTokensModel{DB: pool, Metrics: dbMetrics},
+		ProtocolWasm:          &ProtocolWasmModel{DB: pool, Metrics: dbMetrics},
+		ProtocolContracts:     &ProtocolContractsModel{DB: pool, Metrics: dbMetrics},
 		IngestStore:           &IngestStoreModel{DB: pool, Metrics: dbMetrics},
 		Operations:            &OperationModel{DB: pool, Metrics: dbMetrics},
 		Transactions:          &TransactionModel{DB: pool, Metrics: dbMetrics},

@@ -191,7 +191,29 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
+	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
+		TrustlineBalanceModel:      models.TrustlineBalance,
+		NativeBalanceModel:         models.NativeBalance,
+		SACBalanceModel:            models.SACBalance,
+		AccountContractTokensModel: models.AccountContractTokens,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+	})
+
+	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
+		DB:                         models.DB,
+		Archive:                    archive,
+		ContractValidator:          contractValidator,
+		ContractMetadataService:    contractMetadataService,
+		TrustlineAssetModel:        models.TrustlineAsset,
+		TrustlineBalanceModel:      models.TrustlineBalance,
+		NativeBalanceModel:         models.NativeBalance,
+		SACBalanceModel:            models.SACBalance,
+		AccountContractTokensModel: models.AccountContractTokens,
+		ContractModel:              models.Contract,
+		ProtocolWasmModel:          models.ProtocolWasm,
+		ProtocolContractsModel:     models.ProtocolContracts,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+	})
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
@@ -208,6 +230,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackend:             ledgerBackend,
 		LedgerBackendFactory:      ledgerBackendFactory,
 		TokenIngestionService:     tokenIngestionService,
+		CheckpointService:         checkpointService,
 		ContractMetadataService:   contractMetadataService,
 		Metrics:                   m,
 		GetLedgersLimit:           cfg.GetLedgersLimit,

@@ -51,6 +51,28 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 		}
 
+		// 2.5: Persist protocol wasms and contracts
+		protocolWasms := buffer.GetProtocolWasms()
+		if len(protocolWasms) > 0 {
+			wasmSlice := make([]data.ProtocolWasm, 0, len(protocolWasms))
+			for _, wasm := range protocolWasms {
+				wasmSlice = append(wasmSlice, wasm)
+			}
+			if txErr = m.models.ProtocolWasm.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
+		protocolContracts := buffer.GetProtocolContracts()
+		if len(protocolContracts) > 0 {
+			contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
+			for _, contract := range protocolContracts {
+				contractSlice = append(contractSlice, contract)
+			}
+			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
+			}
+		}
+
 		// 3. Insert transactions/operations/state_changes
 		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
 		if txErr != nil {
@@ -115,11 +137,11 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		err = m.tokenIngestionService.PopulateAccountTokens(ctx, startLedger, func(dbTx pgx.Tx) error {
+		err = m.checkpointService.PopulateFromCheckpoint(ctx, startLedger, func(dbTx pgx.Tx) error {
 			return m.initializeCursors(ctx, dbTx, startLedger)
 		})
 		if err != nil {
-			return fmt.Errorf("populating account tokens and initializing cursors: %w", err)
+			return fmt.Errorf("populating from checkpoint and initializing cursors: %w", err)
 		}
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(startLedger))
 		m.appMetrics.Ingestion.OldestLedger.Set(float64(startLedger))

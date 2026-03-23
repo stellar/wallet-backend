@@ -62,6 +62,7 @@ type IngestServiceConfig struct {
 
 	// === Live Mode Dependencies ===
 	TokenIngestionService   TokenIngestionService
+	CheckpointService       CheckpointService
 	ContractMetadataService ContractMetadataService
 
 	// === Processing Options ===
@@ -103,6 +104,7 @@ type ingestService struct {
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
 	tokenIngestionService     TokenIngestionService
+	checkpointService         CheckpointService
 	contractMetadataService   ContractMetadataService
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
@@ -141,6 +143,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
 		tokenIngestionService:     cfg.TokenIngestionService,
+		checkpointService:         cfg.CheckpointService,
 		contractMetadataService:   cfg.ContractMetadataService,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,

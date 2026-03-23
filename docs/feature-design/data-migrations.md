@@ -95,7 +95,8 @@ Maps protocols to the contracts that make up their systems.
 ```sql
 CREATE TABLE protocol_contracts (
     contract_id TEXT NOT NULL,        -- C... address
-    protocol_id TEXT NOT NULL REFERENCES protocols(id),
+    protocol_id TEXT REFERENCES protocols(id),
+    wasm_hash TEXT NOT NULL REFERENCES protocol_wasms(wasm_hash),
     name TEXT,                        -- "pool", "factory", "token", etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (contract_id, protocol_id)
@@ -243,8 +244,8 @@ This has to happen in 2 stages during the migration process:
             ┌────────┐ ┌──────────┐                      ▼
             │Store   │ │Store     │              ┌──────────────────┐
             │hash in │ │hash in   │              │ Map contract ID  │
-            │known_  │ │known_    │              │ to WASM hash     │
-            │wasms   │ │wasms     │              │ (for later lookup│
+            │protocol│ │protocol  │              │ to WASM hash     │
+            │_wasms  │ │_wasms    │              │ (for later lookup│
             │with    │ │with NULL │              │ in protocol_wasms)  │
             │protocol│ │protocol  │              └──────────────────┘
             └────────┘ └──────────┘
@@ -306,8 +307,8 @@ During live ingestion, classification happens in two parts: (1) new WASM uploads
          ▼         ▼                    ▼                       ▼
    ┌──────────┐ ┌──────────┐    ┌──────────────┐     ┌──────────────────┐
    │Store in  │ │Store in  │    │ Map contract │     │ Fetch WASM via   │
-   │known_    │ │known_    │    │ to protocol  │     │ RPC, validate,   │
-   │wasms with│ │wasms with│    │ from cached  │     │ then map contract│
+   │protocol  │ │protocol  │    │ to protocol  │     │ RPC, validate,   │
+   │_wasms w/ │ │_wasms w/ │    │ from cached  │     │ then map contract│
    │protocol  │ │NULL      │    │ classification     │ (rare edge case) │
    └──────────┘ └──────────┘    └──────────────┘     └──────────────────┘
                                         │                       │
@@ -580,19 +581,15 @@ Backfill migrations rely on checkpoint population being complete before they can
 
 ### What It Does
 
-1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table with `classification_status = not_started`
-2. **Sets `classification_status`** to `in_progress` for specified protocols
-3. **Reads the latest checkpoint** from the history archive
-4. **Extracts all WASM code** from contract entries in the checkpoint
-5. **Queries existing unclassified entries** from `protocol_wasms WHERE protocol_id IS NULL`
-6. **Validates each WASM** against all specified protocols' validators
-7. **Populates tables**:
+1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table with status `not_started`
+2. **Sets status** to `classification_in_progress` for specified protocols
+3. **Queries existing unclassified entries** from `protocol_wasms WHERE protocol_id IS NULL`
+4. **Gets bytecode** from all unknown contracts using RPC
+5. **Validates each WASM** against all specified protocols' validators
+6. **Populates tables**:
    - `protocol_wasms`: Maps WASM hashes to protocol IDs
    - `protocol_contracts`: Maps contract IDs to protocols
-8. **Initializes cursors**:
-   - `protocol_{ID}_history_cursor` = `oldest_ledger_cursor - 1`
-   - `protocol_{ID}_current_state_cursor` = 0
-9. **Updates `classification_status`** to `success` for all processed protocols
+7. **Updates status** to `classification_success` for all processed protocols
 
 ### Protocol Migration Files
 
