@@ -257,37 +257,6 @@ func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	return args.Get(0).([]historyarchive.ArchiveStats)
 }
 
-// ContractValidatorMock is a mock implementation of the ContractValidator interface
-type ContractValidatorMock struct {
-	mock.Mock
-}
-
-var _ ContractValidator = (*ContractValidatorMock)(nil)
-
-func (m *ContractValidatorMock) ValidateFromContractCode(ctx context.Context, wasmCode []byte) (types.ContractType, error) {
-	args := m.Called(ctx, wasmCode)
-	return args.Get(0).(types.ContractType), args.Error(1)
-}
-
-func (m *ContractValidatorMock) Close(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-// NewContractValidatorMock creates a new instance of ContractValidatorMock.
-func NewContractValidatorMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ContractValidatorMock {
-	mock := &ContractValidatorMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
 // ChangeReaderMock is a mock implementation of the ChangeReader interface
 type ChangeReaderMock struct {
 	mock.Mock

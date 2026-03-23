@@ -53,7 +53,7 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 type CheckpointServiceConfig struct {
 	DB                         db.ConnectionPool
 	Archive                    historyarchive.ArchiveInterface
-	ContractValidator          ContractValidator
+	SpecExtractor              WasmSpecExtractor
 	ContractMetadataService    ContractMetadataService
 	TrustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	TrustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
@@ -69,7 +69,7 @@ type CheckpointServiceConfig struct {
 type checkpointService struct {
 	db                         db.ConnectionPool
 	archive                    historyarchive.ArchiveInterface
-	contractValidator          ContractValidator
+	specExtractor              WasmSpecExtractor
 	contractMetadataService    ContractMetadataService
 	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
 	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
@@ -88,7 +88,7 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 	return &checkpointService{
 		db:                         cfg.DB,
 		archive:                    cfg.Archive,
-		contractValidator:          cfg.ContractValidator,
+		specExtractor:              cfg.SpecExtractor,
 		contractMetadataService:    cfg.ContractMetadataService,
 		trustlineAssetModel:        cfg.TrustlineAssetModel,
 		trustlineBalanceModel:      cfg.TrustlineBalanceModel,
@@ -202,7 +202,7 @@ func (b *batch) reset() {
 // checkpointProcessor holds per-invocation state for processing a checkpoint.
 type checkpointProcessor struct {
 	service                                           *checkpointService
-	contractValidator                                 ContractValidator
+	specExtractor                                     WasmSpecExtractor
 	dbTx                                              pgx.Tx
 	checkpointLedger                                  uint32
 	data                                              checkpointData
@@ -222,7 +222,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 	}
 
 	defer func() {
-		if err := s.contractValidator.Close(ctx); err != nil {
+		if err := s.specExtractor.Close(ctx); err != nil {
 			log.Ctx(ctx).Errorf("error closing contract spec validator: %v", err)
 		}
 	}()
@@ -245,15 +245,15 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		}
 
 		proc := &checkpointProcessor{
-			service:                     s,
-			contractValidator:           s.contractValidator,
-			dbTx:                        dbTx,
-			checkpointLedger:            checkpointLedger,
-			data:                        newCheckpointData(),
-			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
-			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
-			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
-			startTime:                   time.Now(),
+			service:                       s,
+			specExtractor:                 s.specExtractor,
+			dbTx:                          dbTx,
+			checkpointLedger:              checkpointLedger,
+			data:                          newCheckpointData(),
+			batch:                         newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
+			wasmHashes:                    make(map[xdr.Hash]struct{}),
+			protocolContractIDsByWasmHash: make(map[xdr.Hash][]types.HashBytea),
+			startTime:                     time.Now(),
 		}
 
 		for {
@@ -398,12 +398,19 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 
 // processContractCode validates WASM code and classifies the contract type.
 func (p *checkpointProcessor) processContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) {
-	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
+	// Track hash for protocol_wasms persistence
+	p.wasmHashes[wasmHash] = struct{}{}
+
+	// Extract spec and validate against SEP-41
+	specs, err := p.specExtractor.ExtractSpec(ctx, wasmCode)
 	if err != nil {
-		p.wasmClassifications[wasmHash] = types.ContractTypeUnknown
 		return
 	}
-	p.wasmClassifications[wasmHash] = contractType
+	contractType := types.ContractTypeUnknown
+	if isContractCodeSEP41(specs) {
+		contractType = types.ContractTypeSEP41
+	}
+	p.data.contractTypesByWasmHash[wasmHash] = contractType
 	p.entries++
 }
 

@@ -1,20 +1,8 @@
 package services
 
 import (
-	"bytes"
-	"context"
-	"fmt"
-
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
-	"github.com/tetratelabs/wazero"
-
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-)
-
-const (
-	contractSpecV0SectionName = "contractspecv0"
 )
 
 // Map of XDR ScSpecType to human-readable type names
@@ -134,47 +122,15 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 }
 
-type ContractValidator interface {
-	ValidateFromContractCode(_ context.Context, _ []byte) (types.ContractType, error)
-	Close(_ context.Context) error
-}
+// SEP41ProtocolValidator validates whether a WASM implements the SEP-41 token standard.
+type SEP41ProtocolValidator struct{}
 
-type contractValidator struct {
-	runtime wazero.Runtime
-}
+func NewSEP41ProtocolValidator() *SEP41ProtocolValidator { return &SEP41ProtocolValidator{} }
 
-// NewContractValidator creates a new ContractValidator with a configured wazero runtime.
-// The runtime is initialized with custom sections enabled to extract contract specifications from WASM bytecode.
-func NewContractValidator() ContractValidator {
-	// Create wazero runtime with custom sections enabled
-	config := wazero.NewRuntimeConfig().WithCustomSections(true)
-	runtime := wazero.NewRuntimeWithConfig(context.Background(), config)
+func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
 
-	return &contractValidator{
-		runtime: runtime,
-	}
-}
-
-// ValidateFromContractCode validates a contract code against the SEP-41 token standard.
-func (v *contractValidator) ValidateFromContractCode(ctx context.Context, contractCode []byte) (types.ContractType, error) {
-	contractSpec, err := v.extractContractSpecFromWasmCode(ctx, contractCode)
-	if err != nil {
-		return types.ContractTypeUnknown, fmt.Errorf("extracting contract spec from WASM: %w", err)
-	}
-	isSep41 := isContractCodeSEP41(contractSpec)
-	if isSep41 {
-		return types.ContractTypeSEP41, nil
-	}
-	return types.ContractTypeUnknown, nil
-}
-
-// Close shuts down the wazero runtime and releases associated resources.
-// Should be called when the validator is no longer needed to prevent resource leaks.
-func (v *contractValidator) Close(ctx context.Context) error {
-	if err := v.runtime.Close(ctx); err != nil {
-		return fmt.Errorf("closing contract spec validator: %w", err)
-	}
-	return nil
+func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
+	return isContractCodeSEP41(specEntries)
 }
 
 // isContractCodeSEP41 validates whether a contract spec implements the SEP-41 token standard.
@@ -264,64 +220,6 @@ func validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[str
 		return false
 	}
 	return true
-}
-
-// extractContractSpecFromWasmCode parses the contract specification from WASM bytecode.
-// It compiles the WASM module, extracts the "contractspecv0" custom section, and unmarshals
-// the XDR-encoded contract specification entries.
-func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context, wasmCode []byte) ([]xdr.ScSpecEntry, error) {
-	// Compile WASM module (validates structure and won't panic)
-	compiledModule, err := v.runtime.CompileModule(ctx, wasmCode)
-	if err != nil {
-		return nil, fmt.Errorf("compiling WASM module: %w", err)
-	}
-	defer func() {
-		if closeErr := compiledModule.Close(ctx); closeErr != nil {
-			log.Warnf("Failed to close compiled module: %v", closeErr)
-		}
-	}()
-
-	// Extract all custom sections
-	customSections := compiledModule.CustomSections()
-
-	// Find contractspecv0 section
-	var specBytes []byte
-	for _, section := range customSections {
-		if section.Name() == contractSpecV0SectionName {
-			specBytes = section.Data()
-			break
-		}
-	}
-
-	if specBytes == nil {
-		return nil, fmt.Errorf("contractspecv0 section not found")
-	}
-
-	// Parse XDR stream of ScSpecEntry
-	var specs []xdr.ScSpecEntry
-	reader := bytes.NewReader(specBytes)
-
-	for reader.Len() > 0 {
-		var spec xdr.ScSpecEntry
-		_, err := xdr.Unmarshal(reader, &spec)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshaling spec entry: %w", err)
-		}
-		specs = append(specs, spec)
-	}
-
-	return specs, nil
-}
-
-// SEP41ProtocolValidator validates whether a WASM implements the SEP-41 token standard.
-type SEP41ProtocolValidator struct{}
-
-func NewSEP41ProtocolValidator() *SEP41ProtocolValidator { return &SEP41ProtocolValidator{} }
-
-func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
-
-func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
-	return isContractCodeSEP41(specEntries)
 }
 
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.

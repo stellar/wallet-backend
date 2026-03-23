@@ -172,7 +172,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	contractValidator := services.NewContractValidator()
+	specExtractor := services.NewWasmSpecExtractor()
 
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
@@ -207,7 +207,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
 		DB:                         models.DB,
 		Archive:                    archive,
-		ContractValidator:          contractValidator,
+		SpecExtractor:              specExtractor,
 		ContractMetadataService:    contractMetadataService,
 		TrustlineAssetModel:        models.TrustlineAsset,
 		TrustlineBalanceModel:      models.TrustlineBalance,

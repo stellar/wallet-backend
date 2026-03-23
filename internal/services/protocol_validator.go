@@ -10,6 +10,8 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
+const contractSpecV0SectionName = "contractspecv0"
+
 // ProtocolValidator is the contract between protocol-setup and individual protocol validators.
 // Each validator knows how to identify whether a WASM contract implements a specific protocol.
 type ProtocolValidator interface {

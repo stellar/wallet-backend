@@ -81,13 +81,9 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	// Build validators from protocol IDs using the dynamic registry
 	var validators []services.ProtocolValidator
 	for _, pid := range protocolIDs {
-		factory, ok := services.GetValidator(pid)
+		v, ok := services.GetValidator(pid)
 		if !ok {
 			return fmt.Errorf("unknown protocol ID %q — no validator registered", pid)
-		}
-		v := factory()
-		if v == nil {
-			return fmt.Errorf("validator factory for protocol %q returned nil", pid)
 		}
 		validators = append(validators, v)
 	}

@@ -14,7 +14,7 @@ func withCleanRegistry(t *testing.T) {
 	registryMu.RLock()
 	original := validatorRegistry
 	registryMu.RUnlock()
-	resetRegistry(map[string]func() ProtocolValidator{})
+	resetRegistry(map[string]ProtocolValidator{})
 	t.Cleanup(func() { resetRegistry(original) })
 }
 
@@ -22,38 +22,35 @@ func TestRegisterValidator(t *testing.T) {
 	t.Run("register and retrieve", func(t *testing.T) {
 		withCleanRegistry(t)
 
-		called := false
-		RegisterValidator("TEST", func() ProtocolValidator {
-			called = true
-			return nil
-		})
+		mock := NewProtocolValidatorMock(t)
+		mock.On("ProtocolID").Return("TEST")
+		RegisterValidator("TEST", mock)
 
-		factory, ok := GetValidator("TEST")
+		v, ok := GetValidator("TEST")
 		require.True(t, ok)
-		factory()
-		assert.True(t, called)
+		assert.Equal(t, "TEST", v.ProtocolID())
 	})
 
 	t.Run("unknown protocol returns false", func(t *testing.T) {
 		withCleanRegistry(t)
 
-		factory, ok := GetValidator("NONEXISTENT")
+		v, ok := GetValidator("NONEXISTENT")
 		assert.False(t, ok)
-		assert.Nil(t, factory)
+		assert.Nil(t, v)
 	})
 
-	t.Run("re-register overwrites previous factory", func(t *testing.T) {
+	t.Run("re-register overwrites previous instance", func(t *testing.T) {
 		withCleanRegistry(t)
 
-		RegisterValidator("DUP", func() ProtocolValidator { return nil })
+		first := NewProtocolValidatorMock(t)
+		RegisterValidator("DUP", first)
 
-		mock := NewProtocolValidatorMock(t)
-		mock.On("ProtocolID").Return("DUP")
-		RegisterValidator("DUP", func() ProtocolValidator { return mock })
+		second := NewProtocolValidatorMock(t)
+		second.On("ProtocolID").Return("DUP")
+		RegisterValidator("DUP", second)
 
-		factory, ok := GetValidator("DUP")
+		v, ok := GetValidator("DUP")
 		require.True(t, ok)
-		v := factory()
 		assert.Equal(t, "DUP", v.ProtocolID())
 	})
 
@@ -68,7 +65,8 @@ func TestRegisterValidator(t *testing.T) {
 			id := fmt.Sprintf("PROTO_%d", i)
 			go func() {
 				defer wg.Done()
-				RegisterValidator(id, func() ProtocolValidator { return nil })
+				mock := NewProtocolValidatorMock(t)
+				RegisterValidator(id, mock)
 			}()
 			go func() {
 				defer wg.Done()
