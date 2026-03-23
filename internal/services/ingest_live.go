@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -53,13 +54,13 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 
 	eligible := make(map[string]ProtocolProcessor, len(m.protocolProcessors))
 	for protocolID, processor := range m.protocolProcessors {
-		historyCursor := protocolHistoryCursorName(protocolID)
+		historyCursor := utils.ProtocolHistoryCursorName(protocolID)
 		historyVal, err := m.models.IngestStore.Get(ctx, historyCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading history cursor for %s: %w", protocolID, err)
 		}
 
-		currentStateCursor := protocolCurrentStateCursorName(protocolID)
+		currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
 		currentStateVal, err := m.models.IngestStore.Get(ctx, currentStateCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading current state cursor for %s: %w", protocolID, err)
@@ -150,8 +151,8 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 					// No previous ledger to form an expected cursor value; skip CAS for this ledger.
 					continue
 				}
-				historyCursor := protocolHistoryCursorName(protocolID)
-				currentStateCursor := protocolCurrentStateCursorName(protocolID)
+				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
+				currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
 
 				expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 				next := strconv.FormatUint(uint64(ledgerSeq), 10)
@@ -287,7 +288,15 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		ledgerMeta, ledgerErr := getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return m.ledgerBackend.GetLedger(ctx, currentLedger)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					currentLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+		)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
@@ -309,8 +318,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// Run protocol state production (in-memory analysis before DB transaction) only
 		// for processors that may actually persist this ledger.
-		if err := m.produceProtocolStateForProcessors(ctx, ledgerMeta, currentLedger, eligibleProcessors); err != nil {
-			return fmt.Errorf("producing protocol state for ledger %d: %w", currentLedger, err)
+		if produceErr := m.produceProtocolStateForProcessors(ctx, ledgerMeta, currentLedger, eligibleProcessors); produceErr != nil {
+			return fmt.Errorf("producing protocol state for ledger %d: %w", currentLedger, produceErr)
 		}
 
 		// All DB operations in a single atomic transaction with retry

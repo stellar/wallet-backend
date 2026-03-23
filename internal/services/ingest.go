@@ -22,6 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -130,6 +131,12 @@ type ingestService struct {
 	eligibleProtocolProcessors map[string]ProtocolProcessor
 }
 
+// SetEligibleProtocolProcessorsForTest sets the eligible protocol processors for testing.
+// In production, this is set by ingestLiveLedgers before each PersistLedgerData call.
+func (m *ingestService) SetEligibleProtocolProcessorsForTest(processors map[string]ProtocolProcessor) {
+	m.eligibleProtocolProcessors = processors
+}
+
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
@@ -145,9 +152,16 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	// Build protocol processor map from slice
-	ppMap, err := buildProtocolProcessorMap(cfg.ProtocolProcessors)
+	for i, p := range cfg.ProtocolProcessors {
+		if p == nil {
+			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
+		}
+	}
+	ppMap, err := utils.BuildMap(cfg.ProtocolProcessors, func(p ProtocolProcessor) string {
+		return p.ProtocolID()
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
 	var ppCache *protocolContractCache

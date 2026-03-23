@@ -27,6 +27,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var (
@@ -391,7 +392,7 @@ func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
 		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `duplicate protocol processor ID "dup-id"`)
+		assert.Contains(t, err.Error(), `duplicate key "dup-id"`)
 	})
 }
 
@@ -674,87 +675,6 @@ func Test_analyzeBatchResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			numFailed := analyzeBatchResults(ctx, tc.results)
 			assert.Equal(t, tc.wantFailures, numFailed)
-		})
-	}
-}
-
-func Test_getLedgerWithRetry(t *testing.T) {
-	ctx := context.Background()
-
-	testCases := []struct {
-		name            string
-		setupBackend    func(*LedgerBackendMock)
-		ctxFunc         func() (context.Context, context.CancelFunc)
-		wantErr         bool
-		wantErrContains string
-	}{
-		{
-			name: "success_on_first_try",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "success_after_retries",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				// Fail twice, then succeed
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("temporary error")).Twice()
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "context_cancelled_immediately",
-			setupBackend: func(lb *LedgerBackendMock) {
-				// May or may not be called depending on timing
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("error")).Maybe()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				cancelledCtx, cancel := context.WithCancel(ctx)
-				cancel() // Cancel immediately
-				return cancelledCtx, cancel
-			},
-			wantErr:         true,
-			wantErrContains: "context cancelled",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mockLedgerBackend := &LedgerBackendMock{}
-			tc.setupBackend(mockLedgerBackend)
-			defer mockLedgerBackend.AssertExpectations(t)
-
-			testCtx, cancel := tc.ctxFunc()
-			defer cancel()
-
-			ledger, err := getLedgerWithRetry(testCtx, mockLedgerBackend, 100)
-			if tc.wantErr {
-				require.Error(t, err)
-				if tc.wantErrContains != "" {
-					assert.Contains(t, err.Error(), tc.wantErrContains)
-				}
-			} else {
-				require.NoError(t, err)
-
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				assert.Equal(t, meta, ledger)
-			}
 		})
 	}
 }
@@ -2807,11 +2727,11 @@ func setupProtocolCursors(t *testing.T, ctx context.Context, pool db.ConnectionP
 	t.Helper()
 	_, err := pool.ExecContext(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		protocolHistoryCursorName(protocolID), historyCursor)
+		utils.ProtocolHistoryCursorName(protocolID), historyCursor)
 	require.NoError(t, err)
 	_, err = pool.ExecContext(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		protocolCurrentStateCursorName(protocolID), currentStateCursor)
+		utils.ProtocolCurrentStateCursorName(protocolID), currentStateCursor)
 	require.NoError(t, err)
 }
 

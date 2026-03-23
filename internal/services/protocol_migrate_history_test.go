@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // multiLedgerBackend is a test double that serves ledger meta for a range of ledgers.
@@ -167,7 +168,7 @@ func (p *cursorAdvancingProcessor) ProcessLedger(ctx context.Context, input Prot
 		if _, err := p.dbPool.ExecContext(ctx,
 			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
 			strconv.FormatUint(uint64(p.advanceAtSeq+100), 10),
-			protocolHistoryCursorName(p.id)); err != nil {
+			utils.ProtocolHistoryCursorName(p.id)); err != nil {
 			return fmt.Errorf("advancing cursor for test: %w", err)
 		}
 	}

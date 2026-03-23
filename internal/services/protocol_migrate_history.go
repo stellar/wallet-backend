@@ -9,9 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -62,9 +64,16 @@ type ProtocolMigrateHistoryConfig struct {
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
 func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protocolMigrateHistoryService, error) {
-	ppMap, err := buildProtocolProcessorMap(cfg.Processors)
+	for i, p := range cfg.Processors {
+		if p == nil {
+			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
+		}
+	}
+	ppMap, err := utils.BuildMap(cfg.Processors, func(p ProtocolProcessor) string {
+		return p.ProtocolID()
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
 	latestCursor := cfg.LatestLedgerCursorName
@@ -102,10 +111,10 @@ func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []s
 		return nil
 	}
 
-	if err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+	if txErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		return s.protocolsModel.UpdateHistoryMigrationStatus(ctx, dbTx, activeProtocolIDs, data.StatusInProgress)
-	}); err != nil {
-		return fmt.Errorf("setting history migration status to in_progress: %w", err)
+	}); txErr != nil {
+		return fmt.Errorf("setting history migration status to in_progress: %w", txErr)
 	}
 
 	// Phase 2: Process each protocol
@@ -137,10 +146,10 @@ func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []s
 	}
 
 	// Phase 3: Set status to success
-	if err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+	if txErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		return s.protocolsModel.UpdateHistoryMigrationStatus(ctx, dbTx, activeProtocolIDs, data.StatusSuccess)
-	}); err != nil {
-		return fmt.Errorf("setting history migration status to success: %w", err)
+	}); txErr != nil {
+		return fmt.Errorf("setting history migration status to success: %w", txErr)
 	}
 
 	log.Ctx(ctx).Infof("History migration completed successfully for protocols: %v", activeProtocolIDs)
@@ -221,7 +230,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 	// Initialize trackers: read/initialize cursor for each protocol
 	trackers := make([]*protocolTracker, 0, len(protocolIDs))
 	for _, pid := range protocolIDs {
-		cursorName := protocolHistoryCursorName(pid)
+		cursorName := utils.ProtocolHistoryCursorName(pid)
 		cursorValue, readErr := s.ingestStore.Get(ctx, cursorName)
 		if readErr != nil {
 			return nil, fmt.Errorf("reading history cursor for %s: %w", pid, readErr)
@@ -311,7 +320,15 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			}
 
 			// Fetch ledger ONCE for all protocols
-			ledgerMeta, fetchErr := getLedgerWithRetry(ctx, s.ledgerBackend, seq)
+			ledgerMeta, fetchErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+				func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+					return s.ledgerBackend.GetLedger(ctx, seq)
+				},
+				func(attempt int, err error, backoff time.Duration) {
+					log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+						seq, attempt+1, maxLedgerFetchRetries, err, backoff)
+				},
+			)
 			if fetchErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 			}
