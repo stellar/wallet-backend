@@ -1,7 +1,7 @@
 -- +migrate Up
 CREATE TABLE protocol_wasms (
     wasm_hash BYTEA PRIMARY KEY,
-    protocol_id TEXT,
+    protocol_id TEXT REFERENCES protocols(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
