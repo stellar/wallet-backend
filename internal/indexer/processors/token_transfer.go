@@ -20,12 +20,12 @@ import (
 
 var ErrOperationNotFound = errors.New("operation not found")
 
-// getContractType determines if a token is a Stellar Asset Contract (SAC) or a custom token
+// getContractType determines if a token is a Stellar Asset Contract (SAC), native, or unknown
 // by comparing the contract address with the deterministically derived SAC contract ID from the asset.
-// Returns ContractTypeNative if the asset is native, ContractTypeSAC if verified SAC, ContractTypeSEP41 otherwise.
+// Returns ContractTypeNative if the asset is native, ContractTypeSAC if verified SAC, ContractTypeUnknown otherwise.
 func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAddress string) types.ContractType {
 	if asset == nil {
-		return types.ContractTypeSEP41
+		return types.ContractTypeUnknown
 	}
 
 	if asset.GetNative() {
@@ -38,7 +38,7 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 	// Compute the SAC contract ID for this asset
 	sacContractID, err := xdrAsset.ContractID(p.networkPassphrase)
 	if err != nil {
-		return types.ContractTypeSEP41
+		return types.ContractTypeUnknown
 	}
 
 	// Encode as Stellar contract address (C...)
@@ -48,7 +48,7 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 	if sacContractIDStr == contractAddress {
 		return types.ContractTypeSAC
 	}
-	return types.ContractTypeSEP41
+	return types.ContractTypeUnknown
 }
 
 // TokenTransferProcessor processes Stellar transactions and extracts token transfer events.

@@ -68,7 +68,6 @@ type IndexerBuffer struct {
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
-	uniqueSEP41ContractTokensByID  map[string]types.ContractType     // contractID → type (SEP-41 only)
 	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms
 	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
@@ -88,7 +87,6 @@ func NewIndexerBuffer() *IndexerBuffer {
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
-		uniqueSEP41ContractTokensByID:  make(map[string]types.ContractType),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
@@ -220,24 +218,13 @@ func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.Trust
 	return b.trustlineChangesByTrustlineKey
 }
 
-// PushContractChange adds a contract change to the buffer and tracks unique SEP-41 contracts.
+// PushContractChange adds a contract change to the buffer.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.contractChanges = append(b.contractChanges, contractChange)
-
-	// Only track SEP-41 contracts for DB insertion
-	if contractChange.ContractType != types.ContractTypeSEP41 {
-		return
-	}
-	if contractChange.ContractID == "" {
-		return
-	}
-	if _, exists := b.uniqueSEP41ContractTokensByID[contractChange.ContractID]; !exists {
-		b.uniqueSEP41ContractTokensByID[contractChange.ContractID] = contractChange.ContractType
-	}
 }
 
 // GetContractChanges returns all contract changes stored in the buffer.
@@ -511,9 +498,6 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge unique trustline assets
 	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
 
-	// Merge unique contracts
-	maps.Copy(b.uniqueSEP41ContractTokensByID, otherBuffer.uniqueSEP41ContractTokensByID)
-
 	// Merge SAC contracts (first-write wins for deduplication)
 	for id, contract := range otherBuffer.sacContractsByID {
 		if _, exists := b.sacContractsByID[id]; !exists {
@@ -545,7 +529,6 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.opByID)
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
-	clear(b.uniqueSEP41ContractTokensByID)
 	clear(b.trustlineChangesByTrustlineKey)
 	clear(b.sacContractsByID)
 	clear(b.protocolWasmsByHash)
@@ -571,15 +554,6 @@ func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
 		assets = append(assets, asset)
 	}
 	return assets
-}
-
-// GetUniqueSEP41ContractTokensByID returns a map of unique SEP-41 contract IDs to their types.
-// Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return maps.Clone(b.uniqueSEP41ContractTokensByID)
 }
 
 // PushSACContract adds a SAC contract with extracted metadata to the buffer.

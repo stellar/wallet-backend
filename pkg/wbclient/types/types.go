@@ -87,7 +87,6 @@ const (
 	TokenTypeNative  TokenType = "NATIVE"
 	TokenTypeClassic TokenType = "CLASSIC"
 	TokenTypeSAC     TokenType = "SAC"
-	TokenTypeSEP41   TokenType = "SEP41"
 )
 
 // Balance is an interface representing different types of account balances
@@ -151,21 +150,6 @@ func (b *SACBalance) GetBalance() string      { return b.BalanceValue }
 func (b *SACBalance) GetTokenID() string      { return b.TokenID }
 func (b *SACBalance) GetTokenType() TokenType { return b.TokenType }
 func (b *SACBalance) isBalance()              {}
-
-// SEP41Balance represents a SEP-41 token balance
-type SEP41Balance struct {
-	BalanceValue string    `json:"balance"`
-	TokenID      string    `json:"tokenId"`
-	TokenType    TokenType `json:"tokenType"`
-	Name         string    `json:"name"`
-	Symbol       string    `json:"symbol"`
-	Decimals     int32     `json:"decimals"`
-}
-
-func (b *SEP41Balance) GetBalance() string      { return b.BalanceValue }
-func (b *SEP41Balance) GetTokenID() string      { return b.TokenID }
-func (b *SEP41Balance) GetTokenType() TokenType { return b.TokenType }
-func (b *SEP41Balance) isBalance()              {}
 
 // AccountBalances represents balances for a single account in multi-account queries
 type AccountBalances struct {
@@ -235,12 +219,6 @@ func UnmarshalBalance(data []byte) (Balance, error) {
 		var balance SACBalance
 		if err := json.Unmarshal(data, &balance); err != nil {
 			return nil, fmt.Errorf("unmarshaling SAC balance: %w", err)
-		}
-		return &balance, nil
-	case "SEP41Balance":
-		var balance SEP41Balance
-		if err := json.Unmarshal(data, &balance); err != nil {
-			return nil, fmt.Errorf("unmarshaling SEP41 balance: %w", err)
 		}
 		return &balance, nil
 	default:

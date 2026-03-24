@@ -43,16 +43,6 @@ type SACBalance implements Balance {
     isClawbackEnabled: Boolean!
 }
 
-type SEP41Balance implements Balance {
-    balance: String!
-    tokenId: String!
-    tokenType: TokenType!
-
-    name: String!
-    symbol: String!
-    decimals: Int!
-}
-
 """AccountBalances represents balances for a single account in multi-account queries"""
 type AccountBalances {
     "The Stellar account or contract address"

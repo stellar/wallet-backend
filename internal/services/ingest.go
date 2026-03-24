@@ -62,10 +62,9 @@ type IngestServiceConfig struct {
 	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
-	ChannelAccountStore     store.ChannelAccountStore
-	TokenIngestionService   TokenIngestionService
-	CheckpointService       CheckpointService
-	ContractMetadataService ContractMetadataService
+	ChannelAccountStore   store.ChannelAccountStore
+	TokenIngestionService TokenIngestionService
+	CheckpointService     CheckpointService
 
 	// === Processing Options ===
 	GetLedgersLimit int
@@ -110,7 +109,6 @@ type ingestService struct {
 	chAccStore                store.ChannelAccountStore
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
-	contractMetadataService   ContractMetadataService
 	metricsService            metrics.MetricsService
 	networkPassphrase         string
 	getLedgersLimit           int
@@ -150,7 +148,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		chAccStore:                cfg.ChannelAccountStore,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
-		contractMetadataService:   cfg.ContractMetadataService,
 		metricsService:            cfg.MetricsService,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,

@@ -39,8 +39,8 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			}
 		}
 
-		// 2. Insert new contract tokens (filter existing, fetch metadata for SEP-41 if available, insert)
-		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
+		// 2. Insert new SAC contract tokens (filter existing, insert)
+		contracts, txErr := m.prepareNewSACContracts(ctx, dbTx, buffer.GetSACContracts())
 		if txErr != nil {
 			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
 		}
@@ -48,7 +48,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
 				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
+			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
 		// 2.5: Persist protocol wasms and contracts
@@ -84,10 +84,9 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		// 5. Process token changes (trustline add/remove/update, contract token add, native balance, SAC balance)
+		// 5. Process token changes (trustline add/remove/update, native balance, SAC balance)
 		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
 			buffer.GetTrustlineChanges(),
-			buffer.GetContractChanges(),
 			buffer.GetAccountChanges(),
 			buffer.GetSACBalanceChanges(),
 		); txErr != nil {
@@ -286,19 +285,15 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, 
 	return nil
 }
 
-// prepareNewContractTokens filters out existing contracts and prepares metadata for new contracts.
+// prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.
 // SAC contracts get their metadata from ledger data (sacContracts parameter).
-// SEP-41 contracts need RPC metadata fetch.
-func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.Tx, sep41ContractTokensByID map[string]types.ContractType, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
-	if len(sep41ContractTokensByID) == 0 && len(sacContracts) == 0 {
+func (m *ingestService) prepareNewSACContracts(ctx context.Context, dbTx pgx.Tx, sacContracts map[string]*data.Contract) ([]*data.Contract, error) {
+	if len(sacContracts) == 0 {
 		return nil, nil
 	}
 
 	// Build list of contract IDs to check
-	contractAddresses := make([]string, 0, len(sep41ContractTokensByID))
-	for address := range sep41ContractTokensByID {
-		contractAddresses = append(contractAddresses, address)
-	}
+	contractAddresses := make([]string, 0, len(sacContracts))
 	for address := range sacContracts {
 		contractAddresses = append(contractAddresses, address)
 	}
@@ -310,30 +305,13 @@ func (m *ingestService) prepareNewContractTokens(ctx context.Context, dbTx pgx.T
 	}
 	existingSet := set.NewSet(existingAddresses...)
 
-	// Collect new contract tokens
+	// Collect new SAC contracts
 	var contracts []*data.Contract
 	for address := range sacContracts {
 		if existingSet.Contains(address) {
 			continue
 		}
 		contracts = append(contracts, sacContracts[address])
-	}
-
-	var newSep41ContractAddresses []string
-	for address := range sep41ContractTokensByID {
-		if existingSet.Contains(address) {
-			continue
-		}
-		newSep41ContractAddresses = append(newSep41ContractAddresses, address)
-	}
-
-	// Fetch metadata for new SEP-41 contracts via RPC (skip if no metadata service)
-	if len(newSep41ContractAddresses) > 0 && m.contractMetadataService != nil {
-		sep41Contracts, fetchErr := m.contractMetadataService.FetchSep41Metadata(ctx, newSep41ContractAddresses)
-		if fetchErr != nil {
-			return nil, fmt.Errorf("fetching metadata for new SEP-41 contracts: %w", fetchErr)
-		}
-		contracts = append(contracts, sep41Contracts...)
 	}
 
 	return contracts, nil

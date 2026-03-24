@@ -5,7 +5,6 @@ package data
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
@@ -186,40 +185,6 @@ func (m *SACBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upse
 
 func (m *SACBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error {
 	args := m.Called(ctx, dbTx, balances)
-	return args.Error(0)
-}
-
-// AccountContractTokensModelMock is a mock implementation of AccountContractTokensModelInterface.
-type AccountContractTokensModelMock struct {
-	mock.Mock
-}
-
-var _ AccountContractTokensModelInterface = (*AccountContractTokensModelMock)(nil)
-
-// NewAccountContractTokensModelMock creates a new instance of AccountContractTokensModelMock.
-func NewAccountContractTokensModelMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *AccountContractTokensModelMock {
-	mockModel := &AccountContractTokensModelMock{}
-	mockModel.Mock.Test(t)
-
-	t.Cleanup(func() { mockModel.AssertExpectations(t) })
-
-	return mockModel
-}
-
-func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error) {
-	args := m.Called(ctx, accountAddress)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*Contract), args.Error(1)
-}
-
-func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
-	args := m.Called(ctx, dbTx, contractsByAccount)
 	return args.Error(0)
 }
 

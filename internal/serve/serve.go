@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -77,15 +76,13 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	FeeBumpService             services.FeeBumpService
-	MetricsService             metrics.MetricsService
-	TransactionService         services.TransactionService
-	RPCService                 services.RPCService
-	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
-	NativeBalanceModel         data.NativeBalanceModelInterface
-	SACBalanceModel            data.SACBalanceModelInterface
-	AccountContractTokensModel data.AccountContractTokensModelInterface
-	ContractMetadataService    services.ContractMetadataService
+	FeeBumpService        services.FeeBumpService
+	MetricsService        metrics.MetricsService
+	TransactionService    services.TransactionService
+	RPCService            services.RPCService
+	TrustlineBalanceModel data.TrustlineBalanceModelInterface
+	NativeBalanceModel    data.NativeBalanceModelInterface
+	SACBalanceModel       data.SACBalanceModelInterface
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -156,13 +153,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	// AccountTokens model used directly for reading trustlines and contracts
-
-	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
-	}
-
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
@@ -201,8 +191,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		TrustlineBalanceModel:       models.TrustlineBalance,
 		NativeBalanceModel:          models.NativeBalance,
 		SACBalanceModel:             models.SACBalance,
-		AccountContractTokensModel:  models.AccountContractTokens,
-		ContractMetadataService:     contractMetadataService,
 		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
 		TransactionService:          txService,
@@ -254,8 +242,6 @@ func handler(deps handlerDeps) http.Handler {
 				deps.FeeBumpService,
 				deps.RPCService,
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
-				deps.AccountContractTokensModel,
-				deps.ContractMetadataService,
 				deps.MetricsService,
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,

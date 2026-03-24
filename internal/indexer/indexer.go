@@ -44,7 +44,6 @@ type IndexerBufferInterface interface {
 	PushProtocolWasm(wasm data.ProtocolWasms)
 	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
-	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
 	GetProtocolContracts() map[string]data.ProtocolContracts
@@ -263,25 +262,6 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, contract := range protocolContracts {
 			buffer.PushProtocolContracts(contract)
-		}
-	}
-
-	// Process state changes to extract contract changes
-	for _, stateChange := range stateChanges {
-		//exhaustive:ignore
-		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryBalance:
-			// Only store contract changes when contract token is SEP41
-			if stateChange.ContractType == types.ContractTypeSEP41 {
-				contractChange := types.ContractChange{
-					AccountID:    string(stateChange.AccountID),
-					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String(),
-					LedgerNumber: tx.Ledger.LedgerSequence(),
-					ContractType: stateChange.ContractType,
-				}
-				buffer.PushContractChange(contractChange)
-			}
 		}
 	}
 
