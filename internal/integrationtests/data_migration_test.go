@@ -857,6 +857,167 @@ func (s *DataMigrationTestSuite) TestLiveIngestionHistoryCursorReadyCurrentState
 	}
 }
 
+func (s *DataMigrationTestSuite) newCurrentStateMigrationService(
+	pool db.ConnectionPool,
+	models *data.Models,
+	ledgerBackend ledgerbackend.LedgerBackend,
+	processor services.ProtocolProcessor,
+	startLedger uint32,
+) services.ProtocolMigrateCurrentStateService {
+	svc, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
+		DB:                     pool,
+		LedgerBackend:          ledgerBackend,
+		ProtocolsModel:         models.Protocols,
+		ProtocolContractsModel: models.ProtocolContracts,
+		IngestStore:            models.IngestStore,
+		NetworkPassphrase:      "Test SDF Network ; September 2015",
+		Processors:             []services.ProtocolProcessor{processor},
+		LatestLedgerCursorName: data.LatestLedgerCursorName,
+		StartLedger:            startLedger,
+	})
+	s.Require().NoError(err)
+	return svc
+}
+
+func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHandoff() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+
+	models := s.setupModels(pool)
+
+	latestLedger, err := models.IngestStore.Get(ctx, "latest_ingest_ledger")
+	s.Require().NoError(err)
+	s.Require().Greater(latestLedger, uint32(0))
+	baseSeq := latestLedger + 2000
+
+	// Phase 1: Protocol setup — classify contracts, verify no protocol cursors yet.
+	s.runSEP41ProtocolSetup(ctx, pool, models)
+
+	classifiedContracts, err := models.ProtocolContracts.GetByProtocolID(ctx, sep41ProtocolID)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(classifiedContracts, "setup should classify at least one SEP41 contract")
+	expectedContractKeys := protocolContractKeys(classifiedContracts)
+
+	s.Assert().False(s.ingestStoreKeyExists(ctx, pool, "protocol_SEP41_current_state_cursor"), "current-state cursor should not exist after setup")
+
+	// Phase 2: Current-state migration — build current state for 3 ledgers [baseSeq, baseSeq+2].
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+2)
+	// Pre-set history cursor so live ingestion phase can produce history too
+	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", baseSeq+2)
+
+	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
+
+	rangeBackend := &rangeLedgerBackend{
+		startSeq:   baseSeq,
+		endSeq:     baseSeq + 2,
+		ledgerMeta: s.mustLedgerCloseMeta(),
+	}
+
+	migrationSvc := s.newCurrentStateMigrationService(
+		pool, models, rangeBackend, processor, baseSeq,
+	)
+
+	err = migrationSvc.Run(ctx, []string{sep41ProtocolID})
+	s.Require().NoError(err, "current-state migration should complete successfully")
+
+	currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_SEP41_current_state_cursor")
+	s.Require().NoError(err)
+	s.Assert().Equal(baseSeq+2, currentStateCursor, "current-state cursor should advance to the tip of the migration range")
+
+	currentStateWritten, err := models.IngestStore.Get(ctx, "test_SEP41_current_state_written")
+	s.Require().NoError(err)
+	s.Assert().Equal(baseSeq+2, currentStateWritten, "PersistCurrentState should have committed data through the last migrated ledger")
+
+	protocols, err := models.Protocols.GetByIDs(ctx, []string{sep41ProtocolID})
+	s.Require().NoError(err)
+	s.Require().Len(protocols, 1)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].CurrentStateMigrationStatus, "current-state migration status should be success")
+
+	s.Assert().NotEmpty(processor.seenContracts, "processor should have seen classified contracts during current-state migration")
+	s.Assert().Equal(expectedContractKeys, protocolContractKeys(processor.seenContracts))
+	s.Assert().Equal([]uint32{baseSeq, baseSeq + 1, baseSeq + 2}, processor.persistedCurrentStateSeqs,
+		"PersistCurrentState should be called for every ledger in the migration range")
+
+	// Phase 3: Live ingestion handoff — process baseSeq+3, proving CAS picks up where migration left off.
+	const liveCursorName = "test_current_state_handoff_live_cursor"
+	s.upsertIngestStoreValue(ctx, pool, liveCursorName, baseSeq+2)
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+3)
+
+	processor.processedLedger = 0
+	processor.seenContracts = nil
+	processor.persistedHistorySeqs = nil
+	processor.persistedCurrentStateSeqs = nil
+
+	liveBackend := &singleLedgerBackend{
+		ledgerSeq:  baseSeq + 3,
+		ledgerMeta: s.mustLedgerCloseMeta(),
+	}
+
+	rpcService := services.NewRPCServiceMock(s.T())
+	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: baseSeq + 3,
+		OldestLedger: 1,
+	}, nil).Once()
+
+	metricsService := s.newServiceMetricsMock()
+	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, metricsService, processor, liveCursorName)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- liveSvc.Run(runCtx, 0, 0)
+	}()
+
+	var earlyRunErr error
+	require.Eventually(s.T(), func() bool {
+		select {
+		case earlyRunErr = <-runErrCh:
+			return true
+		default:
+		}
+
+		hc, err := models.IngestStore.Get(ctx, "protocol_SEP41_history_cursor")
+		if err != nil || hc != baseSeq+3 {
+			return false
+		}
+
+		hw, err := models.IngestStore.Get(ctx, "test_SEP41_history_written")
+		if err != nil || hw != baseSeq+3 {
+			return false
+		}
+
+		csc, err := models.IngestStore.Get(ctx, "protocol_SEP41_current_state_cursor")
+		if err != nil || csc != baseSeq+3 {
+			return false
+		}
+
+		csw, err := models.IngestStore.Get(ctx, "test_SEP41_current_state_written")
+		return err == nil && csw == baseSeq+3
+	}, 10*time.Second, 100*time.Millisecond)
+
+	s.Require().NoError(earlyRunErr, "live Run exited before the expected DB state was committed")
+	s.Assert().Equal(baseSeq+3, processor.processedLedger, "live ingestion should have processed the handoff ledger")
+	s.Assert().Equal(expectedContractKeys, protocolContractKeys(processor.seenContracts), "live ingestion should see the same classified contracts")
+	s.Assert().Equal([]uint32{baseSeq + 3}, processor.persistedHistorySeqs,
+		"live ingestion should call PersistHistory for the handoff ledger")
+	s.Assert().Equal([]uint32{baseSeq + 3}, processor.persistedCurrentStateSeqs,
+		"live ingestion should call PersistCurrentState for the handoff ledger")
+
+	cancel()
+
+	select {
+	case err := <-runErrCh:
+		s.Require().Error(err)
+		s.Require().ErrorIs(err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		s.FailNow("timed out waiting for live Run to stop after context cancellation")
+	}
+}
+
 func TestDataMigrationTestSuiteStandalone(t *testing.T) {
 	t.Skip("Run via TestIntegrationTests")
 }
