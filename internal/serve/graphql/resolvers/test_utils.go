@@ -45,10 +45,6 @@ func getTestCtx(table string, columns []string) context.Context {
 	return ctx
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 // sharedTestAccountAddress is a test address used by tests that rely on setupDB.
 var sharedTestAccountAddress = keypair.MustRandom().Address()
 
@@ -75,10 +71,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 		txn := &types.Transaction{
 			Hash:            types.HashBytea(fmt.Sprintf("3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa487%x", i)),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
-			EnvelopeXDR:     ptr(fmt.Sprintf("envelope%d", i+1)),
 			FeeCharged:      int64(100 * (i + 1)),
 			ResultCode:      "TransactionResultCodeTxSuccess",
-			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
 			LedgerCreatedAt: now,
 			IsFeeBump:       false,
@@ -142,8 +136,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, func(tx pgx.Tx) error {
 		for _, txn := range txns {
 			_, err := tx.Exec(ctx,
-				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.FeeCharged, txn.ResultCode, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
+				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				txn.Hash, txn.ToID, txn.FeeCharged, txn.ResultCode, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
 			require.NoError(t, err)
 
 			_, err = tx.Exec(ctx,

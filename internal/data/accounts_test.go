@@ -39,7 +39,7 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($3, $4, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, toID1, testHash2, toID2)
+	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at) VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', 1, NOW()), ($3, $4, 200, 'TransactionResultCodeTxSuccess', 2, NOW())", testHash1, toID1, testHash2, toID2)
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
@@ -85,7 +85,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	// Insert test transactions first (hash is BYTEA, using valid 64-char hex strings)
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, NOW()), ($2, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, NOW())", testHash1, testHash2)
+	_, err = m.DB.Exec(ctx, "INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at) VALUES ($1, 4096, 100, 'TransactionResultCodeTxSuccess', 1, NOW()), ($2, 8192, 200, 'TransactionResultCodeTxSuccess', 2, NOW())", testHash1, testHash2)
 	require.NoError(t, err)
 
 	// Insert test operations (IDs don't need to be in TOID range here since we're just testing operations_accounts links)

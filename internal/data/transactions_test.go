@@ -32,17 +32,13 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 		txIndex := int32(1) // First transaction in each ledger
 		toID := toid.New(ledgerSeq, txIndex, 0).ToInt64()
 		hash := fmt.Sprintf("e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0%08x", i)
-		envelope := "AAAAAgAAAAB/NpQ+s+cP+ztX7ryuKgXrxowZPHd4qAxhseOye/JeUgAehIAC2NL/AAflugAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAwAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAAAAAAQ3FwMxshxQAfwV8AAAAAYTGQ3QAAAAAAAAAMAAAAAAAAAAFQQUxMAAAAAKHc4IKbcW8HPPgy3zOhuqv851y72nfLGa0HVXxIRNzHAAAAAAAGXwFksiHwAEXz8QAAAABhoaQjAAAAAAAAAAF78l5SAAAAQD7LgvZA8Pdvfh5L2b9B9RC7DlacGBJuOchuZDHQdVD1P0bn6nGQJXxDDI4oN76J49JxB7bIgDVim39MU43MOgE="
-		meta := "AAAAAwAAAAAAAAAEAAAAAwM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAQM6nhwAAAAAAAAAAJjy0MY1CPlZ/co80nzufVmo4gd7NqWMb+RiGiPhiviJAAAAC4SozKUDMWgAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAwM6LTkAAAAAAAAAAKl6DQcpepRdTbO/Vw4hYBENfE/95GevM7SNA0ftK0gtAAAAA8Kuf0AC+zZCAAAATAAAAAMAAAABAAAAAMRxxkNwYslQaok0LlOKGtpATS9Bzx06JV9DIffG4OF1AAAAAAAAAAlsb2JzdHIuY28AAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAyZ54QAAAABmrTXCAAAAAAAAAAEDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAAAABAAAAAMDOp4cAAAAAAAAAACpeg0HKXqUXU2zv1cOIWARDXxP/eRnrzO0jQNH7StILQAAAAPCrn9AAvs2QgAAAE0AAAADAAAAAQAAAADEccZDcGLJUGqJNC5TihraQE0vQc8dOiVfQyH3xuDhdQAAAAAAAAAJbG9ic3RyLmNvAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6nhwAAAAAZyGdHwAAAAAAAAABAzqeHAAAAAAAAAAAqXoNByl6lF1Ns79XDiFgEQ18T/3kZ68ztI0DR+0rSC0AAAACmKiNQAL7NkIAAABNAAAAAwAAAAEAAAAAxHHGQ3BiyVBqiTQuU4oa2kBNL0HPHTolX0Mh98bg4XUAAAAAAAAACWxvYnN0ci5jbwAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAADOp4cAAAAAGchnR8AAAAAAAAAAwM6nZoAAAAAAAAAALKxMozkOH3rgpz3/u3+93wsR4p6z4K82HmJ5NTuaZbYAAACZaqAwoIBqycyAABVlQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAAzqSNgAAAABnIVdaAAAAAAAAAAEDOp4cAAAAAAAAAACysTKM5Dh964Kc9/7t/vd8LEeKes+CvNh5ieTU7mmW2AAAAmbUhrSCAasnMgAAVZUAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAM6kjYAAAAAZyFXWgAAAAAAAAAAAAAAAA=="
 		address := keypair.MustRandom().Address()
 
 		txs[i] = &types.Transaction{
 			Hash:            types.HashBytea(hash),
 			ToID:            toID,
-			EnvelopeXDR:     &envelope,
 			FeeCharged:      int64(100 * (i + 1)),
 			ResultCode:      "TransactionResultCodeTxSuccess",
-			MetaXDR:         &meta,
 			LedgerNumber:    uint32(ledgerSeq),
 			LedgerCreatedAt: now,
 			IsFeeBump:       false,
@@ -66,15 +62,11 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
 	txCopy1 := types.Transaction{
 		Hash:            "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
 		ToID:            1,
-		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
@@ -82,22 +74,17 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	txCopy2 := types.Transaction{
 		Hash:            "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763",
 		ToID:            2,
-		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 		IsFeeBump:       true,
 	}
-	// Transaction with nullable fields (nil envelope and meta)
 	txCopy3 := types.Transaction{
 		Hash:            "d76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48764",
 		ToID:            3,
-		EnvelopeXDR:     nil,
 		FeeCharged:      300,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         nil,
 		LedgerNumber:    3,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
@@ -123,7 +110,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			wantCount:              0,
 		},
 		{
-			name:                   "🟢nullable_fields",
+			name:                   "🟢single_transaction",
 			txs:                    []*types.Transaction{&txCopy3},
 			stellarAddressesByToID: map[int64]set.Set[string]{txCopy3.ToID: set.NewSet(kp1.Address())},
 			wantCount:              1,
@@ -223,8 +210,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	// Create test transaction
 	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ($1, 1, 'envelope', 100, 'TransactionResultCodeTxSuccess', 'meta', 1, $2, false)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $2, false)
 	`, txHash, now)
 	require.NoError(t, err)
 
@@ -233,8 +220,6 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, txHash, transaction.Hash)
 	assert.Equal(t, int64(1), transaction.ToID)
-	require.NotNil(t, transaction.EnvelopeXDR)
-	assert.Equal(t, "envelope", *transaction.EnvelopeXDR)
 }
 
 func TestTransactionModel_GetAll(t *testing.T) {
@@ -260,11 +245,11 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	testHash2 := types.HashBytea("2076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	testHash3 := types.HashBytea("3076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
-			($2, 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $4, true),
-			($3, 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $4, false)
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
+			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
+			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
 	`, testHash1, testHash2, testHash3, now)
 	require.NoError(t, err)
 
@@ -311,11 +296,11 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
-			($2, 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $4, true),
-			($3, 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $4, false)
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
+			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
+			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
 	`, accTestHash1, accTestHash2, accTestHash3, now)
 	require.NoError(t, err)
 
@@ -362,11 +347,11 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	opTestHash2 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	opTestHash3 := types.HashBytea("9076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($1, 4096, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
-			($2, 8192, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $4, true),
-			($3, 12288, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $4, false)
+			($1, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
+			($2, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
+			($3, 12288, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
 	`, opTestHash1, opTestHash2, opTestHash3, now)
 	require.NoError(t, err)
 
@@ -425,11 +410,11 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	scTestHash2 := types.HashBytea("b176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	scTestHash3 := types.HashBytea("c176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($1, 1, 'envelope1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $4, false),
-			($2, 2, 'envelope2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $4, true),
-			($3, 3, 'envelope3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $4, false)
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
+			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
+			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
 	`, scTestHash1, scTestHash2, scTestHash3, now)
 	require.NoError(t, err)
 

@@ -344,11 +344,3 @@ func (m *TransactionModel) BatchCopy(
 
 	return len(txs), nil
 }
-
-// pgtypeTextFromPtr converts a *string to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromPtr(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
