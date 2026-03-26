@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
-	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -262,46 +261,12 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, skipTxEnvelope bool, networkPassphrase string) (*types.Transaction, error) {
-	var envelopeXDR *string
-	envelopeXDRStr, err := xdr.MarshalBase64(transaction.Envelope)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
-	}
-
-	if !skipTxEnvelope {
-		envelopeXDR = &envelopeXDRStr
-	}
-
+func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transaction, error) {
 	feeCharged, _ := transaction.FeeCharged()
 
-	var metaXDR *string
-	if !skipTxMeta {
-		metaXDRStr, marshalErr := xdr.MarshalBase64(transaction.UnsafeMeta)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("marshalling transaction meta: %w", marshalErr)
-		}
-		metaXDR = &metaXDRStr
-	}
-
-	// Calculate inner transaction hash
-	genericTx, err := txnbuild.TransactionFromXDR(envelopeXDRStr)
-	if err != nil {
-		return nil, fmt.Errorf("deserializing envelope xdr: %w", err)
-	}
-
-	var innerTx *txnbuild.Transaction
-	if feeBumpTx, ok := genericTx.FeeBump(); ok {
-		innerTx = feeBumpTx.InnerTransaction()
-	} else if tx, ok := genericTx.Transaction(); ok {
-		innerTx = tx
-	} else {
-		return nil, fmt.Errorf("transaction is neither fee bump nor inner transaction")
-	}
-
-	innerTxHash, err := innerTx.HashHex(networkPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("generating inner hash hex: %w", err)
+	innerTxHash, ok := transaction.InnerTransactionHash()
+	if !ok {
+		innerTxHash = transaction.Hash.HexString()
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
@@ -311,10 +276,8 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool, 
 		ToID:                 transactionID,
 		Hash:                 types.HashBytea(transaction.Hash.HexString()),
 		LedgerCreatedAt:      transaction.Ledger.ClosedAt(),
-		EnvelopeXDR:          envelopeXDR,
 		FeeCharged:           feeCharged,
 		ResultCode:           transaction.ResultCode(),
-		MetaXDR:              metaXDR,
 		LedgerNumber:         ledgerSequence,
 		IsFeeBump:            transaction.Envelope.IsFeeBump(),
 		InnerTransactionHash: innerTxHash,

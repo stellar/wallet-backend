@@ -263,10 +263,8 @@ type Transaction struct {
 // GraphQLTransaction represents a transaction from the GraphQL API
 type GraphQLTransaction struct {
 	Hash            string    `json:"hash"`
-	EnvelopeXdr     *string   `json:"envelopeXdr"`
 	FeeCharged      int64     `json:"feeCharged"`
 	ResultCode      string    `json:"resultCode"`
-	MetaXdr         *string   `json:"metaXdr,omitempty"`
 	LedgerNumber    uint32    `json:"ledgerNumber"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt"`
 	IsFeeBump       bool      `json:"isFeeBump"`

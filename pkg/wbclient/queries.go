@@ -12,10 +12,8 @@ const (
 	// Default field sets for each type
 	defaultTransactionFields = `
 		hash
-		envelopeXdr
 		resultCode
 		feeCharged
-		metaXdr
 		ledgerNumber
 		ledgerCreatedAt
 		isFeeBump

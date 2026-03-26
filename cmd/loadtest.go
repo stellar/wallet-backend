@@ -46,8 +46,6 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 		DatabaseURL         string
 		NetworkPassphrase   string
 		ServerPort          int
-		SkipTxMeta          bool
-		SkipTxEnvelope      bool
 		StartLedger         int
 		SeedDataPath        string
 	}{}
@@ -104,22 +102,6 @@ func (c *loadtestCmd) runCommand() *cobra.Command {
 			OptType:     types.Int,
 			ConfigKey:   &cfg.ServerPort,
 			FlagDefault: 8003,
-			Required:    false,
-		},
-		{
-			Name:        "skip-tx-meta",
-			Usage:       "Skip storing transaction metadata (meta_xdr)",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.SkipTxMeta,
-			FlagDefault: true,
-			Required:    false,
-		},
-		{
-			Name:        "skip-tx-envelope",
-			Usage:       "Skip storing transaction envelope (envelope_xdr)",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.SkipTxEnvelope,
-			FlagDefault: true,
 			Required:    false,
 		},
 		{
@@ -192,8 +174,6 @@ Example:
 				DatabaseURL:         cfg.DatabaseURL,
 				NetworkPassphrase:   cfg.NetworkPassphrase,
 				ServerPort:          cfg.ServerPort,
-				SkipTxMeta:          cfg.SkipTxMeta,
-				SkipTxEnvelope:      cfg.SkipTxEnvelope,
 				StartLedger:         uint32(cfg.StartLedger),
 				SeedDataPath:        cfg.SeedDataPath,
 			})
