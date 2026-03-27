@@ -1,0 +1,46 @@
+name: Build and Push CNPG TimescaleDB (Stg)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pg_major:
+        description: PostgreSQL major version
+        default: '17'
+        required: true
+      tsdb_version:
+        description: TimescaleDB version (semver, e.g. 2.25.0)
+        default: '2.25.0'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ECR Login via OIDC
+        id: ecr-login
+        uses: stellar/actions/sdf-ecr-login@main
+        with:
+          aws-oidc-role: ${{ secrets.AWS_GITHUB_OIDC_ROLE }}
+          aws-ecr-login-role: ${{ secrets.AWS_ECR_LOGIN_ROLE }}
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.ecr-registry }}
+          ECR_REPO: stg/cnpg-timescaledb
+          PG_MAJOR: ${{ inputs.pg_major }}
+          TSDB_VERSION: ${{ inputs.tsdb_version }}
+        run: |
+          TAG="${ECR_REGISTRY}/${ECR_REPO}:pg${PG_MAJOR}-tsdb${TSDB_VERSION}"
+          echo "Building CNPG TimescaleDB image: ${TAG}"
+          docker build --pull --platform linux/amd64 \
+            -f Dockerfile-timescale-cnpg \
+            --build-arg PG_MAJOR=${PG_MAJOR} \
+            --build-arg TSDB_VERSION=${TSDB_VERSION} \
+            -t "${TAG}" .
+          docker push "${TAG}"
