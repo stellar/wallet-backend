@@ -20,7 +20,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
 
       - name: ECR Login via OIDC
         id: ecr-login
@@ -38,7 +38,7 @@ jobs:
         run: |
           TAG="${ECR_REGISTRY}/${ECR_REPO}:pg${PG_MAJOR}-tsdb${TSDB_VERSION}"
           echo "Building CNPG TimescaleDB image: ${TAG}"
-          docker build --pull \
+          docker build --pull --platform linux/amd64 \
             -f Dockerfile-timescale-cnpg \
             --build-arg PG_MAJOR=${PG_MAJOR} \
             --build-arg TSDB_VERSION=${TSDB_VERSION} \
