@@ -45,25 +45,21 @@ var ErrNotStateChange = errors.New("object is not a StateChange")
 // Resolver is the main resolver struct for gqlgen.
 // It holds dependencies needed by all resolver functions.
 type Resolver struct {
-	models                     *data.Models
-	rpcService                 services.RPCService
-	balanceReader              BalanceReader
-	accountContractTokensModel data.AccountContractTokensModelInterface
-	contractMetadataService    services.ContractMetadataService
-	metrics                    *metrics.Metrics
-	config                     ResolverConfig
+	models        *data.Models
+	rpcService    services.RPCService
+	balanceReader BalanceReader
+	metrics       *metrics.Metrics
+	config        ResolverConfig
 }
 
 // NewResolver creates a new resolver instance with required dependencies.
-func NewResolver(models *data.Models, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, m *metrics.Metrics, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, rpcService services.RPCService, balanceReader BalanceReader, m *metrics.Metrics, config ResolverConfig) *Resolver {
 	return &Resolver{
-		models:                     models,
-		rpcService:                 rpcService,
-		balanceReader:              balanceReader,
-		accountContractTokensModel: accountContractTokensModel,
-		contractMetadataService:    contractMetadataService,
-		metrics:                    m,
-		config:                     config,
+		models:        models,
+		rpcService:    rpcService,
+		balanceReader: balanceReader,
+		metrics:       m,
+		config:        config,
 	}
 }
 

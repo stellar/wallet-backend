@@ -276,13 +276,12 @@ func newGraphQLTestHandler(t *testing.T, complexityLimit int) http.Handler {
 	require.NoError(t, err)
 
 	return handler(handlerDeps{
-		Models:                     models,
-		Metrics:                    m,
-		TrustlineBalanceModel:      models.TrustlineBalance,
-		NativeBalanceModel:         models.NativeBalance,
-		SACBalanceModel:            models.SACBalance,
-		AccountContractTokensModel: models.AccountContractTokens,
-		GraphQLComplexityLimit:     complexityLimit,
+		Models:                 models,
+		Metrics:                m,
+		TrustlineBalanceModel:  models.TrustlineBalance,
+		NativeBalanceModel:     models.NativeBalance,
+		SACBalanceModel:        models.SACBalance,
+		GraphQLComplexityLimit: complexityLimit,
 	})
 }
 

@@ -206,15 +206,6 @@ type ComplexityRoot struct {
 		TokenType         func(childComplexity int) int
 	}
 
-	SEP41Balance struct {
-		Balance   func(childComplexity int) int
-		Decimals  func(childComplexity int) int
-		Name      func(childComplexity int) int
-		Symbol    func(childComplexity int) int
-		TokenID   func(childComplexity int) int
-		TokenType func(childComplexity int) int
-	}
-
 	SignerChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -1219,48 +1210,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SACBalance.TokenType(childComplexity), true
 
-	case "SEP41Balance.balance":
-		if e.complexity.SEP41Balance.Balance == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.Balance(childComplexity), true
-
-	case "SEP41Balance.decimals":
-		if e.complexity.SEP41Balance.Decimals == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.Decimals(childComplexity), true
-
-	case "SEP41Balance.name":
-		if e.complexity.SEP41Balance.Name == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.Name(childComplexity), true
-
-	case "SEP41Balance.symbol":
-		if e.complexity.SEP41Balance.Symbol == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.Symbol(childComplexity), true
-
-	case "SEP41Balance.tokenId":
-		if e.complexity.SEP41Balance.TokenID == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.TokenID(childComplexity), true
-
-	case "SEP41Balance.tokenType":
-		if e.complexity.SEP41Balance.TokenType == nil {
-			break
-		}
-
-		return e.complexity.SEP41Balance.TokenType(childComplexity), true
-
 	case "SignerChange.account":
 		if e.complexity.SignerChange.Account == nil {
 			break
@@ -1928,15 +1877,6 @@ type SACBalance implements Balance {
     isClawbackEnabled: Boolean!
 }
 
-type SEP41Balance implements Balance {
-    balance: String!
-    tokenId: String!
-    tokenType: TokenType!
-
-    name: String!
-    symbol: String!
-    decimals: Int!
-}
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
 # Directives are like annotations that modify how GraphQL processes fields
@@ -2038,7 +1978,6 @@ enum TokenType {
   NATIVE
   CLASSIC
   SAC
-  SEP41
 }
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries
@@ -8524,270 +8463,6 @@ func (ec *executionContext) fieldContext_SACBalance_isClawbackEnabled(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _SEP41Balance_balance(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_balance(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Balance, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_balance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SEP41Balance_tokenId(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_tokenId(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.TokenID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SEP41Balance_tokenType(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_tokenType(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.TokenType, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(TokenType)
-	fc.Result = res
-	return ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type TokenType does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SEP41Balance_name(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_name(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Name, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SEP41Balance_symbol(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_symbol(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Symbol, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_symbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _SEP41Balance_decimals(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SEP41Balance_decimals(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Decimals, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int32)
-	fc.Result = res
-	return ec.marshalNInt2int32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SEP41Balance_decimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SEP41Balance",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _SignerChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_SignerChange_type(ctx, field)
 	if err != nil {
@@ -14169,13 +13844,6 @@ func (ec *executionContext) _Balance(ctx context.Context, sel ast.SelectionSet, 
 			return graphql.Null
 		}
 		return ec._TrustlineBalance(ctx, sel, obj)
-	case SEP41Balance:
-		return ec._SEP41Balance(ctx, sel, &obj)
-	case *SEP41Balance:
-		if obj == nil {
-			return graphql.Null
-		}
-		return ec._SEP41Balance(ctx, sel, obj)
 	case SACBalance:
 		return ec._SACBalance(ctx, sel, &obj)
 	case *SACBalance:
@@ -16720,70 +16388,6 @@ func (ec *executionContext) _SACBalance(ctx context.Context, sel ast.SelectionSe
 			}
 		case "isClawbackEnabled":
 			out.Values[i] = ec._SACBalance_isClawbackEnabled(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var sEP41BalanceImplementors = []string{"SEP41Balance", "Balance"}
-
-func (ec *executionContext) _SEP41Balance(ctx context.Context, sel ast.SelectionSet, obj *SEP41Balance) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, sEP41BalanceImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("SEP41Balance")
-		case "balance":
-			out.Values[i] = ec._SEP41Balance_balance(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "tokenId":
-			out.Values[i] = ec._SEP41Balance_tokenId(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "tokenType":
-			out.Values[i] = ec._SEP41Balance_tokenType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "name":
-			out.Values[i] = ec._SEP41Balance_name(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "symbol":
-			out.Values[i] = ec._SEP41Balance_symbol(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "decimals":
-			out.Values[i] = ec._SEP41Balance_decimals(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -33,7 +33,7 @@ func (p *ProtocolWasmProcessor) Name() string {
 
 // ProcessOperation extracts WASM hashes from an operation's ledger changes.
 // Only processes ContractCode entries that have a Post state (created or updated).
-func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolWasm, error) {
+func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolWasms, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -47,14 +47,14 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	var wasms []data.ProtocolWasm
+	var wasms []data.ProtocolWasms
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractCode || change.Post == nil {
 			continue
 		}
 
 		hash := change.Post.Data.MustContractCode().Hash
-		wasms = append(wasms, data.ProtocolWasm{
+		wasms = append(wasms, data.ProtocolWasms{
 			WasmHash: types.HashBytea(hex.EncodeToString(hash[:])),
 		})
 	}

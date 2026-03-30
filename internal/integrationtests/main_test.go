@@ -71,6 +71,23 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	// Phase 1: Validate balances from checkpoint before fixture transactions
+	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Only proceed if checkpoint balance validation succeeded
+	if t.Failed() {
+		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
+	}
+
+	// Protocol setup tests — needs ingest to have populated protocol_wasms + real RPC
+	t.Run("ProtocolSetupTestSuite", func(t *testing.T) {
+		suite.Run(t, &ProtocolSetupTestSuite{testEnv: testEnv})
+	})
+
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
 			testEnv: testEnv,

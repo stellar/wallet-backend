@@ -7,7 +7,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -88,18 +87,16 @@ func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest
 
 // checkpointTestFixture holds a checkpointService and all mocked dependencies.
 type checkpointTestFixture struct {
-	svc                        *checkpointService
-	reader                     *ChangeReaderMock
-	contractValidator          *ContractValidatorMock
-	contractMetadataService    *ContractMetadataServiceMock
-	trustlineAssetModel        *wbdata.TrustlineAssetModelMock
-	trustlineBalanceModel      *wbdata.TrustlineBalanceModelMock
-	nativeBalanceModel         *wbdata.NativeBalanceModelMock
-	sacBalanceModel            *wbdata.SACBalanceModelMock
-	accountContractTokensModel *wbdata.AccountContractTokensModelMock
-	contractModel              *wbdata.ContractModelMock
-	protocolWasmModel          *wbdata.ProtocolWasmModelMock
-	protocolContractsModel     *wbdata.ProtocolContractsModelMock
+	svc                     *checkpointService
+	reader                  *ChangeReaderMock
+	contractMetadataService *ContractMetadataServiceMock
+	trustlineAssetModel     *wbdata.TrustlineAssetModelMock
+	trustlineBalanceModel   *wbdata.TrustlineBalanceModelMock
+	nativeBalanceModel      *wbdata.NativeBalanceModelMock
+	sacBalanceModel         *wbdata.SACBalanceModelMock
+	contractModel           *wbdata.ContractModelMock
+	protocolWasmModel       *wbdata.ProtocolWasmsModelMock
+	protocolContractsModel  *wbdata.ProtocolContractsModelMock
 }
 
 // setupCheckpointTest creates a checkpointService with mocked dependencies and a real DB pool.
@@ -113,49 +110,43 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	t.Cleanup(func() { dbPool.Close() })
 
 	readerMock := NewChangeReaderMock(t)
-	contractValidatorMock := NewContractValidatorMock(t)
 	contractMetadataServiceMock := NewContractMetadataServiceMock(t)
 	trustlineAssetModelMock := wbdata.NewTrustlineAssetModelMock(t)
 	trustlineBalanceModelMock := wbdata.NewTrustlineBalanceModelMock(t)
 	nativeBalanceModelMock := wbdata.NewNativeBalanceModelMock(t)
 	sacBalanceModelMock := wbdata.NewSACBalanceModelMock(t)
-	accountContractTokensModelMock := wbdata.NewAccountContractTokensModelMock(t)
 	contractModelMock := wbdata.NewContractModelMock(t)
-	protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+	protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 	protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 
 	svc := &checkpointService{
-		db:                         dbPool,
-		archive:                    &HistoryArchiveMock{},
-		contractValidator:          contractValidatorMock,
-		contractMetadataService:    contractMetadataServiceMock,
-		trustlineAssetModel:        trustlineAssetModelMock,
-		trustlineBalanceModel:      trustlineBalanceModelMock,
-		nativeBalanceModel:         nativeBalanceModelMock,
-		sacBalanceModel:            sacBalanceModelMock,
-		accountContractTokensModel: accountContractTokensModelMock,
-		contractModel:              contractModelMock,
-		protocolWasmModel:          protocolWasmModelMock,
-		protocolContractsModel:     protocolContractsModelMock,
-		networkPassphrase:          network.TestNetworkPassphrase,
+		db:                      dbPool,
+		archive:                 &HistoryArchiveMock{},
+		contractMetadataService: contractMetadataServiceMock,
+		trustlineAssetModel:     trustlineAssetModelMock,
+		trustlineBalanceModel:   trustlineBalanceModelMock,
+		nativeBalanceModel:      nativeBalanceModelMock,
+		sacBalanceModel:         sacBalanceModelMock,
+		contractModel:           contractModelMock,
+		protocolWasmModel:       protocolWasmModelMock,
+		protocolContractsModel:  protocolContractsModelMock,
+		networkPassphrase:       network.TestNetworkPassphrase,
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
 	}
 
 	return checkpointTestFixture{
-		svc:                        svc,
-		reader:                     readerMock,
-		contractValidator:          contractValidatorMock,
-		contractMetadataService:    contractMetadataServiceMock,
-		trustlineAssetModel:        trustlineAssetModelMock,
-		trustlineBalanceModel:      trustlineBalanceModelMock,
-		nativeBalanceModel:         nativeBalanceModelMock,
-		sacBalanceModel:            sacBalanceModelMock,
-		accountContractTokensModel: accountContractTokensModelMock,
-		contractModel:              contractModelMock,
-		protocolWasmModel:          protocolWasmModelMock,
-		protocolContractsModel:     protocolContractsModelMock,
+		svc:                     svc,
+		reader:                  readerMock,
+		contractMetadataService: contractMetadataServiceMock,
+		trustlineAssetModel:     trustlineAssetModelMock,
+		trustlineBalanceModel:   trustlineBalanceModelMock,
+		nativeBalanceModel:      nativeBalanceModelMock,
+		sacBalanceModel:         sacBalanceModelMock,
+		contractModel:           contractModelMock,
+		protocolWasmModel:       protocolWasmModelMock,
+		protocolContractsModel:  protocolContractsModelMock,
 	}
 }
 
@@ -176,13 +167,9 @@ func TestCheckpointService_PopulateFromCheckpoint_ReaderCreationFails(t *testing
 	require.NoError(t, err)
 	defer dbPool.Close()
 
-	contractValidatorMock := NewContractValidatorMock(t)
-	contractValidatorMock.On("Close", mock.Anything).Return(nil).Once()
-
 	svc := &checkpointService{
-		db:                dbPool,
-		archive:           &HistoryArchiveMock{},
-		contractValidator: contractValidatorMock,
+		db:      dbPool,
+		archive: &HistoryArchiveMock{},
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return nil, errors.New("archive unavailable")
 		},
@@ -198,7 +185,6 @@ func TestCheckpointService_PopulateFromCheckpoint_EmptyCheckpoint(t *testing.T) 
 
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
-	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	cursorsCalled := false
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error {
@@ -220,11 +206,6 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractCodeEntry(t *testing.T
 	f.reader.On("Read").Return(change, nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
-	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
-
-	// Validator accepts this as SEP-41
-	f.contractValidator.On("ValidateFromContractCode", mock.Anything, code).
-		Return(types.ContractTypeSEP41, nil).Once()
 
 	// finalize -> persistProtocolWasms inserts the tracked WASM hash
 	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
@@ -241,7 +222,6 @@ func TestCheckpointService_PopulateFromCheckpoint_AccountEntry(t *testing.T) {
 	f.reader.On("Read").Return(accountChange, nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
-	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	// The batch will flush with 1 native balance
 	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything,
@@ -268,16 +248,14 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T
 	f.reader.On("Read").Return(contractDataChange, nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
-	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	// Flush remaining batch (empty balances but 0 entries)
 	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	// Finalize: contract model + account contract tokens
+	// Finalize: contract model
 	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.accountContractTokensModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Protocol WASM + contracts: we tracked contract data but no contract code hash matched
 	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -298,7 +276,6 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(f *checkpointTestFixture) func(pgx.Tx) error {
 				f.reader.On("Read").Return(ingest.Change{}, errors.New("network timeout")).Once()
 				f.reader.On("Close").Return(nil).Once()
-				f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return nil }
 			},
 			expectedErrMsg: "reading checkpoint changes",
@@ -308,7 +285,6 @@ func TestCheckpointService_PopulateFromCheckpoint_ErrorPropagation(t *testing.T)
 			setupMocks: func(f *checkpointTestFixture) func(pgx.Tx) error {
 				f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 				f.reader.On("Close").Return(nil).Once()
-				f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 				return func(_ pgx.Tx) error { return errors.New("cursor init failed") }
 			},
 			expectedErrMsg: "initializing cursors",
@@ -333,7 +309,6 @@ func TestCheckpointService_PopulateFromCheckpoint_ContextCancellation(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 
 	f.reader.On("Close").Return(nil).Once()
-	f.contractValidator.On("Close", mock.Anything).Return(nil).Once()
 
 	// First Read succeeds but cancels the context; the next loop iteration detects cancellation
 	f.reader.On("Read").Run(func(_ mock.Arguments) {
@@ -350,59 +325,37 @@ func TestCheckpointService_PopulateFromCheckpoint_ContextCancellation(t *testing
 func TestCheckpointProcessor_ProcessContractCode(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("tracks_hash_and_validates_sep41", func(t *testing.T) {
-		contractValidatorMock := NewContractValidatorMock(t)
+	t.Run("tracks_hash", func(t *testing.T) {
 		proc := &checkpointProcessor{
-			contractValidator:   contractValidatorMock,
-			wasmClassifications: make(map[xdr.Hash]types.ContractType),
+			data:                        newCheckpointData(),
+			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
+			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
 		}
 
 		hash := xdr.Hash{1, 2, 3}
 		code := []byte{0xDE, 0xAD}
-		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code).
-			Return(types.ContractTypeSEP41, nil).Once()
 
 		proc.processContractCode(ctx, hash, code)
 
-		assert.Equal(t, types.ContractTypeSEP41, proc.wasmClassifications[hash])
-		assert.Equal(t, 1, proc.entries)
+		// WASM hash tracked
+		_, tracked := proc.wasmClassifications[hash]
+		assert.True(t, tracked, "hash should be tracked in wasmClassifications")
 	})
 
 	t.Run("duplicate_hash_deduplicated", func(t *testing.T) {
-		contractValidatorMock := NewContractValidatorMock(t)
 		proc := &checkpointProcessor{
-			contractValidator:   contractValidatorMock,
-			wasmClassifications: make(map[xdr.Hash]types.ContractType),
+			data:                        newCheckpointData(),
+			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
+			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
 		}
 
 		hash := xdr.Hash{1, 2, 3}
 		code := []byte{0xDE, 0xAD}
-		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code).
-			Return(types.ContractTypeSEP41, nil).Twice()
 
 		proc.processContractCode(ctx, hash, code)
 		proc.processContractCode(ctx, hash, code)
 
 		assert.Len(t, proc.wasmClassifications, 1, "duplicate hash should be deduplicated in map")
-	})
-
-	t.Run("validator_error_stores_unknown", func(t *testing.T) {
-		contractValidatorMock := NewContractValidatorMock(t)
-		proc := &checkpointProcessor{
-			contractValidator:   contractValidatorMock,
-			wasmClassifications: make(map[xdr.Hash]types.ContractType),
-		}
-
-		hash := xdr.Hash{4, 5, 6}
-		code := []byte{0xBA, 0xD0}
-		contractValidatorMock.On("ValidateFromContractCode", mock.Anything, code).
-			Return(types.ContractTypeUnknown, errors.New("invalid WASM")).Once()
-
-		proc.processContractCode(ctx, hash, code)
-
-		// WASM hash should be tracked with ContractTypeUnknown
-		assert.Equal(t, types.ContractTypeUnknown, proc.wasmClassifications[hash])
-		assert.Equal(t, 0, proc.entries)
 	})
 }
 
@@ -410,7 +363,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no_hashes_skips_insert", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		err := svc.persistProtocolWasms(ctx, nil, map[xdr.Hash]types.ContractType{})
@@ -419,14 +372,14 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	})
 
 	t.Run("single_hash_persisted", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{10, 20, 30}
-		wasmClassifications := map[xdr.Hash]types.ContractType{hash: types.ContractTypeSEP41}
+		wasmClassifications := map[xdr.Hash]types.ContractType{hash: types.ContractTypeUnknown}
 
 		protocolWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
-			mock.MatchedBy(func(wasms []wbdata.ProtocolWasm) bool {
+			mock.MatchedBy(func(wasms []wbdata.ProtocolWasms) bool {
 				if len(wasms) != 1 {
 					return false
 				}
@@ -439,7 +392,7 @@ func TestCheckpointService_PersistProtocolWasms(t *testing.T) {
 	})
 
 	t.Run("batch_insert_error_propagated", func(t *testing.T) {
-		protocolWasmModelMock := wbdata.NewProtocolWasmModelMock(t)
+		protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 		svc := &checkpointService{protocolWasmModel: protocolWasmModelMock}
 
 		hash := xdr.Hash{99}
@@ -474,7 +427,7 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 
 		contractHash := [32]byte{10, 20, 30}
 		wasmHash := xdr.Hash{40, 50, 60}
-		wasmClassifications := map[xdr.Hash]types.ContractType{wasmHash: types.ContractTypeSEP41}
+		wasmClassifications := map[xdr.Hash]types.ContractType{wasmHash: types.ContractTypeUnknown}
 		contractAddressesByWasmHash := map[xdr.Hash][]xdr.Hash{
 			wasmHash: {xdr.Hash(contractHash)},
 		}
@@ -503,7 +456,7 @@ func TestCheckpointService_PersistProtocolContracts(t *testing.T) {
 		contractHash1 := [32]byte{10}
 		contractHash2 := [32]byte{20}
 
-		wasmClassifications := map[xdr.Hash]types.ContractType{knownWasm: types.ContractTypeSEP41}
+		wasmClassifications := map[xdr.Hash]types.ContractType{knownWasm: types.ContractTypeUnknown}
 		contractAddressesByWasmHash := map[xdr.Hash][]xdr.Hash{
 			knownWasm:   {xdr.Hash(contractHash1)},
 			unknownWasm: {xdr.Hash(contractHash2)},
@@ -600,12 +553,11 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 
 		// Tracked for protocol contracts
 		require.Contains(t, proc.contractAddressesByWasmHash, wasmHash)
-		assert.Equal(t, []xdr.Hash{xdr.Hash(contractHash)}, proc.contractAddressesByWasmHash[wasmHash])
 
-		assert.Equal(t, 2, proc.entries)
+		assert.Equal(t, 1, proc.entries)
 	})
 
-	t.Run("contract_balance_non_sac", func(t *testing.T) {
+	t.Run("contract_balance_non_sac_skipped", func(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		contractHash := [32]byte{0xDD, 0xEE, 0xFF}
 		holderAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
@@ -613,12 +565,8 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		change := makeContractBalanceChange(contractHash, holderAddress)
 		proc.processEntry(change)
 
-		contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
-		contractUUID := wbdata.DeterministicContractID(contractAddr)
-
-		require.Contains(t, proc.data.contractTokensByHolderAddress, holderAddress)
-		assert.Equal(t, []uuid.UUID{contractUUID}, proc.data.contractTokensByHolderAddress[holderAddress])
-		assert.Equal(t, 1, proc.entries)
+		// Non-SAC balance entries are no longer tracked (SEP-41 tracking removed)
+		assert.Equal(t, 0, proc.entries)
 		assert.Empty(t, proc.batch.sacBalances)
 	})
 
