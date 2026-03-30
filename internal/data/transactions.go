@@ -258,7 +258,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "envelope_xdr", "fee_charged", "result_code", "meta_xdr", "ledger_number", "ledger_created_at", "is_fee_bump"},
+		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			hashBytes, err := tx.Hash.Value()
@@ -268,10 +268,8 @@ func (m *TransactionModel) BatchCopy(
 			return []any{
 				hashBytes,
 				pgtype.Int8{Int64: tx.ToID, Valid: true},
-				pgtypeTextFromPtr(tx.EnvelopeXDR),
 				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
 				pgtype.Text{String: tx.ResultCode, Valid: true},
-				pgtypeTextFromPtr(tx.MetaXDR),
 				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
 				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
@@ -345,12 +343,4 @@ func (m *TransactionModel) BatchCopy(
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 
 	return len(txs), nil
-}
-
-// pgtypeTextFromPtr converts a *string to pgtype.Text for efficient binary COPY.
-func pgtypeTextFromPtr(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
 }

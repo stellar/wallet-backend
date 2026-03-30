@@ -69,10 +69,6 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// DatastoreConfigPath is the path to the TOML config file for datastore backend
 	DatastoreConfigPath string
-	// SkipTxMeta skips storing transaction metadata (meta_xdr) to reduce storage space
-	SkipTxMeta bool
-	// SkipTxEnvelope skips storing transaction envelope (envelope_xdr) to reduce storage space
-	SkipTxEnvelope bool
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
@@ -222,8 +218,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
-		SkipTxMeta:                cfg.SkipTxMeta,
-		SkipTxEnvelope:            cfg.SkipTxEnvelope,
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,

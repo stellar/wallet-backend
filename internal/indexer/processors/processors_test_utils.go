@@ -315,8 +315,8 @@ type testTransaction struct {
 	Index         uint32
 	EnvelopeXDR   string
 	ResultXDR     string
-	FeeChangesXDR string
 	MetaXDR       string
+	FeeChangesXDR string
 	Hash          string
 }
 

@@ -39,8 +39,6 @@ type RunConfig struct {
 	DatabaseURL         string
 	NetworkPassphrase   string
 	ServerPort          int
-	SkipTxMeta          bool
-	SkipTxEnvelope      bool
 	StartLedger         uint32
 	SeedDataPath        string // Optional path to SQL file containing seed data
 }
@@ -81,7 +79,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	defer indexerPool.StopAndWait()
 
 	metrics.RegisterPoolMetrics(m.Registry(), "loadtest_indexer", indexerPool)
-	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
+	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionServiceForLoadtest(

@@ -2,10 +2,8 @@
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String! @goField(forceResolver: true)
-  envelopeXdr:     String
   feeCharged:      Int64!
   resultCode:      String!
-  metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   isFeeBump:       Boolean!

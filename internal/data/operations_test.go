@@ -57,15 +57,11 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 
 	// Create referenced transactions first with specific ToIDs
 	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
-	meta1, meta2 := "meta1", "meta2"
-	envelope1, envelope2 := "envelope1", "envelope2"
 	tx1 := types.Transaction{
 		Hash:            "d176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            4096,
-		EnvelopeXDR:     &envelope1,
 		FeeCharged:      100,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
@@ -73,10 +69,8 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	tx2 := types.Transaction{
 		Hash:            "e176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
 		ToID:            8192,
-		EnvelopeXDR:     &envelope2,
 		FeeCharged:      200,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 		IsFeeBump:       true,
@@ -84,10 +78,10 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 
 	// Insert transactions using direct SQL
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)
-	`, tx1.Hash, tx1.ToID, *tx1.EnvelopeXDR, tx1.FeeCharged, tx1.ResultCode, *tx1.MetaXDR, tx1.LedgerNumber, tx1.LedgerCreatedAt, tx1.IsFeeBump,
-		tx2.Hash, tx2.ToID, *tx2.EnvelopeXDR, tx2.FeeCharged, tx2.ResultCode, *tx2.MetaXDR, tx2.LedgerNumber, tx2.LedgerCreatedAt, tx2.IsFeeBump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)
+	`, tx1.Hash, tx1.ToID, tx1.FeeCharged, tx1.ResultCode, tx1.LedgerNumber, tx1.LedgerCreatedAt, tx1.IsFeeBump,
+		tx2.Hash, tx2.ToID, tx2.FeeCharged, tx2.ResultCode, tx2.LedgerNumber, tx2.LedgerCreatedAt, tx2.IsFeeBump)
 	require.NoError(t, err)
 
 	// Operations IDs must be in TOID range: (to_id, to_id + 4096)
@@ -220,11 +214,11 @@ func TestOperationModel_GetAll(t *testing.T) {
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 1, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 2, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			($4, 3, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
+			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
 	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
@@ -275,11 +269,11 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
+			($4, 12288, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
 	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
@@ -469,10 +463,10 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true)
 	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
@@ -525,11 +519,11 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
+			($4, 12288, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
 	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 
@@ -578,10 +572,10 @@ func TestOperationModel_GetByID(t *testing.T) {
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true)
 	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
@@ -637,11 +631,11 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
 	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 4096, 'env1', 100, 'TransactionResultCodeTxSuccess', 'meta1', 1, $1, false),
-			($3, 8192, 'env2', 200, 'TransactionResultCodeTxSuccess', 'meta2', 2, $1, true),
-			($4, 12288, 'env3', 300, 'TransactionResultCodeTxSuccess', 'meta3', 3, $1, false)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
+			($4, 12288, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
 	`, now, testHash1, testHash2, testHash3)
 	require.NoError(t, err)
 

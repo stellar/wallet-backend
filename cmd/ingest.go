@@ -123,22 +123,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "skip-tx-meta",
-			Usage:       "Skip storing transaction metadata (meta_xdr) to reduce storage space and improve insertion performance.",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.SkipTxMeta,
-			FlagDefault: true,
-			Required:    false,
-		},
-		{
-			Name:        "skip-tx-envelope",
-			Usage:       "Skip storing transaction envelope (envelope_xdr) to reduce storage space and improve insertion performance.",
-			OptType:     types.Bool,
-			ConfigKey:   &cfg.SkipTxEnvelope,
-			FlagDefault: true,
-			Required:    false,
-		},
-		{
 			Name:        "chunk-interval",
 			Usage:       "TimescaleDB chunk time interval for hypertables. Only affects future chunks. Uses PostgreSQL INTERVAL syntax.",
 			OptType:     types.String,

@@ -68,8 +68,6 @@ type IngestServiceConfig struct {
 
 	// === Processing Options ===
 	GetLedgersLimit int
-	SkipTxMeta      bool
-	SkipTxEnvelope  bool
 
 	// === Backfill Tuning ===
 	BackfillWorkers           int
@@ -151,7 +149,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
 		archive:                   cfg.Archive,
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),

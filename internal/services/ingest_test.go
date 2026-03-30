@@ -214,8 +214,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				// Actual oldest ledger in transactions is 100
 				_, err := dbConnectionPool.Exec(ctx,
-					`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-					VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', 100, NOW())`)
+					`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+					VALUES ('anchor_hash', 1, 100, 'TransactionResultCodeTxSuccess', 100, NOW())`)
 				require.NoError(t, err)
 			},
 			expectedGaps: []data.LedgerRange{
@@ -230,8 +230,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.Exec(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -248,8 +248,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions for 100-200 (no gaps); oldest is 100
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.Exec(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -264,15 +264,15 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Insert transactions with gaps: 100-120, 150-200 (gap at 121-149); oldest is 100
 				for ledger := uint32(100); ledger <= 120; ledger++ {
 					_, err := dbConnectionPool.Exec(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
 				for ledger := uint32(150); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.Exec(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -296,8 +296,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				// Actual transactions only exist from 100 onwards
 				for ledger := uint32(100); ledger <= 200; ledger++ {
 					_, err := dbConnectionPool.Exec(ctx,
-						`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-						VALUES ($1, $2, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $3, NOW())`,
+						`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+						VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, NOW())`,
 						"hash"+string(rune(ledger)), ledger, ledger)
 					require.NoError(t, err)
 				}
@@ -347,8 +347,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
 				Archive:                mockArchive,
-				SkipTxMeta:             false,
-				SkipTxEnvelope:         false,
 			})
 			require.NoError(t, err)
 
@@ -463,8 +461,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
 				Archive:                mockArchive,
-				SkipTxMeta:             false,
-				SkipTxEnvelope:         false,
 				BackfillBatchSize:      100,
 			})
 			require.NoError(t, err)
@@ -515,15 +511,11 @@ func ptrUint32(v uint32) *uint32 { return &v }
 // createTestTransaction creates a transaction with required fields for testing.
 func createTestTransaction(hash string, toID int64) types.Transaction {
 	now := time.Now()
-	envelope := "test_envelope_xdr"
-	meta := "test_meta_xdr"
 	return types.Transaction{
 		Hash:            types.HashBytea(hash),
 		ToID:            toID,
-		EnvelopeXDR:     &envelope,
 		FeeCharged:      100,
 		ResultCode:      "TransactionResultCodeTxSuccess",
-		MetaXDR:         &meta,
 		LedgerNumber:    1000,
 		LedgerCreatedAt: now,
 		IngestedAt:      now,
@@ -1426,8 +1418,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 
 			// Insert anchor transaction so GetOldestLedger() returns initialOldest
 			_, err = dbConnectionPool.Exec(ctx,
-				`INSERT INTO transactions (hash, to_id, envelope_xdr, fee_charged, result_code, meta_xdr, ledger_number, ledger_created_at)
-				VALUES ('anchor_hash', 1, 'env', 100, 'TransactionResultCodeTxSuccess', 'meta', $1, NOW())`,
+				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+				VALUES ('anchor_hash', 1, 100, 'TransactionResultCodeTxSuccess', $1, NOW())`,
 				tc.initialOldest)
 			require.NoError(t, err)
 
