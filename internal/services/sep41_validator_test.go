@@ -132,67 +132,67 @@ func createPartialSEP41Spec(missingFunctions []string) []xdr.ScSpecEntry {
 func TestIsContractCodeSEP41(t *testing.T) {
 	t.Run("returns true for complete SEP-41 contract", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.True(t, result)
 	})
 
 	t.Run("returns false when missing balance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing allowance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"allowance"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing decimals function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"decimals"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing name function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"name"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing symbol function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"symbol"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing approve function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"approve"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer_from"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn_from"})
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
@@ -210,7 +210,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
@@ -227,7 +227,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
@@ -244,13 +244,13 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for empty contract spec", func(t *testing.T) {
 		spec := []xdr.ScSpecEntry{}
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.False(t, result)
 	})
 
@@ -266,7 +266,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, customFunc)
 
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.True(t, result)
 	})
 
@@ -286,7 +286,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, udtEntry)
 
-		result := isContractCodeSEP41(spec)
+		result := NewSEP41ProtocolValidator().Validate(spec)
 		assert.True(t, result)
 	})
 }

@@ -129,11 +129,7 @@ func NewSEP41ProtocolValidator() *SEP41ProtocolValidator { return &SEP41Protocol
 
 func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
 
-func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
-	return isContractCodeSEP41(specEntries)
-}
-
-// isContractCodeSEP41 validates whether a contract spec implements the SEP-41 token standard.
+// Validate checks whether a contract spec implements the SEP-41 token standard.
 // For a contract to be SEP-41 compliant, it must implement all required functions with exact signatures:
 //   - balance: (id: Address) -> (i128)
 //   - allowance: (from: Address, spender: Address) -> (i128)
@@ -145,7 +141,7 @@ func (v *SEP41ProtocolValidator) Validate(specEntries []xdr.ScSpecEntry) bool {
 //   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 //   - burn: (from: Address, amount: i128) -> ()
 //   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
-func isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
+func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
 	// Build a map of required function names to their specs for quick lookup
 	requiredSpecs := make(map[string][]sep41FunctionSpec, len(sep41RequiredFunctions))
 	for _, spec := range sep41RequiredFunctions {
