@@ -51,63 +51,55 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 
 // CheckpointServiceConfig holds configuration for creating a CheckpointService.
 type CheckpointServiceConfig struct {
-	DB                         db.ConnectionPool
-	Archive                    historyarchive.ArchiveInterface
-	ContractValidator          ContractValidator
-	ContractMetadataService    ContractMetadataService
-	TrustlineAssetModel        wbdata.TrustlineAssetModelInterface
-	TrustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
-	NativeBalanceModel         wbdata.NativeBalanceModelInterface
-	SACBalanceModel            wbdata.SACBalanceModelInterface
-	AccountContractTokensModel wbdata.AccountContractTokensModelInterface
-	ContractModel              wbdata.ContractModelInterface
-	ProtocolWasmModel          wbdata.ProtocolWasmModelInterface
-	ProtocolContractsModel     wbdata.ProtocolContractsModelInterface
-	NetworkPassphrase          string
+	DB                      db.ConnectionPool
+	Archive                 historyarchive.ArchiveInterface
+	ContractMetadataService ContractMetadataService
+	TrustlineAssetModel     wbdata.TrustlineAssetModelInterface
+	TrustlineBalanceModel   wbdata.TrustlineBalanceModelInterface
+	NativeBalanceModel      wbdata.NativeBalanceModelInterface
+	SACBalanceModel         wbdata.SACBalanceModelInterface
+	ContractModel           wbdata.ContractModelInterface
+	ProtocolWasmsModel      wbdata.ProtocolWasmsModelInterface
+	ProtocolContractsModel  wbdata.ProtocolContractsModelInterface
+	NetworkPassphrase       string
 }
 
 type checkpointService struct {
-	db                         db.ConnectionPool
-	archive                    historyarchive.ArchiveInterface
-	contractValidator          ContractValidator
-	contractMetadataService    ContractMetadataService
-	trustlineAssetModel        wbdata.TrustlineAssetModelInterface
-	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
-	nativeBalanceModel         wbdata.NativeBalanceModelInterface
-	sacBalanceModel            wbdata.SACBalanceModelInterface
-	accountContractTokensModel wbdata.AccountContractTokensModelInterface
-	contractModel              wbdata.ContractModelInterface
-	protocolWasmModel          wbdata.ProtocolWasmModelInterface
-	protocolContractsModel     wbdata.ProtocolContractsModelInterface
-	networkPassphrase          string
-	readerFactory              readerFactory
+	db                      db.ConnectionPool
+	archive                 historyarchive.ArchiveInterface
+	contractMetadataService ContractMetadataService
+	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
+	trustlineBalanceModel   wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel      wbdata.NativeBalanceModelInterface
+	sacBalanceModel         wbdata.SACBalanceModelInterface
+	contractModel           wbdata.ContractModelInterface
+	protocolWasmModel       wbdata.ProtocolWasmsModelInterface
+	protocolContractsModel  wbdata.ProtocolContractsModelInterface
+	networkPassphrase       string
+	readerFactory           readerFactory
 }
 
 // NewCheckpointService creates a CheckpointService.
 func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 	return &checkpointService{
-		db:                         cfg.DB,
-		archive:                    cfg.Archive,
-		contractValidator:          cfg.ContractValidator,
-		contractMetadataService:    cfg.ContractMetadataService,
-		trustlineAssetModel:        cfg.TrustlineAssetModel,
-		trustlineBalanceModel:      cfg.TrustlineBalanceModel,
-		nativeBalanceModel:         cfg.NativeBalanceModel,
-		sacBalanceModel:            cfg.SACBalanceModel,
-		accountContractTokensModel: cfg.AccountContractTokensModel,
-		contractModel:              cfg.ContractModel,
-		protocolWasmModel:          cfg.ProtocolWasmModel,
-		protocolContractsModel:     cfg.ProtocolContractsModel,
-		networkPassphrase:          cfg.NetworkPassphrase,
-		readerFactory:              defaultReaderFactory,
+		db:                      cfg.DB,
+		archive:                 cfg.Archive,
+		contractMetadataService: cfg.ContractMetadataService,
+		trustlineAssetModel:     cfg.TrustlineAssetModel,
+		trustlineBalanceModel:   cfg.TrustlineBalanceModel,
+		nativeBalanceModel:      cfg.NativeBalanceModel,
+		sacBalanceModel:         cfg.SACBalanceModel,
+		contractModel:           cfg.ContractModel,
+		protocolWasmModel:       cfg.ProtocolWasmsModel,
+		protocolContractsModel:  cfg.ProtocolContractsModel,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		readerFactory:           defaultReaderFactory,
 	}
 }
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
 // Note: Trustlines, native balances, and SAC balances are streamed directly to DB in batches.
 type checkpointData struct {
-	// contractTokensByHolderAddress maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
-	contractTokensByHolderAddress map[string][]uuid.UUID
 	// uniqueAssets stores unique asset metadata extracted from ledger (no RPC needed)
 	uniqueAssets map[uuid.UUID]*wbdata.TrustlineAsset
 	// uniqueContractTokens stores unique contract metadata extracted from ledger (no RPC needed)
@@ -116,9 +108,8 @@ type checkpointData struct {
 
 func newCheckpointData() checkpointData {
 	return checkpointData{
-		contractTokensByHolderAddress: make(map[string][]uuid.UUID),
-		uniqueAssets:                  make(map[uuid.UUID]*wbdata.TrustlineAsset),
-		uniqueContractTokens:          make(map[uuid.UUID]*wbdata.Contract),
+		uniqueAssets:         make(map[uuid.UUID]*wbdata.TrustlineAsset),
+		uniqueContractTokens: make(map[uuid.UUID]*wbdata.Contract),
 	}
 }
 
@@ -202,7 +193,6 @@ func (b *batch) reset() {
 // checkpointProcessor holds per-invocation state for processing a checkpoint.
 type checkpointProcessor struct {
 	service                                           *checkpointService
-	contractValidator                                 ContractValidator
 	dbTx                                              pgx.Tx
 	checkpointLedger                                  uint32
 	data                                              checkpointData
@@ -220,12 +210,6 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateFromCheckpoint requires archive connection")
 	}
-
-	defer func() {
-		if err := s.contractValidator.Close(ctx); err != nil {
-			log.Ctx(ctx).Errorf("error closing contract spec validator: %v", err)
-		}
-	}()
 
 	log.Ctx(ctx).Infof("Populating from checkpoint ledger = %d", checkpointLedger)
 
@@ -246,7 +230,6 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 
 		proc := &checkpointProcessor{
 			service:                     s,
-			contractValidator:           s.contractValidator,
 			dbTx:                        dbTx,
 			checkpointLedger:            checkpointLedger,
 			data:                        newCheckpointData(),
@@ -356,7 +339,6 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			if result.IsSAC {
 				return
 			}
-			p.entries++
 		} else {
 			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
 			if skip {
@@ -384,27 +366,14 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 					LedgerNumber:      p.checkpointLedger,
 				})
 				p.entries++
-				return
 			}
-
-			if _, ok := p.data.contractTokensByHolderAddress[holderAddress]; !ok {
-				p.data.contractTokensByHolderAddress[holderAddress] = []uuid.UUID{}
-			}
-			p.data.contractTokensByHolderAddress[holderAddress] = append(p.data.contractTokensByHolderAddress[holderAddress], wbdata.DeterministicContractID(contractAddressStr))
-			p.entries++
 		}
 	}
 }
 
-// processContractCode validates WASM code and classifies the contract type.
-func (p *checkpointProcessor) processContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) {
-	contractType, err := p.contractValidator.ValidateFromContractCode(ctx, wasmCode)
-	if err != nil {
-		p.wasmClassifications[wasmHash] = types.ContractTypeUnknown
-		return
-	}
-	p.wasmClassifications[wasmHash] = contractType
-	p.entries++
+// processContractCode tracks WASM hashes for protocol_wasms persistence.
+func (p *checkpointProcessor) processContractCode(_ context.Context, wasmHash xdr.Hash, _ []byte) {
+	p.wasmClassifications[wasmHash] = types.ContractTypeUnknown
 }
 
 // flushBatchIfNeeded flushes the batch to DB if it has reached the flush size.
@@ -453,29 +422,9 @@ func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
 		}
 	}
 
-	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	sep41Tokens, err := p.service.fetchSep41Metadata(ctx, p.contractAddressesByWasmHash, p.wasmClassifications)
-	if err != nil {
-		return fmt.Errorf("fetching SEP-41 token metadata: %w", err)
-	}
-	for _, token := range sep41Tokens {
-		p.data.uniqueContractTokens[token.ID] = token
-	}
-	sep41TokensByAccountAddress := make(map[string][]uuid.UUID)
-	for address, contractTokens := range p.data.contractTokensByHolderAddress {
-		for _, token := range contractTokens {
-			if _, exists := p.data.uniqueContractTokens[token]; exists && p.data.uniqueContractTokens[token].Type == string(types.ContractTypeSEP41) {
-				if _, exists := sep41TokensByAccountAddress[address]; !exists {
-					sep41TokensByAccountAddress[address] = make([]uuid.UUID, 0)
-				}
-				sep41TokensByAccountAddress[address] = append(sep41TokensByAccountAddress[address], token)
-			}
-		}
-	}
-
-	// Store SEP-41 contract relationships using deterministic IDs
-	if err := p.service.storeTokensInDB(ctx, dbTx, sep41TokensByAccountAddress, p.data.uniqueAssets, p.data.uniqueContractTokens); err != nil {
-		return fmt.Errorf("storing SEP-41 tokens in postgres: %w", err)
+	// Store contract tokens and trustline assets in DB
+	if err := p.service.storeTokensInDB(ctx, dbTx, p.data.uniqueAssets, p.data.uniqueContractTokens); err != nil {
+		return fmt.Errorf("storing tokens in postgres: %w", err)
 	}
 
 	// Persist protocol WASMs
@@ -598,39 +547,10 @@ func (s *checkpointService) processContractInstanceChange(
 	return contractInstanceResult{Skip: true}
 }
 
-// fetchSep41Metadata validates contract specs and enriches with SEP-41 classifications.
-func (s *checkpointService) fetchSep41Metadata(
-	ctx context.Context,
-	contractAddressesByWasmHash map[xdr.Hash][]xdr.Hash,
-	wasmClassifications map[xdr.Hash]types.ContractType,
-) ([]*wbdata.Contract, error) {
-	var sep41ContractIDs []string
-	for wasmHash, contractType := range wasmClassifications {
-		if contractType != types.ContractTypeSEP41 {
-			continue
-		}
-		for _, addr := range contractAddressesByWasmHash[wasmHash] {
-			sep41ContractIDs = append(sep41ContractIDs, strkey.MustEncode(strkey.VersionByteContract, addr[:]))
-		}
-	}
-
-	var sep41ContractsWithMetadata []*wbdata.Contract
-	var err error
-	if len(sep41ContractIDs) > 0 {
-		sep41ContractsWithMetadata, err = s.contractMetadataService.FetchSep41Metadata(ctx, sep41ContractIDs)
-		if err != nil {
-			return nil, fmt.Errorf("fetching SEP-41 contract metadata: %w", err)
-		}
-	}
-
-	return sep41ContractsWithMetadata, nil
-}
-
-// storeTokensInDB stores collected contract relationships into PostgreSQL.
+// storeTokensInDB stores collected contract and asset metadata into PostgreSQL.
 func (s *checkpointService) storeTokensInDB(
 	ctx context.Context,
 	dbTx pgx.Tx,
-	contractTokensByAccountAddress map[string][]uuid.UUID,
 	uniqueAssets map[uuid.UUID]*wbdata.TrustlineAsset,
 	uniqueContractTokens map[uuid.UUID]*wbdata.Contract,
 ) error {
@@ -660,10 +580,7 @@ func (s *checkpointService) storeTokensInDB(
 		}
 	}
 
-	if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccountAddress); err != nil {
-		return fmt.Errorf("batch inserting account contracts: %w", err)
-	}
-	log.Ctx(ctx).Infof("Inserted %d trustline assets, %d contract tokens, %d account-contract relationships in %.2f minutes", len(uniqueAssets), len(uniqueContractTokens), len(contractTokensByAccountAddress), time.Since(startTime).Minutes())
+	log.Ctx(ctx).Infof("Inserted %d trustline assets, %d contract tokens in %.2f minutes", len(uniqueAssets), len(uniqueContractTokens), time.Since(startTime).Minutes())
 
 	return nil
 }
@@ -743,9 +660,9 @@ func (s *checkpointService) persistProtocolWasms(ctx context.Context, dbTx pgx.T
 		return nil
 	}
 
-	wasms := make([]wbdata.ProtocolWasm, 0, len(wasmClassifications))
+	wasms := make([]wbdata.ProtocolWasms, 0, len(wasmClassifications))
 	for hash := range wasmClassifications {
-		wasms = append(wasms, wbdata.ProtocolWasm{
+		wasms = append(wasms, wbdata.ProtocolWasms{
 			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
 			ProtocolID: nil,
 		})

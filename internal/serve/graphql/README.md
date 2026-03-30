@@ -486,12 +486,6 @@ query GetAccountBalances {
       isAuthorized
       isClawbackEnabled
     }
-
-    ... on SEP41Balance {
-      name
-      symbol
-      decimals
-    }
   }
 }
 ```
@@ -505,12 +499,11 @@ The query returns different balance types based on the token:
 | `NativeBalance` | XLM (native asset) | `balance`, `tokenId`, `tokenType`, `minimumBalance`, `buyingLiabilities`, `sellingLiabilities`, `lastModifiedLedger` |
 | `TrustlineBalance` | Classic Stellar trustlines | `code`, `issuer`, `limit`, `isAuthorized`, liabilities |
 | `SACBalance` | Stellar Asset Contract (wrapped classic assets) | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
-| `SEP41Balance` | Custom contract tokens (SEP-41 standard) | `name`, `symbol`, `decimals` |
 
 **Common Fields (all balance types):**
 - `balance: String!` - Current balance amount
 - `tokenId: String!` - Contract ID (C...) for the token
-- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`, `SEP41`
+- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`
 
 **NativeBalance-specific Fields:**
 - `minimumBalance: String!` - Minimum balance required for reserves
@@ -522,7 +515,6 @@ The query returns different balance types based on the token:
 - `NATIVE` - XLM (Stellar's native asset)
 - `CLASSIC` - Classic Stellar trustline assets
 - `SAC` - Stellar Asset Contract (classic assets wrapped for Soroban)
-- `SEP41` - Custom fungible tokens implementing SEP-41
 
 **Example: Query with Type Fragments:**
 
@@ -550,12 +542,6 @@ query GetDetailedBalances {
     ... on SACBalance {
       code
       issuer
-      decimals
-    }
-
-    ... on SEP41Balance {
-      name
-      symbol
       decimals
     }
   }
@@ -586,14 +572,6 @@ query GetDetailedBalances {
         "limit": "922337203685.4775807",
         "isAuthorized": true
       },
-      {
-        "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
-        "balance": "1000.0000000",
-        "tokenType": "SEP41",
-        "name": "Example Token",
-        "symbol": "EXT",
-        "decimals": 7
-      }
     ]
   }
 }
@@ -601,16 +579,15 @@ query GetDetailedBalances {
 
 **How It Works:**
 
-This query leverages the Account Token Cache (see [Account Token Cache](../../../README.md#account-token-cache) in the main README) to efficiently retrieve balances:
+This query retrieves balances from the database:
 
-1. Fetches token identifiers from Redis cache (trustlines and contracts)
-2. Retrieves contract metadata from PostgreSQL (for SAC/SEP-41 tokens)
-3. Builds ledger keys and queries Stellar RPC for current balances
-4. Parses XDR entries and returns typed balance responses
+1. Fetches native XLM balance for G-addresses
+2. Fetches trustline balances for G-addresses
+3. Fetches SAC balances for contract addresses
 
 **Supported Address Types:**
-- **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
-- **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
+- **G-addresses**: Returns native XLM, trustlines, and SAC balances
+- **C-addresses** (contract addresses): Returns SAC balances only
 
 **Error Handling:**
 
@@ -673,12 +650,6 @@ query GetMultipleAccountBalances {
         issuer
         decimals
       }
-
-      ... on SEP41Balance {
-        name
-        symbol
-        decimals
-      }
     }
     error
   }
@@ -730,20 +701,6 @@ The query returns an array of `AccountBalances` objects, one per requested addre
         "balances": [],
         "error": "account not found on the network"
       },
-      {
-        "address": "CXYZ...",
-        "balances": [
-          {
-            "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
-            "balance": "1000.0000000",
-            "tokenType": "SEP41",
-            "name": "Example Token",
-            "symbol": "EXT",
-            "decimals": 7
-          }
-        ],
-        "error": null
-      }
     ]
   }
 }
@@ -774,8 +731,8 @@ This query uses **per-account error handling**, meaning failures for individual 
 - **Empty Results**: Returns empty `balances` array (not an error) when an account is not found
 
 **Supported Address Types:**
-- **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
-- **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
+- **G-addresses**: Returns native XLM, trustlines, and SAC balances
+- **C-addresses** (contract addresses): Returns SAC balances only
 
 **Configuration:**
 

@@ -131,8 +131,8 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
-	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey)
+func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, accountChangesByAccountID, sacBalanceChangesByKey)
 	return args.Error(0)
 }
 
@@ -257,37 +257,6 @@ func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	return args.Get(0).([]historyarchive.ArchiveStats)
 }
 
-// ContractValidatorMock is a mock implementation of the ContractValidator interface
-type ContractValidatorMock struct {
-	mock.Mock
-}
-
-var _ ContractValidator = (*ContractValidatorMock)(nil)
-
-func (m *ContractValidatorMock) ValidateFromContractCode(ctx context.Context, wasmCode []byte) (types.ContractType, error) {
-	args := m.Called(ctx, wasmCode)
-	return args.Get(0).(types.ContractType), args.Error(1)
-}
-
-func (m *ContractValidatorMock) Close(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-// NewContractValidatorMock creates a new instance of ContractValidatorMock.
-func NewContractValidatorMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ContractValidatorMock {
-	mock := &ContractValidatorMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
 // ChangeReaderMock is a mock implementation of the ChangeReader interface
 type ChangeReaderMock struct {
 	mock.Mock
@@ -319,20 +288,77 @@ func NewChangeReaderMock(t interface {
 	return mock
 }
 
+// ProtocolValidatorMock is a mock implementation of the ProtocolValidator interface
+type ProtocolValidatorMock struct {
+	mock.Mock
+}
+
+var _ ProtocolValidator = (*ProtocolValidatorMock)(nil)
+
+func (m *ProtocolValidatorMock) ProtocolID() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *ProtocolValidatorMock) Validate(specEntries []xdr.ScSpecEntry) bool {
+	args := m.Called(specEntries)
+	return args.Bool(0)
+}
+
+// NewProtocolValidatorMock creates a new instance of ProtocolValidatorMock.
+func NewProtocolValidatorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolValidatorMock {
+	mock := &ProtocolValidatorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// WasmSpecExtractorMock is a mock implementation of the WasmSpecExtractor interface
+type WasmSpecExtractorMock struct {
+	mock.Mock
+}
+
+var _ WasmSpecExtractor = (*WasmSpecExtractorMock)(nil)
+
+func (m *WasmSpecExtractorMock) ExtractSpec(ctx context.Context, wasmCode []byte) ([]xdr.ScSpecEntry, error) {
+	args := m.Called(ctx, wasmCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]xdr.ScSpecEntry), args.Error(1)
+}
+
+func (m *WasmSpecExtractorMock) Close(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+// NewWasmSpecExtractorMock creates a new instance of WasmSpecExtractorMock.
+func NewWasmSpecExtractorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *WasmSpecExtractorMock {
+	mock := &WasmSpecExtractorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
 // ContractMetadataServiceMock is a mock implementation of ContractMetadataService
 type ContractMetadataServiceMock struct {
 	mock.Mock
 }
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
-
-func (c *ContractMetadataServiceMock) FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
-	args := c.Called(ctx, contractIDs)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*data.Contract), args.Error(1)
-}
 
 func (c *ContractMetadataServiceMock) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
 	args := c.Called(ctx, contractIDs)
@@ -345,14 +371,6 @@ func (c *ContractMetadataServiceMock) FetchSACMetadata(ctx context.Context, cont
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
 	args := c.Called(ctx, contractAddress, functionName, funcArgs)
 	return args.Get(0).(xdr.ScVal), args.Error(1)
-}
-
-func (c *ContractMetadataServiceMock) FetchMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) ([]*data.Contract, error) {
-	args := c.Called(ctx, contractTypesByID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
 // NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.

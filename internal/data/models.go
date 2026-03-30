@@ -8,20 +8,20 @@ import (
 )
 
 type Models struct {
-	DB                    db.ConnectionPool
-	Account               *AccountModel
-	Contract              ContractModelInterface
-	TrustlineAsset        TrustlineAssetModelInterface
-	TrustlineBalance      TrustlineBalanceModelInterface
-	NativeBalance         NativeBalanceModelInterface
-	SACBalance            SACBalanceModelInterface
-	AccountContractTokens AccountContractTokensModelInterface
-	ProtocolWasm          ProtocolWasmModelInterface
-	ProtocolContracts     ProtocolContractsModelInterface
-	IngestStore           *IngestStoreModel
-	Operations            *OperationModel
-	Transactions          *TransactionModel
-	StateChanges          *StateChangeModel
+	DB                db.ConnectionPool
+	Account           *AccountModel
+	Contract          ContractModelInterface
+	TrustlineAsset    TrustlineAssetModelInterface
+	TrustlineBalance  TrustlineBalanceModelInterface
+	NativeBalance     NativeBalanceModelInterface
+	SACBalance        SACBalanceModelInterface
+	ProtocolWasms     ProtocolWasmsModelInterface
+	Protocols         ProtocolsModelInterface
+	ProtocolContracts ProtocolContractsModelInterface
+	IngestStore       *IngestStoreModel
+	Operations        *OperationModel
+	Transactions      *TransactionModel
+	StateChanges      *StateChangeModel
 }
 
 func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Models, error) {
@@ -30,19 +30,19 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 	}
 
 	return &Models{
-		DB:                    db,
-		Account:               &AccountModel{DB: db, MetricsService: metricsService},
-		Contract:              &ContractModel{DB: db, MetricsService: metricsService},
-		TrustlineAsset:        &TrustlineAssetModel{DB: db, MetricsService: metricsService},
-		TrustlineBalance:      &TrustlineBalanceModel{DB: db, MetricsService: metricsService},
-		NativeBalance:         &NativeBalanceModel{DB: db, MetricsService: metricsService},
-		SACBalance:            &SACBalanceModel{DB: db, MetricsService: metricsService},
-		AccountContractTokens: &AccountContractTokensModel{DB: db, MetricsService: metricsService},
-		ProtocolWasm:          &ProtocolWasmModel{DB: db, MetricsService: metricsService},
-		ProtocolContracts:     &ProtocolContractsModel{DB: db, MetricsService: metricsService},
-		IngestStore:           &IngestStoreModel{DB: db, MetricsService: metricsService},
-		Operations:            &OperationModel{DB: db, MetricsService: metricsService},
-		Transactions:          &TransactionModel{DB: db, MetricsService: metricsService},
-		StateChanges:          &StateChangeModel{DB: db, MetricsService: metricsService},
+		DB:                db,
+		Account:           &AccountModel{DB: db, MetricsService: metricsService},
+		Contract:          &ContractModel{DB: db, MetricsService: metricsService},
+		TrustlineAsset:    &TrustlineAssetModel{DB: db, MetricsService: metricsService},
+		TrustlineBalance:  &TrustlineBalanceModel{DB: db, MetricsService: metricsService},
+		NativeBalance:     &NativeBalanceModel{DB: db, MetricsService: metricsService},
+		SACBalance:        &SACBalanceModel{DB: db, MetricsService: metricsService},
+		ProtocolWasms:     &ProtocolWasmsModel{DB: db, MetricsService: metricsService},
+		Protocols:         &ProtocolsModel{DB: db, MetricsService: metricsService},
+		ProtocolContracts: &ProtocolContractsModel{DB: db, MetricsService: metricsService},
+		IngestStore:       &IngestStoreModel{DB: db, MetricsService: metricsService},
+		Operations:        &OperationModel{DB: db, MetricsService: metricsService},
+		Transactions:      &TransactionModel{DB: db, MetricsService: metricsService},
+		StateChanges:      &StateChangeModel{DB: db, MetricsService: metricsService},
 	}, nil
 }

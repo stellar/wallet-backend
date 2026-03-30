@@ -5,9 +5,10 @@ package data
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // ContractModelMock is a mock implementation of ContractModelInterface.
@@ -187,20 +188,20 @@ func (m *SACBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balanc
 	return args.Error(0)
 }
 
-// AccountContractTokensModelMock is a mock implementation of AccountContractTokensModelInterface.
-type AccountContractTokensModelMock struct {
+// ProtocolWasmsModelMock is a mock implementation of ProtocolWasmsModelInterface.
+type ProtocolWasmsModelMock struct {
 	mock.Mock
 }
 
-var _ AccountContractTokensModelInterface = (*AccountContractTokensModelMock)(nil)
+var _ ProtocolWasmsModelInterface = (*ProtocolWasmsModelMock)(nil)
 
-// NewAccountContractTokensModelMock creates a new instance of AccountContractTokensModelMock.
-func NewAccountContractTokensModelMock(t interface {
+// NewProtocolWasmsModelMock creates a new instance of ProtocolWasmsModelMock.
+func NewProtocolWasmsModelMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *AccountContractTokensModelMock {
-	mockModel := &AccountContractTokensModelMock{}
+) *ProtocolWasmsModelMock {
+	mockModel := &ProtocolWasmsModelMock{}
 	mockModel.Mock.Test(t)
 
 	t.Cleanup(func() { mockModel.AssertExpectations(t) })
@@ -208,33 +209,38 @@ func NewAccountContractTokensModelMock(t interface {
 	return mockModel
 }
 
-func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error) {
-	args := m.Called(ctx, accountAddress)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*Contract), args.Error(1)
-}
-
-func (m *AccountContractTokensModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error {
-	args := m.Called(ctx, dbTx, contractsByAccount)
+func (m *ProtocolWasmsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error {
+	args := m.Called(ctx, dbTx, wasms)
 	return args.Error(0)
 }
 
-// ProtocolWasmModelMock is a mock implementation of ProtocolWasmModelInterface.
-type ProtocolWasmModelMock struct {
+func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]ProtocolWasms, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ProtocolWasms), args.Error(1)
+}
+
+func (m *ProtocolWasmsModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
+	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
+	return args.Error(0)
+}
+
+// ProtocolsModelMock is a mock implementation of ProtocolsModelInterface.
+type ProtocolsModelMock struct {
 	mock.Mock
 }
 
-var _ ProtocolWasmModelInterface = (*ProtocolWasmModelMock)(nil)
+var _ ProtocolsModelInterface = (*ProtocolsModelMock)(nil)
 
-// NewProtocolWasmModelMock creates a new instance of ProtocolWasmModelMock.
-func NewProtocolWasmModelMock(t interface {
+// NewProtocolsModelMock creates a new instance of ProtocolsModelMock.
+func NewProtocolsModelMock(t interface {
 	mock.TestingT
 	Cleanup(func())
 },
-) *ProtocolWasmModelMock {
-	mockModel := &ProtocolWasmModelMock{}
+) *ProtocolsModelMock {
+	mockModel := &ProtocolsModelMock{}
 	mockModel.Mock.Test(t)
 
 	t.Cleanup(func() { mockModel.AssertExpectations(t) })
@@ -242,8 +248,21 @@ func NewProtocolWasmModelMock(t interface {
 	return mockModel
 }
 
-func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
-	args := m.Called(ctx, dbTx, wasms)
+func (m *ProtocolsModelMock) UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+	args := m.Called(ctx, dbTx, protocolIDs, status)
+	return args.Error(0)
+}
+
+func (m *ProtocolsModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error) {
+	args := m.Called(ctx, protocolIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]Protocols), args.Error(1)
+}
+
+func (m *ProtocolsModelMock) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
+	args := m.Called(ctx, dbTx, protocolID)
 	return args.Error(0)
 }
 

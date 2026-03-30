@@ -13,8 +13,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
-	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -240,44 +238,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 	}
 
-	// Fetch SEP-41 contract tokens for the account (both G-addresses and C-addresses)
-	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to get contract tokens for %s: %v", address, err)
-		return nil, &gqlerror.Error{
-			Message: ErrMsgBalancesFetchFailed,
-			Extensions: map[string]interface{}{
-				"code": "INTERNAL_ERROR",
-			},
-		}
-	}
-
-	// Collect SEP-41 contract IDs for balance simulation
-	contractsByContractID := make(map[string]*data.Contract)
-	sep41TokenIDs := make([]string, 0)
-	for _, contract := range contractTokens {
-		if contract.Type == "SEP41" {
-			sep41TokenIDs = append(sep41TokenIDs, contract.ContractID)
-			contractsByContractID[contract.ContractID] = contract
-		}
-	}
-
-	// Simulate call to `balance(id)` function of SEP-41 contracts
-	if len(sep41TokenIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
-		if err != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
-			}
-		}
-		for _, result := range sep41Balances {
-			balances = append(balances, result)
-		}
-	}
-
 	return balances, nil
 }
 
@@ -340,10 +300,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		address := addr
 		group.Submit(func() {
 			info := &accountKeyInfo{
-				address:          address,
-				isContract:       utils.IsContractAddress(address),
-				contractsByID:    make(map[string]*data.Contract),
-				sep41ContractIDs: make([]string, 0),
+				address:    address,
+				isContract: utils.IsContractAddress(address),
 			}
 
 			// Get native balance, trustlines, and SAC balances based on address type
@@ -375,19 +333,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				info.trustlines = trustlines
 			}
 
-			// Get contracts for the account (already resolved to full Contract objects)
-			contracts, err := r.accountContractTokensModel.GetByAccount(ctx, address)
-			if err != nil {
-				info.collectionErr = fmt.Errorf("getting contracts: %w", err)
-				accountInfos[index] = info
-				return
-			}
-
-			// Populate contract metadata map
-			for _, c := range contracts {
-				info.contractsByID[c.ContractID] = c
-			}
-
 			accountInfos[index] = info
 		})
 	}
@@ -399,45 +344,6 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				"code": "INTERNAL_ERROR",
 			},
 		}
-	}
-
-	// Build ledger keys to get SEP41 balances from RPC
-	ledgerKeys := make([]string, 0)
-	for _, info := range accountInfos {
-		if info.collectionErr != nil {
-			continue // Skip accounts with collection errors
-		}
-
-		// Build ledger keys for SEP-41 contract tokens
-		for _, contract := range info.contractsByID {
-			switch contract.Type {
-			case "SEP41":
-				info.sep41ContractIDs = append(info.sep41ContractIDs, contract.ContractID)
-			default:
-				continue
-			}
-		}
-	}
-
-	// Single RPC call for all ledger entries
-	var rpcResult entities.RPCGetLedgerEntriesResult
-	var rpcErr error
-	if len(ledgerKeys) > 0 {
-		rpcResult, rpcErr = r.rpcService.GetLedgerEntries(ledgerKeys)
-		if rpcErr != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgRPCUnavailable,
-				Extensions: map[string]interface{}{
-					"code": "RPC_UNAVAILABLE",
-				},
-			}
-		}
-	}
-
-	// Create mapping: ledger key -> entry result
-	ledgerEntriesByLedgerKeys := make(map[string]*entities.LedgerEntryResult)
-	for _, entry := range rpcResult.Entries {
-		ledgerEntriesByLedgerKeys[entry.KeyXDR] = &entry
 	}
 
 	// Phase 2: Parallel processing of results per account
@@ -465,18 +371,8 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 				return
 			}
 
-			// Check for RPC error
-			if rpcErr != nil {
-				errStr := fmt.Sprintf("RPC error: %v", rpcErr)
-				result.Error = &errStr
-				resultsMu.Lock()
-				results[index] = result
-				resultsMu.Unlock()
-				return
-			}
-
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(ctx, info, r.contractMetadataService, networkPassphrase, r.pool)
+			balances, parseErr := parseAccountBalances(info, networkPassphrase)
 			if parseErr != nil {
 				errStr := fmt.Sprintf("parsing account balances: %v", parseErr)
 				result.Error = &errStr

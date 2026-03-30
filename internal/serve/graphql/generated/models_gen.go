@@ -127,20 +127,6 @@ func (this SACBalance) GetBalance() string      { return this.Balance }
 func (this SACBalance) GetTokenID() string      { return this.TokenID }
 func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
 
-type SEP41Balance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
-	TokenType TokenType `json:"tokenType"`
-	Name      string    `json:"name"`
-	Symbol    string    `json:"symbol"`
-	Decimals  int32     `json:"decimals"`
-}
-
-func (SEP41Balance) IsBalance()                   {}
-func (this SEP41Balance) GetBalance() string      { return this.Balance }
-func (this SEP41Balance) GetTokenID() string      { return this.TokenID }
-func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
-
 type SimulationResultInput struct {
 	TransactionData *string  `json:"transactionData,omitempty"`
 	Events          []string `json:"events,omitempty"`
@@ -196,19 +182,17 @@ const (
 	TokenTypeNative  TokenType = "NATIVE"
 	TokenTypeClassic TokenType = "CLASSIC"
 	TokenTypeSac     TokenType = "SAC"
-	TokenTypeSep41   TokenType = "SEP41"
 )
 
 var AllTokenType = []TokenType{
 	TokenTypeNative,
 	TokenTypeClassic,
 	TokenTypeSac,
-	TokenTypeSep41,
 }
 
 func (e TokenType) IsValid() bool {
 	switch e {
-	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41:
+	case TokenTypeNative, TokenTypeClassic, TokenTypeSac:
 		return true
 	}
 	return false

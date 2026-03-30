@@ -5,7 +5,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -342,72 +341,6 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 	})
 }
 
-func TestGetAccountContracts(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
-		require.NoError(t, err)
-	}
-
-	t.Run("account with no contracts returns empty", func(t *testing.T) {
-		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-
-		got, err := accountContractTokensModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
-		assert.NoError(t, err)
-		assert.Empty(t, got)
-	})
-
-	t.Run("account with contracts returns contract IDs", func(t *testing.T) {
-		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-
-		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SAC"},
-			})
-		})
-		require.NoError(t, err)
-
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountContractTokensModel.BatchInsert(ctx, dbTx, map[string][]uuid.UUID{
-				accountAddress: {numericID},
-			})
-		})
-		require.NoError(t, err)
-
-		got, err := accountContractTokensModel.GetByAccount(ctx, accountAddress)
-		assert.NoError(t, err)
-		assert.Len(t, got, 1)
-		assert.Equal(t, contractID, got[0].ContractID)
-	})
-}
-
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
@@ -420,8 +353,6 @@ func TestProcessTokenChanges(t *testing.T) {
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM account_contract_tokens`)
-		require.NoError(t, err)
 		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
@@ -432,73 +363,19 @@ func TestProcessTokenChanges(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
 
 		service := NewTokenIngestionService(TokenIngestionServiceConfig{
-			TrustlineBalanceModel:      trustlineBalanceModel,
-			NativeBalanceModel:         nativeBalanceModel,
-			SACBalanceModel:            sacBalanceModel,
-			AccountContractTokensModel: accountContractTokensModel,
-			NetworkPassphrase:          "Test SDF Network ; September 2015",
+			TrustlineBalanceModel: trustlineBalanceModel,
+			NativeBalanceModel:    nativeBalanceModel,
+			SACBalanceModel:       sacBalanceModel,
+			NetworkPassphrase:     "Test SDF Network ; September 2015",
 		})
 
 		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})
 		assert.NoError(t, err)
-	})
-
-	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
-		cleanUpDB()
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
-		defer mockMetricsService.AssertExpectations(t)
-
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
-
-		service := NewTokenIngestionService(TokenIngestionServiceConfig{
-			TrustlineBalanceModel:      trustlineBalanceModel,
-			NativeBalanceModel:         nativeBalanceModel,
-			SACBalanceModel:            sacBalanceModel,
-			AccountContractTokensModel: accountContractTokensModel,
-			NetworkPassphrase:          "Test SDF Network ; September 2015",
-		})
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-
-		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SEP41"},
-			})
-		})
-		require.NoError(t, err)
-
-		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
-				{
-					AccountID:    accountAddress,
-					ContractID:   contractID,
-					ContractType: types.ContractTypeSEP41,
-				},
-			}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
-		})
-		assert.NoError(t, err)
-
-		contracts, err := accountContractTokensModel.GetByAccount(ctx, accountAddress)
-		assert.NoError(t, err)
-		require.Len(t, contracts, 1)
-		assert.Equal(t, contractID, contracts[0].ContractID)
 	})
 }
