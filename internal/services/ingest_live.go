@@ -136,22 +136,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 		m.appMetrics.Ingestion.OldestLedger.Set(float64(oldestIngestedLedger))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(latestIngestedLedger))
-
-		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
-		health, err := m.rpcService.GetHealth()
-		if err != nil {
-			return fmt.Errorf("getting health check result from RPC: %w", err)
-		}
-		networkLatestLedger := health.LatestLedger
-		if networkLatestLedger > startLedger && (networkLatestLedger-startLedger) >= m.catchupThreshold {
-			log.Ctx(ctx).Infof("Wallet backend has fallen behind network tip by %d ledgers. Doing optimized catchup to the tip: %d", networkLatestLedger-startLedger, networkLatestLedger)
-			err := m.startBackfilling(ctx, startLedger, networkLatestLedger, BackfillModeCatchup)
-			if err != nil {
-				return fmt.Errorf("catching up to network tip: %w", err)
-			}
-			// Update startLedger to continue from where catchup ended
-			startLedger = networkLatestLedger + 1
-		}
 	}
 
 	// Start unbounded ingestion from latest ledger ingested onwards
