@@ -3,22 +3,21 @@ package processors
 import (
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
-
-// noopMetrics satisfies MetricsServiceInterface for tests without requiring full mock machinery.
-type noopMetrics struct{}
-
-func (noopMetrics) ObserveStateChangeProcessingDuration(string, float64) {}
 
 func int16Ptr(v int16) *int16 { return &v }
 
 func TestStateChangeBuilder_FluentAPI(t *testing.T) {
+	ingestionMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion
+
 	t.Run("chainable", func(t *testing.T) {
-		b := NewStateChangeBuilder(1, 1000, 42, noopMetrics{})
+		b := NewStateChangeBuilder(1, 1000, 42, ingestionMetrics)
 
 		// Each With* method should return the same builder pointer.
 		require.Same(t, b, b.WithCategory(types.StateChangeCategoryBalance))
@@ -42,7 +41,7 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 	})
 
 	t.Run("field values", func(t *testing.T) {
-		sc := NewStateChangeBuilder(5, 2000, 77, noopMetrics{}).
+		sc := NewStateChangeBuilder(5, 2000, 77, ingestionMetrics).
 			WithCategory(types.StateChangeCategorySigner).
 			WithReason(types.StateChangeReasonAdd).
 			WithAccount("GACC").

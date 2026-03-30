@@ -63,8 +63,8 @@ type Resolver struct {
 	balanceReader              BalanceReader
 	accountContractTokensModel data.AccountContractTokensModelInterface
 	contractMetadataService    services.ContractMetadataService
-	// metricsService provides metrics collection capabilities
-	metricsService metrics.MetricsService
+	// metrics provides metrics collection capabilities
+	metrics *metrics.Metrics
 	// pool provides parallel processing capabilities for batch operations
 	pool pond.Pool
 	// config holds resolver-specific configuration values
@@ -74,7 +74,7 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, metricsService metrics.MetricsService, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, m *metrics.Metrics, config ResolverConfig) *Resolver {
 	poolSize := config.MaxWorkerPoolSize
 	if poolSize <= 0 {
 		poolSize = 100 // default fallback
@@ -87,7 +87,7 @@ func NewResolver(models *data.Models, transactionService services.TransactionSer
 		balanceReader:              balanceReader,
 		accountContractTokensModel: accountContractTokensModel,
 		contractMetadataService:    contractMetadataService,
-		metricsService:             metricsService,
+		metrics:                    m,
 		pool:                       pond.NewPool(poolSize),
 		config:                     config,
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 var (
@@ -34,10 +35,10 @@ const (
 
 type SACEventsProcessor struct {
 	networkPassphrase string
-	metricsService    processors.MetricsServiceInterface
+	metricsService    *metrics.IngestionMetrics
 }
 
-func NewSACEventsProcessor(networkPassphrase string, metricsService processors.MetricsServiceInterface) *SACEventsProcessor {
+func NewSACEventsProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *SACEventsProcessor {
 	return &SACEventsProcessor{
 		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,
@@ -54,7 +55,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("SACEventsProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("SACEventsProcessor").Observe(duration)
 		}
 	}()
 

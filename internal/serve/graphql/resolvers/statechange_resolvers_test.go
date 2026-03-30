@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -265,17 +265,14 @@ func TestStateChangeResolver_Account(t *testing.T) {
 }
 
 func TestStateChangeResolver_Operation(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "operations", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "operations", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -327,17 +324,14 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 }
 
 func TestStateChangeResolver_Transaction(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}

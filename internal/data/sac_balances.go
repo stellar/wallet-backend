@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // SACBalance contains SAC (Stellar Asset Contract) balance data for contract addresses.
@@ -46,8 +47,8 @@ type SACBalanceModelInterface interface {
 
 // SACBalanceModel implements SACBalanceModelInterface.
 type SACBalanceModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
@@ -70,12 +71,12 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	start := time.Now()
 	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "sac_balances", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "sac_balances", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.IncDBQuery("GetByAccount", "sac_balances")
 	return balances, nil
 }
 
@@ -127,15 +128,21 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close() //nolint:errcheck // cleanup on error path
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("closing SAC balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "sac_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 	return nil
 }
 
@@ -171,14 +178,20 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		}),
 	)
 	if err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting SAC balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "sac_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "sac_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "sac_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
 	return nil
 }

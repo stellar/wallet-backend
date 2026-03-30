@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -188,22 +188,12 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			_, err = dbConnectionPool.Exec(ctx, "TRUNCATE state_changes CASCADE")
 			require.NoError(t, err)
 
-			// Create fresh mock for each test case
-			mockMetricsService := metrics.NewMockMetricsService()
-			// Only set up metric expectations if we have state changes to insert
-			if len(tc.stateChanges) > 0 {
-				mockMetricsService.
-					On("ObserveDBQueryDuration", "BatchCopy", "state_changes", mock.Anything).Return().Once()
-				mockMetricsService.
-					On("ObserveDBBatchSize", "BatchCopy", "state_changes", mock.Anything).Return().Once()
-				mockMetricsService.
-					On("IncDBQuery", "BatchCopy", "state_changes").Return().Once()
-			}
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &StateChangeModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			// BatchCopy requires a pgx transaction
@@ -267,14 +257,12 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	`, now, types.AddressBytea(address1), types.AddressBytea(address2))
 	require.NoError(t, err)
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Times(2)
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Times(2)
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	// Test BatchGetByAccount for address1
@@ -334,14 +322,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		txHash := testHash1
@@ -356,14 +342,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter by operation ID only", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		operationID := int64(123)
@@ -378,14 +362,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		txHash := testHash1
@@ -402,14 +384,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter by category only", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		category := "BALANCE"
@@ -423,14 +403,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter by reason only", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		reason := "ADD"
@@ -444,14 +422,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter by both category and reason", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		category := "SIGNER"
@@ -467,14 +443,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		txHash := testHash1
@@ -494,14 +468,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter with no matching results", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		txHash := testHashNonExistent
@@ -511,14 +483,12 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 
 	t.Run("filter with pagination", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
-		defer mockMetricsService.AssertExpectations(t)
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
 
 		m := &StateChangeModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		txHash := testHash1
@@ -538,14 +508,12 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetAll", "state_changes").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	now := time.Now()
@@ -701,15 +669,12 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "state_changes").Return().Times(tc.expectMetricCalls)
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &StateChangeModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			stateChanges, err := m.BatchGetByToIDs(ctx, tc.toIDs, "", tc.limit, tc.sortOrder)
@@ -740,15 +705,12 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "state_changes").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	now := time.Now()
@@ -801,14 +763,12 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "state_changes").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	now := time.Now()
@@ -904,11 +864,12 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 	}
 	defer dbConnectionPool.Close()
 
-	metricsService := metrics.NewMetricsService()
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &StateChangeModel{
-		DB:             dbConnectionPool,
-		MetricsService: metricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	// Create pgx connection for BatchCopy

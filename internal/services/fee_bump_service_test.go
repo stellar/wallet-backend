@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
@@ -26,9 +27,9 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
 
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+	models, err := data.NewModels(dbConnectionPool, m.DB)
 	require.NoError(t, err)
 
 	signatureClient := signing.SignatureClientMock{}
@@ -42,10 +43,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -73,10 +70,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 
 	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
 		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
@@ -109,10 +102,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
 		// Insert into channel_accounts to make account fee-bump eligible
 		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
 		require.NoError(t, err)
@@ -144,10 +133,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("successfully_wraps_the_transaction_with_fee_bump", func(t *testing.T) {
 		distributionAccount := keypair.MustRandom()
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
 
 		// Insert into channel_accounts to make account fee-bump eligible
 		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())

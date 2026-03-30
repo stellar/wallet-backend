@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -37,13 +37,13 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns error for empty account address", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns error for empty account address", func(t *testing.T) {
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balances, err := m.GetByAccount(ctx, "")
@@ -54,14 +54,10 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns empty slice for account with no trustlines", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		balances, err := m.GetByAccount(ctx, "GNOTEXIST")
@@ -71,14 +67,10 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns single trustline with correct data from JOIN", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		accountAddr := "GACCOUNT1"
@@ -108,14 +100,10 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 
 	t.Run("returns multiple trustlines for account", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByAccount", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByAccount", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		accountAddr := "GACCOUNT2"
@@ -163,13 +151,13 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty upserts and deletes", func(t *testing.T) {
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -182,14 +170,10 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("inserts new trustline balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -221,14 +205,10 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("updates existing trustline balance on conflict", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "trustline_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "trustline_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -269,14 +249,10 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("deletes trustline balance", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "trustline_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "trustline_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert
@@ -308,14 +284,10 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 	t.Run("handles combined upserts and deletes", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchUpsert", "trustline_balances", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "BatchUpsert", "trustline_balances").Return().Times(2)
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// Insert two trustlines
@@ -382,13 +354,13 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty input", func(t *testing.T) {
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -401,14 +373,10 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts single balance via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -450,14 +418,10 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 
 	t.Run("inserts multiple balances via COPY", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchCopy", "trustline_balances", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchCopy", "trustline_balances").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineBalanceModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)

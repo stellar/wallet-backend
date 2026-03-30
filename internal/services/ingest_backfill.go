@@ -387,7 +387,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 
 	// Record metrics for historical backfill cursor updates
 	if mode.isHistorical() {
-		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+		m.appMetrics.Ingestion.OldestLedger.Set(float64(batch.StartLedger))
 	}
 
 	result.Duration = time.Since(start)
@@ -468,6 +468,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			return nil
 		}
 		lastErr = err
+		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush").Inc()
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {
@@ -482,6 +483,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		case <-time.After(backoff):
 		}
 	}
+	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("batch_flush").Inc()
 	return lastErr
 }
 

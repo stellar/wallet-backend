@@ -42,10 +42,10 @@ type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
 	// === Core ===
-	IngestionMode  string
-	Models         *data.Models
-	AppTracker     apptracker.AppTracker
-	MetricsService metrics.MetricsService
+	IngestionMode string
+	Models        *data.Models
+	AppTracker    apptracker.AppTracker
+	Metrics       *metrics.Metrics
 
 	// === Stellar Network ===
 	Network           string
@@ -109,7 +109,7 @@ type ingestService struct {
 	chAccStore                store.ChannelAccountStore
 	tokenIngestionService     TokenIngestionService
 	contractMetadataService   ContractMetadataService
-	metricsService            metrics.MetricsService
+	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
@@ -124,7 +124,7 @@ type ingestService struct {
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
-	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
 	// Default to NumCPU if not specified.
@@ -133,7 +133,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillWorkers = runtime.NumCPU()
 	}
 	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
+	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
@@ -148,10 +148,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		chAccStore:                cfg.ChannelAccountStore,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		contractMetadataService:   cfg.ContractMetadataService,
-		metricsService:            cfg.MetricsService,
+		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
 		archive:                   cfg.Archive,
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
@@ -177,7 +177,13 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 // getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
 // It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
+// LedgerFetchDuration is always observed (including on error/exhaustion paths) to capture full retry latency.
 func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
+	fetchStart := time.Now()
+	defer func() {
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
+	}()
+
 	var lastErr error
 	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
 		select {
@@ -192,6 +198,8 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 		}
 		lastErr = err
 
+		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxRetryBackoff {
 			backoff = maxRetryBackoff
@@ -205,6 +213,8 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 		case <-time.After(backoff):
 		}
 	}
+	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("ledger_fetch").Inc()
+	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ledger_fetch").Inc()
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
@@ -214,7 +224,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	if err != nil {
 		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
-	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
+	m.appMetrics.Ingestion.ParticipantsCount.Observe(float64(participantCount))
 	return nil
 }
 
@@ -286,6 +296,6 @@ func (m *ingestService) recordStateChangeMetrics(stateChanges []types.StateChang
 	}
 	for key, count := range counts {
 		parts := strings.SplitN(key, "|", 2)
-		m.metricsService.IncStateChanges(parts[0], parts[1], count)
+		m.appMetrics.Ingestion.StateChangesTotal.WithLabelValues(parts[0], parts[1]).Add(float64(count))
 	}
 }

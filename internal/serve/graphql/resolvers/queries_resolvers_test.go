@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -21,18 +21,15 @@ func testOpXDR(n int) string {
 }
 
 func TestQueryResolver_TransactionByHash(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "GetByHash", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetByHash", "transactions").Return()
-	mockMetricsService.On("IncDBQueryError", "GetByHash", "transactions", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				Transactions: &data.TransactionModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},
@@ -83,17 +80,15 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 }
 
 func TestQueryResolver_Transactions(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetAll", "transactions").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				Transactions: &data.TransactionModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},
@@ -259,17 +254,15 @@ func TestQueryResolver_Account(t *testing.T) {
 }
 
 func TestQueryResolver_Operations(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "operations", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetAll", "operations").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				Operations: &data.OperationModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},
@@ -423,18 +416,15 @@ func TestQueryResolver_Operations(t *testing.T) {
 }
 
 func TestQueryResolver_OperationByID(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "operations", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetByID", "operations").Return()
-	mockMetricsService.On("IncDBQueryError", "GetByID", "operations", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				Operations: &data.OperationModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},
@@ -476,17 +466,15 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 }
 
 func TestQueryResolver_StateChanges(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "GetAll", "state_changes").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				StateChanges: &data.StateChangeModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},

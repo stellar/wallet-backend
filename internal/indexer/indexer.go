@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -76,27 +77,27 @@ type Indexer struct {
 	sacInstancesProcessor  LedgerChangeProcessor[*data.Contract]
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
-	metricsService         processors.MetricsServiceInterface
+	ingestionMetrics       *metrics.IngestionMetrics
 	skipTxMeta             bool
 	skipTxEnvelope         bool
 	networkPassphrase      string
 }
 
-func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics, skipTxMeta bool, skipTxEnvelope bool) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
-		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, metricsService),
+		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
+		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
 		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
-		accountsProcessor:      processors.NewAccountsProcessor(metricsService),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(metricsService),
+		accountsProcessor:      processors.NewAccountsProcessor(ingestionMetrics),
+		trustlinesProcessor:    processors.NewTrustlinesProcessor(ingestionMetrics),
 		processors: []OperationProcessorInterface{
-			processors.NewEffectsProcessor(networkPassphrase, metricsService),
-			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
-			contract_processors.NewSACEventsProcessor(networkPassphrase, metricsService),
+			processors.NewEffectsProcessor(networkPassphrase, ingestionMetrics),
+			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
+			contract_processors.NewSACEventsProcessor(networkPassphrase, ingestionMetrics),
 		},
 		pool:              pool,
-		metricsService:    metricsService,
+		ingestionMetrics:  ingestionMetrics,
 		skipTxMeta:        skipTxMeta,
 		skipTxEnvelope:    skipTxEnvelope,
 		networkPassphrase: networkPassphrase,

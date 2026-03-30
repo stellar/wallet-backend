@@ -15,13 +15,13 @@ import (
 // to log GraphQL query complexity values for monitoring and debugging.
 // It also emits Prometheus metrics for query complexity.
 type ComplexityLogger struct {
-	metricsService metrics.MetricsService
+	metrics *metrics.GraphQLMetrics
 }
 
 // NewComplexityLogger creates a new complexity logger instance.
-func NewComplexityLogger(metricsService metrics.MetricsService) *ComplexityLogger {
+func NewComplexityLogger(graphqlMetrics *metrics.GraphQLMetrics) *ComplexityLogger {
 	return &ComplexityLogger{
-		metricsService: metricsService,
+		metrics: graphqlMetrics,
 	}
 }
 
@@ -41,5 +41,5 @@ func (c *ComplexityLogger) ReportComplexity(ctx context.Context, operationName s
 		WithField("complexity", complexity).
 		Info("graphql query complexity")
 
-	c.metricsService.ObserveGraphQLComplexity(operationName, complexity)
+	c.metrics.Complexity.WithLabelValues(operationName).Observe(float64(complexity))
 }

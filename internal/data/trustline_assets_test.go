@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/mock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -61,13 +61,13 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil error for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil error for empty input", func(t *testing.T) {
 		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -80,14 +80,10 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 	t.Run("inserts single asset with deterministic ID", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -110,14 +106,10 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 	t.Run("inserts multiple assets with deterministic IDs", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		pgxTx, err := dbConnectionPool.Begin(ctx)
@@ -149,14 +141,10 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 	t.Run("idempotent - duplicate insert does not error", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		id1 := DeterministicAssetID("USDC", "ISSUER1")
@@ -185,14 +173,10 @@ func TestTrustlineAssetModel_BatchInsert(t *testing.T) {
 
 	t.Run("same asset code different issuers get different IDs", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "trustline_assets", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "trustline_assets").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &TrustlineAssetModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// Same asset code but different issuers

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
@@ -43,8 +44,8 @@ type TrustlineBalanceModelInterface interface {
 
 // TrustlineBalanceModel implements TrustlineBalanceModelInterface.
 type TrustlineBalanceModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 var _ TrustlineBalanceModelInterface = (*TrustlineBalanceModel)(nil)
@@ -66,12 +67,12 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	start := time.Now()
 	balances, err := db.QueryMany[TrustlineBalance](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "trustline_balances", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "trustline_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "trustline_balances").Inc()
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "trustline_balances", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.IncDBQuery("GetByAccount", "trustline_balances")
 	return balances, nil
 }
 
@@ -128,15 +129,21 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close() //nolint:errcheck // cleanup on error path
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("closing trustline balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "trustline_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
 	return nil
 }
 
@@ -176,14 +183,20 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		}),
 	)
 	if err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting trustline balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "trustline_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "trustline_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
 	return nil
 }

@@ -58,11 +58,6 @@ func (r *RPCServiceMock) TrackRPCServiceHealth(ctx context.Context, triggerHeart
 	return args.Error(0)
 }
 
-func (r *RPCServiceMock) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
-	args := r.Called()
-	return args.Get(0).(chan entities.RPCGetHealthResult)
-}
-
 func (r *RPCServiceMock) SendTransaction(transactionXdr string) (entities.RPCSendTransactionResult, error) {
 	args := r.Called(transactionXdr)
 	return args.Get(0).(entities.RPCSendTransactionResult), args.Error(1)

@@ -11,17 +11,18 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // TrustlinesProcessor processes ledger changes to extract trustline modifications.
 // Unlike effects-based processing, this captures ALL trustline changes including balance
 // updates from payments, path payments, and other operations that modify trustline balances.
 type TrustlinesProcessor struct {
-	metricsService MetricsServiceInterface
+	metricsService *metrics.IngestionMetrics
 }
 
 // NewTrustlinesProcessor creates a new trustlines processor.
-func NewTrustlinesProcessor(metricsService MetricsServiceInterface) *TrustlinesProcessor {
+func NewTrustlinesProcessor(metricsService *metrics.IngestionMetrics) *TrustlinesProcessor {
 	return &TrustlinesProcessor{
 		metricsService: metricsService,
 	}
@@ -39,7 +40,7 @@ func (p *TrustlinesProcessor) ProcessOperation(ctx context.Context, opWrapper *T
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("TrustlinesProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("TrustlinesProcessor").Observe(duration)
 		}
 	}()
 

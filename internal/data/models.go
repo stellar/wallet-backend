@@ -23,23 +23,23 @@ type Models struct {
 	StateChanges          *StateChangeModel
 }
 
-func NewModels(pool *pgxpool.Pool, metricsService metrics.MetricsService) (*Models, error) {
+func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error) {
 	if pool == nil {
 		return nil, errors.New("DB pool must be initialized")
 	}
 
 	return &Models{
 		DB:                    pool,
-		Account:               &AccountModel{DB: pool, MetricsService: metricsService},
-		Contract:              &ContractModel{DB: pool, MetricsService: metricsService},
-		TrustlineAsset:        &TrustlineAssetModel{DB: pool, MetricsService: metricsService},
-		TrustlineBalance:      &TrustlineBalanceModel{DB: pool, MetricsService: metricsService},
-		NativeBalance:         &NativeBalanceModel{DB: pool, MetricsService: metricsService},
-		SACBalance:            &SACBalanceModel{DB: pool, MetricsService: metricsService},
-		AccountContractTokens: &AccountContractTokensModel{DB: pool, MetricsService: metricsService},
-		IngestStore:           &IngestStoreModel{DB: pool, MetricsService: metricsService},
-		Operations:            &OperationModel{DB: pool, MetricsService: metricsService},
-		Transactions:          &TransactionModel{DB: pool, MetricsService: metricsService},
-		StateChanges:          &StateChangeModel{DB: pool, MetricsService: metricsService},
+		Account:               &AccountModel{DB: pool, Metrics: dbMetrics},
+		Contract:              &ContractModel{DB: pool, Metrics: dbMetrics},
+		TrustlineAsset:        &TrustlineAssetModel{DB: pool, Metrics: dbMetrics},
+		TrustlineBalance:      &TrustlineBalanceModel{DB: pool, Metrics: dbMetrics},
+		NativeBalance:         &NativeBalanceModel{DB: pool, Metrics: dbMetrics},
+		SACBalance:            &SACBalanceModel{DB: pool, Metrics: dbMetrics},
+		AccountContractTokens: &AccountContractTokensModel{DB: pool, Metrics: dbMetrics},
+		IngestStore:           &IngestStoreModel{DB: pool, Metrics: dbMetrics},
+		Operations:            &OperationModel{DB: pool, Metrics: dbMetrics},
+		Transactions:          &TransactionModel{DB: pool, Metrics: dbMetrics},
+		StateChanges:          &StateChangeModel{DB: pool, Metrics: dbMetrics},
 	}, nil
 }

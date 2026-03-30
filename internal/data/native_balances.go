@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // NativeBalance contains native XLM balance data for an account.
@@ -39,8 +40,8 @@ type NativeBalanceModelInterface interface {
 
 // NativeBalanceModel implements NativeBalanceModelInterface.
 type NativeBalanceModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 var _ NativeBalanceModelInterface = (*NativeBalanceModel)(nil)
@@ -58,15 +59,16 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 
 	start := time.Now()
 	nb, err := db.QueryOne[NativeBalance](ctx, m.DB, query, accountAddress)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "native_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "native_balances").Inc()
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		m.MetricsService.IncDBQueryError("GetByAccount", "native_balances", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "native_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying native balance for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "native_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("GetByAccount", "native_balances")
 	return &nb, nil
 }
 
@@ -106,15 +108,21 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close() //nolint:errcheck // cleanup on error path
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "native_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "native_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("closing native balance batch: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchUpsert", "native_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchUpsert", "native_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
 	return nil
 }
 
@@ -136,14 +144,20 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 		}),
 	)
 	if err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("bulk inserting native balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchCopy", "native_balances", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchCopy", "native_balances")
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 	return nil
 }

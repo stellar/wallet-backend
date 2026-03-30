@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // AccountContractTokensModelInterface defines the interface for account-contract mapping operations.
@@ -26,8 +27,8 @@ type AccountContractTokensModelInterface interface {
 
 // AccountContractTokensModel implements AccountContractTokensModelInterface.
 type AccountContractTokensModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 var _ AccountContractTokensModelInterface = (*AccountContractTokensModel)(nil)
@@ -48,12 +49,12 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 	start := time.Now()
 	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contract_tokens", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "account_contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "account_contract_tokens").Inc()
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "account_contract_tokens", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.IncDBQuery("GetByAccount", "account_contract_tokens")
 	return contracts, nil
 }
 
@@ -85,11 +86,13 @@ func (m *AccountContractTokensModel) BatchInsert(ctx context.Context, dbTx pgx.T
 		ON CONFLICT DO NOTHING`
 
 	_, err := dbTx.Exec(ctx, query, addresses, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(float64(len(addresses)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "account_contract_tokens").Inc()
 	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting contract tokens: %w", err)
 	}
-
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "account_contract_tokens", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "account_contract_tokens")
 	return nil
 }

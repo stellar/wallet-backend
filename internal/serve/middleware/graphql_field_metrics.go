@@ -2,89 +2,44 @@ package middleware
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	"github.com/99designs/gqlgen/graphql"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// GraphQLFieldMetrics tracks metrics for individual GraphQL field resolvers.
-// It measures field execution duration, counts resolutions, and tracks errors.
+// GraphQLFieldMetrics tracks deprecated field accesses via a lightweight field middleware.
+// It fires only when a resolved field has the @deprecated directive, producing zero
+// series until deprecated fields actually exist in the schema.
 type GraphQLFieldMetrics struct {
-	metricsService metrics.MetricsService
+	metrics *metrics.GraphQLMetrics
 }
 
-// NewGraphQLFieldMetrics creates a new GraphQL field metrics middleware.
-func NewGraphQLFieldMetrics(metricsService metrics.MetricsService) *GraphQLFieldMetrics {
-	return &GraphQLFieldMetrics{
-		metricsService: metricsService,
-	}
+// NewGraphQLFieldMetrics creates a new deprecated-field tracking middleware.
+func NewGraphQLFieldMetrics(graphqlMetrics *metrics.GraphQLMetrics) *GraphQLFieldMetrics {
+	return &GraphQLFieldMetrics{metrics: graphqlMetrics}
 }
 
-// Middleware is the field middleware function that wraps field resolver execution.
-// It measures execution time and tracks success/failure for each field resolution.
+// Middleware is the field middleware function. It calls the resolver first, then
+// checks whether the field carries a @deprecated directive. Non-deprecated fields
+// (the vast majority) short-circuit after a nil-pointer guard and a single map lookup.
 func (m *GraphQLFieldMetrics) Middleware(ctx context.Context, next graphql.Resolver) (interface{}, error) {
-	// Get the field context to extract operation and field information
-	fc := graphql.GetFieldContext(ctx)
-	if fc == nil {
-		// If we can't get field context, just pass through
-		return next(ctx)
-	}
-
-	oc := graphql.GetOperationContext(ctx)
-	operationName := GetOperationIdentifier(oc)
-
-	// Get full field path (e.g., "accountByAddress.transactions.hash")
-	fieldPath := GetFieldPath(fc)
-	if fieldPath == "" {
-		fieldPath = fc.Field.Name // fallback to just field name
-	}
-
-	startTime := time.Now()
 	res, err := next(ctx)
-	duration := time.Since(startTime).Seconds()
-	m.metricsService.ObserveGraphQLFieldDuration(operationName, fieldPath, duration)
 
-	success := err == nil
-	m.metricsService.IncGraphQLField(operationName, fieldPath, success)
+	fc := graphql.GetFieldContext(ctx)
+	if fc == nil || fc.Field.Field == nil || fc.Field.Field.Definition == nil {
+		return res, err
+	}
 
-	if err != nil {
-		errorType := classifyGraphQLError(err)
-		m.metricsService.IncGraphQLError(operationName, errorType)
+	if fc.Field.Field.Definition.Directives.ForName("deprecated") != nil {
+		oc := graphql.GetOperationContext(ctx)
+		operationName := GetOperationIdentifier(oc)
+		fieldPath := GetFieldPath(fc)
+		if fieldPath == "" {
+			fieldPath = fc.Field.Name
+		}
+		m.metrics.DeprecatedFieldsTotal.WithLabelValues(operationName, fieldPath).Inc()
 	}
 
 	return res, err
-}
-
-// classifyGraphQLError determines the error type from a GraphQL error.
-// It inspects error extensions and error structure to categorize the error.
-func classifyGraphQLError(err error) string {
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) {
-		if gqlErr.Extensions != nil {
-			if code, ok := gqlErr.Extensions["code"].(string); ok {
-				switch code {
-				case "GRAPHQL_VALIDATION_FAILED":
-					return "validation_error"
-				case "GRAPHQL_PARSE_FAILED":
-					return "parse_error"
-				case "BAD_USER_INPUT":
-					return "bad_input"
-				case "UNAUTHENTICATED":
-					return "auth_error"
-				case "FORBIDDEN":
-					return "forbidden"
-				case "INTERNAL_SERVER_ERROR":
-					return "internal_error"
-				default:
-					return code
-				}
-			}
-		}
-	}
-
-	return "unknown"
 }
