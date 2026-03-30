@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 var ErrOperationNotFound = errors.New("operation not found")
@@ -56,11 +57,11 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 type TokenTransferProcessor struct {
 	eventsProcessor   *ttp.EventsProcessor
 	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService    *metrics.IngestionMetrics
 }
 
 // NewTokenTransferProcessor creates a new token transfer processor for the specified Stellar network.
-func NewTokenTransferProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *TokenTransferProcessor {
+func NewTokenTransferProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *TokenTransferProcessor {
 	return &TokenTransferProcessor{
 		eventsProcessor:   ttp.NewEventsProcessor(networkPassphrase),
 		networkPassphrase: networkPassphrase,
@@ -76,7 +77,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("TokenTransferProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("TokenTransferProcessor").Observe(duration)
 		}
 	}()
 

@@ -16,8 +16,8 @@ import (
 )
 
 type AccountModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
@@ -27,12 +27,12 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	start := time.Now()
 	exists, err := db.QueryOne[bool](ctx, m.DB, query, address)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("IsAccountFeeBumpEligible", "channel_accounts", duration)
+	m.Metrics.QueryDuration.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("IsAccountFeeBumpEligible", "channel_accounts", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts", utils.GetDBErrorType(err)).Inc()
 		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
-	m.MetricsService.IncDBQuery("IsAccountFeeBumpEligible", "channel_accounts")
+	m.Metrics.QueriesTotal.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Inc()
 	return exists, nil
 }
 
@@ -45,13 +45,13 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 	start := time.Now()
 	accounts, err := db.QueryManyPtrs[types.AccountWithToID](ctx, m.DB, query, toIDs)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByToIDs", "transactions_accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByToIDs", "transactions_accounts", len(toIDs))
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Observe(float64(len(toIDs)))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByToIDs", "transactions_accounts")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Inc()
 	return accounts, nil
 }
 
@@ -64,12 +64,12 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 	start := time.Now()
 	accounts, err := db.QueryManyPtrs[types.AccountWithOperationID](ctx, m.DB, query, operationIDs)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "operations_accounts", duration)
-	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "operations_accounts", len(operationIDs))
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Observe(float64(len(operationIDs)))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err))
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "operations_accounts")
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Inc()
 	return accounts, nil
 }

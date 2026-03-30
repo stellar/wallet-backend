@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -25,16 +25,14 @@ func testOpXDRTx(n int) string {
 }
 
 func TestTransactionResolver_Operations(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "operations", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &transactionResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -160,17 +158,14 @@ func TestTransactionResolver_Operations(t *testing.T) {
 }
 
 func TestTransactionResolver_Accounts(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "transactions_accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &transactionResolver{&Resolver{
 		models: &data.Models{
 			Account: &data.AccountModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -209,20 +204,18 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 }
 
 func TestTransactionResolver_StateChanges(t *testing.T) {
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByToID", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToID", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &transactionResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 			Transactions: &data.TransactionModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}

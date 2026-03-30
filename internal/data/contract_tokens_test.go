@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/stretchr/testify/mock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -30,13 +30,13 @@ func TestContractModel_GetExisting(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns nil for empty input", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns nil for empty input", func(t *testing.T) {
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -50,14 +50,10 @@ func TestContractModel_GetExisting(t *testing.T) {
 
 	t.Run("returns empty slice when no matches", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -71,18 +67,10 @@ func TestContractModel_GetExisting(t *testing.T) {
 
 	t.Run("returns partial matches", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 2).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		name := "Test"
@@ -113,18 +101,10 @@ func TestContractModel_GetExisting(t *testing.T) {
 
 	t.Run("returns all matches when all exist", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetExisting", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetExisting", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		name := "Test"
@@ -169,13 +149,13 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("returns success for empty contracts slice", func(t *testing.T) {
-		mockMetricsService := metrics.NewMockMetricsService()
-		defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
+	t.Run("returns success for empty contracts slice", func(t *testing.T) {
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
@@ -188,16 +168,10 @@ func TestContractModel_BatchInsert(t *testing.T) {
 
 	t.Run("returns success for multiple new contracts", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", 3).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		code1 := "TEST1"
@@ -272,16 +246,10 @@ func TestContractModel_BatchInsert(t *testing.T) {
 
 	t.Run("skips duplicate contracts with ON CONFLICT DO NOTHING", func(t *testing.T) {
 		cleanUpDB()
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "contract_tokens", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "BatchInsert", "contract_tokens").Return()
-		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
-			DB:             dbConnectionPool,
-			MetricsService: mockMetricsService,
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
 		}
 
 		// First insert

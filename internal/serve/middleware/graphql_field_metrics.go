@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
@@ -14,13 +15,13 @@ import (
 // GraphQLFieldMetrics tracks metrics for individual GraphQL field resolvers.
 // It measures field execution duration, counts resolutions, and tracks errors.
 type GraphQLFieldMetrics struct {
-	metricsService metrics.MetricsService
+	metrics *metrics.GraphQLMetrics
 }
 
 // NewGraphQLFieldMetrics creates a new GraphQL field metrics middleware.
-func NewGraphQLFieldMetrics(metricsService metrics.MetricsService) *GraphQLFieldMetrics {
+func NewGraphQLFieldMetrics(graphqlMetrics *metrics.GraphQLMetrics) *GraphQLFieldMetrics {
 	return &GraphQLFieldMetrics{
-		metricsService: metricsService,
+		metrics: graphqlMetrics,
 	}
 }
 
@@ -46,14 +47,14 @@ func (m *GraphQLFieldMetrics) Middleware(ctx context.Context, next graphql.Resol
 	startTime := time.Now()
 	res, err := next(ctx)
 	duration := time.Since(startTime).Seconds()
-	m.metricsService.ObserveGraphQLFieldDuration(operationName, fieldPath, duration)
+	m.metrics.FieldDuration.WithLabelValues(operationName, fieldPath).Observe(duration)
 
 	success := err == nil
-	m.metricsService.IncGraphQLField(operationName, fieldPath, success)
+	m.metrics.FieldsTotal.WithLabelValues(operationName, fieldPath, fmt.Sprintf("%t", success)).Inc()
 
 	if err != nil {
 		errorType := classifyGraphQLError(err)
-		m.metricsService.IncGraphQLError(operationName, errorType)
+		m.metrics.ErrorsTotal.WithLabelValues(operationName, errorType).Inc()
 	}
 
 	return res, err

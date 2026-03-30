@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -23,15 +23,12 @@ func TestAccountModelBatchGetByToIDs(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByToIDs", "transactions_accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByToIDs", "transactions_accounts", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	address1 := keypair.MustRandom().Address()
@@ -72,15 +69,12 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "operations_accounts").Return()
-	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "operations_accounts", mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	address1 := keypair.MustRandom().Address()
@@ -127,14 +121,12 @@ func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "channel_accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "channel_accounts", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
 
 	m := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
 	}
 
 	address := keypair.MustRandom().Address()

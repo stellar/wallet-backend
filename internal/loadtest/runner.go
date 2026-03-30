@@ -11,6 +11,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -53,8 +54,8 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 	defer dbPool.Close() // nolint:errcheck
 
-	metricsService := metrics.NewMetricsService()
-	models, err := data.NewModels(dbPool, metricsService)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(dbPool, m.DB)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
 	}
@@ -79,8 +80,8 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	indexerPool := pond.NewPool(0)
 	defer indexerPool.StopAndWait()
 
-	metricsService.RegisterPoolMetrics("loadtest_indexer", indexerPool)
-	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, metricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
+	metrics.RegisterPoolMetrics(m.Registry(), "loadtest_indexer", indexerPool)
+	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion, cfg.SkipTxMeta, cfg.SkipTxEnvelope)
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionServiceForLoadtest(
@@ -96,7 +97,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	ingestSvc, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:         "loadtest",
 		Models:                models,
-		MetricsService:        metricsService,
+		Metrics:               m,
 		NetworkPassphrase:     cfg.NetworkPassphrase,
 		TokenIngestionService: tokenIngestionService,
 		ChannelAccountStore:   store.NewChannelAccountModel(dbPool),
@@ -106,7 +107,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 
 	// Start metrics server
-	servers := startServers(cfg, metricsService)
+	servers := startServers(cfg, m)
 	defer shutdownServers(servers)
 
 	// Load seed data, this uses the mainnet tokens
@@ -120,7 +121,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 
 	// Run ingestion loop
-	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, metricsService, ingestSvc)
+	return runIngestionLoop(ctx, cfg, backend, ledgerIndexer, m, ingestSvc)
 }
 
 // initializeCursor ensures the loadtest cursor exists with value 0.
@@ -158,7 +159,7 @@ func runIngestionLoop(
 	cfg RunConfig,
 	backend ledgerbackend.LedgerBackend,
 	ledgerIndexer *indexer.Indexer,
-	metricsService metrics.MetricsService,
+	m *metrics.Metrics,
 	ingestSvc services.IngestService,
 ) error {
 	// Prepare unbounded range - backend will read all ledgers from file
@@ -205,7 +206,7 @@ func runIngestionLoop(
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
-		metricsService.ObserveIngestionPhaseDuration("process_ledger", time.Since(processStart).Seconds())
+		m.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
 
 		// Write to database using shared persistence logic
 		dbStart := time.Now()
@@ -213,16 +214,16 @@ func runIngestionLoop(
 		if err != nil {
 			return fmt.Errorf("persisting ledger %d: %w", currentLedger, err)
 		}
-		metricsService.ObserveIngestionPhaseDuration("insert_into_db", time.Since(dbStart).Seconds())
+		m.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(time.Since(dbStart).Seconds())
 
 		// Record metrics
 		ingestionDuration := time.Since(ingestStart)
 		totalIngestionDuration += ingestionDuration
-		metricsService.ObserveIngestionDuration(ingestionDuration.Seconds())
-		metricsService.IncIngestionLedgersProcessed(1)
-		metricsService.IncIngestionTransactionsProcessed(numTxs)
-		metricsService.IncIngestionOperationsProcessed(numOps)
-		metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		m.Ingestion.Duration.WithLabelValues().Observe(ingestionDuration.Seconds())
+		m.Ingestion.LedgersProcessed.Add(1)
+		m.Ingestion.TransactionsTotal.Add(float64(numTxs))
+		m.Ingestion.OperationsTotal.Add(float64(numOps))
+		m.Ingestion.LatestLedger.Set(float64(currentLedger))
 
 		ledgersProcessed++
 		txsProcessed += numTxs
@@ -252,12 +253,12 @@ func printSummary(ledgers, txs, ops int, start time.Time, totalIngestionDuration
 }
 
 // startServers starts the metrics and admin HTTP servers.
-func startServers(cfg RunConfig, metricsService metrics.MetricsService) []*http.Server {
+func startServers(cfg RunConfig, m *metrics.Metrics) []*http.Server {
 	servers := make([]*http.Server, 0, 2)
 
 	// Metrics server
 	mux := http.NewServeMux()
-	mux.Handle("/ingest-metrics", promhttp.HandlerFor(metricsService.GetRegistry(), promhttp.HandlerOpts{}))
+	mux.Handle("/ingest-metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

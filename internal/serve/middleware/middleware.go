@@ -16,7 +16,7 @@ import (
 func AuthenticationMiddleware(
 	requestAuthVerifier auth.HTTPRequestVerifier,
 	appTracker apptracker.AppTracker,
-	metricsService metrics.MetricsService,
+	authMetrics *metrics.AuthMetrics,
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -37,7 +37,7 @@ func AuthenticationMiddleware(
 
 			var expiredTokenErr *auth.ExpiredTokenError
 			if errors.As(err, &expiredTokenErr) {
-				metricsService.IncSignatureVerificationExpired(expiredTokenErr.ExpiredBy.Seconds())
+				authMetrics.ExpiredSignaturesTotal.Inc()
 			}
 
 			httperror.Unauthorized("", nil).Render(rw)

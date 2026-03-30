@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 const (
@@ -65,11 +66,11 @@ var (
 // It focuses on account state changes like signers, thresholds, flags, and sponsorship relationships.
 type EffectsProcessor struct {
 	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService    *metrics.IngestionMetrics
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
-func NewEffectsProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *EffectsProcessor {
+func NewEffectsProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *EffectsProcessor {
 	return &EffectsProcessor{
 		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,
@@ -89,7 +90,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("EffectsProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("EffectsProcessor").Observe(duration)
 		}
 	}()
 

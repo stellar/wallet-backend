@@ -8,6 +8,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go-stellar-sdk/support/http"
@@ -101,7 +102,7 @@ type handlerDeps struct {
 
 	// Services
 	FeeBumpService             services.FeeBumpService
-	MetricsService             metrics.MetricsService
+	Metrics                    *metrics.Metrics
 	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
 	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
@@ -146,9 +147,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	metricsService := metrics.NewMetricsService()
-	metricsService.RegisterDBPoolMetrics(dbConnectionPool)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	metrics.RegisterDBPoolMetrics(m.Registry(), dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, m.DB)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
@@ -160,7 +161,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, m.RPC)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
@@ -216,7 +217,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RequestAuthVerifier:         requestAuthVerifier,
 		SupportedAssets:             cfg.SupportedAssets,
 		FeeBumpService:              feeBumpService,
-		MetricsService:              metricsService,
+		Metrics:                     m,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
 		NativeBalanceModel:          models.NativeBalance,
@@ -248,7 +249,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
 
 	// Add metrics middleware first to capture all requests
-	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
+	mux.Use(middleware.MetricsMiddleware(deps.Metrics.HTTP))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", httphandler.HealthHandler{
@@ -256,13 +257,13 @@ func handler(deps handlerDeps) http.Handler {
 		RPCService: deps.RPCService,
 		AppTracker: deps.AppTracker,
 	}.GetHealth)
-	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
-			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
@@ -276,7 +277,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
 				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
-				deps.MetricsService,
+				deps.Metrics,
 				resolvers.ResolverConfig{
 					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
 					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
@@ -304,11 +305,11 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
-			reporter := middleware.NewComplexityLogger(deps.MetricsService)
+			reporter := middleware.NewComplexityLogger(deps.Metrics.GraphQL)
 			srv.Use(complexityreporter.NewExtension(reporter))
 
 			// Add field-level metrics tracking
-			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.MetricsService)
+			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.Metrics.GraphQL)
 			srv.AroundFields(fieldMetrics.Middleware)
 
 			r.Handle("/query", srv)

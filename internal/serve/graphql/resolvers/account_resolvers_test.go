@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -26,16 +26,15 @@ func testOpXDRAcc(n int) string {
 func TestAccountResolver_Transactions(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "transactions", mock.Anything).Return()
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{
 		&Resolver{
 			models: &data.Models{
 				Transactions: &data.TransactionModel{
-					DB:             testDBConnectionPool,
-					MetricsService: mockMetricsService,
+					DB:      testDBConnectionPool,
+					Metrics: m.DB,
 				},
 			},
 		},
@@ -51,7 +50,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, testTxHash2, transactions.Edges[1].Node.Hash.String())
 		assert.Equal(t, testTxHash3, transactions.Edges[2].Node.Hash.String())
 		assert.Equal(t, testTxHash4, transactions.Edges[3].Node.Hash.String())
-		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
@@ -75,7 +73,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, testTxHash4, txs.Edges[1].Node.Hash.String())
 		assert.False(t, txs.PageInfo.HasNextPage)
 		assert.True(t, txs.PageInfo.HasPreviousPage)
-		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
@@ -109,7 +106,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
-		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("account with no transactions", func(t *testing.T) {
@@ -119,7 +115,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, transactions.Edges)
-		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("invalid pagination params", func(t *testing.T) {
@@ -154,16 +149,14 @@ func TestAccountResolver_Transactions(t *testing.T) {
 func TestAccountResolver_Operations(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "operations", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -265,16 +258,14 @@ func TestAccountResolver_Operations(t *testing.T) {
 func TestAccountResolver_StateChanges(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -510,16 +501,14 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -712,16 +701,14 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -846,16 +833,14 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "transactions", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -915,16 +900,14 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 func TestAccountResolver_Operations_WithTimeRange(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "operations", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}
@@ -958,16 +941,14 @@ func TestAccountResolver_Operations_WithTimeRange(t *testing.T) {
 func TestAccountResolver_StateChanges_WithTimeRange(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 
-	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
 
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             testDBConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      testDBConnectionPool,
+				Metrics: m.DB,
 			},
 		},
 	}}

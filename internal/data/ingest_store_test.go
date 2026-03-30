@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -52,15 +52,12 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "Get", "ingest_store", mock.Anything).Return().
-				On("IncDBQuery", "Get", "ingest_store").Return()
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &IngestStoreModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 			if tc.setupDB != nil {
 				tc.setupDB(t)
@@ -108,15 +105,12 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "Update", "ingest_store", mock.Anything).Return().Once().
-				On("IncDBQuery", "Update", "ingest_store").Return().Once()
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &IngestStoreModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			if tc.setupDB != nil {
@@ -185,11 +179,12 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 			_, err = dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, tc.key, strconv.FormatUint(uint64(tc.initialValue), 10))
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &IngestStoreModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
@@ -291,15 +286,12 @@ func Test_IngestStoreModel_GetLedgerGaps(t *testing.T) {
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "GetLedgerGaps", "transactions", mock.Anything).Return().
-				On("IncDBQuery", "GetLedgerGaps", "transactions").Return()
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &IngestStoreModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			if tc.setupDB != nil {
@@ -352,15 +344,12 @@ func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM transactions")
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.
-				On("ObserveDBQueryDuration", "GetOldestLedger", "transactions", mock.Anything).Return().
-				On("IncDBQuery", "GetOldestLedger", "transactions").Return()
-			defer mockMetricsService.AssertExpectations(t)
+			reg := prometheus.NewRegistry()
+			dbMetrics := metrics.NewMetrics(reg).DB
 
 			m := &IngestStoreModel{
-				DB:             dbConnectionPool,
-				MetricsService: mockMetricsService,
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
 			}
 
 			if tc.setupDB != nil {

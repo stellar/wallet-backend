@@ -8,15 +8,16 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // ContractDeployProcessor emits state changes for contract deployments.
 type ContractDeployProcessor struct {
 	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService    *metrics.IngestionMetrics
 }
 
-func NewContractDeployProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *ContractDeployProcessor {
+func NewContractDeployProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *ContractDeployProcessor {
 	return &ContractDeployProcessor{
 		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,
@@ -33,7 +34,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	defer func() {
 		if p.metricsService != nil {
 			duration := time.Since(startTime).Seconds()
-			p.metricsService.ObserveStateChangeProcessingDuration("ContractDeployProcessor", duration)
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("ContractDeployProcessor").Observe(duration)
 		}
 	}()
 

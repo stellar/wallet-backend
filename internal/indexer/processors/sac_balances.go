@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // SACBalancesProcessor processes ledger changes to extract SAC balance modifications.
@@ -21,11 +22,11 @@ import (
 // Value: {amount: i128, authorized: bool, clawback: bool}
 type SACBalancesProcessor struct {
 	networkPassphrase string
-	metricsService    MetricsServiceInterface
+	metricsService    *metrics.IngestionMetrics
 }
 
 // NewSACBalancesProcessor creates a new SAC balances processor.
-func NewSACBalancesProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *SACBalancesProcessor {
+func NewSACBalancesProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *SACBalancesProcessor {
 	return &SACBalancesProcessor{
 		networkPassphrase: networkPassphrase,
 		metricsService:    metricsService,

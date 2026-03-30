@@ -387,7 +387,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, mode BackfillMod
 
 	// Record metrics for historical backfill cursor updates
 	if mode.isHistorical() {
-		m.metricsService.SetOldestLedgerIngested(float64(batch.StartLedger))
+		m.appMetrics.Ingestion.OldestLedger.Set(float64(batch.StartLedger))
 	}
 
 	result.Duration = time.Since(start)

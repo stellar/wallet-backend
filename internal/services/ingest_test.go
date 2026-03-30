@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -316,14 +317,9 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			_, err = dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			if tc.setupDB != nil {
@@ -346,7 +342,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				RPCService:             &mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
 				ChannelAccountStore:    mockChAccStore,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -434,14 +430,9 @@ func Test_BackfillMode_Validation(t *testing.T) {
 				fmt.Sprintf("%d", tc.latestIngested))
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockAppTracker := apptracker.MockAppTracker{}
@@ -467,7 +458,7 @@ func Test_BackfillMode_Validation(t *testing.T) {
 				LedgerBackend:          mockLedgerBackend,
 				LedgerBackendFactory:   mockBackendFactory,
 				ChannelAccountStore:    mockChAccStore,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -706,12 +697,9 @@ func Test_ingestService_getLedgerWithRetry(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockLedgerBackend := &LedgerBackendMock{}
@@ -729,7 +717,7 @@ func Test_ingestService_getLedgerWithRetry(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -813,12 +801,9 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -833,7 +818,7 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   tc.setupFactory(),
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -894,16 +879,9 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			// Clean up and set initial cursor
 			setupDBCursors(t, ctx, dbConnectionPool, 200, tc.initialCursor)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -917,7 +895,7 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -970,16 +948,9 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupDB(t)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -993,7 +964,7 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1040,12 +1011,9 @@ func Test_ingestService_Run(t *testing.T) {
 			require.NoError(t, err)
 			defer dbConnectionPool.Close()
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -1059,7 +1027,7 @@ func Test_ingestService_Run(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1181,18 +1149,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			// Set up initial cursor
 			setupDBCursors(t, ctx, dbConnectionPool, 200, tc.initialCursor)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -1214,7 +1173,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				ChannelAccountStore:    mockChAccStore,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1329,20 +1288,9 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, modelsErr)
 
 			mockRPCService := &RPCServiceMock{}
@@ -1384,7 +1332,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   factory,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1483,20 +1431,9 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 				tc.initialOldest)
 			require.NoError(t, err)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, modelsErr)
 
 			mockRPCService := &RPCServiceMock{}
@@ -1533,7 +1470,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   factory,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1588,23 +1525,9 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	// Set up initial cursors
 	setupDBCursors(t, ctx, dbConnectionPool, 200, 200)
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-	mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveStateChangeProcessingDuration", mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveIngestionDuration", mock.Anything, mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
 
-	models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+	models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 	require.NoError(t, modelsErr)
 
 	mockRPCService := &RPCServiceMock{}
@@ -1645,7 +1568,7 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		RPCService:                mockRPCService,
 		LedgerBackend:             &LedgerBackendMock{},
 		LedgerBackendFactory:      factory,
-		MetricsService:            mockMetricsService,
+		Metrics:                   m,
 		GetLedgersLimit:           defaultGetLedgersLimit,
 		Network:                   network.TestNetworkPassphrase,
 		NetworkPassphrase:         network.TestNetworkPassphrase,
@@ -1705,19 +1628,9 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	// Set up initial cursors: latest = 99, so catchup starts at 100
 	setupDBCursors(t, ctx, dbConnectionPool, 99, 50)
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
 
-	models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+	models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 	require.NoError(t, modelsErr)
 
 	mockRPCService := &RPCServiceMock{}
@@ -1754,7 +1667,7 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 		RPCService:             mockRPCService,
 		LedgerBackend:          &LedgerBackendMock{},
 		LedgerBackendFactory:   factory,
-		MetricsService:         mockMetricsService,
+		Metrics:                m,
 		GetLedgersLimit:        defaultGetLedgersLimit,
 		Network:                network.TestNetworkPassphrase,
 		NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1796,14 +1709,9 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	initialLatest := uint32(100)
 	setupDBCursors(t, ctx, dbConnectionPool, initialLatest, initialOldest)
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-	defer mockMetricsService.AssertExpectations(t)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
 
-	models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+	models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 	require.NoError(t, modelsErr)
 
 	mockRPCService := &RPCServiceMock{}
@@ -1823,7 +1731,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		RPCService:             mockRPCService,
 		LedgerBackend:          &LedgerBackendMock{},
 		LedgerBackendFactory:   factory,
-		MetricsService:         mockMetricsService,
+		Metrics:                m,
 		GetLedgersLimit:        defaultGetLedgersLimit,
 		Network:                network.TestNetworkPassphrase,
 		NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1870,14 +1778,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		initialCursor := uint32(99)
 		setupDBCursors(t, ctx, dbConnectionPool, initialCursor, initialCursor)
 
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-		mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
+		m := metrics.NewMetrics(prometheus.NewRegistry())
 
-		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		models, err := data.NewModels(dbConnectionPool, m.DB)
 		require.NoError(t, err)
 
 		// Create mock services
@@ -1907,7 +1810,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			LedgerBackend:          &LedgerBackendMock{},
 			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
-			MetricsService:         mockMetricsService,
+			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
 			Network:                network.TestNetworkPassphrase,
 			NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -1959,14 +1862,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		initialCursor := uint32(99)
 		setupDBCursors(t, ctx, dbConnectionPool, initialCursor, initialCursor)
 
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-		mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
+		m := metrics.NewMetrics(prometheus.NewRegistry())
 
-		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		models, err := data.NewModels(dbConnectionPool, m.DB)
 		require.NoError(t, err)
 
 		// Create mock services
@@ -1996,7 +1894,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			LedgerBackend:          &LedgerBackendMock{},
 			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
-			MetricsService:         mockMetricsService,
+			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
 			Network:                network.TestNetworkPassphrase,
 			NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -2048,14 +1946,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		initialCursor := uint32(99)
 		setupDBCursors(t, ctx, dbConnectionPool, initialCursor, initialCursor)
 
-		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-		mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-		defer mockMetricsService.AssertExpectations(t)
+		m := metrics.NewMetrics(prometheus.NewRegistry())
 
-		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		models, err := data.NewModels(dbConnectionPool, m.DB)
 		require.NoError(t, err)
 
 		// Create mock services
@@ -2093,7 +1986,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			LedgerBackend:          &LedgerBackendMock{},
 			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
-			MetricsService:         mockMetricsService,
+			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
 			Network:                network.TestNetworkPassphrase,
 			NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -2298,16 +2191,9 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -2328,7 +2214,7 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				LedgerBackend:           &LedgerBackendMock{},
 				TokenIngestionService:   mockTokenIngestionService,
 				ContractMetadataService: mockContractMetadataSvc,
-				MetricsService:          mockMetricsService,
+				Metrics:                 m,
 				GetLedgersLimit:         defaultGetLedgersLimit,
 				Network:                 network.TestNetworkPassphrase,
 				NetworkPassphrase:       network.TestNetworkPassphrase,
@@ -2482,18 +2368,9 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			// Set up cursors
 			setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -2507,7 +2384,7 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -2577,19 +2454,9 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			// Clean up and set up cursors
 			setupDBCursors(t, ctx, dbConnectionPool, 200, 100)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -2612,7 +2479,7 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 				RPCService:             mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
 				ChannelAccountStore:    mockChAccStore,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -2728,19 +2595,9 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			// Clean up and set up cursors (latest = startLedger - 1 for catchup mode validation)
 			setupDBCursors(t, ctx, dbConnectionPool, ledgerSeq-1, ledgerSeq-1)
 
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
 			mockRPCService := &RPCServiceMock{}
@@ -2762,7 +2619,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 				LedgerBackendFactory:   backendFactory,
 				ChannelAccountStore:    &store.ChannelAccountStoreMock{},
 				TokenIngestionService:  mockTokenIngestionService,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,
@@ -2816,20 +2673,9 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "backfill", mock.Anything).Return()
-			mockMetricsService.On("SetOldestLedgerIngested", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncDBTransaction", mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBTransactionDuration", mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveDBBatchSize", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			mockMetricsService.On("ObserveIngestionParticipantsCount", mock.Anything).Return().Maybe()
-			mockMetricsService.On("IncStateChanges", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-			defer mockMetricsService.AssertExpectations(t)
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
-			models, modelsErr := data.NewModels(dbConnectionPool, mockMetricsService)
+			models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, modelsErr)
 
 			mockRPCService := &RPCServiceMock{}
@@ -2862,7 +2708,7 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   factory,
-				MetricsService:         mockMetricsService,
+				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
 				NetworkPassphrase:      network.TestNetworkPassphrase,

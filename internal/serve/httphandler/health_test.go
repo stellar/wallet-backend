@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,12 +33,9 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "Get", "ingest_store", mock.AnythingOfType("float64")).Return()
-	mockMetricsService.On("IncDBQuery", "Get", "ingest_store").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+	models, err := data.NewModels(dbConnectionPool, dbMetrics)
 	require.NoError(t, err)
 
 	t.Run("healthy - RPC and backend in sync", func(t *testing.T) {

@@ -2,13 +2,14 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // MetricsMiddleware creates a middleware that tracks HTTP request metrics
-func MetricsMiddleware(metricsService metrics.MetricsService) func(next http.Handler) http.Handler {
+func MetricsMiddleware(httpMetrics *metrics.HTTPMetrics) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startTime := time.Now()
@@ -26,8 +27,8 @@ func MetricsMiddleware(metricsService metrics.MetricsService) func(next http.Han
 			next.ServeHTTP(rw, r)
 
 			duration := time.Since(startTime).Seconds()
-			metricsService.ObserveRequestDuration(endpoint, r.Method, duration)
-			metricsService.IncNumRequests(endpoint, r.Method, rw.statusCode)
+			httpMetrics.RequestsDuration.WithLabelValues(endpoint, r.Method).Observe(duration)
+			httpMetrics.RequestsTotal.WithLabelValues(endpoint, r.Method, strconv.Itoa(rw.statusCode)).Inc()
 		})
 	}
 }

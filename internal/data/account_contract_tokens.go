@@ -26,8 +26,8 @@ type AccountContractTokensModelInterface interface {
 
 // AccountContractTokensModel implements AccountContractTokensModelInterface.
 type AccountContractTokensModel struct {
-	DB             *pgxpool.Pool
-	MetricsService metrics.MetricsService
+	DB      *pgxpool.Pool
+	Metrics *metrics.DBMetrics
 }
 
 var _ AccountContractTokensModelInterface = (*AccountContractTokensModel)(nil)
@@ -48,12 +48,12 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 	start := time.Now()
 	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetByAccount", "account_contract_tokens", duration)
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "account_contract_tokens").Observe(duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetByAccount", "account_contract_tokens", "query_error")
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "account_contract_tokens", "query_error").Inc()
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
-	m.MetricsService.IncDBQuery("GetByAccount", "account_contract_tokens")
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "account_contract_tokens").Inc()
 	return contracts, nil
 }
 
@@ -89,7 +89,7 @@ func (m *AccountContractTokensModel) BatchInsert(ctx context.Context, dbTx pgx.T
 		return fmt.Errorf("batch inserting contract tokens: %w", err)
 	}
 
-	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "account_contract_tokens", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("BatchInsert", "account_contract_tokens")
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "account_contract_tokens").Inc()
 	return nil
 }
