@@ -1,0 +1,30 @@
+name: Build and Push Wallet Backend (Stg)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ECR Login via OIDC
+        id: ecr-login
+        uses: stellar/actions/sdf-ecr-login@main
+        with:
+          aws-oidc-role: ${{ secrets.AWS_GITHUB_OIDC_ROLE }}
+          aws-ecr-login-role: ${{ secrets.AWS_ECR_LOGIN_ROLE }}
+
+      - name: Build and push image
+        env:
+          TAG: ${{ steps.ecr-login.outputs.ecr-registry }}/stg/wallet-backend:${{ github.sha }}
+        run: |
+          make docker-build
+          make docker-push
