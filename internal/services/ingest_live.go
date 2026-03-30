@@ -397,25 +397,20 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 		m.protocolContractCache.mu.Unlock()
 		return
 	}
-	// Snapshot previous entries for fallback on partial failure
+	// Snapshot previous entries for fallback on failure
 	prevContracts := m.protocolContractCache.contractsByProtocol
 	m.protocolContractCache.mu.Unlock()
 
 	// 2. Fetch new data outside the lock
 	start := time.Now()
-	newMap := make(map[string][]data.ProtocolContracts, len(m.protocolProcessors))
-	allSucceeded := true
+	protocolIDs := make([]string, 0, len(m.protocolProcessors))
 	for protocolID := range m.protocolProcessors {
-		contracts, err := m.models.ProtocolContracts.GetByProtocolID(ctx, protocolID)
-		if err != nil {
-			log.Ctx(ctx).Warnf("Error refreshing protocol contract cache for %s: %v; preserving previous entry", protocolID, err)
-			allSucceeded = false
-			if prev, ok := prevContracts[protocolID]; ok {
-				newMap[protocolID] = prev
-			}
-			continue
-		}
-		newMap[protocolID] = contracts
+		protocolIDs = append(protocolIDs, protocolID)
+	}
+	newMap, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, protocolIDs)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Error refreshing protocol contract cache: %v; preserving previous entries", err)
+		newMap = prevContracts
 	}
 
 	// 3. Swap under write lock
@@ -424,8 +419,8 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 	m.protocolContractCache.contractsByProtocol = newMap
 	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())
-	if !allSucceeded {
-		log.Ctx(ctx).Warnf("Protocol contract cache partially refreshed at ledger %d; will retry at next interval", currentLedger)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; will retry at next interval", currentLedger)
 	} else {
 		log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
 	}
