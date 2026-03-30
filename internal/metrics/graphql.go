@@ -35,7 +35,8 @@ type GraphQLMetrics struct {
 	Complexity *prometheus.HistogramVec
 
 	// ErrorsTotal counts GraphQL errors classified by type at the operation level.
-	// Types: validation_error, parse_error, bad_input, auth_error, forbidden, internal_error, unknown.
+	// Types form a closed set: validation_error, parse_error, bad_input, auth_error,
+	// forbidden, internal_error, unknown. Unrecognized extension codes map to "unknown".
 	// Labels: operation_name, error_type.
 	ErrorsTotal *prometheus.CounterVec
 

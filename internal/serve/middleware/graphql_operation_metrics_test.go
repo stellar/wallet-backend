@@ -190,9 +190,9 @@ func TestClassifyGraphQLError(t *testing.T) {
 			expected: "internal_error",
 		},
 		{
-			name:     "unknown code passed through",
+			name:     "unknown code maps to unknown",
 			err:      &gqlerror.Error{Extensions: map[string]interface{}{"code": "CUSTOM_CODE"}},
-			expected: "CUSTOM_CODE",
+			expected: "unknown",
 		},
 		{
 			name:     "no extensions",
