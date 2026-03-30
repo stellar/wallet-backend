@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -28,8 +27,8 @@ const (
 )
 
 // protocolContractCache caches classified protocol contracts to avoid per-ledger DB queries.
+// Only accessed from the single-threaded live ingestion loop, so no mutex is needed.
 type protocolContractCache struct {
-	mu                  sync.RWMutex
 	contractsByProtocol map[string][]data.ProtocolContracts
 	lastRefreshLedger   uint32
 }
@@ -365,43 +364,22 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 	if m.protocolContractCache == nil {
 		return nil
 	}
-	m.protocolContractCache.mu.RLock()
 	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
 		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
-	m.protocolContractCache.mu.RUnlock()
 
 	if stale {
 		m.metricsService.IncProtocolContractCacheAccess(protocolID, "miss")
+		m.refreshProtocolContractCache(ctx, currentLedger)
 	} else {
 		m.metricsService.IncProtocolContractCacheAccess(protocolID, "hit")
 	}
 
-	if stale {
-		m.refreshProtocolContractCache(ctx, currentLedger)
-	}
-
-	m.protocolContractCache.mu.RLock()
-	defer m.protocolContractCache.mu.RUnlock()
 	return m.protocolContractCache.contractsByProtocol[protocolID]
 }
 
 // refreshProtocolContractCache reloads all protocol contracts from the DB.
-// The write lock is held only to check staleness and swap the new data in,
-// keeping DB queries outside the lock to avoid blocking concurrent readers.
+// Only called from the single-threaded live ingestion loop.
 func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) {
-	// 1. Check staleness under write lock, copy previous data for fallback
-	m.protocolContractCache.mu.Lock()
-	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
-		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
-	if !stale {
-		m.protocolContractCache.mu.Unlock()
-		return
-	}
-	// Snapshot previous entries for fallback on failure
-	prevContracts := m.protocolContractCache.contractsByProtocol
-	m.protocolContractCache.mu.Unlock()
-
-	// 2. Fetch new data outside the lock
 	start := time.Now()
 	protocolIDs := make([]string, 0, len(m.protocolProcessors))
 	for protocolID := range m.protocolProcessors {
@@ -410,12 +388,9 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 	newMap, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, protocolIDs)
 	if err != nil {
 		log.Ctx(ctx).Warnf("Error refreshing protocol contract cache: %v; preserving previous entries", err)
-		newMap = prevContracts
+		newMap = m.protocolContractCache.contractsByProtocol
 	}
 
-	// 3. Swap under write lock
-	m.protocolContractCache.mu.Lock()
-	defer m.protocolContractCache.mu.Unlock()
 	m.protocolContractCache.contractsByProtocol = newMap
 	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())

@@ -3183,6 +3183,8 @@ func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(
 
 	ctx := context.Background()
 	mockMetrics := metrics.NewMockMetricsService()
+	mockMetrics.On("IncProtocolContractCacheAccess", "proto_a", "miss").Return().Once()
+	mockMetrics.On("IncProtocolContractCacheAccess", "proto_a", "hit").Return().Once()
 	mockMetrics.On("ObserveProtocolContractCacheRefreshDuration", mock.Anything).Return().Once()
 
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
@@ -3201,14 +3203,15 @@ func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(
 		},
 	}
 
-	svc.refreshProtocolContractCache(ctx, 200)
+	// First call triggers refresh (cache is empty, so stale)
+	svc.getProtocolContracts(ctx, "proto_a", 200)
 
 	// lastRefreshLedger must advance despite failure
 	assert.Equal(t, uint32(200), svc.protocolContractCache.lastRefreshLedger)
 
-	// Calling again at currentLedger+1 should be a no-op (not stale yet).
+	// Calling again at currentLedger+1 should be a cache hit (not stale yet).
 	// The .Once() expectations on the mock ensure no extra DB calls happen.
-	svc.refreshProtocolContractCache(ctx, 201)
+	svc.getProtocolContracts(ctx, "proto_a", 201)
 
 	mockMetrics.AssertExpectations(t)
 }
