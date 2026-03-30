@@ -17,10 +17,14 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 	ctx := context.Background()
 	hash := xdr.Hash{1, 2, 3}
 	code := []byte{0xDE, 0xAD}
+	specEntries := []xdr.ScSpecEntry{{}}
 
 	t.Run("no_validators_tracks_hash", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
-		svc := NewWasmIngestionService(knownWasmModelMock).(*wasmIngestionService)
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(specEntries, nil).Once()
+
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
@@ -31,11 +35,14 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 
 	t.Run("validator_match", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(specEntries, nil).Once()
+
 		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(true, nil).Once()
+		validatorMock.On("Validate", specEntries).Return(true).Once()
 		validatorMock.On("ProtocolID").Return("test-protocol").Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock, validatorMock).(*wasmIngestionService)
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock, validatorMock).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
@@ -46,10 +53,13 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 
 	t.Run("validator_no_match", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
-		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(false, nil).Once()
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(specEntries, nil).Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock, validatorMock).(*wasmIngestionService)
+		validatorMock := NewProtocolValidatorMock(t)
+		validatorMock.On("Validate", specEntries).Return(false).Once()
+
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock, validatorMock).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
@@ -58,32 +68,34 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 		assert.True(t, tracked, "hash should still be tracked even without match")
 	})
 
-	t.Run("validator_error_continues", func(t *testing.T) {
+	t.Run("extractor_error_continues_and_tracks_hash", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
-		validatorMock := NewProtocolValidatorMock(t)
-		validatorMock.On("Validate", mock.Anything, code).Return(false, errors.New("validation failed")).Once()
-		validatorMock.On("ProtocolID").Return("test-protocol").Once()
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(nil, errors.New("bad wasm")).Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock, validatorMock).(*wasmIngestionService)
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
-		require.NoError(t, err, "validator error should not propagate")
+		require.NoError(t, err, "extractor error should not propagate")
 
 		_, tracked := svc.wasmHashes[hash]
-		assert.True(t, tracked, "hash should still be tracked despite validator error")
+		assert.True(t, tracked, "hash should still be tracked despite extractor error")
 	})
 
 	t.Run("multiple_validators_all_run", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(specEntries, nil).Once()
+
 		v1 := NewProtocolValidatorMock(t)
-		v1.On("Validate", mock.Anything, code).Return(true, nil).Once()
+		v1.On("Validate", specEntries).Return(true).Once()
 		v1.On("ProtocolID").Return("protocol-1").Once()
 
 		v2 := NewProtocolValidatorMock(t)
-		v2.On("Validate", mock.Anything, code).Return(true, nil).Once()
+		v2.On("Validate", specEntries).Return(true).Once()
 		v2.On("ProtocolID").Return("protocol-2").Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock, v1, v2).(*wasmIngestionService)
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock, v1, v2).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
@@ -92,7 +104,10 @@ func TestWasmIngestionService_ProcessContractCode(t *testing.T) {
 
 	t.Run("duplicate_hash_deduplicated", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
-		svc := NewWasmIngestionService(knownWasmModelMock).(*wasmIngestionService)
+		extractorMock := NewWasmSpecExtractorMock(t)
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return(specEntries, nil).Twice()
+
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
 
 		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
@@ -119,7 +134,8 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 
 	t.Run("no_hashes_skips_insert", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
-		svc := NewWasmIngestionService(knownWasmModelMock)
+		extractorMock := NewWasmSpecExtractorMock(t)
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock)
 
 		err := svc.PersistKnownWasms(ctx, nil)
 		require.NoError(t, err)
@@ -128,7 +144,11 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 
 	t.Run("single_hash_persisted", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
+		extractorMock := NewWasmSpecExtractorMock(t)
 		hash := xdr.Hash{10, 20, 30}
+		code := []byte{0x01}
+
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return([]xdr.ScSpecEntry{}, nil).Once()
 
 		knownWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(wasms []data.KnownWasm) bool {
@@ -139,8 +159,8 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock).(*wasmIngestionService)
-		err := svc.ProcessContractCode(ctx, hash, []byte{0x01})
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
+		err := svc.ProcessContractCode(ctx, hash, code)
 		require.NoError(t, err)
 
 		err = svc.PersistKnownWasms(ctx, nil)
@@ -149,8 +169,14 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 
 	t.Run("multiple_hashes_persisted", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
+		extractorMock := NewWasmSpecExtractorMock(t)
 		hash1 := xdr.Hash{1}
 		hash2 := xdr.Hash{2}
+		code1 := []byte{0x01}
+		code2 := []byte{0x02}
+
+		extractorMock.On("ExtractSpec", mock.Anything, code1).Return([]xdr.ScSpecEntry{}, nil).Once()
+		extractorMock.On("ExtractSpec", mock.Anything, code2).Return([]xdr.ScSpecEntry{}, nil).Once()
 
 		knownWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything,
 			mock.MatchedBy(func(wasms []data.KnownWasm) bool {
@@ -165,9 +191,9 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 			}),
 		).Return(nil).Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock).(*wasmIngestionService)
-		require.NoError(t, svc.ProcessContractCode(ctx, hash1, []byte{0x01}))
-		require.NoError(t, svc.ProcessContractCode(ctx, hash2, []byte{0x02}))
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
+		require.NoError(t, svc.ProcessContractCode(ctx, hash1, code1))
+		require.NoError(t, svc.ProcessContractCode(ctx, hash2, code2))
 
 		err := svc.PersistKnownWasms(ctx, nil)
 		require.NoError(t, err)
@@ -175,14 +201,18 @@ func TestWasmIngestionService_PersistKnownWasms(t *testing.T) {
 
 	t.Run("batch_insert_error_propagated", func(t *testing.T) {
 		knownWasmModelMock := data.NewKnownWasmModelMock(t)
+		extractorMock := NewWasmSpecExtractorMock(t)
 		hash := xdr.Hash{99}
+		code := []byte{0x01}
 		insertErr := errors.New("db connection lost")
+
+		extractorMock.On("ExtractSpec", mock.Anything, code).Return([]xdr.ScSpecEntry{}, nil).Once()
 
 		knownWasmModelMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).
 			Return(insertErr).Once()
 
-		svc := NewWasmIngestionService(knownWasmModelMock).(*wasmIngestionService)
-		require.NoError(t, svc.ProcessContractCode(ctx, hash, []byte{0x01}))
+		svc := NewWasmIngestionService(knownWasmModelMock, extractorMock).(*wasmIngestionService)
+		require.NoError(t, svc.ProcessContractCode(ctx, hash, code))
 
 		err := svc.PersistKnownWasms(ctx, nil)
 		require.Error(t, err)

@@ -11,12 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 )
 
-// ProtocolValidator validates WASM bytecode against a specific protocol.
-type ProtocolValidator interface {
-	ProtocolID() string
-	Validate(ctx context.Context, wasmCode []byte) (bool, error)
-}
-
 // WasmIngestionService tracks and persists WASM hashes during checkpoint population.
 type WasmIngestionService interface {
 	ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error
@@ -26,6 +20,7 @@ type WasmIngestionService interface {
 var _ WasmIngestionService = (*wasmIngestionService)(nil)
 
 type wasmIngestionService struct {
+	specExtractor  WasmSpecExtractor
 	validators     []ProtocolValidator
 	knownWasmModel data.KnownWasmModelInterface
 	wasmHashes     map[xdr.Hash]struct{}
@@ -34,9 +29,11 @@ type wasmIngestionService struct {
 // NewWasmIngestionService creates a WasmIngestionService.
 func NewWasmIngestionService(
 	knownWasmModel data.KnownWasmModelInterface,
+	specExtractor WasmSpecExtractor,
 	validators ...ProtocolValidator,
 ) WasmIngestionService {
 	return &wasmIngestionService{
+		specExtractor:  specExtractor,
 		validators:     validators,
 		knownWasmModel: knownWasmModel,
 		wasmHashes:     make(map[xdr.Hash]struct{}),
@@ -45,15 +42,18 @@ func NewWasmIngestionService(
 
 // ProcessContractCode runs protocol validators against the WASM and tracks the hash.
 func (s *wasmIngestionService) ProcessContractCode(ctx context.Context, wasmHash xdr.Hash, wasmCode []byte) error {
-	// Run all registered validators
-	for _, v := range s.validators {
-		matched, err := v.Validate(ctx, wasmCode)
-		if err != nil {
-			log.Ctx(ctx).Warnf("protocol validator %s error for hash %s: %v", v.ProtocolID(), wasmHash.HexString(), err)
-			continue
-		}
-		if matched {
-			log.Ctx(ctx).Infof("WASM %s matched protocol %s", wasmHash.HexString(), v.ProtocolID())
+	// Extract spec entries from the WASM bytecode
+	specEntries, err := s.specExtractor.ExtractSpec(ctx, wasmCode)
+	if err != nil {
+		log.Ctx(ctx).Warnf("failed to extract spec from WASM %s: %v", wasmHash.HexString(), err)
+	}
+
+	// Run all registered validators if we got spec entries
+	if len(specEntries) > 0 {
+		for _, v := range s.validators {
+			if v.Validate(specEntries) {
+				log.Ctx(ctx).Infof("WASM %s matched protocol %s", wasmHash.HexString(), v.ProtocolID())
+			}
 		}
 	}
 
