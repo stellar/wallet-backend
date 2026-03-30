@@ -53,19 +53,21 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 		return nil, nil
 	}
 
+	keys := make([]string, 0, len(m.protocolProcessors)*2)
+	for protocolID := range m.protocolProcessors {
+		keys = append(keys, utils.ProtocolHistoryCursorName(protocolID))
+		keys = append(keys, utils.ProtocolCurrentStateCursorName(protocolID))
+	}
+
+	cursorValues, err := m.models.IngestStore.GetMany(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("reading protocol cursors: %w", err)
+	}
+
 	eligible := make(map[string]ProtocolProcessor, len(m.protocolProcessors))
 	for protocolID, processor := range m.protocolProcessors {
-		historyCursor := utils.ProtocolHistoryCursorName(protocolID)
-		historyVal, err := m.models.IngestStore.Get(ctx, historyCursor)
-		if err != nil {
-			return nil, fmt.Errorf("reading history cursor for %s: %w", protocolID, err)
-		}
-
-		currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
-		currentStateVal, err := m.models.IngestStore.Get(ctx, currentStateCursor)
-		if err != nil {
-			return nil, fmt.Errorf("reading current state cursor for %s: %w", protocolID, err)
-		}
+		historyVal := cursorValues[utils.ProtocolHistoryCursorName(protocolID)]
+		currentStateVal := cursorValues[utils.ProtocolCurrentStateCursorName(protocolID)]
 
 		if protocolStateCursorReady(historyVal, ledgerSeq) || protocolStateCursorReady(currentStateVal, ledgerSeq) {
 			eligible[protocolID] = processor
