@@ -32,10 +32,17 @@ func (m *GraphQLOperationMetrics) Middleware(ctx context.Context, next graphql.O
 
 	responseHandler := next(ctx)
 
+	responded := false
 	return func(ctx context.Context) *graphql.Response {
+		defer func() {
+			if !responded {
+				responded = true
+				m.metrics.InFlightOperations.Dec()
+			}
+		}()
+
 		resp := responseHandler(ctx)
 		if resp == nil {
-			m.metrics.InFlightOperations.Dec()
 			return nil
 		}
 
@@ -61,7 +68,6 @@ func (m *GraphQLOperationMetrics) Middleware(ctx context.Context, next graphql.O
 			m.metrics.ErrorsTotal.WithLabelValues(operationName, errorType).Inc()
 		}
 
-		m.metrics.InFlightOperations.Dec()
 		return resp
 	}
 }
@@ -87,7 +93,7 @@ func classifyGraphQLError(err error) string {
 				case "INTERNAL_SERVER_ERROR":
 					return "internal_error"
 				default:
-					return code
+					return "unknown"
 				}
 			}
 		}
