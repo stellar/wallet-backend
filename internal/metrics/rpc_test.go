@@ -14,10 +14,10 @@ func TestRPCMetrics_Registration(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newRPCMetrics(reg)
 
+	require.NotNil(t, m.RequestDuration)
 	require.NotNil(t, m.RequestsTotal)
-	require.NotNil(t, m.RequestsDuration)
-	require.NotNil(t, m.EndpointFailures)
-	require.NotNil(t, m.EndpointSuccesses)
+	require.NotNil(t, m.InFlightRequests)
+	require.NotNil(t, m.ResponseSizeBytes)
 	require.NotNil(t, m.ServiceHealth)
 	require.NotNil(t, m.LatestLedger)
 	require.NotNil(t, m.MethodCallsTotal)
@@ -36,30 +36,22 @@ func TestRPCMetrics_TransportCounters(t *testing.T) {
 		expected float64
 	}{
 		{
-			name:     "RequestsTotal",
-			inc:      func() { m.RequestsTotal.WithLabelValues("https://rpc.stellar.org").Inc() },
-			get:      func() float64 { return testutil.ToFloat64(m.RequestsTotal.WithLabelValues("https://rpc.stellar.org")) },
+			name: "RequestsTotal success",
+			inc:  func() { m.RequestsTotal.WithLabelValues("getTransaction", "success").Inc() },
+			get: func() float64 {
+				return testutil.ToFloat64(m.RequestsTotal.WithLabelValues("getTransaction", "success"))
+			},
 			expected: 1.0,
 		},
 		{
-			name: "EndpointFailures",
+			name: "RequestsTotal failure",
 			inc: func() {
-				m.EndpointFailures.WithLabelValues("https://rpc.stellar.org").Add(3)
+				m.RequestsTotal.WithLabelValues("getTransaction", "failure").Add(3)
 			},
 			get: func() float64 {
-				return testutil.ToFloat64(m.EndpointFailures.WithLabelValues("https://rpc.stellar.org"))
+				return testutil.ToFloat64(m.RequestsTotal.WithLabelValues("getTransaction", "failure"))
 			},
 			expected: 3.0,
-		},
-		{
-			name: "EndpointSuccesses",
-			inc: func() {
-				m.EndpointSuccesses.WithLabelValues("https://rpc.stellar.org").Add(5)
-			},
-			get: func() float64 {
-				return testutil.ToFloat64(m.EndpointSuccesses.WithLabelValues("https://rpc.stellar.org"))
-			},
-			expected: 5.0,
 		},
 	}
 	for _, tt := range tests {
@@ -82,6 +74,12 @@ func TestRPCMetrics_Gauges(t *testing.T) {
 
 	m.LatestLedger.Set(12345)
 	assert.Equal(t, 12345.0, testutil.ToFloat64(m.LatestLedger))
+
+	m.InFlightRequests.Inc()
+	m.InFlightRequests.Inc()
+	assert.Equal(t, 2.0, testutil.ToFloat64(m.InFlightRequests))
+	m.InFlightRequests.Dec()
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.InFlightRequests))
 }
 
 func TestRPCMetrics_MethodMetrics(t *testing.T) {
@@ -94,8 +92,45 @@ func TestRPCMetrics_MethodMetrics(t *testing.T) {
 
 	assert.Equal(t, 1.0, testutil.ToFloat64(m.MethodCallsTotal.WithLabelValues("getTransaction")))
 	assert.Equal(t, 1.0, testutil.ToFloat64(m.MethodErrorsTotal.WithLabelValues("getTransaction", "not_found")))
-	// CollectAndCount counts label combos, not quantiles — one method observed = 1.
 	assert.Equal(t, 1, testutil.CollectAndCount(m.MethodDuration))
+}
+
+func TestRPCMetrics_Histograms(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newRPCMetrics(reg)
+
+	m.RequestDuration.WithLabelValues("getTransaction").Observe(0.15)
+	m.ResponseSizeBytes.WithLabelValues("getTransaction").Observe(1024)
+	m.MethodDuration.WithLabelValues("GetTransaction").Observe(0.2)
+
+	assert.Equal(t, 1, testutil.CollectAndCount(m.RequestDuration))
+	assert.Equal(t, 1, testutil.CollectAndCount(m.ResponseSizeBytes))
+	assert.Equal(t, 1, testutil.CollectAndCount(m.MethodDuration))
+}
+
+func TestRPCMetrics_HistogramBuckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newRPCMetrics(reg)
+
+	// Trigger a single observation so histogram families are populated.
+	m.RequestDuration.WithLabelValues("getHealth").Observe(0.01)
+	m.MethodDuration.WithLabelValues("GetHealth").Observe(0.01)
+	m.ResponseSizeBytes.WithLabelValues("getHealth").Observe(256)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+
+	for _, fam := range families {
+		switch fam.GetName() {
+		case "wallet_rpc_request_duration_seconds", "wallet_rpc_method_duration_seconds":
+			// 10 explicit buckets + implicit +Inf = 11
+			buckets := fam.GetMetric()[0].GetHistogram().GetBucket()
+			assert.Len(t, buckets, len(rpcDurationBuckets), "duration histogram should have %d buckets", len(rpcDurationBuckets))
+		case "wallet_rpc_response_size_bytes":
+			buckets := fam.GetMetric()[0].GetHistogram().GetBucket()
+			assert.Len(t, buckets, 8, "response size histogram should have 8 buckets")
+		}
+	}
 }
 
 func TestRPCMetrics_GoldenExposition(t *testing.T) {
@@ -118,8 +153,8 @@ func TestRPCMetrics_Lint(t *testing.T) {
 	m := newRPCMetrics(reg)
 
 	for _, c := range []prometheus.Collector{
-		m.RequestsTotal, m.RequestsDuration, m.EndpointFailures,
-		m.EndpointSuccesses, m.ServiceHealth, m.LatestLedger,
+		m.RequestDuration, m.RequestsTotal, m.InFlightRequests,
+		m.ResponseSizeBytes, m.ServiceHealth, m.LatestLedger,
 		m.MethodCallsTotal, m.MethodDuration, m.MethodErrorsTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)

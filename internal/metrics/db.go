@@ -4,20 +4,39 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // DBMetrics holds Prometheus collectors for database operations.
 type DBMetrics struct {
-	QueryDuration       *prometheus.SummaryVec
-	QueriesTotal        *prometheus.CounterVec
-	QueryErrors         *prometheus.CounterVec
-	TransactionsTotal   *prometheus.CounterVec
-	TransactionDuration *prometheus.SummaryVec
-	BatchSize           *prometheus.HistogramVec
+	// QueryDuration tracks the latency of individual database queries — the primary DB performance metric.
+	// Use to detect slow queries and set SLOs on database response times.
+	//
+	//	histogram_quantile(0.99, rate(wallet_db_query_duration_seconds_bucket[5m]))
+	//
+	// Labels: query_type (e.g. "select", "insert", "upsert"), table.
+	QueryDuration *prometheus.HistogramVec
+
+	// QueriesTotal counts completed database queries.
+	// Use for throughput dashboards and per-table query volume analysis.
+	// Labels: query_type (e.g. "select", "insert", "upsert"), table.
+	QueriesTotal *prometheus.CounterVec
+
+	// QueryErrors counts database query failures classified by error type.
+	// Use for error-rate alerting and diagnosing recurring failure patterns.
+	// Labels: query_type (e.g. "select", "insert", "upsert"), table, error_type.
+	QueryErrors *prometheus.CounterVec
+
+	// BatchSize records the number of rows in batch database operations.
+	// Detects unexpectedly large or small batches that may indicate upstream issues.
+	//
+	//	histogram_quantile(0.95, rate(wallet_db_batch_operation_size_bucket[5m]))
+	//
+	// Labels: operation, table.
+	BatchSize *prometheus.HistogramVec
 }
 
 func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 	m := &DBMetrics{
-		QueryDuration: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name:       "wallet_db_query_duration_seconds",
-			Help:       "Duration of database queries.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		QueryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "wallet_db_query_duration_seconds",
+			Help:    "Duration of database queries.",
+			Buckets: prometheus.ExponentialBuckets(0.0001, 2.5, 10),
 		}, []string{"query_type", "table"}),
 		QueriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_db_queries_total",
@@ -27,15 +46,6 @@ func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 			Name: "wallet_db_query_errors_total",
 			Help: "Total number of database query errors.",
 		}, []string{"query_type", "table", "error_type"}),
-		TransactionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "wallet_db_transactions_total",
-			Help: "Total number of database transactions.",
-		}, []string{"status"}),
-		TransactionDuration: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name:       "wallet_db_transaction_duration_seconds",
-			Help:       "Duration of database transactions.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		}, []string{"status"}),
 		BatchSize: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "wallet_db_batch_operation_size",
 			Help:    "Size of batch database operations.",
@@ -46,8 +56,6 @@ func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 		m.QueryDuration,
 		m.QueriesTotal,
 		m.QueryErrors,
-		m.TransactionsTotal,
-		m.TransactionDuration,
 		m.BatchSize,
 	)
 	return m

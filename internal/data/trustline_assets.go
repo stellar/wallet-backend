@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // assetNamespace is a custom namespace UUID derived deterministically from the
@@ -78,11 +79,13 @@ func (m *TrustlineAssetModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, asse
 
 	start := time.Now()
 	_, err := dbTx.Exec(ctx, query, ids, codes, issuers)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "trustline_assets").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "trustline_assets").Observe(float64(len(assets)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "trustline_assets").Inc()
 	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "trustline_assets", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting trustline assets: %w", err)
 	}
-
-	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "trustline_assets").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "trustline_assets").Inc()
 	return nil
 }

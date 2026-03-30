@@ -159,6 +159,12 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
 		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
 	}
+
+	// Set initial lag now that the backend buffer is populated
+	if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
+		m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - startLedger))
+	}
+
 	return m.ingestLiveLedgers(ctx, startLedger)
 }
 
@@ -181,6 +187,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	for {
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
 
@@ -189,6 +196,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		buffer := indexer.NewIndexerBuffer()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
@@ -197,15 +205,22 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		dbStart := time.Now()
 		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer)
 		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
-		m.appMetrics.Ingestion.Duration.WithLabelValues().Observe(totalIngestionDuration)
+		m.appMetrics.Ingestion.Duration.Observe(totalIngestionDuration)
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(numTransactionProcessed))
 		m.appMetrics.Ingestion.OperationsTotal.Add(float64(numOperationProcessed))
 		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
+
+		// Update lag metric (non-blocking atomic read)
+		if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
+			m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - currentLedger))
+		}
+
 		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs)
 		if currentLedger%oldestLedgerSyncInterval == 0 {
 			if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
@@ -233,6 +248,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			return numTxs, numOps, nil
 		}
 		lastErr = err
+		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {
@@ -247,6 +263,8 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		case <-time.After(backoff):
 		}
 	}
+	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
+	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 

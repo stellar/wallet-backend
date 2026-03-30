@@ -28,11 +28,11 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	exists, err := db.QueryOne[bool](ctx, m.DB, query, address)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts", utils.GetDBErrorType(err)).Inc()
 		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Inc()
 	return exists, nil
 }
 
@@ -47,11 +47,11 @@ func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, colum
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Observe(float64(len(toIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchGetByToIDs", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting accounts by transaction ToIDs: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByToIDs", "transactions_accounts").Inc()
 	return accounts, nil
 }
 
@@ -66,10 +66,10 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Observe(float64(len(operationIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchGetByOperationIDs", "operations_accounts", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByOperationIDs", "operations_accounts").Inc()
 	return accounts, nil
 }

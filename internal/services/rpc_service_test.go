@@ -99,9 +99,6 @@ func Test_rpcService_NewRPCService(t *testing.T) {
 				assert.Nil(t, rpcService)
 			} else {
 				assert.NoError(t, err)
-				require.Equal(t, cap(rpcService.heartbeatChannel), 1)
-				require.Equal(t, len(rpcService.heartbeatChannel), 0)
-				tc.wantResult.heartbeatChannel = rpcService.heartbeatChannel
 				assert.Equal(t, tc.wantResult, rpcService)
 			}
 		})

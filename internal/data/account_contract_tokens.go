@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // AccountContractTokensModelInterface defines the interface for account-contract mapping operations.
@@ -49,11 +50,11 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "account_contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "account_contract_tokens").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "account_contract_tokens", "query_error").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying contracts for %s: %w", accountAddress, err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "account_contract_tokens").Inc()
 	return contracts, nil
 }
 
@@ -85,11 +86,13 @@ func (m *AccountContractTokensModel) BatchInsert(ctx context.Context, dbTx pgx.T
 		ON CONFLICT DO NOTHING`
 
 	_, err := dbTx.Exec(ctx, query, addresses, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(float64(len(addresses)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "account_contract_tokens").Inc()
 	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting contract tokens: %w", err)
 	}
-
-	m.Metrics.QueryDuration.WithLabelValues("BatchInsert", "account_contract_tokens").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchInsert", "account_contract_tokens").Inc()
 	return nil
 }

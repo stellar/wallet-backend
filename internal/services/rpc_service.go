@@ -32,7 +32,6 @@ type RPCService interface {
 	GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
-	GetHeartbeatChannel() chan entities.RPCGetHealthResult
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 	NetworkPassphrase() string
 }
@@ -40,7 +39,6 @@ type RPCService interface {
 type rpcService struct {
 	rpcURL                     string
 	httpClient                 utils.HTTPClient
-	heartbeatChannel           chan entities.RPCGetHealthResult
 	metrics                    *metrics.RPCMetrics
 	healthCheckWarningInterval time.Duration
 	healthCheckTickInterval    time.Duration
@@ -65,20 +63,14 @@ func NewRPCService(rpcURL, networkPassphrase string, httpClient utils.HTTPClient
 		return nil, errors.New("rpcMetrics is required")
 	}
 
-	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
 	return &rpcService{
 		rpcURL:                     rpcURL,
 		httpClient:                 httpClient,
-		heartbeatChannel:           heartbeatChannel,
 		metrics:                    rpcMetrics,
 		healthCheckWarningInterval: defaultHealthCheckWarningInterval,
 		healthCheckTickInterval:    defaultHealthCheckTickInterval,
 		networkPassphrase:          networkPassphrase,
 	}, nil
-}
-
-func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
-	return r.heartbeatChannel
 }
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
@@ -150,6 +142,7 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	resultBytes, err := r.sendRPCRequest("getHealth", entities.RPCParams{})
 	if err != nil {
 		r.metrics.MethodErrorsTotal.WithLabelValues("GetHealth", "rpc_error").Inc()
+		r.metrics.ServiceHealth.Set(0)
 		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %w", err)
 	}
 
@@ -157,8 +150,16 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
 		r.metrics.MethodErrorsTotal.WithLabelValues("GetHealth", "json_unmarshal_error").Inc()
+		r.metrics.ServiceHealth.Set(0)
 		return entities.RPCGetHealthResult{}, fmt.Errorf("parsing getHealth result JSON: %w", err)
 	}
+
+	if result.Status == "healthy" {
+		r.metrics.ServiceHealth.Set(1)
+	} else {
+		r.metrics.ServiceHealth.Set(0)
+	}
+	r.metrics.LatestLedger.Set(float64(result.LatestLedger))
 
 	return result, nil
 }
@@ -320,10 +321,10 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
 	startTime := time.Now()
-	r.metrics.RequestsTotal.WithLabelValues(method).Inc()
+	r.metrics.InFlightRequests.Inc()
 	defer func() {
-		duration := time.Since(startTime).Seconds()
-		r.metrics.RequestsDuration.WithLabelValues(method).Observe(duration)
+		r.metrics.InFlightRequests.Dec()
+		r.metrics.RequestDuration.WithLabelValues(method).Observe(time.Since(startTime).Seconds())
 	}()
 
 	payload := map[string]interface{}{
@@ -339,39 +340,40 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("marshaling payload")
 	}
 	resp, err := r.httpClient.Post(r.rpcURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
 	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
+	r.metrics.ResponseSizeBytes.WithLabelValues(method).Observe(float64(len(body)))
 
 	if resp.StatusCode != http.StatusOK {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("RPC returned status code=%d, body=%s", resp.StatusCode, string(body))
 	}
 
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("parsing RPC response JSON body %v: %w", string(body), err)
 	}
 
 	if res.Result == nil {
-		r.metrics.EndpointFailures.WithLabelValues(method).Inc()
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("response %s missing result field", string(body))
 	}
 
-	r.metrics.EndpointSuccesses.WithLabelValues(method).Inc()
+	r.metrics.RequestsTotal.WithLabelValues(method, "success").Inc()
 	return res.Result, nil
 }

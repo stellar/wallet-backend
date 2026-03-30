@@ -219,7 +219,7 @@ func runIngestionLoop(
 		// Record metrics
 		ingestionDuration := time.Since(ingestStart)
 		totalIngestionDuration += ingestionDuration
-		m.Ingestion.Duration.WithLabelValues().Observe(ingestionDuration.Seconds())
+		m.Ingestion.Duration.Observe(ingestionDuration.Seconds())
 		m.Ingestion.LedgersProcessed.Add(1)
 		m.Ingestion.TransactionsTotal.Add(float64(numTxs))
 		m.Ingestion.OperationsTotal.Add(float64(numOps))

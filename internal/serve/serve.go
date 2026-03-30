@@ -8,6 +8,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -89,6 +90,9 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	if c.DBMaxConnIdleTime > 0 {
 		cfg.MaxConnIdleTime = c.DBMaxConnIdleTime
 	}
+	// Use Exec mode to avoid server-side prepared statement caching, which
+	// conflicts with PgBouncer in transaction pooling mode (SQLSTATE 42P05).
+	cfg.QueryExecMode = pgx.QueryExecModeExec
 	return cfg
 }
 
@@ -308,7 +312,11 @@ func handler(deps handlerDeps) http.Handler {
 			reporter := middleware.NewComplexityLogger(deps.Metrics.GraphQL)
 			srv.Use(complexityreporter.NewExtension(reporter))
 
-			// Add field-level metrics tracking
+			// Add operation-level metrics (duration, in-flight, throughput, errors, response size)
+			opMetrics := middleware.NewGraphQLOperationMetrics(deps.Metrics.GraphQL)
+			srv.AroundOperations(opMetrics.Middleware)
+
+			// Add field-level deprecated field tracking
 			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.Metrics.GraphQL)
 			srv.AroundFields(fieldMetrics.Middleware)
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
@@ -67,11 +68,11 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	balances, err := db.QueryMany[TrustlineBalance](ctx, m.DB, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "trustline_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "trustline_balances").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "trustline_balances", "query_error").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "trustline_balances").Inc()
 	return balances, nil
 }
 
@@ -128,10 +129,16 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close() //nolint:errcheck // cleanup on error path
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("closing trustline balance batch: %w", err)
 	}
 
@@ -176,10 +183,16 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		}),
 	)
 	if err != nil {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting trustline balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 

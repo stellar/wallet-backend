@@ -30,11 +30,11 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, hashBytea)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByHash", "transactions").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByHash", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
 	return &transaction, nil
 }
 
@@ -78,11 +78,11 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetAll", "transactions").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetAll", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transactions: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "transactions").Inc()
 	return transactions, nil
 }
 
@@ -159,11 +159,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByAccountAddress", "transactions").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByAccountAddress", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchGetByAccountAddress", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transactions by account address: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByAccountAddress", "transactions").Inc()
 	return transactions, nil
 }
 
@@ -195,11 +195,11 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(float64(len(operationIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByOperationIDs", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchGetByOperationIDs", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByOperationIDs", "transactions").Inc()
 	return transactions, nil
 }
 
@@ -226,11 +226,11 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Observe(float64(len(scOrders)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchGetByStateChangeIDs", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
 	}
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Inc()
 	return transactions, nil
 }
 
@@ -279,10 +279,19 @@ func (m *TransactionModel) BatchCopy(
 		}),
 	)
 	if err != nil {
+		duration := time.Since(start).Seconds()
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
+		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom transactions: %w", err)
 	}
 	if int(copyCount) != len(txs) {
+		duration := time.Since(start).Seconds()
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
+		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", "row_count_mismatch").Inc()
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
 	}
 
@@ -319,6 +328,10 @@ func (m *TransactionModel) BatchCopy(
 			pgx.CopyFromRows(taRows),
 		)
 		if err != nil {
+			duration := time.Since(start).Seconds()
+			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
+			m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
+			m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
 			return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
 		}

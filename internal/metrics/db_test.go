@@ -17,8 +17,6 @@ func TestDBMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.QueryDuration)
 	require.NotNil(t, m.QueriesTotal)
 	require.NotNil(t, m.QueryErrors)
-	require.NotNil(t, m.TransactionsTotal)
-	require.NotNil(t, m.TransactionDuration)
 	require.NotNil(t, m.BatchSize)
 }
 
@@ -52,27 +50,14 @@ func TestDBMetrics_QueryErrors(t *testing.T) {
 	assert.Equal(t, 2.0, testutil.ToFloat64(m.QueryErrors.WithLabelValues("select", "balances", "timeout")))
 }
 
-func TestDBMetrics_TransactionsTotal(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := newDBMetrics(reg)
-
-	m.TransactionsTotal.WithLabelValues("committed").Add(5)
-	m.TransactionsTotal.WithLabelValues("rolled_back").Add(2)
-
-	assert.Equal(t, 5.0, testutil.ToFloat64(m.TransactionsTotal.WithLabelValues("committed")))
-	assert.Equal(t, 2.0, testutil.ToFloat64(m.TransactionsTotal.WithLabelValues("rolled_back")))
-}
-
-func TestDBMetrics_Durations(t *testing.T) {
+func TestDBMetrics_QueryDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newDBMetrics(reg)
 
 	m.QueryDuration.WithLabelValues("select", "accounts").Observe(0.05)
 	m.QueryDuration.WithLabelValues("insert", "balances").Observe(0.1)
-	m.TransactionDuration.WithLabelValues("committed").Observe(0.1)
 
 	assert.Equal(t, 2, testutil.CollectAndCount(m.QueryDuration))
-	assert.Equal(t, 1, testutil.CollectAndCount(m.TransactionDuration))
 }
 
 func TestDBMetrics_BatchSize_Buckets(t *testing.T) {
@@ -122,8 +107,7 @@ func TestDBMetrics_Lint(t *testing.T) {
 	m := newDBMetrics(reg)
 
 	for _, c := range []prometheus.Collector{
-		m.QueryDuration, m.QueriesTotal, m.QueryErrors,
-		m.TransactionsTotal, m.TransactionDuration, m.BatchSize,
+		m.QueryDuration, m.QueriesTotal, m.QueryErrors, m.BatchSize,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)

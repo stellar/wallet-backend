@@ -24,7 +24,7 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 		RPC:       newRPCMetrics(reg),
 		Ingestion: newIngestionMetrics(reg),
 		HTTP:      newHTTPMetrics(reg),
-		GraphQL:   newGraphQLMetrics(reg),
+		GraphQL:   NewGraphQLMetrics(reg),
 		Auth:      newAuthMetrics(reg),
 		registry:  reg,
 	}
@@ -34,8 +34,8 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 func (m *Metrics) Registry() *prometheus.Registry { return m.registry }
 
 // RegisterPoolMetrics registers pond worker pool metrics on this Metrics' registry.
-func (m *Metrics) RegisterPoolMetrics(channel string, pool pond.Pool) {
-	RegisterPoolMetrics(m.registry, channel, pool)
+func (m *Metrics) RegisterPoolMetrics(poolName string, pool pond.Pool) {
+	RegisterPoolMetrics(m.registry, poolName, pool)
 }
 
 // RegisterDBPoolMetrics registers pgxpool connection pool metrics on this Metrics' registry.

@@ -21,8 +21,12 @@ func TestIngestionMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.LedgersProcessed)
 	require.NotNil(t, m.TransactionsTotal)
 	require.NotNil(t, m.OperationsTotal)
-	require.NotNil(t, m.BatchSize)
 	require.NotNil(t, m.ParticipantsCount)
+	require.NotNil(t, m.LagLedgers)
+	require.NotNil(t, m.LedgerFetchDuration)
+	require.NotNil(t, m.RetriesTotal)
+	require.NotNil(t, m.RetryExhaustionsTotal)
+	require.NotNil(t, m.ErrorsTotal)
 	require.NotNil(t, m.StateChangeProcessingDuration)
 	require.NotNil(t, m.StateChangesTotal)
 }
@@ -55,17 +59,14 @@ func TestIngestionMetrics_Duration_Buckets(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newIngestionMetrics(reg)
 
-	m.Duration.WithLabelValues().Observe(0.5)
+	m.Duration.Observe(0.5)
 
-	// To verify bucket configuration we use reg.Gather() → protobuf inspection.
-	// CollectAndCount only counts distinct label combos, not internal histogram structure.
-	// GetBucket() returns explicit boundaries only; +Inf is implicit and excluded.
 	families, err := reg.Gather()
 	require.NoError(t, err)
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_duration_seconds" {
 			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 20) // 20 custom boundaries
+			assert.Len(t, h.GetBucket(), 13) // 13 custom boundaries
 		}
 	}
 }
@@ -81,23 +82,7 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_phase_duration_seconds" {
 			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 17) // 17 custom boundaries
-		}
-	}
-}
-
-func TestIngestionMetrics_BatchSize_Buckets(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := newIngestionMetrics(reg)
-
-	m.BatchSize.Observe(50)
-
-	families, err := reg.Gather()
-	require.NoError(t, err)
-	for _, f := range families {
-		if f.GetName() == "wallet_ingestion_batch_size" {
-			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 8) // ExponentialBuckets(1, 2, 8)
+			assert.Len(t, h.GetBucket(), 11) // 11 custom boundaries
 		}
 	}
 }
@@ -111,7 +96,7 @@ func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
 	families, err := reg.Gather()
 	require.NoError(t, err)
 	for _, f := range families {
-		if f.GetName() == "wallet_ingestion_participants_count" {
+		if f.GetName() == "wallet_ingestion_participants_per_ledger" {
 			h := f.GetMetric()[0].GetHistogram()
 			assert.Len(t, h.GetBucket(), 12) // ExponentialBuckets(1, 2, 12)
 		}
@@ -147,6 +132,57 @@ func TestIngestionMetrics_GoldenExposition(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestIngestionMetrics_LagLedgers(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.LagLedgers.Set(42)
+	assert.Equal(t, 42.0, testutil.ToFloat64(m.LagLedgers))
+}
+
+func TestIngestionMetrics_LedgerFetchDuration_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.LedgerFetchDuration.Observe(0.5)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_ledger_fetch_duration_seconds" {
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 10) // 10 custom boundaries
+		}
+	}
+}
+
+func TestIngestionMetrics_RetriesAndExhaustions(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+	m.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+	m.RetriesTotal.WithLabelValues("db_persist").Inc()
+	m.RetryExhaustionsTotal.WithLabelValues("ledger_fetch").Inc()
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(m.RetriesTotal.WithLabelValues("ledger_fetch")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.RetriesTotal.WithLabelValues("db_persist")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.RetryExhaustionsTotal.WithLabelValues("ledger_fetch")))
+	assert.Equal(t, 0.0, testutil.ToFloat64(m.RetryExhaustionsTotal.WithLabelValues("db_persist")))
+}
+
+func TestIngestionMetrics_ErrorsTotal(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.ErrorsTotal.WithLabelValues("ledger_fetch").Inc()
+	m.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+	m.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.ErrorsTotal.WithLabelValues("ledger_fetch")))
+	assert.Equal(t, 2.0, testutil.ToFloat64(m.ErrorsTotal.WithLabelValues("ingest_live")))
+}
+
 func TestIngestionMetrics_Lint(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newIngestionMetrics(reg)
@@ -154,7 +190,9 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 	for _, c := range []prometheus.Collector{
 		m.LatestLedger, m.OldestLedger, m.Duration, m.PhaseDuration,
 		m.LedgersProcessed, m.TransactionsTotal, m.OperationsTotal,
-		m.BatchSize, m.ParticipantsCount,
+		m.ParticipantsCount,
+		m.LagLedgers, m.LedgerFetchDuration,
+		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
