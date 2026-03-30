@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -17,9 +16,9 @@ import (
 
 // TokenIngestionService provides write access to account token storage during live ingestion.
 type TokenIngestionService interface {
-	// ProcessTokenChanges applies trustline, contract, and SAC balance changes to PostgreSQL.
+	// ProcessTokenChanges applies trustline and SAC balance changes to PostgreSQL.
 	// This is called by the indexer for each ledger's state changes during live ingestion.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
 }
 
 // Verify interface compliance at compile time
@@ -27,44 +26,38 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // TokenIngestionServiceConfig holds configuration for creating a TokenIngestionService.
 type TokenIngestionServiceConfig struct {
-	TrustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
-	NativeBalanceModel         wbdata.NativeBalanceModelInterface
-	SACBalanceModel            wbdata.SACBalanceModelInterface
-	AccountContractTokensModel wbdata.AccountContractTokensModelInterface
-	NetworkPassphrase          string
+	TrustlineBalanceModel wbdata.TrustlineBalanceModelInterface
+	NativeBalanceModel    wbdata.NativeBalanceModelInterface
+	SACBalanceModel       wbdata.SACBalanceModelInterface
+	NetworkPassphrase     string
 }
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	trustlineBalanceModel      wbdata.TrustlineBalanceModelInterface
-	nativeBalanceModel         wbdata.NativeBalanceModelInterface
-	sacBalanceModel            wbdata.SACBalanceModelInterface
-	accountContractTokensModel wbdata.AccountContractTokensModelInterface
-	networkPassphrase          string
+	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel    wbdata.NativeBalanceModelInterface
+	sacBalanceModel       wbdata.SACBalanceModelInterface
+	networkPassphrase     string
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
 func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionService {
 	return &tokenIngestionService{
-		trustlineBalanceModel:      cfg.TrustlineBalanceModel,
-		nativeBalanceModel:         cfg.NativeBalanceModel,
-		sacBalanceModel:            cfg.SACBalanceModel,
-		accountContractTokensModel: cfg.AccountContractTokensModel,
-		networkPassphrase:          cfg.NetworkPassphrase,
+		trustlineBalanceModel: cfg.TrustlineBalanceModel,
+		nativeBalanceModel:    cfg.NativeBalanceModel,
+		sacBalanceModel:       cfg.SACBalanceModel,
+		networkPassphrase:     cfg.NetworkPassphrase,
 	}
 }
 
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
-	if len(trustlineChangesByTrustlineKey) == 0 && len(contractChanges) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	if len(trustlineChangesByTrustlineKey) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 {
 		return nil
 	}
 
 	if err := s.processTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey); err != nil {
-		return err
-	}
-	if err := s.processContractTokenChanges(ctx, dbTx, contractChanges); err != nil {
 		return err
 	}
 	if err := s.processNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
@@ -108,33 +101,6 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 		}
 	}
 	log.Ctx(ctx).Infof("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
-	return nil
-}
-
-// processContractTokenChanges handles SEP-41 contract token inserts.
-func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error {
-	if len(changes) == 0 {
-		return nil
-	}
-
-	contractTokensByAccount := make(map[string][]uuid.UUID)
-	for _, change := range changes {
-		if change.ContractID == "" {
-			continue
-		}
-		if change.ContractType != types.ContractTypeSEP41 {
-			continue
-		}
-		contractID := wbdata.DeterministicContractID(change.ContractID)
-		contractTokensByAccount[change.AccountID] = append(contractTokensByAccount[change.AccountID], contractID)
-	}
-
-	if len(contractTokensByAccount) > 0 {
-		if err := s.accountContractTokensModel.BatchInsert(ctx, dbTx, contractTokensByAccount); err != nil {
-			return fmt.Errorf("batch inserting contract tokens: %w", err)
-		}
-		log.Ctx(ctx).Infof("inserted %d account-contract SEP41 relationships", len(contractTokensByAccount))
-	}
 	return nil
 }
 

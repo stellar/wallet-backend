@@ -5,7 +5,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -338,66 +337,6 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 	})
 }
 
-func TestGetAccountContracts(t *testing.T) {
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	cleanUpDB := func() {
-		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM account_contract_tokens`)
-		require.NoError(t, err)
-	}
-
-	t.Run("account with no contracts returns empty", func(t *testing.T) {
-		cleanUpDB()
-		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
-
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
-
-		got, err := accountContractTokensModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
-		assert.NoError(t, err)
-		assert.Empty(t, got)
-	})
-
-	t.Run("account with contracts returns contract IDs", func(t *testing.T) {
-		cleanUpDB()
-		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
-
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-
-		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SAC"},
-			})
-		})
-		require.NoError(t, err)
-
-		// Insert account contracts using deterministic UUID
-		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return accountContractTokensModel.BatchInsert(ctx, dbTx, map[string][]uuid.UUID{
-				accountAddress: {numericID},
-			})
-		})
-		require.NoError(t, err)
-
-		got, err := accountContractTokensModel.GetByAccount(ctx, accountAddress)
-		assert.NoError(t, err)
-		assert.Len(t, got, 1)
-		assert.Equal(t, contractID, got[0].ContractID)
-	})
-}
-
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
 
@@ -410,8 +349,6 @@ func TestProcessTokenChanges(t *testing.T) {
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_balances`)
 		require.NoError(t, err)
-		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM account_contract_tokens`)
-		require.NoError(t, err)
 		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM trustline_assets`)
 		require.NoError(t, err)
 	}
@@ -421,71 +358,19 @@ func TestProcessTokenChanges(t *testing.T) {
 		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
 		service := NewTokenIngestionService(TokenIngestionServiceConfig{
-			TrustlineBalanceModel:      trustlineBalanceModel,
-			NativeBalanceModel:         nativeBalanceModel,
-			SACBalanceModel:            sacBalanceModel,
-			AccountContractTokensModel: accountContractTokensModel,
-			NetworkPassphrase:          "Test SDF Network ; September 2015",
+			TrustlineBalanceModel: trustlineBalanceModel,
+			NativeBalanceModel:    nativeBalanceModel,
+			SACBalanceModel:       sacBalanceModel,
+			NetworkPassphrase:     "Test SDF Network ; September 2015",
 		})
 
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
 		})
 		assert.NoError(t, err)
-	})
-
-	t.Run("add SEP-41 contract stores contract ID", func(t *testing.T) {
-		cleanUpDB()
-		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
-		require.NoError(t, err)
-		dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
-
-		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		accountContractTokensModel := &wbdata.AccountContractTokensModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		nativeBalanceModel := &wbdata.NativeBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
-
-		service := NewTokenIngestionService(TokenIngestionServiceConfig{
-			TrustlineBalanceModel:      trustlineBalanceModel,
-			NativeBalanceModel:         nativeBalanceModel,
-			SACBalanceModel:            sacBalanceModel,
-			AccountContractTokensModel: accountContractTokensModel,
-			NetworkPassphrase:          "Test SDF Network ; September 2015",
-		})
-
-		accountAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		contractID := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-
-		numericID := wbdata.DeterministicContractID(contractID)
-		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
-				{ID: numericID, ContractID: contractID, Type: "SEP41"},
-			})
-		})
-		require.NoError(t, err)
-
-		// ProcessTokenChanges processes SEP-41 contracts via contractChanges parameter
-		// SAC contracts are processed via sacBalanceChangesByKey parameter instead
-		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, []types.ContractChange{
-				{
-					AccountID:    accountAddress,
-					ContractID:   contractID,
-					ContractType: types.ContractTypeSEP41,
-				},
-			}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
-		})
-		assert.NoError(t, err)
-
-		contracts, err := accountContractTokensModel.GetByAccount(ctx, accountAddress)
-		assert.NoError(t, err)
-		require.Len(t, contracts, 1)
-		assert.Equal(t, contractID, contracts[0].ContractID)
 	})
 }

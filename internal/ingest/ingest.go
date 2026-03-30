@@ -167,8 +167,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
-	contractValidator := services.NewContractValidator()
-
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
 	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
@@ -192,27 +190,24 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
-		TrustlineBalanceModel:      models.TrustlineBalance,
-		NativeBalanceModel:         models.NativeBalance,
-		SACBalanceModel:            models.SACBalance,
-		AccountContractTokensModel: models.AccountContractTokens,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
+		TrustlineBalanceModel: models.TrustlineBalance,
+		NativeBalanceModel:    models.NativeBalance,
+		SACBalanceModel:       models.SACBalance,
+		NetworkPassphrase:     cfg.NetworkPassphrase,
 	})
 
 	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
-		DB:                         models.DB,
-		Archive:                    archive,
-		ContractValidator:          contractValidator,
-		ContractMetadataService:    contractMetadataService,
-		TrustlineAssetModel:        models.TrustlineAsset,
-		TrustlineBalanceModel:      models.TrustlineBalance,
-		NativeBalanceModel:         models.NativeBalance,
-		SACBalanceModel:            models.SACBalance,
-		AccountContractTokensModel: models.AccountContractTokens,
-		ContractModel:              models.Contract,
-		ProtocolWasmModel:          models.ProtocolWasm,
-		ProtocolContractsModel:     models.ProtocolContracts,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
+		DB:                      models.DB,
+		Archive:                 archive,
+		ContractMetadataService: contractMetadataService,
+		TrustlineAssetModel:     models.TrustlineAsset,
+		TrustlineBalanceModel:   models.TrustlineBalance,
+		NativeBalanceModel:      models.NativeBalance,
+		SACBalanceModel:         models.SACBalance,
+		ContractModel:           models.Contract,
+		ProtocolWasmsModel:      models.ProtocolWasms,
+		ProtocolContractsModel:  models.ProtocolContracts,
+		NetworkPassphrase:       cfg.NetworkPassphrase,
 	})
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
@@ -231,7 +226,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		LedgerBackendFactory:      ledgerBackendFactory,
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
-		ContractMetadataService:   contractMetadataService,
 		Metrics:                   m,
 		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,

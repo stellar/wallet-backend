@@ -28,10 +28,10 @@ func TestProtocolContractsBatchInsert(t *testing.T) {
 
 	insertWasms := func(t *testing.T, hashes ...types.HashBytea) {
 		t.Helper()
-		wasmModel := &ProtocolWasmModel{DB: dbConnectionPool, Metrics: dbMetrics}
-		wasms := make([]ProtocolWasm, len(hashes))
+		wasmModel := &ProtocolWasmsModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		wasms := make([]ProtocolWasms, len(hashes))
 		for i, h := range hashes {
-			wasms[i] = ProtocolWasm{WasmHash: h}
+			wasms[i] = ProtocolWasms{WasmHash: h}
 		}
 		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return wasmModel.BatchInsert(ctx, dbTx, wasms)

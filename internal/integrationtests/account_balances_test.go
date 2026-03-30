@@ -11,23 +11,8 @@
 //   - Example: USDC issued by a specific issuer
 //   - Stored as LedgerEntryTypeTrustLine entries
 //
-// 3. SEP-41 Contract Token Balance (TokenTypeSEP41)
-//   - Custom token contracts that implement the SEP-41 interface
-//   - Balances stored as contract data entries with key [Balance, Address]
-//   - This test uses the standard token contract from soroban-examples v22.0.1
-//
-// SEP-41 Token Contract Setup:
-//   - Contract: soroban_token_contract.wasm from stellar/soroban-examples
-//   - Initialization: __constructor(admin, decimal, name, symbol)
-//   - Admin: Master test account
-//   - Decimals: 7
-//   - Name: "USD Coin"
-//   - Symbol: "USDC"
-//   - Functions tested: mint(to, amount)
-//   - Balance storage: Contract data entry with key [Balance, G-address]
-//
 // Test Accounts:
-//   - balanceTestAccount1: Has native XLM, classic USDC trustline, and SEP-41 tokens
+//   - balanceTestAccount1: Has native XLM, classic USDC trustline, and EURC trustline
 //   - balanceTestAccount2: Has native XLM and classic USDC trustline
 //   - These are separate from transaction test accounts to avoid balance drift
 //
@@ -62,7 +47,6 @@ type AccountBalancesAfterCheckpointTestSuite struct {
 // - Native XLM (~10000)
 // - USDC trustline (100)
 // - EURC trustline (100)
-// - SEP-41 contract tokens (500)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
@@ -72,7 +56,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC trustline, EURC trustline, and SEP-41 tokens")
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC trustline, EURC trustline")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -101,14 +85,6 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 			default:
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
-
-		case *types.SEP41Balance:
-			suite.Require().Equal("500.0000000", b.GetBalance())
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
-			suite.Require().Equal("SEP41 Token", b.Name)
-			suite.Require().Equal("SEP41", b.Symbol)
-			suite.Require().Equal(int32(7), b.Decimals)
 
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
@@ -161,7 +137,6 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 // TestCheckpoint_HolderContract_HasInitialBalances verifies that the holder contract
 // has the expected initial balances from checkpoint setup:
 // - USDC SAC tokens (200)
-// - SEP-41 contract tokens (500)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
@@ -171,18 +146,10 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and SEP-41 tokens")
+	suite.Require().Equal(1, len(balances), "Expected 1 balance: USDC SAC")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
-		case *types.SEP41Balance:
-			suite.Require().Equal("500.0000000", b.GetBalance())
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
-			suite.Require().Equal("SEP41 Token", b.Name)
-			suite.Require().Equal("SEP41", b.Symbol)
-			suite.Require().Equal(int32(7), b.Decimals)
-
 		case *types.SACBalance:
 			suite.Require().Equal("200.0000000", b.GetBalance())
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -213,7 +180,6 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
-// - SEP-41 contract tokens (0) - reduced from 500 after transfer to account 2
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
 	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
@@ -223,7 +189,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -255,14 +221,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
 
-		case *types.SEP41Balance:
-			suite.Require().Equal("0.0000000", b.GetBalance(), "SEP-41 balance should be reduced to 0 after transfer")
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
-			suite.Require().Equal("SEP41 Token", b.Name)
-			suite.Require().Equal("SEP41", b.Symbol)
-			suite.Require().Equal(int32(7), b.Decimals)
-
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
@@ -274,7 +232,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (75) - NEW from trustline creation and payment
-// - SEP-41 contract tokens (500) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
 	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
@@ -284,7 +241,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -316,14 +273,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
 
-		case *types.SEP41Balance:
-			suite.Require().Equal("500.0000000", b.GetBalance(), "SEP-41 balance should be 500 from transfer")
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
-			suite.Require().Equal("SEP41 Token", b.Name)
-			suite.Require().Equal("SEP41", b.Symbol)
-			suite.Require().Equal(int32(7), b.Decimals)
-
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
@@ -333,7 +282,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // TestLiveIngestion_HolderContract_HasNewEURC verifies that the holder contract
 // has the expected balances after fixture transactions add EURC:
 // - USDC SAC tokens (200) - unchanged
-// - SEP-41 contract tokens (500) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
 	balances, err := suite.testEnv.WBClient.GetAccountBalances(
@@ -344,18 +292,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: USDC SAC, SEP-41, and EURC SAC")
+	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and EURC SAC")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
-		case *types.SEP41Balance:
-			suite.Require().Equal("500.0000000", b.GetBalance())
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
-			suite.Require().Equal("SEP41 Token", b.Name)
-			suite.Require().Equal("SEP41", b.Symbol)
-			suite.Require().Equal(int32(7), b.Decimals)
-
 		case *types.SACBalance:
 			suite.Require().Equal(types.TokenTypeSAC, b.GetTokenType())
 			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)

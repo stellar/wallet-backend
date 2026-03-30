@@ -33,20 +33,17 @@ type IndexerBufferInterface interface {
 	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
-	GetContractChanges() []types.ContractChange
 	GetAccountChanges() map[string]types.AccountChange
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
-	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
-	PushProtocolWasm(wasm data.ProtocolWasm)
+	PushProtocolWasm(wasm data.ProtocolWasms)
 	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
-	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
-	GetProtocolWasms() map[string]data.ProtocolWasm
+	GetProtocolWasms() map[string]data.ProtocolWasms
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
@@ -79,7 +76,7 @@ type Indexer struct {
 	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
-	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasm]
+	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
@@ -259,25 +256,6 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, contract := range protocolContracts {
 			buffer.PushProtocolContracts(contract)
-		}
-	}
-
-	// Process state changes to extract contract changes
-	for _, stateChange := range stateChanges {
-		//exhaustive:ignore
-		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryBalance:
-			// Only store contract changes when contract token is SEP41
-			if stateChange.ContractType == types.ContractTypeSEP41 {
-				contractChange := types.ContractChange{
-					AccountID:    string(stateChange.AccountID),
-					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String(),
-					LedgerNumber: tx.Ledger.LedgerSequence(),
-					ContractType: stateChange.ContractType,
-				}
-				buffer.PushContractChange(contractChange)
-			}
 		}
 	}
 

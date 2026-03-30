@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -93,13 +92,11 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	Metrics                    *metrics.Metrics
-	RPCService                 services.RPCService
-	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
-	NativeBalanceModel         data.NativeBalanceModelInterface
-	SACBalanceModel            data.SACBalanceModelInterface
-	AccountContractTokensModel data.AccountContractTokensModelInterface
-	ContractMetadataService    services.ContractMetadataService
+	Metrics               *metrics.Metrics
+	RPCService            services.RPCService
+	TrustlineBalanceModel data.TrustlineBalanceModelInterface
+	NativeBalanceModel    data.NativeBalanceModelInterface
+	SACBalanceModel       data.SACBalanceModelInterface
 
 	// GraphQL
 	GraphQLComplexityLimit int
@@ -154,25 +151,18 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
-	}
-
 	return handlerDeps{
-		Models:                     models,
-		RequestAuthVerifier:        requestAuthVerifier,
-		SupportedAssets:            cfg.SupportedAssets,
-		Metrics:                    m,
-		RPCService:                 rpcService,
-		TrustlineBalanceModel:      models.TrustlineBalance,
-		NativeBalanceModel:         models.NativeBalance,
-		SACBalanceModel:            models.SACBalance,
-		AccountContractTokensModel: models.AccountContractTokens,
-		ContractMetadataService:    contractMetadataService,
-		AppTracker:                 cfg.AppTracker,
-		NetworkPassphrase:          cfg.NetworkPassphrase,
-		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
+		Models:                 models,
+		RequestAuthVerifier:    requestAuthVerifier,
+		SupportedAssets:        cfg.SupportedAssets,
+		Metrics:                m,
+		RPCService:             rpcService,
+		TrustlineBalanceModel:  models.TrustlineBalance,
+		NativeBalanceModel:     models.NativeBalance,
+		SACBalanceModel:        models.SACBalance,
+		AppTracker:             cfg.AppTracker,
+		NetworkPassphrase:      cfg.NetworkPassphrase,
+		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
 }
 
@@ -206,8 +196,6 @@ func handler(deps handlerDeps) http.Handler {
 				deps.Models,
 				deps.RPCService,
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
-				deps.AccountContractTokensModel,
-				deps.ContractMetadataService,
 				deps.Metrics,
 				resolvers.ResolverConfig{},
 			)

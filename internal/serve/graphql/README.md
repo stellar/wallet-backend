@@ -419,12 +419,6 @@ query GetAccountBalances {
             isAuthorized
             isClawbackEnabled
           }
-
-          ... on SEP41Balance {
-            name
-            symbol
-            decimals
-          }
         }
       }
       pageInfo {
@@ -445,12 +439,11 @@ The query returns different balance types based on the token:
 | `NativeBalance` | XLM (native asset) | `balance`, `tokenId`, `tokenType`, `minimumBalance`, `buyingLiabilities`, `sellingLiabilities`, `lastModifiedLedger` |
 | `TrustlineBalance` | Classic Stellar trustlines | `code`, `issuer`, `limit`, `isAuthorized`, liabilities |
 | `SACBalance` | Stellar Asset Contract (wrapped classic assets) | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
-| `SEP41Balance` | Custom contract tokens (SEP-41 standard) | `name`, `symbol`, `decimals` |
 
 **Common Fields (all balance types):**
 - `balance: String!` - Current balance amount
 - `tokenId: String!` - Contract ID (C...) for the token
-- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`, `SEP41`
+- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`
 
 **NativeBalance-specific Fields:**
 - `minimumBalance: String!` - Minimum balance required for reserves
@@ -462,7 +455,6 @@ The query returns different balance types based on the token:
 - `NATIVE` - XLM (Stellar's native asset)
 - `CLASSIC` - Classic Stellar trustline assets
 - `SAC` - Stellar Asset Contract (classic assets wrapped for Soroban)
-- `SEP41` - Custom fungible tokens implementing SEP-41
 
 **Example: Query with Type Fragments:**
 
@@ -493,12 +485,6 @@ query GetDetailedBalances {
           ... on SACBalance {
             code
             issuer
-            decimals
-          }
-
-          ... on SEP41Balance {
-            name
-            symbol
             decimals
           }
         }
@@ -554,13 +540,11 @@ query GetDetailedBalances {
 This query uses keyset pagination over the balance backing tables:
 
 1. Reads native, trustline, and SAC balances from PostgreSQL in a stable source order
-2. Reads SEP-41 contract memberships from PostgreSQL using the same cursor order
-3. Fetches SEP-41 `balance(address)` values only for contracts in the returned page
-4. Builds Relay `edges` and `pageInfo` so clients can continue paging with opaque cursors
+2. Builds Relay `edges` and `pageInfo` so clients can continue paging with opaque cursors
 
 **Supported Address Types:**
-- **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances
-- **C-addresses** (contract addresses): Returns SAC and SEP-41 balances only
+- **G-addresses**: Returns native XLM, trustlines, and SAC balances
+- **C-addresses** (contract addresses): Returns SAC balances only
 
 **Error Handling:**
 

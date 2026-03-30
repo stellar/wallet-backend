@@ -61,9 +61,8 @@ type IngestServiceConfig struct {
 	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
-	TokenIngestionService   TokenIngestionService
-	CheckpointService       CheckpointService
-	ContractMetadataService ContractMetadataService
+	TokenIngestionService TokenIngestionService
+	CheckpointService     CheckpointService
 
 	// === Processing Options ===
 	GetLedgersLimit int
@@ -105,7 +104,6 @@ type ingestService struct {
 	ledgerBackendFactory      LedgerBackendFactory
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
-	contractMetadataService   ContractMetadataService
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	getLedgersLimit           int
@@ -144,7 +142,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
-		contractMetadataService:   cfg.ContractMetadataService,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,

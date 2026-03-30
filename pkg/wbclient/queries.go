@@ -369,11 +369,6 @@ const balanceFragments = `
 			isAuthorized
 			isClawbackEnabled
 		}
-		... on SEP41Balance {
-			name
-			symbol
-			decimals
-		}
 	`
 
 // buildAccountBalancesQuery builds the GraphQL query for fetching account balances.

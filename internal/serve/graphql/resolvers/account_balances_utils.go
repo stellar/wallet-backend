@@ -2,8 +2,6 @@
 package resolvers
 
 import (
-	"context"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/amount"
@@ -12,7 +10,6 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	"github.com/stellar/wallet-backend/internal/services"
 )
 
 // buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
@@ -103,112 +100,3 @@ func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphr
 	}, nil
 }
 
-// contractIDToHash converts a contract ID string to an xdr.ContractId.
-func contractIDToHash(contractID string) (*xdr.ContractId, error) {
-	idBytes := [32]byte{}
-	rawBytes, err := hex.DecodeString(contractID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid contract id (%s): %w", contractID, err)
-	}
-	if copy(idBytes[:], rawBytes[:]) != 32 {
-		return nil, fmt.Errorf("couldn't copy 32 bytes to contract hash: %w", err)
-	}
-
-	hash := xdr.ContractId(idBytes)
-	return &hash, nil
-}
-
-// addressToScVal converts a Stellar address string (G... account or C... contract) to an xdr.ScVal.
-// This is used for passing address arguments to contract function calls.
-func addressToScVal(address string) (xdr.ScVal, error) {
-	scAddress := xdr.ScAddress{}
-
-	switch address[0] {
-	case 'C':
-		scAddress.Type = xdr.ScAddressTypeScAddressTypeContract
-		contractHash := strkey.MustDecode(strkey.VersionByteContract, address)
-		contractID, err := contractIDToHash(hex.EncodeToString(contractHash))
-		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("address is not a valid contract: %w", err)
-		}
-		scAddress.ContractId = contractID
-
-	case 'G':
-		scAddress.Type = xdr.ScAddressTypeScAddressTypeAccount
-		scAddress.AccountId = xdr.MustAddressPtr(address)
-	case 'M':
-		acct, err := strkey.DecodeMuxedAccount(address)
-		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("address is not a valid muxed account: %w", err)
-		}
-		scAddress.Type = xdr.ScAddressTypeScAddressTypeMuxedAccount
-		scAddress.MuxedAccount = &xdr.MuxedEd25519Account{
-			Id:      xdr.Uint64(acct.ID()),
-			Ed25519: acct.Ed25519(),
-		}
-	case 'L':
-		scAddress.Type = xdr.ScAddressTypeScAddressTypeLiquidityPool
-		scAddress.LiquidityPoolId = &xdr.PoolId{}
-		copy((*scAddress.LiquidityPoolId)[:], strkey.MustDecode(strkey.VersionByteLiquidityPool, address))
-	case 'B':
-		scAddress.Type = xdr.ScAddressTypeScAddressTypeClaimableBalance
-		var someCb xdr.ClaimableBalanceId
-		err := someCb.DecodeFromStrkey(address)
-		if err != nil {
-			return xdr.ScVal{}, fmt.Errorf("error in decoding claimable balance id from strkey: %w", err)
-		}
-		scAddress.ClaimableBalanceId = &someCb
-	default:
-		return xdr.ScVal{}, fmt.Errorf("unsupported address: %s", address)
-	}
-
-	return xdr.ScVal{
-		Type:    xdr.ScValTypeScvAddress,
-		Address: &scAddress,
-	}, nil
-}
-
-// parseSEP41Balance extracts SEP-41 token balance from a contract data entry.
-func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contract) (*graphql1.SEP41Balance, error) {
-	if val.Type != xdr.ScValTypeScvI128 {
-		return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", val.Type)
-	}
-
-	i128Parts := val.MustI128()
-	balanceStr := amount.String128(i128Parts)
-
-	return &graphql1.SEP41Balance{
-		TokenID:   contractIDStr,
-		Balance:   balanceStr,
-		TokenType: graphql1.TokenTypeSep41,
-		Name:      *contract.Name,
-		Symbol:    *contract.Symbol,
-		Decimals:  int32(contract.Decimals),
-	}, nil
-}
-
-// getSep41Balance fetches and parses a single SEP-41 balance. The paginated
-// balances resolver uses this one-at-a-time form so it can avoid RPC calls for
-// rows that are fetched only to determine PageInfo.
-func getSep41Balance(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contract *data.Contract) (*graphql1.SEP41Balance, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
-	}
-
-	addressArg, err := addressToScVal(accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("converting account address to ScVal: %w", err)
-	}
-
-	balanceResult, err := contractMetadataService.FetchSingleField(ctx, contract.ContractID, "balance", addressArg)
-	if err != nil {
-		return nil, fmt.Errorf("getting SEP41 balance: %w", err)
-	}
-
-	balance, err := parseSEP41Balance(balanceResult, contract.ContractID, contract)
-	if err != nil {
-		return nil, fmt.Errorf("parsing SEP41 balance: %w", err)
-	}
-
-	return balance, nil
-}

@@ -33,7 +33,6 @@ const (
 	balanceSourceNative  balanceSource = "native"
 	balanceSourceClassic balanceSource = "classic"
 	balanceSourceSAC     balanceSource = "sac"
-	balanceSourceSEP41   balanceSource = "sep41"
 )
 
 // balanceCursor is the decoded form of our opaque cursor payload:
@@ -97,13 +96,13 @@ func balanceInternalError() error {
 // balanceSourcesForAddress returns the ordered set of balance sources that can
 // apply to the requested address type.
 //
-// G-addresses can have native XLM, classic trustlines, and SEP-41 balances.
-// C-addresses can hold SAC balances and SEP-41 balances, but never native/classic rows.
+// G-addresses can have native XLM and classic trustlines.
+// C-addresses can hold SAC balances, but never native/classic rows.
 func balanceSourcesForAddress(address string) []balanceSource {
 	if utils.IsContractAddress(address) {
-		return []balanceSource{balanceSourceSAC, balanceSourceSEP41}
+		return []balanceSource{balanceSourceSAC}
 	}
-	return []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41}
+	return []balanceSource{balanceSourceNative, balanceSourceClassic}
 }
 
 // balanceSourceIndex maps a source to its canonical order position. The walkers
@@ -409,8 +408,6 @@ func (r *Resolver) getBalanceNodesForSource(
 		return r.getTrustlineBalanceNodes(ctx, address, cursor, sortOrder, limit, networkPassphrase)
 	case balanceSourceSAC:
 		return r.getSACBalanceNodes(ctx, address, cursor, sortOrder, limit)
-	case balanceSourceSEP41:
-		return r.getSEP41BalanceNodes(ctx, address, cursor, sortOrder, limit)
 	default:
 		return nil, balanceBadUserInputError("invalid balance source")
 	}
@@ -511,61 +508,3 @@ func (r *Resolver) getSACBalanceNodes(
 	return nodes, nil
 }
 
-// SEP-41 balances are the only source that still needs RPC work. To avoid
-// spending RPC calls on the extra row fetched for hasNextPage detection, this
-// method converts only the visible contracts and carries the final fetched row
-// through as a cursor-only sentinel node.
-func (r *Resolver) getSEP41BalanceNodes(
-	ctx context.Context,
-	address string,
-	cursor *balanceCursor,
-	sortOrder data.SortOrder,
-	limit int32,
-) ([]*balanceNode, error) {
-	cursorID, err := cursor.uuid()
-	if err != nil {
-		return nil, balanceBadUserInputError("invalid balance cursor id")
-	}
-
-	contracts, err := r.accountContractTokensModel.GetSEP41ByAccount(ctx, address, &limit, cursorID, sortOrder)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to get paginated SEP-41 contracts for %s: %v", address, err)
-		return nil, balanceInternalError()
-	}
-
-	nodes := make([]*balanceNode, 0, len(contracts))
-	visibleContracts := contracts
-	var sentinel *balanceNode
-	if len(contracts) == int(limit) {
-		// The last fetched row is reserved as a cursor-only sentinel so Relay can
-		// detect a next page without paying one extra RPC balance lookup.
-		extraContract := contracts[len(contracts)-1]
-		visibleContracts = contracts[:len(contracts)-1]
-		sentinel = &balanceNode{
-			Source: balanceSourceSEP41,
-			ID:     extraContract.ID.String(),
-		}
-	}
-
-	for _, contract := range visibleContracts {
-		sep41Balance, balanceErr := getSep41Balance(ctx, address, r.contractMetadataService, contract)
-		if balanceErr != nil {
-			log.Ctx(ctx).Errorf("failed to get SEP-41 balance for %s and contract %s: %v", address, contract.ContractID, balanceErr)
-			return nil, balanceInternalError()
-		}
-
-		nodes = append(nodes, &balanceNode{
-			Balance: sep41Balance,
-			Source:  balanceSourceSEP41,
-			ID:      contract.ID.String(),
-		})
-	}
-
-	if sentinel != nil {
-		// The sentinel intentionally has no GraphQL node payload. It exists only
-		// so NewConnectionWithRelayPagination can compute hasNextPage/endCursor.
-		nodes = append(nodes, sentinel)
-	}
-
-	return nodes, nil
-}
