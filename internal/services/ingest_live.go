@@ -338,11 +338,6 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// produceProtocolState runs all registered protocol processors against a ledger.
-func (m *ingestService) produceProtocolState(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32) error {
-	return m.produceProtocolStateForProcessors(ctx, ledgerMeta, ledgerSeq, m.protocolProcessors)
-}
-
 func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32, processors map[string]ProtocolProcessor) error {
 	if len(processors) == 0 {
 		return nil

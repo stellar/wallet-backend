@@ -3107,6 +3107,11 @@ func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedP
 	mockMetrics.AssertExpectations(t)
 }
 
+// produceProtocolState runs all registered protocol processors against a ledger.
+func (m *ingestService) produceProtocolState(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32) error {
+	return m.produceProtocolStateForProcessors(ctx, ledgerMeta, ledgerSeq, m.protocolProcessors)
+}
+
 func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 	t.Parallel()
 
