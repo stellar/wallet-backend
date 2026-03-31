@@ -101,6 +101,13 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 	}
 }
 
+// txBufferPool reuses per-transaction IndexerBuffer instances across ledgers.
+// After merge, buffers are Clear()ed and returned to the pool, avoiding
+// repeated allocation of the 12 internal maps per transaction.
+var txBufferPool = sync.Pool{
+	New: func() any { return NewIndexerBuffer() },
+}
+
 // ProcessLedgerTransactions processes all transactions in a ledger in parallel.
 // It collects transaction data (participants, operations, state changes) and populates the buffer in a single pass.
 // Returns the total participant count for metrics.
@@ -113,19 +120,19 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 	errMu := sync.Mutex{}
 
 	for idx, tx := range transactions {
-		index := idx
-		tx := tx
 		group.Submit(func() {
-			buffer := NewIndexerBuffer()
+			buffer := txBufferPool.Get().(*IndexerBuffer)
+			buffer.Clear()
 			count, err := i.processTransaction(ctx, tx, buffer)
 			if err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("processing transaction at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err))
 				errMu.Unlock()
+				txBufferPool.Put(buffer)
 				return
 			}
-			txnBuffers[index] = buffer
-			participantCounts[index] = count
+			txnBuffers[idx] = buffer
+			participantCounts[idx] = count
 		})
 	}
 
@@ -136,11 +143,12 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 		return 0, fmt.Errorf("processing transactions: %w", errors.Join(errs...))
 	}
 
-	// Merge buffers and count participants
+	// Merge buffers and count participants, then return buffers to pool
 	totalParticipants := 0
 	for idx, buffer := range txnBuffers {
 		ledgerBuffer.Merge(buffer)
 		totalParticipants += participantCounts[idx]
+		txBufferPool.Put(buffer)
 	}
 
 	return totalParticipants, nil
