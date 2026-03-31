@@ -42,7 +42,6 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		// Assert GetAllTransactions
 		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
 	})
-
 }
 
 func TestIndexerBuffer_PushOperation(t *testing.T) {
@@ -69,7 +68,6 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 		assert.Equal(t, types.NewParticipantSet("alice"), txParticipants[tx1.ToID])
 		assert.Equal(t, types.NewParticipantSet("bob", "chuck"), txParticipants[tx2.ToID])
 	})
-
 }
 
 func TestIndexerBuffer_PushStateChange(t *testing.T) {
@@ -111,9 +109,9 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		indexerBuffer.PushStateChange(&tx1, &op1, sc1)
 		indexerBuffer.PushStateChange(&tx2, &op2, sc2)
-		indexerBuffer.PushStateChange(&tx2, &op3, sc3)               // This operation should be added
-		indexerBuffer.PushStateChange(&tx2, nil, sc4) // Fee state changes don't have an operation
-		indexerBuffer.PushStateChange(&tx2, nil, sc5) // Fee state changes don't have an operation
+		indexerBuffer.PushStateChange(&tx2, &op3, sc3) // This operation should be added
+		indexerBuffer.PushStateChange(&tx2, nil, sc4)  // Fee state changes don't have an operation
+		indexerBuffer.PushStateChange(&tx2, nil, sc5)  // Fee state changes don't have an operation
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
