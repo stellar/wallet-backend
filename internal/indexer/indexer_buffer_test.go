@@ -577,7 +577,7 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 			OperationID: 100,
 		}
 
-		buffer.PushSACBalanceChange(change1)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{change1}, nil)
 
 		changes := buffer.GetSACBalanceChanges()
 		assert.Len(t, changes, 1)
@@ -614,9 +614,9 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 			OperationID: 50, // Lower operation ID - should be ignored
 		}
 
-		buffer.PushSACBalanceChange(change1)
-		buffer.PushSACBalanceChange(change2)
-		buffer.PushSACBalanceChange(change3) // Should be ignored (lower opID)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{change1}, nil)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{change2}, nil)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{change3}, nil) // Should be ignored (lower opID)
 
 		changes := buffer.GetSACBalanceChanges()
 		assert.Len(t, changes, 1)
@@ -647,8 +647,8 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 			OperationID: 200,
 		}
 
-		buffer.PushSACBalanceChange(addChange)
-		buffer.PushSACBalanceChange(removeChange)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{addChange}, nil)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{removeChange}, nil)
 
 		// ADD→REMOVE in same batch is a no-op - entry should be removed
 		changes := buffer.GetSACBalanceChanges()
@@ -676,8 +676,8 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 			OperationID: 200,
 		}
 
-		buffer.PushSACBalanceChange(updateChange)
-		buffer.PushSACBalanceChange(removeChange)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{updateChange}, nil)
+		buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{removeChange}, nil)
 
 		// UPDATE→REMOVE is NOT a no-op - the balance existed before and needs deletion
 		changes := buffer.GetSACBalanceChanges()
@@ -702,7 +702,7 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		}
 
 		for _, change := range changes {
-			buffer.PushSACBalanceChange(change)
+			buffer.BatchPushChanges(nil, nil, []types.SACBalanceChange{change}, nil)
 		}
 
 		result := buffer.GetSACBalanceChanges()
@@ -728,21 +728,21 @@ func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
 		account2 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
 		contract1 := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+		buffer1.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   account1,
 			ContractID:  contract1,
 			Balance:     "100",
 			Operation:   types.SACBalanceOpAdd,
 			OperationID: 1,
-		})
+		}}, nil)
 
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+		buffer2.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   account2,
 			ContractID:  contract1,
 			Balance:     "200",
 			Operation:   types.SACBalanceOpAdd,
 			OperationID: 2,
-		})
+		}}, nil)
 
 		buffer1.Merge(buffer2)
 
@@ -757,21 +757,21 @@ func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
 		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+		buffer1.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "100",
 			Operation:   types.SACBalanceOpAdd,
 			OperationID: 50,
-		})
+		}}, nil)
 
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+		buffer2.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "200",
 			Operation:   types.SACBalanceOpUpdate,
 			OperationID: 100, // Higher
-		})
+		}}, nil)
 
 		buffer1.Merge(buffer2)
 
@@ -791,22 +791,22 @@ func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
 		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 
 		// Buffer1 has ADD
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+		buffer1.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "100",
 			Operation:   types.SACBalanceOpAdd,
 			OperationID: 50,
-		})
+		}}, nil)
 
 		// Buffer2 has REMOVE (higher opID)
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+		buffer2.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "0",
 			Operation:   types.SACBalanceOpRemove,
 			OperationID: 100,
-		})
+		}}, nil)
 
 		buffer1.Merge(buffer2)
 
@@ -823,22 +823,22 @@ func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
 		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 
 		// Buffer1 has higher opID
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
+		buffer1.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "200",
 			Operation:   types.SACBalanceOpUpdate,
 			OperationID: 100,
-		})
+		}}, nil)
 
 		// Buffer2 has lower opID - should be ignored
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
+		buffer2.BatchPushChanges(nil, nil, []types.SACBalanceChange{{
 			AccountID:   accountID,
 			ContractID:  contractID,
 			Balance:     "50",
 			Operation:   types.SACBalanceOpAdd,
 			OperationID: 50,
-		})
+		}}, nil)
 
 		buffer1.Merge(buffer2)
 

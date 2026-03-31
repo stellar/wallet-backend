@@ -282,17 +282,9 @@ func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	return b.accountChangesByAccountID
 }
 
-// PushSACBalanceChange adds a SAC balance change to the buffer with deduplication.
+// pushSACBalanceChangeUnsafe adds a SAC balance change with deduplication.
 // Keeps the change with highest OperationID per (AccountID, ContractID). Handles ADD→REMOVE no-op case.
-// Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.pushSACBalanceChangeUnsafe(sacBalanceChange)
-}
-
-// pushSACBalanceChangeUnsafe is the lock-free implementation. Caller must hold write lock.
+// Caller must hold write lock.
 func (b *IndexerBuffer) pushSACBalanceChangeUnsafe(sacBalanceChange types.SACBalanceChange) {
 	key := SACBalanceChangeKey{
 		AccountID:  sacBalanceChange.AccountID,
