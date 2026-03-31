@@ -16,6 +16,7 @@ account management, and payment tracking capabilities.
   - [Authentication](#authentication)
   - [API Reference](internal/serve/graphql/README.md)
   - [Architecture](#architecture)
+  - [Data Migrations](#data-migrations)
   - [Integration Tests Setup](#integration-tests-setup)
   - [Deployment](#deployment)
 
@@ -1015,6 +1016,21 @@ FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.Co
 - Metadata map size = number of contracts × ~200 bytes per entry
 - Worker pool limits concurrent RPC connections
 - No large in-memory buffers required
+
+## Data Migrations
+
+The wallet-backend includes a protocol data migration system that enables classification of Soroban smart contracts and production of protocol-specific state. Operators can add support for new protocols (e.g., token standards, lending pools, AMMs) by implementing a validator, processor, and data model, then running a multi-step migration workflow that converges with live ingestion via compare-and-swap (CAS) cursors.
+
+The migration workflow for each protocol consists of four steps:
+
+1. **Protocol Setup** (`protocol-setup`) -- Classifies existing contracts by validating WASM bytecode against protocol specifications
+2. **Live Ingestion** (`ingest`) -- Restarts with the new processor to produce state from the current ledger onward
+3. **History Migration** (`protocol-migrate history`) -- Backfills historical state changes within the retention window
+4. **Current-State Migration** (`protocol-migrate current-state`) -- Builds current state from a start ledger to the tip
+
+Steps 2, 3, and 4 run concurrently, each converging independently with live ingestion via dedicated CAS cursors.
+
+For a detailed walkthrough on how to add a new protocol, see [Adding a New Protocol](docs/data-migrations/adding-a-protocol.md). For the full system design, see [Data Migrations Design Document](docs/feature-design/data-migrations.md).
 
 ## Integration Tests Setup
 
