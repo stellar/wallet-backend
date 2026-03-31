@@ -1007,12 +1007,12 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				sc1 := createTestStateChange(1, testAddr1, 200)
 				sc2 := createTestStateChange(2, testAddr2, 201)
 
-				buf.PushTransaction(testAddr1, tx1)
-				buf.PushTransaction(testAddr2, tx2)
-				buf.PushOperation(testAddr1, op1, tx1)
-				buf.PushOperation(testAddr2, op2, tx2)
-				buf.PushStateChange(tx1, op1, sc1)
-				buf.PushStateChange(tx2, op2, sc2)
+				buf.PushTransaction(testAddr1, &tx1)
+				buf.PushTransaction(testAddr2, &tx2)
+				buf.PushOperation(testAddr1, &op1, &tx1)
+				buf.PushOperation(testAddr2, &op2, &tx2)
+				buf.PushStateChange(&tx1, &op1, sc1)
+				buf.PushStateChange(&tx2, &op2, sc2)
 				return buf
 			},
 			updateCursorTo:       nil,
@@ -1028,7 +1028,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction(flushTxHash3, 3)
-				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddr1, &tx1)
 				return buf
 			},
 			updateCursorTo:       ptrUint32(50),
@@ -1044,7 +1044,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			setupBuffer: func() *indexer.IndexerBuffer {
 				buf := indexer.NewIndexerBuffer()
 				tx1 := createTestTransaction(flushTxHash4, 4)
-				buf.PushTransaction(testAddr1, tx1)
+				buf.PushTransaction(testAddr1, &tx1)
 				return buf
 			},
 			updateCursorTo:       ptrUint32(150),

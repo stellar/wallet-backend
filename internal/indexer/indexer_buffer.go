@@ -84,22 +84,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 // PushTransaction adds a transaction and associates it with a participant.
 // Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
 // which participants interacted with it.
-func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Transaction) {
-	txHash := transaction.Hash.String()
-	if _, exists := b.txByHash[txHash]; !exists {
-		b.txByHash[txHash] = &transaction
-	}
-
-	toID := transaction.ToID
-	if _, exists := b.participantsByToID[toID]; !exists {
-		b.participantsByToID[toID] = set.NewSet[string]()
-	}
-	b.participantsByToID[toID].Add(participant)
-}
-
-// pushTransaction is the internal variant that accepts a pointer to avoid copying.
-// Used by PushOperation and PushStateChange which already have a canonical pointer.
-func (b *IndexerBuffer) pushTransaction(participant string, transaction *types.Transaction) {
+func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.Transaction) {
 	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
@@ -259,9 +244,9 @@ func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SAC
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
-func (b *IndexerBuffer) PushOperation(participant string, operation types.Operation, transaction types.Transaction) {
-	b.pushOperation(participant, &operation)
-	b.pushTransaction(participant, &transaction)
+func (b *IndexerBuffer) PushOperation(participant string, operation *types.Operation, transaction *types.Transaction) {
+	b.pushOperation(participant, operation)
+	b.PushTransaction(participant, transaction)
 }
 
 // GetOperations returns all unique operations from the canonical storage.
@@ -293,12 +278,12 @@ func (b *IndexerBuffer) pushOperation(participant string, operation *types.Opera
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
-func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange) {
+func (b *IndexerBuffer) PushStateChange(transaction *types.Transaction, operation *types.Operation, stateChange types.StateChange) {
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransaction(string(stateChange.AccountID), &transaction)
+	b.PushTransaction(string(stateChange.AccountID), transaction)
 	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
-		b.pushOperation(string(stateChange.AccountID), &operation)
+		b.pushOperation(string(stateChange.AccountID), operation)
 	}
 }
 

@@ -22,9 +22,9 @@ import (
 )
 
 type IndexerBufferInterface interface {
-	PushTransaction(participant string, transaction types.Transaction)
-	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
-	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
+	PushTransaction(participant string, transaction *types.Transaction)
+	PushOperation(participant string, operation *types.Operation, transaction *types.Transaction)
+	PushStateChange(transaction *types.Transaction, operation *types.Operation, stateChange types.StateChange)
 	GetTransactionsParticipants() map[int64]set.Set[string]
 	GetOperationsParticipants() map[int64]set.Set[string]
 	GetNumberOfTransactions() int
@@ -190,7 +190,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 	// Insert transaction participants
 	for participant := range txParticipants.Iter() {
-		buffer.PushTransaction(participant, *dataTx)
+		buffer.PushTransaction(participant, dataTx)
 	}
 
 	// Get operation results for extracting result codes
@@ -205,7 +205,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		operationsMap[opID] = dataOp
 		for participant := range opParticipants.Participants.Iter() {
-			buffer.PushOperation(participant, *dataOp, *dataTx)
+			buffer.PushOperation(participant, dataOp, dataTx)
 		}
 	}
 
@@ -262,17 +262,16 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 
 		// Get the correct operation for this state change
-		var operation types.Operation
+		var operation *types.Operation
 		if stateChange.OperationID != 0 {
-			correctOp := operationsMap[stateChange.OperationID]
-			if correctOp == nil {
+			operation = operationsMap[stateChange.OperationID]
+			if operation == nil {
 				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeCategory)
 				continue
 			}
-			operation = *correctOp
 		}
-		// For fee state changes (OperationID == 0), operation remains zero value
-		buffer.PushStateChange(*dataTx, operation, stateChange)
+		// For fee state changes (OperationID == 0), operation remains nil
+		buffer.PushStateChange(dataTx, operation, stateChange)
 	}
 
 	return allParticipants.Cardinality(), nil
