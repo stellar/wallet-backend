@@ -319,7 +319,8 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 				existing.Add(participant)
 			}
 		} else {
-			b.participantsByToID[toID] = otherParticipants.Clone()
+			// Steal the set directly — the source buffer is Clear()ed after Merge.
+			b.participantsByToID[toID] = otherParticipants
 		}
 	}
 
@@ -331,7 +332,8 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 				existing.Add(participant)
 			}
 		} else {
-			b.participantsByOpID[opID] = otherParticipants.Clone()
+			// Steal the set directly — the source buffer is Clear()ed after Merge.
+			b.participantsByOpID[opID] = otherParticipants
 		}
 	}
 

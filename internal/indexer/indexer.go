@@ -178,14 +178,19 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Count all unique participants for metrics
-	allParticipants := set.NewSet[string]()
-	allParticipants = allParticipants.Union(txParticipants)
+	// Count all unique participants for metrics using a plain map to avoid
+	// repeated set allocations from Union().
+	allParticipants := make(map[string]struct{}, txParticipants.Cardinality())
+	for p := range txParticipants.Iter() {
+		allParticipants[p] = struct{}{}
+	}
 	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
+		for p := range opParticipants.Participants.Iter() {
+			allParticipants[p] = struct{}{}
+		}
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants.Add(string(stateChange.AccountID))
+		allParticipants[string(stateChange.AccountID)] = struct{}{}
 	}
 
 	// Insert transaction participants
@@ -274,7 +279,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		buffer.PushStateChange(dataTx, operation, stateChange)
 	}
 
-	return allParticipants.Cardinality(), nil
+	return len(allParticipants), nil
 }
 
 // getTransactionStateChanges processes operations of a transaction and calculates all state changes
