@@ -507,6 +507,8 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 
 ## Step 7: Run the Migration Workflow
 
+For full command reference with all flags and options, see [Running a Data Migration](./running-a-data-migration.md).
+
 Once the code is deployed, run the 4-step protocol onboarding workflow. Steps 2, 3a, and 3b run concurrently.
 
 ```
