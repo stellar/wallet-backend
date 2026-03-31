@@ -224,8 +224,9 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 }
 
 // insertIntoDB persists the processed data from the buffer to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
-	txs := buffer.GetTransactions()
+// txs is passed in to avoid a redundant GetTransactions() allocation — the caller
+// already has the slice for unlockChannelAccounts.
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction, buffer indexer.IndexerBufferInterface) (int, int, error) {
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
