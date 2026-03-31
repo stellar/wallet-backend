@@ -38,9 +38,7 @@ type IndexerBufferInterface interface {
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
-	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
-	PushSACContract(c *data.Contract)
 	BatchPushChanges(trustlines []types.TrustlineChange, accounts []types.AccountChange, sacBalances []types.SACBalanceChange, sacContracts []*data.Contract)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType

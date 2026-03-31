@@ -251,17 +251,9 @@ func (b *IndexerBuffer) GetContractChanges() []types.ContractChange {
 	return b.contractChanges
 }
 
-// PushAccountChange adds an account change to the buffer with deduplication.
+// pushAccountChangeUnsafe adds an account change with deduplication.
 // Keeps the change with highest OperationID per account. Handles CREATE→REMOVE no-op case.
-// Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.pushAccountChangeUnsafe(accountChange)
-}
-
-// pushAccountChangeUnsafe is the lock-free implementation. Caller must hold write lock.
+// Caller must hold write lock.
 func (b *IndexerBuffer) pushAccountChangeUnsafe(accountChange types.AccountChange) {
 	accountID := accountChange.AccountID
 	existing, exists := b.accountChangesByAccountID[accountID]
@@ -487,7 +479,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge contract changes
 	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
 
-	// Merge account changes with deduplication (same logic as PushAccountChange)
+	// Merge account changes with deduplication (same logic as pushAccountChangeUnsafe)
 	for accountID, change := range otherBuffer.accountChangesByAccountID {
 		existing, exists := b.accountChangesByAccountID[accountID]
 
@@ -504,7 +496,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		b.accountChangesByAccountID[accountID] = change
 	}
 
-	// Merge SAC balance changes with deduplication (same logic as PushSACBalanceChange)
+	// Merge SAC balance changes with deduplication (same logic as pushSACBalanceChangeUnsafe)
 	for key, change := range otherBuffer.sacBalanceChangesByKey {
 		existing, exists := b.sacBalanceChangesByKey[key]
 
@@ -583,16 +575,8 @@ func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.Cont
 	return b.uniqueSEP41ContractTokensByID
 }
 
-// PushSACContract adds a SAC contract with extracted metadata to the buffer.
-// Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushSACContract(c *data.Contract) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.pushSACContractUnsafe(c)
-}
-
-// pushSACContractUnsafe is the lock-free implementation. Caller must hold write lock.
+// pushSACContractUnsafe adds a SAC contract with extracted metadata.
+// Caller must hold write lock.
 func (b *IndexerBuffer) pushSACContractUnsafe(c *data.Contract) {
 	if _, exists := b.sacContractsByID[c.ContractID]; !exists {
 		b.sacContractsByID[c.ContractID] = c
