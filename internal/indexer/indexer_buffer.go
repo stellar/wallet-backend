@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
@@ -17,8 +16,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// IndexerBuffer is a thread-safe, memory-efficient buffer for collecting blockchain data
-// during ledger ingestion. It uses a two-level storage architecture:
+// IndexerBuffer is a memory-efficient buffer for collecting blockchain data during ledger
+// ingestion. It uses a two-level storage architecture:
 //
 // ARCHITECTURE:
 // 1. Canonical Storage Layer:
@@ -27,23 +26,15 @@ import (
 //   - This layer owns the actual data and ensures only ONE copy exists in memory
 //
 // 2. Transaction/Operation to Participants Mapping Layer:
-//   - participantsByTxHash: Maps each transaction hash to a SET of participant IDs
+//   - participantsByToID: Maps each transaction ToID to a SET of participant IDs
 //   - participantsByOpID: Maps each operation ID to a SET of participant IDs
 //   - Efficiently tracks which participants interacted with each tx/op
 //
-// MEMORY OPTIMIZATION:
-// Transaction structs contain large XDR fields (10-50+ KB each). When multiple participants
-// interact with the same transaction, they all point to the SAME canonical pointer instead
-// of storing duplicate copies.
-//
-// PERFORMANCE:
-// - Push operations: O(1) via set.Add() with automatic deduplication
-// - No manual duplicate checking: Sets handle uniqueness automatically
-// - MergeBuffer: O(n) with zero temporary map allocations
-//
 // THREAD SAFETY:
-// All public methods use RWMutex for concurrent read/exclusive write access.
-// Callers can safely use multiple buffers in parallel goroutines.
+// IndexerBuffer is NOT thread-safe. The architecture guarantees single-goroutine access:
+//   - Per-transaction buffers (from sync.Pool): one goroutine fills, sequential merge after group.Wait()
+//   - Ledger buffers (live/backfill): owned by a single goroutine throughout their lifecycle
+//   - Merge phase: runs sequentially after parallel work completes
 
 type TrustlineChangeKey struct {
 	AccountID   string
@@ -57,7 +48,6 @@ type SACBalanceChangeKey struct {
 }
 
 type IndexerBuffer struct {
-	mu                             sync.RWMutex
 	txByHash                       map[string]*types.Transaction
 	participantsByToID             map[int64]set.Set[string]
 	opByID                         map[int64]*types.Operation
@@ -73,7 +63,7 @@ type IndexerBuffer struct {
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
-// All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
+// All maps and sets are pre-allocated to avoid nil pointer issues.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
 		txByHash:                       make(map[string]*types.Transaction),
@@ -93,92 +83,66 @@ func NewIndexerBuffer() *IndexerBuffer {
 
 // PushTransaction adds a transaction and associates it with a participant.
 // Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
-// which participants interacted with it. Multiple participants can reference the same transaction.
-// Thread-safe: acquires write lock.
+// which participants interacted with it.
 func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Transaction) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	txHash := transaction.Hash.String()
+	if _, exists := b.txByHash[txHash]; !exists {
+		b.txByHash[txHash] = &transaction
+	}
 
-	b.pushTransactionUnsafe(participant, &transaction)
+	toID := transaction.ToID
+	if _, exists := b.participantsByToID[toID]; !exists {
+		b.participantsByToID[toID] = set.NewSet[string]()
+	}
+	b.participantsByToID[toID].Add(participant)
 }
 
-// pushTransactionUnsafe is the internal implementation that assumes the caller
-// already holds the write lock. This method implements the following pattern:
-//
-// 1. Check if transaction already exists in txByHash
-// 2. If not, store the transaction pointer
-// 3. Add participant to the global participants set
-// 4. Add participant to this transaction's participant set in participantsByToID
-//
-// Caller must hold write lock.
-func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
+// pushTransaction is the internal variant that accepts a pointer to avoid copying.
+// Used by PushOperation and PushStateChange which already have a canonical pointer.
+func (b *IndexerBuffer) pushTransaction(participant string, transaction *types.Transaction) {
 	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
 	}
 
-	// Track this participant by ToID
 	toID := transaction.ToID
 	if _, exists := b.participantsByToID[toID]; !exists {
 		b.participantsByToID[toID] = set.NewSet[string]()
 	}
-
-	// Add participant - O(1) with automatic deduplication
 	b.participantsByToID[toID].Add(participant)
 }
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return len(b.txByHash)
 }
 
 // GetNumberOfOperations returns the count of unique operations in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetNumberOfOperations() int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return len(b.opByID)
 }
 
 // GetTransactions returns all unique transactions.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	txs := make([]*types.Transaction, 0, len(b.txByHash))
 	for _, txPtr := range b.txByHash {
 		txs = append(txs, txPtr)
 	}
-
 	return txs
 }
 
 // GetTransactionsParticipants returns a map of transaction ToIDs to its participants.
 // The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.participantsByToID
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
-// Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.pushTrustlineChangeUnsafe(trustlineChange)
+	b.pushTrustlineChange(trustlineChange)
 }
 
-// pushTrustlineChangeUnsafe is the lock-free implementation. Caller must hold write lock.
-func (b *IndexerBuffer) pushTrustlineChangeUnsafe(trustlineChange types.TrustlineChange) {
+func (b *IndexerBuffer) pushTrustlineChange(trustlineChange types.TrustlineChange) {
 	code, issuer, err := ParseAssetString(trustlineChange.Asset)
 	if err != nil {
 		return // Skip invalid assets
@@ -203,8 +167,8 @@ func (b *IndexerBuffer) pushTrustlineChangeUnsafe(trustlineChange types.Trustlin
 		return
 	}
 
-	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation for the same trustline from previous operation,
-	// it is a no-op for current ledger.
+	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation
+	// for the same trustline from previous operation, it is a no-op for current ledger.
 	if exists && trustlineChange.Operation == types.TrustlineOpRemove && prevChange.Operation == types.TrustlineOpAdd {
 		delete(b.trustlineChangesByTrustlineKey, changeKey)
 		return
@@ -214,20 +178,12 @@ func (b *IndexerBuffer) pushTrustlineChangeUnsafe(trustlineChange types.Trustlin
 }
 
 // GetTrustlineChanges returns all trustline changes stored in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.trustlineChangesByTrustlineKey
 }
 
 // PushContractChange adds a contract change to the buffer and tracks unique SEP-41 contracts.
-// Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	b.contractChanges = append(b.contractChanges, contractChange)
 
 	// Only track SEP-41 contracts for DB insertion
@@ -243,18 +199,13 @@ func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) 
 }
 
 // GetContractChanges returns all contract changes stored in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetContractChanges() []types.ContractChange {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.contractChanges
 }
 
-// pushAccountChangeUnsafe adds an account change with deduplication.
+// pushAccountChange adds an account change with deduplication.
 // Keeps the change with highest OperationID per account. Handles CREATE→REMOVE no-op case.
-// Caller must hold write lock.
-func (b *IndexerBuffer) pushAccountChangeUnsafe(accountChange types.AccountChange) {
+func (b *IndexerBuffer) pushAccountChange(accountChange types.AccountChange) {
 	accountID := accountChange.AccountID
 	existing, exists := b.accountChangesByAccountID[accountID]
 
@@ -274,18 +225,13 @@ func (b *IndexerBuffer) pushAccountChangeUnsafe(accountChange types.AccountChang
 }
 
 // GetAccountChanges returns all account changes stored in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.accountChangesByAccountID
 }
 
-// pushSACBalanceChangeUnsafe adds a SAC balance change with deduplication.
+// pushSACBalanceChange adds a SAC balance change with deduplication.
 // Keeps the change with highest OperationID per (AccountID, ContractID). Handles ADD→REMOVE no-op case.
-// Caller must hold write lock.
-func (b *IndexerBuffer) pushSACBalanceChangeUnsafe(sacBalanceChange types.SACBalanceChange) {
+func (b *IndexerBuffer) pushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
 	key := SACBalanceChangeKey{
 		AccountID:  sacBalanceChange.AccountID,
 		ContractID: sacBalanceChange.ContractID,
@@ -307,31 +253,19 @@ func (b *IndexerBuffer) pushSACBalanceChangeUnsafe(sacBalanceChange types.SACBal
 }
 
 // GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.sacBalanceChangesByKey
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
-// Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushOperation(participant string, operation types.Operation, transaction types.Transaction) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.pushOperationUnsafe(participant, &operation)
-	b.pushTransactionUnsafe(participant, &transaction)
+	b.pushOperation(participant, &operation)
+	b.pushTransaction(participant, &transaction)
 }
 
 // GetOperations returns all unique operations from the canonical storage.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetOperations() []*types.Operation {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	ops := make([]*types.Operation, 0, len(b.opByID))
 	for _, opPtr := range b.opByID {
 		ops = append(ops, opPtr)
@@ -342,22 +276,16 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 // GetOperationsParticipants returns a map of operation IDs to its participants.
 // The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.participantsByOpID
 }
 
-// pushOperationUnsafe is the internal implementation for operation storage.
-// Stores one copy of each operation (by ID) and tracks which participants interacted with it.
-// Caller must hold write lock.
-func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types.Operation) {
+// pushOperation stores one copy of each operation (by ID) and tracks participants.
+func (b *IndexerBuffer) pushOperation(participant string, operation *types.Operation) {
 	opID := operation.ID
 	if _, exists := b.opByID[opID]; !exists {
 		b.opByID[opID] = operation
 	}
 
-	// Track this participant globally
 	if _, exists := b.participantsByOpID[opID]; !exists {
 		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
@@ -365,25 +293,17 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
-// Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransactionUnsafe(string(stateChange.AccountID), &transaction)
+	b.pushTransaction(string(stateChange.AccountID), &transaction)
 	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
-		b.pushOperationUnsafe(string(stateChange.AccountID), &operation)
+		b.pushOperation(string(stateChange.AccountID), &operation)
 	}
 }
 
-// GetStateChanges returns a copy of all state changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetStateChanges returns all state changes stored in the buffer.
 func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.stateChanges
 }
 
@@ -391,45 +311,30 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // per-ledger or per-transaction buffers into a single buffer for batch DB insertion.
 //
 // MERGE STRATEGY:
-// 1. Union global participant sets (O(m) set operation)
-// 2. Copy storage maps (txByHash, opByID) using maps.Copy
-// 3. For each transaction hash in other.participantsByTxHash:
-//   - Merge other's participant set into our participant set for that tx hash
+// 1. Copy storage maps (txByHash, opByID) using maps.Copy
+// 2. For each transaction ToID in other.participantsByToID:
+//   - Merge other's participant set into our participant set
 //   - Creates new set if tx doesn't exist in our mapping yet
 //
-// 4. For each operation ID in other.participantsByOpID:
-//   - Merge other's participant set into our participant set for that op ID
-//   - Creates new set if op doesn't exist in our mapping yet
+// 3. For each operation ID in other.participantsByOpID:
+//   - Same merge strategy as transactions
 //
-// 5. Append other's state changes to ours
-//
-// MEMORY EFFICIENCY:
-// Zero temporary allocations - uses direct map/set manipulation.
-//
-// Thread-safe: acquires write lock on this buffer, read lock on other buffer.
+// 4. Append slices (state changes, contract changes)
+// 5. Deduplicate map-based changes (trustline, account, SAC balance)
 func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// Type assert to get concrete buffer for efficient merging
 	otherBuffer, ok := other.(*IndexerBuffer)
 	if !ok {
 		return
 	}
 
-	otherBuffer.mu.RLock()
-	defer otherBuffer.mu.RUnlock()
-
-	// Merge transactions (canonical storage) - this establishes our canonical pointers
+	// Merge transactions (canonical storage)
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
 	for toID, otherParticipants := range otherBuffer.participantsByToID {
 		if existing, exists := b.participantsByToID[toID]; exists {
-			// Merge into existing set - iterate and add (Union creates new set)
 			for participant := range otherParticipants.Iter() {
 				existing.Add(participant)
 			}
 		} else {
-			// Clone the set instead of creating empty + iterating
 			b.participantsByToID[toID] = otherParticipants.Clone()
 		}
 	}
@@ -438,12 +343,10 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	maps.Copy(b.opByID, otherBuffer.opByID)
 	for opID, otherParticipants := range otherBuffer.participantsByOpID {
 		if existing, exists := b.participantsByOpID[opID]; exists {
-			// Merge into existing set - iterate and add (Union creates new set)
 			for participant := range otherParticipants.Iter() {
 				existing.Add(participant)
 			}
 		} else {
-			// Clone the set instead of creating empty + iterating
 			b.participantsByOpID[opID] = otherParticipants.Clone()
 		}
 	}
@@ -471,7 +374,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge contract changes
 	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
 
-	// Merge account changes with deduplication (same logic as pushAccountChangeUnsafe)
+	// Merge account changes with deduplication
 	for accountID, change := range otherBuffer.accountChangesByAccountID {
 		existing, exists := b.accountChangesByAccountID[accountID]
 
@@ -488,7 +391,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		b.accountChangesByAccountID[accountID] = change
 	}
 
-	// Merge SAC balance changes with deduplication (same logic as pushSACBalanceChangeUnsafe)
+	// Merge SAC balance changes with deduplication
 	for key, change := range otherBuffer.sacBalanceChangesByKey {
 		existing, exists := b.sacBalanceChangesByKey[key]
 
@@ -521,11 +424,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
 // Use this to reuse the buffer after flushing data to the database during backfill.
-// Thread-safe: acquires write lock.
 func (b *IndexerBuffer) Clear() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	// Clear maps (keep allocated backing arrays)
 	clear(b.txByHash)
 	clear(b.participantsByToID)
@@ -546,11 +445,7 @@ func (b *IndexerBuffer) Clear() {
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.
-// Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	assets := make([]data.TrustlineAsset, 0, len(b.uniqueTrustlineAssets))
 	for _, asset := range b.uniqueTrustlineAssets {
 		assets = append(assets, asset)
@@ -561,52 +456,41 @@ func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
 // GetUniqueSEP41ContractTokensByID returns a map of unique SEP-41 contract IDs to their types.
 // The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.uniqueSEP41ContractTokensByID
 }
 
-// pushSACContractUnsafe adds a SAC contract with extracted metadata.
-// Caller must hold write lock.
-func (b *IndexerBuffer) pushSACContractUnsafe(c *data.Contract) {
+// pushSACContract adds a SAC contract with extracted metadata.
+func (b *IndexerBuffer) pushSACContract(c *data.Contract) {
 	if _, exists := b.sacContractsByID[c.ContractID]; !exists {
 		b.sacContractsByID[c.ContractID] = c
 	}
 }
 
 // BatchPushChanges pushes trustline, account, SAC balance, and SAC contract changes
-// in a single lock acquisition, reducing lock overhead from 4N to N (where N = operations).
-// Thread-safe: acquires write lock once for all changes.
+// in a single call, reducing method call overhead.
 func (b *IndexerBuffer) BatchPushChanges(
 	trustlines []types.TrustlineChange,
 	accounts []types.AccountChange,
 	sacBalances []types.SACBalanceChange,
 	sacContracts []*data.Contract,
 ) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	for i := range trustlines {
-		b.pushTrustlineChangeUnsafe(trustlines[i])
+		b.pushTrustlineChange(trustlines[i])
 	}
 	for i := range accounts {
-		b.pushAccountChangeUnsafe(accounts[i])
+		b.pushAccountChange(accounts[i])
 	}
 	for i := range sacBalances {
-		b.pushSACBalanceChangeUnsafe(sacBalances[i])
+		b.pushSACBalanceChange(sacBalances[i])
 	}
 	for i := range sacContracts {
-		b.pushSACContractUnsafe(sacContracts[i])
+		b.pushSACContract(sacContracts[i])
 	}
 }
 
 // GetSACContracts returns a map of SAC contract IDs to their metadata.
 // The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	return b.sacContractsByID
 }
 

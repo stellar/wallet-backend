@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"sync"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -45,40 +44,6 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
 	})
 
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-
-		wg := sync.WaitGroup{}
-		wg.Add(4)
-		go func() {
-			indexerBuffer.PushTransaction("alice", tx1)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("alice", tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("bob", tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("bob", tx2) // duplicate is a no-op
-			wg.Done()
-		}()
-		wg.Wait()
-
-		// Assert participants by transaction
-		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.ToID])
-
-		// Assert GetNumberOfTransactions
-		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
-	})
 }
 
 func TestIndexerBuffer_PushOperation(t *testing.T) {
@@ -106,39 +71,6 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 		assert.Equal(t, set.NewSet("bob", "chuck"), txParticipants[tx2.ToID])
 	})
 
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		op1 := types.Operation{ID: 1}
-		op2 := types.Operation{ID: 2}
-
-		wg := sync.WaitGroup{}
-		wg.Add(4)
-		go func() {
-			indexerBuffer.PushOperation("alice", op1, tx1)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("bob", op2, tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("chuck", op2, tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("chuck", op2, tx2) // duplicate operation ID is a no-op
-			wg.Done()
-		}()
-		wg.Wait()
-
-		// Assert participants by operation
-		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("bob", "chuck"), opParticipants[int64(2)])
-	})
 }
 
 func TestIndexerBuffer_PushStateChange(t *testing.T) {
@@ -158,37 +90,6 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
-	})
-
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
-		op := types.Operation{ID: 1}
-
-		sc1 := types.StateChange{ToID: 1, StateChangeID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeID: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeID: 1}
-
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			indexerBuffer.PushStateChange(tx, op, sc1)
-		}()
-
-		go func() {
-			defer wg.Done()
-			indexerBuffer.PushStateChange(tx, op, sc2)
-			indexerBuffer.PushStateChange(tx, op, sc3)
-		}()
-
-		wg.Wait()
-
-		allStateChanges := indexerBuffer.GetStateChanges()
-		assert.Len(t, allStateChanges, 3)
-		assert.ElementsMatch(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
 
 	t.Run("🟢 with operations and transactions", func(t *testing.T) {
@@ -483,38 +384,6 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer1.Merge(buffer2)
 
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
-	})
-
-	t.Run("🟢 concurrent merges", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-		buffer3 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		tx3 := types.Transaction{Hash: "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762", ToID: 3}
-
-		buffer1.PushTransaction("alice", tx1)
-		buffer2.PushTransaction("bob", tx2)
-		buffer3.PushTransaction("charlie", tx3)
-
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			buffer1.Merge(buffer2)
-		}()
-
-		go func() {
-			defer wg.Done()
-			buffer1.Merge(buffer3)
-		}()
-
-		wg.Wait()
-
-		// Verify all data merged correctly
-		assert.Equal(t, 3, buffer1.GetNumberOfTransactions())
 	})
 
 	t.Run("🟢 merge complete buffers with all data types", func(t *testing.T) {
