@@ -195,16 +195,33 @@ func (b *IndexerBuffer) Clear() {
 
 // --- Unlocked getters (called only after parallel processing completes) ---
 
-func (b *IndexerBuffer) GetNumberOfTransactions() int           { return len(b.txByHash) }
-func (b *IndexerBuffer) GetNumberOfOperations() int             { return len(b.opByID) }
-func (b *IndexerBuffer) GetStateChanges() []types.StateChange   { return b.stateChanges }
+func (b *IndexerBuffer) GetNumberOfTransactions() int               { return len(b.txByHash) }
+func (b *IndexerBuffer) GetNumberOfOperations() int                 { return len(b.opByID) }
+func (b *IndexerBuffer) GetStateChanges() []types.StateChange       { return b.stateChanges }
 func (b *IndexerBuffer) GetContractChanges() []types.ContractChange { return b.contractChanges }
-func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange { return b.accountChangesByAccountID }
-func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange { return b.sacBalanceChangesByKey }
-func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]types.ParticipantSet { return b.participantsByToID }
-func (b *IndexerBuffer) GetOperationsParticipants() map[int64]types.ParticipantSet { return b.participantsByOpID }
-func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange { return b.trustlineChangesByTrustlineKey }
-func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType { return b.uniqueSEP41ContractTokensByID }
+func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
+	return b.accountChangesByAccountID
+}
+
+func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
+	return b.sacBalanceChangesByKey
+}
+
+func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]types.ParticipantSet {
+	return b.participantsByToID
+}
+
+func (b *IndexerBuffer) GetOperationsParticipants() map[int64]types.ParticipantSet {
+	return b.participantsByOpID
+}
+
+func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange {
+	return b.trustlineChangesByTrustlineKey
+}
+
+func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType {
+	return b.uniqueSEP41ContractTokensByID
+}
 func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract { return b.sacContractsByID }
 
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {

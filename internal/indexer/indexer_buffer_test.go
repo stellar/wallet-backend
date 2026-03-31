@@ -393,4 +393,3 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		assert.Equal(t, "300", result[key3].Balance)
 	})
 }
-
