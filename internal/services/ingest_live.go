@@ -169,6 +169,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+	buffer := indexer.NewIndexerBuffer()
 	for {
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
@@ -178,7 +179,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		totalStart := time.Now()
 		processStart := time.Now()
-		buffer := indexer.NewIndexerBuffer()
+		buffer.Clear()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
