@@ -41,6 +41,7 @@ type IndexerBufferInterface interface {
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
+	BatchPushChanges(trustlines []types.TrustlineChange, accounts []types.AccountChange, sacBalances []types.SACBalanceChange, sacContracts []*data.Contract)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
@@ -203,39 +204,30 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Process trustline, account, and SAC balance changes from ledger changes
+	// Process trustline, account, and SAC balance changes from ledger changes.
+	// Results are collected locally and pushed in a single lock acquisition per operation.
 	for _, opParticipants := range opsParticipants {
 		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if tlErr != nil {
 			return 0, fmt.Errorf("processing trustline changes: %w", tlErr)
-		}
-		for _, tlChange := range trustlineChanges {
-			buffer.PushTrustlineChange(tlChange)
 		}
 
 		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if accErr != nil {
 			return 0, fmt.Errorf("processing account changes: %w", accErr)
 		}
-		for _, accChange := range accountChanges {
-			buffer.PushAccountChange(accChange)
-		}
 
 		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacErr != nil {
 			return 0, fmt.Errorf("processing SAC balance changes: %w", sacErr)
-		}
-		for _, sacChange := range sacBalanceChanges {
-			buffer.PushSACBalanceChange(sacChange)
 		}
 
 		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacInstanceErr != nil {
 			return 0, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
 		}
-		for _, c := range sacContracts {
-			buffer.PushSACContract(c)
-		}
+
+		buffer.BatchPushChanges(trustlineChanges, accountChanges, sacBalanceChanges, sacContracts)
 	}
 
 	// Process state changes to extract contract changes

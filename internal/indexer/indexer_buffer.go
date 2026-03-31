@@ -174,6 +174,11 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.pushTrustlineChangeUnsafe(trustlineChange)
+}
+
+// pushTrustlineChangeUnsafe is the lock-free implementation. Caller must hold write lock.
+func (b *IndexerBuffer) pushTrustlineChangeUnsafe(trustlineChange types.TrustlineChange) {
 	code, issuer, err := ParseAssetString(trustlineChange.Asset)
 	if err != nil {
 		return // Skip invalid assets
@@ -253,6 +258,11 @@ func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.pushAccountChangeUnsafe(accountChange)
+}
+
+// pushAccountChangeUnsafe is the lock-free implementation. Caller must hold write lock.
+func (b *IndexerBuffer) pushAccountChangeUnsafe(accountChange types.AccountChange) {
 	accountID := accountChange.AccountID
 	existing, exists := b.accountChangesByAccountID[accountID]
 
@@ -287,6 +297,11 @@ func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceCh
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.pushSACBalanceChangeUnsafe(sacBalanceChange)
+}
+
+// pushSACBalanceChangeUnsafe is the lock-free implementation. Caller must hold write lock.
+func (b *IndexerBuffer) pushSACBalanceChangeUnsafe(sacBalanceChange types.SACBalanceChange) {
 	key := SACBalanceChangeKey{
 		AccountID:  sacBalanceChange.AccountID,
 		ContractID: sacBalanceChange.ContractID,
@@ -574,8 +589,39 @@ func (b *IndexerBuffer) PushSACContract(c *data.Contract) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.pushSACContractUnsafe(c)
+}
+
+// pushSACContractUnsafe is the lock-free implementation. Caller must hold write lock.
+func (b *IndexerBuffer) pushSACContractUnsafe(c *data.Contract) {
 	if _, exists := b.sacContractsByID[c.ContractID]; !exists {
 		b.sacContractsByID[c.ContractID] = c
+	}
+}
+
+// BatchPushChanges pushes trustline, account, SAC balance, and SAC contract changes
+// in a single lock acquisition, reducing lock overhead from 4N to N (where N = operations).
+// Thread-safe: acquires write lock once for all changes.
+func (b *IndexerBuffer) BatchPushChanges(
+	trustlines []types.TrustlineChange,
+	accounts []types.AccountChange,
+	sacBalances []types.SACBalanceChange,
+	sacContracts []*data.Contract,
+) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for i := range trustlines {
+		b.pushTrustlineChangeUnsafe(trustlines[i])
+	}
+	for i := range accounts {
+		b.pushAccountChangeUnsafe(accounts[i])
+	}
+	for i := range sacBalances {
+		b.pushSACBalanceChangeUnsafe(sacBalances[i])
+	}
+	for i := range sacContracts {
+		b.pushSACContractUnsafe(sacContracts[i])
 	}
 }
 
