@@ -227,12 +227,11 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	return nil
 }
 
-// insertIntoDB persists transactions, operations, state changes, and their participant
-// tables to the database using parallel COPY operations. Each of the 5 tables is inserted
-// concurrently on its own pool connection via errgroup.
-// On UniqueViolation (from a prior partial insert), the error is treated as success
-// since the data is already present from a previous attempt.
-func (m *ingestService) insertIntoDB(ctx context.Context, _ pgx.Tx, txs []*types.Transaction, buffer indexer.IndexerBufferInterface) (int, int, error) {
+// insertAndUpsertParallel runs 9 goroutines via errgroup: 5 COPY operations (transactions,
+// transactions_accounts, operations, operations_accounts, state_changes) and 4 balance
+// upserts (trustline, native, SAC, account-contract tokens). Each goroutine acquires its
+// own pool connection. UniqueViolation errors are treated as success for idempotent retry.
+func (m *ingestService) insertAndUpsertParallel(ctx context.Context, txs []*types.Transaction, buffer indexer.IndexerBufferInterface) (int, int, error) {
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
@@ -240,6 +239,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, _ pgx.Tx, txs []*types
 
 	g, gCtx := errgroup.WithContext(ctx)
 
+	// 5 COPY goroutines
 	g.Go(func() error {
 		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
 			if _, err := m.models.Transactions.BatchCopy(ctx, tx, txs); err != nil {
@@ -275,8 +275,30 @@ func (m *ingestService) insertIntoDB(ctx context.Context, _ pgx.Tx, txs []*types
 		})
 	})
 
+	// 4 upsert goroutines
+	g.Go(func() error {
+		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, tx, buffer.GetTrustlineChanges())
+		})
+	})
+	g.Go(func() error {
+		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.tokenIngestionService.ProcessNativeBalanceChanges(ctx, tx, buffer.GetAccountChanges())
+		})
+	})
+	g.Go(func() error {
+		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.tokenIngestionService.ProcessSACBalanceChanges(ctx, tx, buffer.GetSACBalanceChanges())
+		})
+	})
+	g.Go(func() error {
+		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.tokenIngestionService.ProcessContractTokenChanges(ctx, tx, buffer.GetContractChanges())
+		})
+	})
+
 	if err := g.Wait(); err != nil {
-		return 0, 0, fmt.Errorf("parallel copy: %w", err)
+		return 0, 0, fmt.Errorf("parallel insert/upsert: %w", err)
 	}
 
 	m.recordStateChangeMetrics(stateChanges)
