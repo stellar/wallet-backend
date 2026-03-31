@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -245,7 +244,7 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByToID map[int64]set.Set[string],
+	stellarAddressesByToID map[int64]types.ParticipantSet,
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil

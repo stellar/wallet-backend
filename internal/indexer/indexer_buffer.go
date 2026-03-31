@@ -8,7 +8,6 @@ import (
 	"maps"
 	"strings"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 
@@ -49,9 +48,9 @@ type SACBalanceChangeKey struct {
 
 type IndexerBuffer struct {
 	txByHash                       map[string]*types.Transaction
-	participantsByToID             map[int64]set.Set[string]
+	participantsByToID             map[int64]types.ParticipantSet
 	opByID                         map[int64]*types.Operation
-	participantsByOpID             map[int64]set.Set[string]
+	participantsByOpID             map[int64]types.ParticipantSet
 	stateChanges                   []types.StateChange
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	contractChanges                []types.ContractChange
@@ -67,9 +66,9 @@ type IndexerBuffer struct {
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
 		txByHash:                       make(map[string]*types.Transaction),
-		participantsByToID:             make(map[int64]set.Set[string]),
+		participantsByToID:             make(map[int64]types.ParticipantSet),
 		opByID:                         make(map[int64]*types.Operation),
-		participantsByOpID:             make(map[int64]set.Set[string]),
+		participantsByOpID:             make(map[int64]types.ParticipantSet),
 		stateChanges:                   make([]types.StateChange, 0),
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		contractChanges:                make([]types.ContractChange, 0),
@@ -92,7 +91,7 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.T
 
 	toID := transaction.ToID
 	if _, exists := b.participantsByToID[toID]; !exists {
-		b.participantsByToID[toID] = set.NewSet[string]()
+		b.participantsByToID[toID] = make(types.ParticipantSet)
 	}
 	b.participantsByToID[toID].Add(participant)
 }
@@ -118,7 +117,7 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 
 // GetTransactionsParticipants returns a map of transaction ToIDs to its participants.
 // The returned map is a direct reference — callers must not mutate it.
-func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
+func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]types.ParticipantSet {
 	return b.participantsByToID
 }
 
@@ -260,7 +259,7 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 
 // GetOperationsParticipants returns a map of operation IDs to its participants.
 // The returned map is a direct reference — callers must not mutate it.
-func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
+func (b *IndexerBuffer) GetOperationsParticipants() map[int64]types.ParticipantSet {
 	return b.participantsByOpID
 }
 
@@ -272,7 +271,7 @@ func (b *IndexerBuffer) pushOperation(participant string, operation *types.Opera
 	}
 
 	if _, exists := b.participantsByOpID[opID]; !exists {
-		b.participantsByOpID[opID] = set.NewSet[string]()
+		b.participantsByOpID[opID] = make(types.ParticipantSet)
 	}
 	b.participantsByOpID[opID].Add(participant)
 }
@@ -316,7 +315,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
 	for toID, otherParticipants := range otherBuffer.participantsByToID {
 		if existing, exists := b.participantsByToID[toID]; exists {
-			for participant := range otherParticipants.Iter() {
+			for participant := range otherParticipants {
 				existing.Add(participant)
 			}
 		} else {
@@ -328,7 +327,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	maps.Copy(b.opByID, otherBuffer.opByID)
 	for opID, otherParticipants := range otherBuffer.participantsByOpID {
 		if existing, exists := b.participantsByOpID[opID]; exists {
-			for participant := range otherParticipants.Iter() {
+			for participant := range otherParticipants {
 				existing.Add(participant)
 			}
 		} else {

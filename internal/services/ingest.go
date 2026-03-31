@@ -247,7 +247,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, txs []*ty
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]types.ParticipantSet) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -259,7 +259,7 @@ func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, tx
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]types.ParticipantSet) error {
 	if len(ops) == 0 {
 		return nil
 	}
