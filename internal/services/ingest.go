@@ -118,8 +118,9 @@ type ingestService struct {
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
-	ledgerIndexerPool := pond.NewPool(0)
+	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger).
+	// Bounded to NumCPU to avoid goroutine oversubscription on busy ledgers.
+	ledgerIndexerPool := pond.NewPool(runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
