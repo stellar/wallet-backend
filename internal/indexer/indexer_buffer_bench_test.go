@@ -7,18 +7,20 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-const benchParticipants = 100
-const benchTxCount = 200
+const (
+	benchParticipants = 100
+	benchTxCount      = 200
+)
 
 // Pre-allocated test data to isolate buffer performance from allocation noise.
 var (
-	benchTxs          [benchTxCount]*types.Transaction
-	benchOps          [benchTxCount]*types.Operation
-	benchStateChanges [benchTxCount]types.StateChange
+	benchTxs             [benchTxCount]*types.Transaction
+	benchOps             [benchTxCount]*types.Operation
+	benchStateChanges    [benchTxCount]types.StateChange
 	benchParticipantStrs [benchParticipants]string
-	benchTrustlines   [benchTxCount][]types.TrustlineChange
-	benchAccounts     [benchTxCount][]types.AccountChange
-	benchSACBalances  [benchTxCount][]types.SACBalanceChange
+	benchTrustlines      [benchTxCount][]types.TrustlineChange
+	benchAccounts        [benchTxCount][]types.AccountChange
+	benchSACBalances     [benchTxCount][]types.SACBalanceChange
 )
 
 func init() {
