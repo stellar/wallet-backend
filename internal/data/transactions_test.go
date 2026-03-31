@@ -145,7 +145,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs, tc.stellarAddressesByToID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs)
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -155,6 +155,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NoError(t, m.BatchCopyAccounts(ctx, pgxTx, tc.txs, tc.stellarAddressesByToID))
 			require.NoError(t, pgxTx.Commit(ctx))
 			assert.Equal(t, tc.wantCount, gotCount)
 
@@ -493,10 +494,14 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, txs, addressesByToID)
+				_, err = m.BatchCopy(ctx, pgxTx, txs)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)
+				}
+				if err = m.BatchCopyAccounts(ctx, pgxTx, txs, addressesByToID); err != nil {
+					pgxTx.Rollback(ctx)
+					b.Fatalf("BatchCopyAccounts failed: %v", err)
 				}
 
 				b.StopTimer()

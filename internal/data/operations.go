@@ -329,11 +329,16 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 // IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
 // protocol does not support conflict handling. Callers must ensure no duplicates exist
 // before calling this method, or handle the unique constraint violation error appropriately.
+// BatchCopy inserts operations using pgx's binary COPY protocol.
+// Uses native pgtype types for optimal performance.
+//
+// IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
+// protocol does not support conflict handling. Callers must ensure no duplicates exist
+// before calling this method, or handle the unique constraint violation error appropriately.
 func (m *OperationModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]types.ParticipantSet,
 ) (int, error) {
 	if len(operations) == 0 {
 		return 0, nil
@@ -341,7 +346,6 @@ func (m *OperationModel) BatchCopy(
 
 	start := time.Now()
 
-	// COPY operations using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"operations"},
@@ -376,55 +380,68 @@ func (m *OperationModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
 	}
 
-	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures that
-	// account address is not NULL here.
-	if len(stellarAddressesByOpID) > 0 {
-		// Build OpID -> LedgerCreatedAt lookup from operations
-		ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
-		for _, op := range operations {
-			ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
-		}
-
-		var oaRows [][]any
-		for opID, addresses := range stellarAddressesByOpID {
-			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				oaRows = append(oaRows, []any{
-					ledgerCreatedAtPgtype,
-					opIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"operations_accounts"},
-			[]string{"ledger_created_at", "operation_id", "account_id"},
-			pgx.CopyFromRows(oaRows),
-		)
-		if err != nil {
-			duration := time.Since(start).Seconds()
-			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
-			m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
-			m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
-			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations_accounts", utils.GetDBErrorType(err)).Inc()
-			return 0, fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
-		}
-
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations_accounts").Inc()
-	}
-
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
 
 	return len(operations), nil
+}
+
+// BatchCopyAccounts inserts operation participants into operations_accounts using pgx's binary COPY protocol.
+func (m *OperationModel) BatchCopyAccounts(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	operations []*types.Operation,
+	stellarAddressesByOpID map[int64]types.ParticipantSet,
+) error {
+	if len(stellarAddressesByOpID) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	// Build OpID -> LedgerCreatedAt lookup from operations
+	ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
+	for _, op := range operations {
+		ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
+	}
+
+	var oaRows [][]any
+	for opID, addresses := range stellarAddressesByOpID {
+		ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
+		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
+		opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
+		for _, addr := range addresses.ToSlice() {
+			addrBytes, addrErr := types.AddressBytea(addr).Value()
+			if addrErr != nil {
+				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+			}
+			oaRows = append(oaRows, []any{
+				ledgerCreatedAtPgtype,
+				opIDPgtype,
+				addrBytes,
+			})
+		}
+	}
+
+	_, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"operations_accounts"},
+		[]string{"ledger_created_at", "operation_id", "account_id"},
+		pgx.CopyFromRows(oaRows),
+	)
+	if err != nil {
+		duration := time.Since(start).Seconds()
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations_accounts").Observe(duration)
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations_accounts").Inc()
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations_accounts", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations_accounts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations_accounts").Inc()
+
+	return nil
 }
