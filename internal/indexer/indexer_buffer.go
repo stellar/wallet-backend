@@ -160,11 +160,12 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 }
 
 // GetTransactionsParticipants returns a map of transaction ToIDs to its participants.
+// The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.participantsByToID)
+	return b.participantsByToID
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
@@ -340,11 +341,12 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 }
 
 // GetOperationsParticipants returns a map of operation IDs to its participants.
+// The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.participantsByOpID)
+	return b.participantsByOpID
 }
 
 // pushOperationUnsafe is the internal implementation for operation storage.
@@ -558,12 +560,12 @@ func (b *IndexerBuffer) GetUniqueTrustlineAssets() []data.TrustlineAsset {
 }
 
 // GetUniqueSEP41ContractTokensByID returns a map of unique SEP-41 contract IDs to their types.
-// Thread-safe: uses read lock.
+// The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetUniqueSEP41ContractTokensByID() map[string]types.ContractType {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.uniqueSEP41ContractTokensByID)
+	return b.uniqueSEP41ContractTokensByID
 }
 
 // PushSACContract adds a SAC contract with extracted metadata to the buffer.
@@ -578,12 +580,12 @@ func (b *IndexerBuffer) PushSACContract(c *data.Contract) {
 }
 
 // GetSACContracts returns a map of SAC contract IDs to their metadata.
-// Thread-safe: uses read lock.
+// The returned map is a direct reference — callers must not mutate it.
 func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.sacContractsByID)
+	return b.sacContractsByID
 }
 
 // ParseAssetString parses a "CODE:ISSUER" formatted asset string into its components.
