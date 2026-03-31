@@ -28,27 +28,6 @@ func BenchmarkPushOperation(b *testing.B) {
 	}
 }
 
-func BenchmarkMerge(b *testing.B) {
-	for _, nTx := range []int{1, 10, 50} {
-		b.Run(fmt.Sprintf("txs=%d", nTx), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				dst := NewIndexerBuffer()
-				src := NewIndexerBuffer()
-				for j := 0; j < nTx; j++ {
-					tx := &types.Transaction{
-						Hash: types.HashBytea(fmt.Sprintf("hash-%d", j)),
-						ToID: int64(j),
-					}
-					src.PushTransaction(fmt.Sprintf("p-%d", j), tx)
-				}
-				b.StartTimer()
-				dst.Merge(src)
-			}
-		})
-	}
-}
-
 func BenchmarkBatchPushChanges(b *testing.B) {
 	buf := NewIndexerBuffer()
 	trustlines := []types.TrustlineChange{
@@ -67,13 +46,73 @@ func BenchmarkBatchPushChanges(b *testing.B) {
 	}
 }
 
-func BenchmarkClearAndReuse(b *testing.B) {
+func BenchmarkConcurrentPushTransaction(b *testing.B) {
 	buf := NewIndexerBuffer()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tx := &types.Transaction{Hash: types.HashBytea(fmt.Sprintf("hash-%d", i%10)), ToID: int64(i % 10)}
-		buf.PushTransaction("alice", tx)
-		buf.Clear()
-	}
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			tx := &types.Transaction{Hash: types.HashBytea(fmt.Sprintf("hash-%d", i)), ToID: int64(i)}
+			buf.PushTransaction(fmt.Sprintf("p-%d", i%100), tx)
+			i++
+		}
+	})
+}
+
+func BenchmarkConcurrentPushOperation(b *testing.B) {
+	buf := NewIndexerBuffer()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			tx := &types.Transaction{Hash: types.HashBytea(fmt.Sprintf("hash-%d", i)), ToID: int64(i)}
+			op := &types.Operation{ID: int64(i)}
+			buf.PushOperation(fmt.Sprintf("p-%d", i%100), op, tx)
+			i++
+		}
+	})
+}
+
+func BenchmarkConcurrentBatchPushChanges(b *testing.B) {
+	buf := NewIndexerBuffer()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			trustlines := []types.TrustlineChange{
+				{AccountID: fmt.Sprintf("acct-%d", i), Asset: "USD:GISSUER", OperationID: int64(i), Operation: types.TrustlineOpAdd},
+			}
+			accounts := []types.AccountChange{
+				{AccountID: fmt.Sprintf("acct-%d", i), OperationID: int64(i), Operation: types.AccountOpCreate},
+			}
+			sacBalances := []types.SACBalanceChange{
+				{AccountID: fmt.Sprintf("acct-%d", i), ContractID: "CCONTRACT", OperationID: int64(i), Operation: types.SACBalanceOpAdd},
+			}
+			buf.BatchPushChanges(trustlines, accounts, sacBalances, nil)
+			i++
+		}
+	})
+}
+
+func BenchmarkConcurrentPushStateChange(b *testing.B) {
+	buf := NewIndexerBuffer()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			tx := &types.Transaction{Hash: types.HashBytea(fmt.Sprintf("hash-%d", i)), ToID: int64(i)}
+			op := &types.Operation{ID: int64(i)}
+			sc := types.StateChange{
+				ToID:        int64(i),
+				AccountID:   types.AddressBytea(fmt.Sprintf("acct-%d", i%100)),
+				OperationID: int64(i),
+			}
+			buf.PushStateChange(tx, op, sc)
+			i++
+		}
+	})
 }
