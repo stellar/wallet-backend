@@ -133,6 +133,10 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
+	}()
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
@@ -144,20 +148,14 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 		}),
 	)
 	if err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("bulk inserting native balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 	return nil
 }

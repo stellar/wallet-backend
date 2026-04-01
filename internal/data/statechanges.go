@@ -190,6 +190,11 @@ func (m *StateChangeModel) BatchCopy(
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(time.Since(start).Seconds())
+		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
+	}()
 
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
@@ -215,7 +220,7 @@ func (m *StateChangeModel) BatchCopy(
 			}
 
 			// Convert account_id to BYTEA (required field)
-			accountBytes, err := sc.AccountID.Value()
+			accountVal, err := sc.AccountID.Value()
 			if err != nil {
 				return nil, fmt.Errorf("converting account_id: %w", err)
 			}
@@ -257,7 +262,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromReason(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
 				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				accountBytes,
+				accountVal.([]byte),
 				pgtype.Int8{Int64: sc.OperationID, Valid: true},
 				tokenBytes,
 				pgtypeTextFromNullString(sc.Amount),
@@ -282,26 +287,13 @@ func (m *StateChangeModel) BatchCopy(
 		}),
 	)
 	if err != nil {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
 	}
 	if int(copyCount) != len(stateChanges) {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", "row_count_mismatch").Inc()
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
 	}
-
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 
 	return len(stateChanges), nil
 }
