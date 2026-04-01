@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -203,6 +204,13 @@ func (b *optimizedRPCBackend) getBufferedLedger(ctx context.Context, sequence ui
 		},
 	})
 	if err != nil {
+		// The RPC server returns a JSON-RPC error when the requested sequence is outside
+		// its retention window (e.g., beyond the latest closed ledger). The SDK avoids this
+		// by calling GetHealth first; we detect it from the error message instead, saving
+		// one RPC round-trip on every successful fetch at the cost of a string match on errors.
+		if isRPCOutOfRangeError(err) {
+			return xdr.LedgerCloseMeta{}, &beyondLatestError{sequence: sequence, latest: b.latestLedger}
+		}
 		return xdr.LedgerCloseMeta{}, fmt.Errorf("fetching ledgers from RPC: %w", err)
 	}
 
@@ -254,4 +262,13 @@ func (e *beyondLatestError) Error() string {
 func isBeyondLatest(err error) bool {
 	var target *beyondLatestError
 	return errors.As(err, &target)
+}
+
+// isRPCOutOfRangeError checks whether the RPC error indicates the requested ledger
+// is outside the server's retention window. The RPC server returns this as a JSON-RPC
+// error with message "start ledger (...) must be between the oldest ledger: ... and
+// the latest ledger: ...". Since there's no typed error for this, we match on the
+// message substring.
+func isRPCOutOfRangeError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "must be between the oldest ledger")
 }

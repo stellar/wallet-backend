@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -162,6 +163,52 @@ func TestOptimizedRPCBackend_GetLedger_BeyondLatestRetry(t *testing.T) {
 
 	// 3 total GetLedgers calls: 1 from PrepareRange + 2 from GetLedger retries.
 	client.AssertNumberOfCalls(t, "GetLedgers", 3)
+}
+
+func TestOptimizedRPCBackend_GetLedger_RPCOutOfRangeError(t *testing.T) {
+	// Simulates the real-world scenario where the RPC server returns a JSON-RPC error
+	// like: "start ledger (61924967) must be between the oldest ledger: 61907687 and
+	// the latest ledger: 61924966 for this rpc instance"
+	// This happens when requesting a ledger beyond the tip.
+	client := &mockRPCClient{}
+	backend := newOptimizedRPCBackend(client, 5)
+
+	// PrepareRange with ledger 100 available.
+	client.On("GetLedgers", mock.Anything, protocol.GetLedgersRequest{
+		StartLedger: uint32(100),
+		Pagination:  &protocol.LedgerPaginationOptions{Limit: 5},
+	}).Return(protocol.GetLedgersResponse{
+		Ledgers:      []protocol.LedgerInfo{buildLedgerInfo(t, 100)},
+		LatestLedger: 100,
+	}, nil).Once()
+
+	ctx := context.Background()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+	_, err := backend.GetLedger(ctx, 100)
+	require.NoError(t, err)
+
+	// GetLedger(101): RPC returns the out-of-range error (ledger not yet closed).
+	rpcErr := fmt.Errorf("[-32600] start ledger (101) must be between the oldest ledger: 90 and the latest ledger: 100 for this rpc instance")
+	client.On("GetLedgers", mock.Anything, protocol.GetLedgersRequest{
+		StartLedger: uint32(101),
+		Pagination:  &protocol.LedgerPaginationOptions{Limit: 5},
+	}).Return(protocol.GetLedgersResponse{}, rpcErr).Once()
+
+	// Second attempt: ledger 101 is now available.
+	client.On("GetLedgers", mock.Anything, protocol.GetLedgersRequest{
+		StartLedger: uint32(101),
+		Pagination:  &protocol.LedgerPaginationOptions{Limit: 5},
+	}).Return(protocol.GetLedgersResponse{
+		Ledgers:      []protocol.LedgerInfo{buildLedgerInfo(t, 101)},
+		LatestLedger: 101,
+	}, nil).Once()
+
+	lcm, err := backend.GetLedger(ctx, 101)
+	require.NoError(t, err)
+	assert.Equal(t, xdr.Uint32(101), lcm.V0.LedgerHeader.Header.LedgerSeq)
+
+	// No GetHealth calls — the RPC error itself signals "beyond latest".
+	client.AssertNotCalled(t, "GetHealth")
 }
 
 func TestOptimizedRPCBackend_GetLedger_ContextCancellation(t *testing.T) {
