@@ -322,6 +322,12 @@ func (m *ingestService) copyWithPoolConn(ctx context.Context, fn func(context.Co
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Ingestion is idempotent (replayed from cursor on crash), so WAL fsync durability
+	// is unnecessary. This eliminates fsync latency from each of the 9 parallel commits.
+	if _, err := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return fmt.Errorf("setting synchronous_commit=off: %w", err)
+	}
+
 	if err := fn(ctx, tx); err != nil {
 		if isUniqueViolation(err) {
 			return nil

@@ -1088,6 +1088,12 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 
+			mockTokenSvc := NewTokenIngestionServiceMock(t)
+			mockTokenSvc.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockTokenSvc.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockTokenSvc.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockTokenSvc.On("ProcessContractTokenChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
@@ -1097,6 +1103,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				ChannelAccountStore:    mockChAccStore,
+				TokenIngestionService:  mockTokenSvc,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
