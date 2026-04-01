@@ -1081,19 +1081,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-
-			mockTokenSvc := NewTokenIngestionServiceMock(t)
-			mockTokenSvc.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-			mockTokenSvc.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-			mockTokenSvc.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-			mockTokenSvc.On("ProcessContractTokenChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
@@ -1102,8 +1089,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				ChannelAccountStore:    mockChAccStore,
-				TokenIngestionService:  mockTokenSvc,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
