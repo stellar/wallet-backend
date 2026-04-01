@@ -83,7 +83,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		ParticipantsCount: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_participants_per_ledger",
 			Help:    "Number of unique participants per ingestion batch.",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+			Buckets: prometheus.ExponentialBuckets(1, 2, 15),
 		}),
 		LagLedgers: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "wallet_ingestion_lag_ledgers",

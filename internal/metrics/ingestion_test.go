@@ -98,7 +98,7 @@ func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_participants_per_ledger" {
 			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 12) // ExponentialBuckets(1, 2, 12)
+			assert.Len(t, h.GetBucket(), 15) // ExponentialBuckets(1, 2, 15)
 		}
 	}
 }
