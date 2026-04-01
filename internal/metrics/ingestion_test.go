@@ -82,7 +82,7 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_phase_duration_seconds" {
 			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 11) // 11 custom boundaries
+			assert.Len(t, h.GetBucket(), 13) // 13 custom boundaries
 		}
 	}
 }

@@ -66,7 +66,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_phase_duration_seconds",
 			Help:    "Duration of each ingestion phase.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60},
+			Buckets: []float64{0.01, 0.05, 0.075, 0.1, 0.15, 0.2, 0.5, 1, 2, 5, 10, 30, 60},
 		}, []string{"phase"}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
