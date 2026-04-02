@@ -261,6 +261,14 @@ func (m *ProtocolsModelMock) GetByIDs(ctx context.Context, protocolIDs []string)
 	return args.Get(0).([]Protocols), args.Error(1)
 }
 
+func (m *ProtocolsModelMock) GetClassified(ctx context.Context) ([]Protocols, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]Protocols), args.Error(1)
+}
+
 func (m *ProtocolsModelMock) InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error {
 	args := m.Called(ctx, dbTx, protocolID)
 	return args.Error(0)
@@ -290,4 +298,20 @@ func NewProtocolContractsModelMock(t interface {
 func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error {
 	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
+}
+
+func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+	args := m.Called(ctx, protocolID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ProtocolContracts), args.Error(1)
+}
+
+func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
+	args := m.Called(ctx, protocolIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
 }

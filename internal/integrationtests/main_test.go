@@ -61,9 +61,9 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
 	}
 
-	// Protocol setup tests — needs ingest to have populated protocol_wasms + real RPC
-	t.Run("ProtocolSetupTestSuite", func(t *testing.T) {
-		suite.Run(t, &ProtocolSetupTestSuite{testEnv: testEnv})
+	// Data migration tests — protocol setup plus setup-to-live protocol state production
+	t.Run("DataMigrationTestSuite", func(t *testing.T) {
+		suite.Run(t, &DataMigrationTestSuite{testEnv: testEnv})
 	})
 
 	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {

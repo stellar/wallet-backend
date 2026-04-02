@@ -66,6 +66,9 @@ type IngestServiceConfig struct {
 	TokenIngestionService TokenIngestionService
 	CheckpointService     CheckpointService
 
+	// === Protocol Processors ===
+	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
+
 	// === Processing Options ===
 	GetLedgersLimit int
 	SkipTxMeta      bool
@@ -119,6 +122,12 @@ type ingestService struct {
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	knownContractIDs          set.Set[string]
+	protocolProcessors        map[string]ProtocolProcessor
+	protocolContractCache     *protocolContractCache
+	// eligibleProtocolProcessors is set by ingestLiveLedgers before each call
+	// to PersistLedgerData, scoping the CAS loop to only processors that had
+	// ProcessLedger called. Only accessed from the single-threaded live ingestion loop.
+	eligibleProtocolProcessors map[string]ProtocolProcessor
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -134,6 +143,26 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
+
+	// Build protocol processor map from slice
+	ppMap := make(map[string]ProtocolProcessor, len(cfg.ProtocolProcessors))
+	for i, p := range cfg.ProtocolProcessors {
+		if p == nil {
+			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
+		}
+		id := p.ProtocolID()
+		if _, exists := ppMap[id]; exists {
+			return nil, fmt.Errorf("duplicate protocol processor ID %q", id)
+		}
+		ppMap[id] = p
+	}
+
+	var ppCache *protocolContractCache
+	if len(ppMap) > 0 {
+		ppCache = &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		}
+	}
 
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
@@ -158,6 +187,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		knownContractIDs:          set.NewSet[string](),
+		protocolProcessors:        ppMap,
+		protocolContractCache:     ppCache,
 	}, nil
 }
 

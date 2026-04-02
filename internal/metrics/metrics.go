@@ -38,6 +38,9 @@ type MetricsService interface {
 	// State Change Metrics
 	ObserveStateChangeProcessingDuration(processor string, duration float64)
 	IncStateChanges(stateChangeType, category string, count int)
+	ObserveProtocolStateProcessingDuration(protocolID, phase string, duration float64)
+	IncProtocolContractCacheAccess(protocolID, result string)
+	ObserveProtocolContractCacheRefreshDuration(duration float64)
 	// Ingestion Phase Metrics
 	ObserveIngestionPhaseDuration(phase string, duration float64)
 	IncIngestionLedgersProcessed(count int)
@@ -93,6 +96,9 @@ type metricsService struct {
 	// State Change Metrics
 	stateChangeProcessingDuration *prometheus.HistogramVec
 	stateChangesTotal             *prometheus.CounterVec
+	protocolStateProcessing       *prometheus.HistogramVec
+	protocolContractCacheAccess   *prometheus.CounterVec
+	protocolContractCacheRefresh  prometheus.Histogram
 
 	// Ingestion Phase Metrics
 	ingestionPhaseDuration     *prometheus.HistogramVec
@@ -294,6 +300,28 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"type", "category"},
 	)
+	m.protocolStateProcessing = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_protocol_state_processing_duration_seconds",
+			Help:    "Duration of protocol state production by protocol and phase",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+		[]string{"protocol_id", "phase"},
+	)
+	m.protocolContractCacheAccess = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingestion_protocol_contract_cache_access_total",
+			Help: "Total number of protocol contract cache accesses by protocol and result",
+		},
+		[]string{"protocol_id", "result"},
+	)
+	m.protocolContractCacheRefresh = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_protocol_contract_cache_refresh_duration_seconds",
+			Help:    "Duration of protocol contract cache refresh operations",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+	)
 
 	// Ingestion Phase Metrics
 	m.ingestionPhaseDuration = prometheus.NewHistogramVec(
@@ -400,6 +428,9 @@ func (m *metricsService) registerMetrics() {
 		m.signatureVerificationExpired,
 		m.stateChangeProcessingDuration,
 		m.stateChangesTotal,
+		m.protocolStateProcessing,
+		m.protocolContractCacheAccess,
+		m.protocolContractCacheRefresh,
 		m.ingestionPhaseDuration,
 		m.ingestionLedgersProcessed,
 		m.ingestionTransactionsTotal,
@@ -589,6 +620,18 @@ func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, 
 
 func (m *metricsService) IncStateChanges(stateChangeType, category string, count int) {
 	m.stateChangesTotal.WithLabelValues(stateChangeType, category).Add(float64(count))
+}
+
+func (m *metricsService) ObserveProtocolStateProcessingDuration(protocolID, phase string, duration float64) {
+	m.protocolStateProcessing.WithLabelValues(protocolID, phase).Observe(duration)
+}
+
+func (m *metricsService) IncProtocolContractCacheAccess(protocolID, result string) {
+	m.protocolContractCacheAccess.WithLabelValues(protocolID, result).Inc()
+}
+
+func (m *metricsService) ObserveProtocolContractCacheRefreshDuration(duration float64) {
+	m.protocolContractCacheRefresh.Observe(duration)
 }
 
 // Ingestion Phase Metrics

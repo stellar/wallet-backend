@@ -257,6 +257,47 @@ func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
 	return args.Get(0).([]historyarchive.ArchiveStats)
 }
 
+// ProtocolProcessorMock is a mock implementation of the ProtocolProcessor interface
+type ProtocolProcessorMock struct {
+	mock.Mock
+}
+
+var _ ProtocolProcessor = (*ProtocolProcessorMock)(nil)
+
+func (m *ProtocolProcessorMock) ProtocolID() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
+	args := m.Called(ctx, input)
+	return args.Error(0)
+}
+
+func (m *ProtocolProcessorMock) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+func (m *ProtocolProcessorMock) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+// NewProtocolProcessorMock creates a new instance of ProtocolProcessorMock.
+func NewProtocolProcessorMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ProtocolProcessorMock {
+	mock := &ProtocolProcessorMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
 // ChangeReaderMock is a mock implementation of the ChangeReader interface
 type ChangeReaderMock struct {
 	mock.Mock
