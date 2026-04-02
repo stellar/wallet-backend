@@ -176,6 +176,64 @@ func (b *IndexerBuffer) BatchPushChanges(
 	}
 }
 
+// TransactionResult holds all the data collected from processing a single transaction,
+// ready to be pushed into the buffer in a single lock acquisition.
+type TransactionResult struct {
+	Transaction      *types.Transaction
+	TxParticipants   []string
+	Operations       map[int64]*types.Operation // opID → operation
+	OpParticipants   map[int64][]string         // opID → participant list
+	ContractChanges  []types.ContractChange
+	StateChanges     []types.StateChange
+	StateChangeOpMap map[int64]*types.Operation // opID → operation for state change association
+}
+
+// BatchPushTransactionResult pushes an entire transaction's worth of data into the buffer
+// in a single lock acquisition. This reduces mutex contention from ~5-15 acquisitions
+// per transaction down to 1. Thread-safe.
+func (b *IndexerBuffer) BatchPushTransactionResult(result *TransactionResult) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Push transaction participants
+	for _, participant := range result.TxParticipants {
+		b.pushTransaction(participant, result.Transaction)
+	}
+
+	// Push operations and their participants
+	for opID, participants := range result.OpParticipants {
+		op := result.Operations[opID]
+		for _, participant := range participants {
+			b.pushOperation(participant, op)
+			b.pushTransaction(participant, result.Transaction)
+		}
+	}
+
+	// Push contract changes
+	for _, cc := range result.ContractChanges {
+		b.contractChanges = append(b.contractChanges, cc)
+		if cc.ContractType == types.ContractTypeSEP41 && cc.ContractID != "" {
+			if _, exists := b.uniqueSEP41ContractTokensByID[cc.ContractID]; !exists {
+				b.uniqueSEP41ContractTokensByID[cc.ContractID] = cc.ContractType
+			}
+		}
+	}
+
+	// Push state changes
+	for _, sc := range result.StateChanges {
+		if sc.AccountID == "" {
+			continue
+		}
+		b.stateChanges = append(b.stateChanges, sc)
+		b.pushTransaction(string(sc.AccountID), result.Transaction)
+		if sc.OperationID != 0 {
+			if op := result.StateChangeOpMap[sc.OperationID]; op != nil {
+				b.pushOperation(string(sc.AccountID), op)
+			}
+		}
+	}
+}
+
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
 // Used by backfill to reuse the buffer after flushing data to the database.
 func (b *IndexerBuffer) Clear() {
