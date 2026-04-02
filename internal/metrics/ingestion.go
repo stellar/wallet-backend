@@ -46,6 +46,32 @@ type IngestionMetrics struct {
 	// State change metrics
 	StateChangeProcessingDuration *prometheus.HistogramVec
 	StateChangesTotal             *prometheus.CounterVec
+
+	// --- Backfill Pipeline Metrics ---
+
+	// BackfillChannelWait observes time goroutines spend blocked on channel operations.
+	// Labels: channel ("ledger", "flush"), direction ("send", "receive").
+	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_backfill_channel_wait_seconds_bucket{channel="ledger",direction="send"}[5m]))
+	BackfillChannelWait *prometheus.HistogramVec
+	// BackfillChannelUtilization reports channel fill ratio (0.0-1.0), sampled every second.
+	// Labels: channel ("ledger", "flush").
+	// PromQL: wallet_ingestion_backfill_channel_utilization_ratio{channel="ledger"}
+	BackfillChannelUtilization *prometheus.GaugeVec
+	// BackfillLedgersFlushed counts ledgers successfully flushed to DB during backfill.
+	// PromQL: rate(wallet_ingestion_backfill_ledgers_flushed_total[5m])
+	BackfillLedgersFlushed prometheus.Counter
+	// BackfillBatchSize observes the number of ledgers per flush batch.
+	// PromQL: histogram_quantile(0.5, rate(wallet_ingestion_backfill_batch_size_bucket[5m]))
+	BackfillBatchSize prometheus.Histogram
+	// BackfillGapProgress reports completion ratio (0.0-1.0) of the current gap.
+	// PromQL: wallet_ingestion_backfill_gap_progress_ratio
+	BackfillGapProgress prometheus.Gauge
+	// BackfillGapStartLedger is the start ledger of the gap currently being processed.
+	// PromQL: wallet_ingestion_backfill_gap_start_ledger
+	BackfillGapStartLedger prometheus.Gauge
+	// BackfillGapEndLedger is the end ledger of the gap currently being processed.
+	// PromQL: wallet_ingestion_backfill_gap_end_ledger
+	BackfillGapEndLedger prometheus.Gauge
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -115,6 +141,36 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_state_changes_total",
 			Help: "Total number of state changes persisted to database by type and category.",
 		}, []string{"type", "category"}),
+		BackfillChannelWait: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_backfill_channel_wait_seconds",
+			Help:    "Time goroutines spend blocked on backfill pipeline channel operations.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30},
+		}, []string{"channel", "direction"}),
+		BackfillChannelUtilization: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "wallet_ingestion_backfill_channel_utilization_ratio",
+			Help: "Fill ratio (0.0-1.0) of backfill pipeline channels, sampled every second.",
+		}, []string{"channel"}),
+		BackfillLedgersFlushed: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "wallet_ingestion_backfill_ledgers_flushed_total",
+			Help: "Total ledgers successfully flushed to database during backfill.",
+		}),
+		BackfillBatchSize: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_backfill_batch_size",
+			Help:    "Number of ledgers per flush batch during backfill.",
+			Buckets: prometheus.LinearBuckets(10, 10, 10),
+		}),
+		BackfillGapProgress: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wallet_ingestion_backfill_gap_progress_ratio",
+			Help: "Completion ratio (0.0-1.0) of the backfill gap currently being processed.",
+		}),
+		BackfillGapStartLedger: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wallet_ingestion_backfill_gap_start_ledger",
+			Help: "Start ledger of the backfill gap currently being processed (0 when idle).",
+		}),
+		BackfillGapEndLedger: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wallet_ingestion_backfill_gap_end_ledger",
+			Help: "End ledger of the backfill gap currently being processed (0 when idle).",
+		}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -132,6 +188,13 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.ErrorsTotal,
 		m.StateChangeProcessingDuration,
 		m.StateChangesTotal,
+		m.BackfillChannelWait,
+		m.BackfillChannelUtilization,
+		m.BackfillLedgersFlushed,
+		m.BackfillBatchSize,
+		m.BackfillGapProgress,
+		m.BackfillGapStartLedger,
+		m.BackfillGapEndLedger,
 	)
 	return m
 }
