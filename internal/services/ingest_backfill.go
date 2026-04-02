@@ -153,11 +153,12 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	}()
 
 	// Stage 2: process workers
+	processStatsCh := make(chan *backfillWorkerStats, m.backfillProcessWorkers)
 	pipelineWg.Add(1)
 	go func() {
 		defer pipelineWg.Done()
 		defer close(flushCh)
-		m.runProcessWorkers(gapCtx, gapCancel, ledgerCh, flushCh)
+		m.runProcessWorkers(gapCtx, gapCancel, ledgerCh, flushCh, processStatsCh)
 	}()
 
 	// Stage 1: dispatcher (runs on this goroutine)
@@ -165,10 +166,14 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 
 	pipelineWg.Wait()
 
-	// Aggregate gap stats from all pipeline stages (process/flush stats added in later tasks)
+	// Aggregate gap stats from all pipeline stages
+	close(processStatsCh)
 	gapStats := newBackfillGapStats()
 	gapStats.mergeWorker(dispatcherStats)
-	_ = gapStats // used by gap summary log
+	for ws := range processStatsCh {
+		gapStats.mergeWorker(ws)
+	}
+	_ = gapStats // used by gap summary log (Task 7)
 
 	if cause := context.Cause(gapCtx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return fmt.Errorf("pipeline failed: %w", cause)
@@ -227,17 +232,22 @@ func (m *ingestService) runDispatcher(
 
 // runProcessWorkers is Stage 2: N workers pull from ledgerCh, process ledgers
 // into IndexerBuffers, and send filled buffers to flushCh.
+// Each worker sends its stats to statsCh on exit for gap summary aggregation.
 func (m *ingestService) runProcessWorkers(
 	ctx context.Context,
 	cancel context.CancelCauseFunc,
 	ledgerCh <-chan xdr.LedgerCloseMeta,
 	flushCh chan<- flushItem,
+	statsCh chan<- *backfillWorkerStats,
 ) {
 	var wg sync.WaitGroup
 	for range m.backfillProcessWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			stats := &backfillWorkerStats{}
+			defer func() { statsCh <- stats }()
+
 			buffer := indexer.NewIndexerBuffer()
 			var ledgers []uint32
 
@@ -245,8 +255,12 @@ func (m *ingestService) runProcessWorkers(
 				if len(ledgers) == 0 {
 					return
 				}
+				sendStart := time.Now()
 				select {
 				case flushCh <- flushItem{Buffer: buffer, Ledgers: ledgers}:
+					sendDur := time.Since(sendStart)
+					stats.addChannelWait("flush", "send", sendDur)
+					m.appMetrics.Ingestion.BackfillChannelWait.WithLabelValues("flush", "send").Observe(sendDur.Seconds())
 				case <-ctx.Done():
 					return
 				}
@@ -254,15 +268,29 @@ func (m *ingestService) runProcessWorkers(
 				ledgers = nil
 			}
 
-			for lcm := range ledgerCh {
+			for {
+				recvStart := time.Now()
+				lcm, ok := <-ledgerCh
+				if !ok {
+					break
+				}
+				recvDur := time.Since(recvStart)
+				stats.addChannelWait("ledger", "receive", recvDur)
+				m.appMetrics.Ingestion.BackfillChannelWait.WithLabelValues("ledger", "receive").Observe(recvDur.Seconds())
+
 				if ctx.Err() != nil {
 					return
 				}
 
+				processStart := time.Now()
 				if err := m.processLedger(ctx, lcm, buffer); err != nil {
 					cancel(fmt.Errorf("processing ledger %d: %w", lcm.LedgerSequence(), err))
 					return
 				}
+				processDur := time.Since(processStart)
+				stats.addProcess(processDur)
+				m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("backfill_process").Observe(processDur.Seconds())
+
 				ledgers = append(ledgers, lcm.LedgerSequence())
 
 				if uint32(len(ledgers)) >= m.backfillFlushBatchSize {
