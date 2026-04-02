@@ -63,7 +63,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Number of Stage 2 process workers in the backfill pipeline. Defaults to number of CPUs.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillProcessWorkers,
-			FlagDefault: 0,
+			FlagDefault: 2,
 			Required:    false,
 		},
 		{
@@ -71,7 +71,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Number of Stage 3 flush workers in the backfill pipeline. Each uses 5 parallel DB connections.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillFlushWorkers,
-			FlagDefault: 4,
+			FlagDefault: 2,
 			Required:    false,
 		},
 		{
@@ -87,7 +87,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Bounded channel size between the dispatcher and process workers in the backfill pipeline.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillLedgerChanSize,
-			FlagDefault: 256,
+			FlagDefault: 200,
 			Required:    false,
 		},
 		{
@@ -95,7 +95,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Bounded channel size between process workers and flush workers in the backfill pipeline.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillFlushChanSize,
-			FlagDefault: 8,
+			FlagDefault: 200,
 			Required:    false,
 		},
 		{
