@@ -145,7 +145,7 @@ func (b *optimizedStorageBackend) newStorageBuffer(ledgerRange ledgerbackend.Ran
 	if ledgerRange.Bounded() {
 		endBoundary := b.schema.GetSequenceNumberEndBoundary(ledgerRange.To())
 		totalFiles := (endBoundary-startBoundary)/b.schema.LedgersPerFile + 1
-		if totalFiles < uint32(bufferSize) {
+		if totalFiles < bufferSize {
 			bufferSize = totalFiles
 		}
 	}
@@ -331,9 +331,9 @@ func (buf *storageBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMet
 	objectKey := buf.schema.GetObjectKeyFromSequenceNumber(sequence)
 	reader, err := buf.dataStore.GetFile(buf.ctx, objectKey)
 	if err != nil {
-		return xdr.LedgerCloseMetaBatch{}, err
+		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("fetching ledger file %s: %w", objectKey, err)
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // read-only stream; close error is not actionable
 
 	var batch xdr.LedgerCloseMetaBatch
 	decoder := compressxdr.NewXDRDecoder(compressxdr.DefaultCompressor, &batch)
@@ -376,9 +376,9 @@ func (buf *storageBuffer) storeDecoded(batch xdr.LedgerCloseMetaBatch, sequence 
 func (buf *storageBuffer) getNextBatch(ctx context.Context) (xdr.LedgerCloseMetaBatch, error) {
 	select {
 	case <-buf.ctx.Done():
-		return xdr.LedgerCloseMetaBatch{}, context.Cause(buf.ctx)
+		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("buffer context cancelled: %w", context.Cause(buf.ctx))
 	case <-ctx.Done():
-		return xdr.LedgerCloseMetaBatch{}, ctx.Err()
+		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("caller context cancelled: %w", ctx.Err())
 	case batch := <-buf.batchQueue:
 		// Replenish: enqueue next download task. pushTaskQueue only modifies
 		// nextTaskLedger, which is safe because it is only called from the single
