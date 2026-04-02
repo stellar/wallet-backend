@@ -143,7 +143,41 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	flushCh := make(chan flushItem, m.backfillFlushChanSize)
 	watermark := newBackfillWatermark(gap.GapStart, gap.GapEnd)
 
+	// Set gap boundary gauges
+	m.appMetrics.Ingestion.BackfillGapStartLedger.Set(float64(gap.GapStart))
+	m.appMetrics.Ingestion.BackfillGapEndLedger.Set(float64(gap.GapEnd))
+	m.appMetrics.Ingestion.BackfillGapProgress.Set(0)
+	defer func() {
+		m.appMetrics.Ingestion.BackfillGapStartLedger.Set(0)
+		m.appMetrics.Ingestion.BackfillGapEndLedger.Set(0)
+	}()
+
 	var pipelineWg sync.WaitGroup
+
+	// Channel utilization sampler — snapshots fill ratios every second
+	pipelineWg.Add(1)
+	go func() {
+		defer pipelineWg.Done()
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-gapCtx.Done():
+				return
+			case <-ticker.C:
+				if cap(ledgerCh) > 0 {
+					m.appMetrics.Ingestion.BackfillChannelUtilization.WithLabelValues("ledger").Set(
+						float64(len(ledgerCh)) / float64(cap(ledgerCh)),
+					)
+				}
+				if cap(flushCh) > 0 {
+					m.appMetrics.Ingestion.BackfillChannelUtilization.WithLabelValues("flush").Set(
+						float64(len(flushCh)) / float64(cap(flushCh)),
+					)
+				}
+			}
+		}
+	}()
 
 	// Stage 3: flush workers (start first so they're ready)
 	flushStatsCh := make(chan *backfillFlushWorkerStats, m.backfillFlushWorkers)
