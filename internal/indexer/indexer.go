@@ -312,6 +312,28 @@ func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledger
 	return transactions, nil
 }
 
+// ProcessLedgerTransactionsSequential processes all transactions in a ledger sequentially.
+// Use this in backfill mode where inter-ledger parallelism (multiple process workers)
+// already saturates CPU — adding intra-ledger pond pool fan-out causes contention.
+func (i *Indexer) ProcessLedgerTransactionsSequential(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerBuffer IndexerBufferInterface) (int, error) {
+	participantCounts := make([]int, len(transactions))
+
+	for idx, tx := range transactions {
+		count, err := i.processTransaction(ctx, tx, ledgerBuffer)
+		if err != nil {
+			return 0, fmt.Errorf("processing transaction at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err)
+		}
+		participantCounts[idx] = count
+	}
+
+	totalParticipants := 0
+	for _, count := range participantCounts {
+		totalParticipants += count
+	}
+
+	return totalParticipants, nil
+}
+
 // ProcessLedger extracts transactions from a ledger and indexes them.
 // Returns the participant count for optional metrics recording.
 func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
@@ -322,6 +344,23 @@ func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr
 	}
 
 	participantCount, err := ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	return participantCount, nil
+}
+
+// ProcessLedgerSequential extracts transactions and processes them sequentially.
+// Used by the backfill pipeline where multiple process workers provide parallelism.
+func ProcessLedgerSequential(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	participantCount, err := ledgerIndexer.ProcessLedgerTransactionsSequential(ctx, transactions, buffer)
 	if err != nil {
 		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}

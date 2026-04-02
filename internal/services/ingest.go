@@ -243,6 +243,17 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	return nil
 }
 
+// processLedgerSequential processes a single ledger without the pond pool.
+// Used by backfill where multiple process workers already provide parallelism.
+func (m *ingestService) processLedgerSequential(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	participantCount, err := indexer.ProcessLedgerSequential(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+	if err != nil {
+		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	m.appMetrics.Ingestion.ParticipantsCount.Observe(float64(participantCount))
+	return nil
+}
+
 // insertAndUpsertParallel runs parallel goroutines via errgroup: 5 COPY operations (transactions,
 // transactions_accounts, operations, operations_accounts, state_changes) plus, in live mode only,
 // 4 balance upserts (trustline, native, SAC, account-contract tokens). Balance upserts are

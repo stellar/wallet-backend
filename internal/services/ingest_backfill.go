@@ -342,7 +342,7 @@ func (m *ingestService) runProcessWorkers(
 				}
 
 				processStart := time.Now()
-				if err := m.processLedger(ctx, lcm, buffer); err != nil {
+				if err := m.processLedgerSequential(ctx, lcm, buffer); err != nil {
 					cancel(fmt.Errorf("processing ledger %d: %w", lcm.LedgerSequence(), err))
 					return
 				}
