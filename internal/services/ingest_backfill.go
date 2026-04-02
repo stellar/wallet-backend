@@ -121,6 +121,7 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 //  2. Process workers: N goroutines process ledgers into buffers → flushCh
 //  3. Flush workers: M goroutines write buffers to DB via parallel COPYs
 func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) error {
+	gapStart := time.Now()
 	gapCtx, gapCancel := context.WithCancelCause(ctx)
 	defer gapCancel(nil)
 
@@ -212,17 +213,36 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	for fs := range flushStatsCh {
 		gapStats.mergeFlushWorker(fs)
 	}
-	_ = gapStats // used by gap summary log (Task 7)
-
 	if cause := context.Cause(gapCtx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return fmt.Errorf("pipeline failed: %w", cause)
 	}
 
+	// Log gap summary with per-stage timing breakdown
 	total := gap.GapEnd - gap.GapStart + 1
+	elapsed := time.Since(gapStart)
+	ledgersPerSec := float64(0)
+	if elapsed > 0 {
+		ledgersPerSec = float64(total) / elapsed.Seconds()
+	}
+
 	if watermark.Complete() {
-		log.Ctx(ctx).Infof("Gap [%d-%d] complete: %d ledgers", gap.GapStart, gap.GapEnd, total)
+		log.Ctx(ctx).Infof("Gap [%d-%d] complete (%v, %.0f ledgers/sec):\n"+
+			"  fetch:   %v total, %v avg (%d calls)\n"+
+			"  process: %v total, %v avg (%d calls)\n"+
+			"  flush:   %v total, %v avg (%d batches)\n"+
+			"  channel_wait: ledger_send=%v ledger_recv=%v flush_send=%v flush_recv=%v",
+			gap.GapStart, gap.GapEnd, elapsed, ledgersPerSec,
+			gapStats.fetchTotal, avgOrZero(gapStats.fetchTotal, gapStats.fetchCount), gapStats.fetchCount,
+			gapStats.processTotal, avgOrZero(gapStats.processTotal, gapStats.processCount), gapStats.processCount,
+			gapStats.flushTotal, avgOrZero(gapStats.flushTotal, gapStats.flushCount), gapStats.flushCount,
+			gapStats.channelWait["ledger:send"],
+			gapStats.channelWait["ledger:receive"],
+			gapStats.channelWait["flush:send"],
+			gapStats.channelWait["flush:receive"],
+		)
 	} else {
-		log.Ctx(ctx).Warnf("Gap [%d-%d] partial: cursor at %d of %d", gap.GapStart, gap.GapEnd, watermark.Cursor(), gap.GapEnd)
+		log.Ctx(ctx).Warnf("Gap [%d-%d] partial: cursor at %d of %d (%v)",
+			gap.GapStart, gap.GapEnd, watermark.Cursor(), gap.GapEnd, elapsed)
 	}
 
 	return nil
