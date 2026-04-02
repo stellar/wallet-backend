@@ -161,9 +161,14 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	}()
 
 	// Stage 1: dispatcher (runs on this goroutine)
-	m.runDispatcher(gapCtx, gapCancel, backend, gap, ledgerCh)
+	dispatcherStats := m.runDispatcher(gapCtx, gapCancel, backend, gap, ledgerCh)
 
 	pipelineWg.Wait()
+
+	// Aggregate gap stats from all pipeline stages (process/flush stats added in later tasks)
+	gapStats := newBackfillGapStats()
+	gapStats.mergeWorker(dispatcherStats)
+	_ = gapStats // used by gap summary log
 
 	if cause := context.Cause(gapCtx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return fmt.Errorf("pipeline failed: %w", cause)
@@ -181,32 +186,43 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 
 // runDispatcher is Stage 1: fetches ledgers sequentially and sends them
 // to ledgerCh. Closes ledgerCh when done or on error.
+// Returns per-worker stats for the gap summary log.
 func (m *ingestService) runDispatcher(
 	ctx context.Context,
 	cancel context.CancelCauseFunc,
 	backend ledgerbackend.LedgerBackend,
 	gap data.LedgerRange,
 	ledgerCh chan<- xdr.LedgerCloseMeta,
-) {
+) *backfillWorkerStats {
 	defer close(ledgerCh)
+	stats := &backfillWorkerStats{}
 
 	for seq := gap.GapStart; seq <= gap.GapEnd; seq++ {
 		if ctx.Err() != nil {
-			return
+			return stats
 		}
 
+		fetchStart := time.Now()
 		lcm, err := m.getLedgerWithRetry(ctx, backend, seq)
+		fetchDur := time.Since(fetchStart)
 		if err != nil {
 			cancel(fmt.Errorf("fetching ledger %d: %w", seq, err))
-			return
+			return stats
 		}
+		stats.addFetch(fetchDur)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("backfill_fetch").Observe(fetchDur.Seconds())
 
+		sendStart := time.Now()
 		select {
 		case ledgerCh <- lcm:
+			sendDur := time.Since(sendStart)
+			stats.addChannelWait("ledger", "send", sendDur)
+			m.appMetrics.Ingestion.BackfillChannelWait.WithLabelValues("ledger", "send").Observe(sendDur.Seconds())
 		case <-ctx.Done():
-			return
+			return stats
 		}
 	}
+	return stats
 }
 
 // runProcessWorkers is Stage 2: N workers pull from ledgerCh, process ledgers
