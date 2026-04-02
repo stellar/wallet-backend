@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -21,9 +20,9 @@ import (
 
 // generateTestOperations creates n test operations for benchmarking.
 // It returns a map of operation IDs to addresses.
-func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64]set.Set[string]) {
+func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64]types.ParticipantSet) {
 	ops := make([]*types.Operation, n)
-	addressesByOpID := make(map[int64]set.Set[string])
+	addressesByOpID := make(map[int64]types.ParticipantSet)
 	now := time.Now()
 
 	for i := 0; i < n; i++ {
@@ -37,7 +36,7 @@ func generateTestOperations(n int, startID int64) ([]*types.Operation, map[int64
 			LedgerNumber:    uint32(i + 1),
 			LedgerCreatedAt: now,
 		}
-		addressesByOpID[opID] = set.NewSet(address)
+		addressesByOpID[opID] = types.NewParticipantSet(address)
 	}
 
 	return ops, addressesByOpID
@@ -101,26 +100,26 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	testCases := []struct {
 		name                   string
 		operations             []*types.Operation
-		stellarAddressesByOpID map[int64]set.Set[string]
+		stellarAddressesByOpID map[int64]types.ParticipantSet
 		wantCount              int
 		wantErrContains        string
 	}{
 		{
 			name:                   "🟢successful_insert_multiple",
 			operations:             []*types.Operation{&op1, &op2},
-			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address()), op2.ID: set.NewSet(kp2.Address())},
+			stellarAddressesByOpID: map[int64]types.ParticipantSet{op1.ID: types.NewParticipantSet(kp1.Address()), op2.ID: types.NewParticipantSet(kp2.Address())},
 			wantCount:              2,
 		},
 		{
 			name:                   "🟢empty_input",
 			operations:             []*types.Operation{},
-			stellarAddressesByOpID: map[int64]set.Set[string]{},
+			stellarAddressesByOpID: map[int64]types.ParticipantSet{},
 			wantCount:              0,
 		},
 		{
 			name:                   "🟢no_participants",
 			operations:             []*types.Operation{&op1},
-			stellarAddressesByOpID: map[int64]set.Set[string]{},
+			stellarAddressesByOpID: map[int64]types.ParticipantSet{},
 			wantCount:              1,
 		},
 	}

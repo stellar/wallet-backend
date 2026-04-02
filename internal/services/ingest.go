@@ -118,8 +118,9 @@ type ingestService struct {
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
-	ledgerIndexerPool := pond.NewPool(0)
+	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger).
+	// Bounded to NumCPU to avoid goroutine oversubscription on busy ledgers.
+	ledgerIndexerPool := pond.NewPool(runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
@@ -224,8 +225,9 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 }
 
 // insertIntoDB persists the processed data from the buffer to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
-	txs := buffer.GetTransactions()
+// txs is passed in to avoid a redundant GetTransactions() allocation — the caller
+// already has the slice for unlockChannelAccounts.
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction, buffer indexer.IndexerBufferInterface) (int, int, error) {
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
@@ -245,7 +247,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]set.Set[string]) error {
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]types.ParticipantSet) error {
 	if len(txs) == 0 {
 		return nil
 	}
@@ -257,7 +259,7 @@ func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, tx
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]set.Set[string]) error {
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]types.ParticipantSet) error {
 	if len(ops) == 0 {
 		return nil
 	}

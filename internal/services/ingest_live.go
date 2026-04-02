@@ -52,13 +52,14 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		}
 
 		// 3. Insert transactions/operations/state_changes
-		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
+		txs := buffer.GetTransactions()
+		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, txs, buffer)
 		if txErr != nil {
 			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
 		}
 
 		// 4. Unlock channel accounts (no-op when chAccStore is nil, e.g., in loadtest)
-		if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
+		if txErr = m.unlockChannelAccounts(ctx, dbTx, txs); txErr != nil {
 			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
 		}
 
@@ -168,6 +169,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+	buffer := indexer.NewIndexerBuffer()
 	for {
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
@@ -177,7 +179,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		totalStart := time.Now()
 		processStart := time.Now()
-		buffer := indexer.NewIndexerBuffer()
+		buffer.Clear()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
