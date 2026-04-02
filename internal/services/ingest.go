@@ -130,37 +130,22 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Backfill pipeline defaults
+	// Backfill pipeline defaults — only process workers needs a runtime default (NumCPU).
+	// All other defaults are set via CLI flag defaults in cmd/ingest.go.
 	processWorkers := cfg.BackfillProcessWorkers
 	if processWorkers <= 0 {
 		processWorkers = runtime.NumCPU()
 	}
-	flushWorkers := cfg.BackfillFlushWorkers
-	if flushWorkers <= 0 {
-		flushWorkers = 4
-	}
-	flushBatchSize := cfg.BackfillDBInsertBatchSize
-	if flushBatchSize <= 0 {
-		flushBatchSize = 100
-	}
-	ledgerChanSize := cfg.BackfillLedgerChanSize
-	if ledgerChanSize <= 0 {
-		ledgerChanSize = 256
-	}
-	flushChanSize := cfg.BackfillFlushChanSize
-	if flushChanSize <= 0 {
-		flushChanSize = 8
-	}
 
 	// Validate connection pool can handle flush worker concurrency.
 	// Each flush worker runs 5 parallel COPYs, each needing its own connection.
-	if cfg.IngestionMode == IngestionModeBackfill {
-		requiredConns := int32(flushWorkers*5 + 5) // +5 headroom for cursor updates
+	if cfg.IngestionMode == IngestionModeBackfill && cfg.BackfillFlushWorkers > 0 {
+		requiredConns := int32(cfg.BackfillFlushWorkers*5 + 5) // +5 headroom for cursor updates
 		maxConns := cfg.Models.DB.Config().MaxConns
 		if maxConns > 0 && maxConns < requiredConns {
 			return nil, fmt.Errorf(
 				"pgxpool max connections (%d) too low for %d flush workers (need at least %d: %d workers × 5 COPYs + 5 headroom)",
-				maxConns, flushWorkers, requiredConns, flushWorkers)
+				maxConns, cfg.BackfillFlushWorkers, requiredConns, cfg.BackfillFlushWorkers)
 		}
 	}
 
@@ -183,10 +168,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
 		archive:                 cfg.Archive,
 		backfillProcessWorkers:  processWorkers,
-		backfillFlushWorkers:    flushWorkers,
-		backfillFlushBatchSize:  uint32(flushBatchSize),
-		backfillLedgerChanSize:  ledgerChanSize,
-		backfillFlushChanSize:   flushChanSize,
+		backfillFlushWorkers:    cfg.BackfillFlushWorkers,
+		backfillFlushBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		backfillLedgerChanSize:  cfg.BackfillLedgerChanSize,
+		backfillFlushChanSize:   cfg.BackfillFlushChanSize,
 		knownContractIDs:        set.NewSet[string](),
 	}, nil
 }

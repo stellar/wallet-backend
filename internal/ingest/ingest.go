@@ -78,6 +78,12 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers per flush batch.
 	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// BackfillLedgerChanSize is the bounded channel size between dispatcher and process workers.
+	// Defaults to 256.
+	BackfillLedgerChanSize int
+	// BackfillFlushChanSize is the bounded channel size between process workers and flush workers.
+	// Defaults to 8.
+	BackfillFlushChanSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -218,6 +224,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillProcessWorkers:    cfg.BackfillProcessWorkers,
 		BackfillFlushWorkers:      cfg.BackfillFlushWorkers,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		BackfillLedgerChanSize:    cfg.BackfillLedgerChanSize,
+		BackfillFlushChanSize:     cfg.BackfillFlushChanSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
