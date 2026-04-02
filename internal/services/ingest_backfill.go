@@ -42,6 +42,39 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return nil
 	}
 
+	// Must match ingest.hypertables — duplicated here to avoid import cycle
+	// (ingest imports services).
+	tables := []string{
+		"transactions", "transactions_accounts", "operations",
+		"operations_accounts", "state_changes",
+	}
+
+	// Fetch boundary timestamps for chunk pre-creation.
+	rangeStartTime, err := m.fetchLedgerCloseTime(ctx, gaps[0].GapStart)
+	if err != nil {
+		return fmt.Errorf("fetching start ledger %d timestamp: %w", gaps[0].GapStart, err)
+	}
+	rangeEndTime, err := m.fetchLedgerCloseTime(ctx, gaps[len(gaps)-1].GapEnd)
+	if err != nil {
+		return fmt.Errorf("fetching end ledger %d timestamp: %w", gaps[len(gaps)-1].GapEnd, err)
+	}
+
+	// Suppress insert-triggered autovacuum on parent hypertables during backfill.
+	if err := db.DisableInsertAutovacuum(ctx, m.models.DB, tables); err != nil {
+		return fmt.Errorf("disabling insert autovacuum: %w", err)
+	}
+	defer func() {
+		if restoreErr := db.RestoreInsertAutovacuum(ctx, m.models.DB, tables); restoreErr != nil {
+			log.Ctx(ctx).Warnf("Failed to restore insert autovacuum: %v", restoreErr)
+		}
+	}()
+
+	// Pre-create chunks with indexes dropped, UNLOGGED, and per-chunk autovacuum disabled.
+	// Discard []*Chunk — progressive compression will be added separately.
+	if _, err := db.PreCreateChunks(ctx, m.models.DB, tables, rangeStartTime, rangeEndTime); err != nil {
+		return fmt.Errorf("pre-creating chunks: %w", err)
+	}
+
 	overallStart := time.Now()
 	for i, gap := range gaps {
 		log.Ctx(ctx).Infof("Processing gap %d/%d [%d - %d]", i+1, len(gaps), gap.GapStart, gap.GapEnd)
@@ -463,6 +496,28 @@ func (m *ingestService) flushBufferWithRetry(ctx context.Context, buffer *indexe
 	}
 	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("batch_flush").Inc()
 	return lastErr
+}
+
+// fetchLedgerCloseTime fetches the ClosedAt timestamp for a single ledger.
+// Creates a temporary backend, fetches via single-ledger PrepareRange, returns the time.
+func (m *ingestService) fetchLedgerCloseTime(ctx context.Context, ledger uint32) (time.Time, error) {
+	backend, err := m.ledgerBackendFactory(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("creating backend for boundary timestamps: %w", err)
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing boundary timestamp backend: %v", closeErr)
+		}
+	}()
+	if err := backend.PrepareRange(ctx, ledgerbackend.BoundedRange(ledger, ledger)); err != nil {
+		return time.Time{}, fmt.Errorf("preparing range for ledger %d: %w", ledger, err)
+	}
+	meta, err := backend.GetLedger(ctx, ledger)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("getting ledger %d: %w", ledger, err)
+	}
+	return meta.ClosedAt(), nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
