@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -25,6 +26,8 @@ type ProtocolContracts struct {
 // ProtocolContractsModelInterface defines the interface for protocol_contracts operations.
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
+	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
+	BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error)
 }
 
 // ProtocolContractsModel implements ProtocolContractsModelInterface.
@@ -83,4 +86,67 @@ func (m *ProtocolContractsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, c
 		return fmt.Errorf("batch inserting protocol contracts: %w", err)
 	}
 	return nil
+}
+
+// GetByProtocolID returns all contracts associated with a protocol via protocol_wasms.
+func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+	const query = `
+		SELECT pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
+		FROM protocol_contracts pc
+		JOIN protocol_wasms pw ON pc.wasm_hash = pw.wasm_hash
+		WHERE pw.protocol_id = $1
+	`
+
+	start := time.Now()
+	contracts, err := db.QueryMany[ProtocolContracts](ctx, m.DB, query, protocolID)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByProtocolID", "protocol_contracts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByProtocolID", "protocol_contracts").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByProtocolID", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying contracts for protocol %s: %w", protocolID, err)
+	}
+	return contracts, nil
+}
+
+// BatchGetByProtocolIDs returns all contracts for the given protocol IDs in a single query,
+// grouped by protocol ID.
+func (m *ProtocolContractsModel) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
+	if len(protocolIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `
+		SELECT pw.protocol_id, pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
+		FROM protocol_contracts pc
+		JOIN protocol_wasms pw ON pc.wasm_hash = pw.wasm_hash
+		WHERE pw.protocol_id = ANY($1)
+	`
+
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, query, protocolIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("batch querying contracts for protocols: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]ProtocolContracts, len(protocolIDs))
+	for rows.Next() {
+		var protocolID string
+		var c ProtocolContracts
+		if err := rows.Scan(&protocolID, &c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("scanning batch protocol contract row: %w", err)
+		}
+		result[protocolID] = append(result[protocolID], c)
+	}
+	if err := rows.Err(); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating batch protocol contract rows: %w", err)
+	}
+	return result, nil
 }

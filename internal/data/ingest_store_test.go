@@ -132,6 +132,93 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 	}
 }
 
+func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	testCases := []struct {
+		name          string
+		setupDB       func(t *testing.T)
+		expectedValue string
+		newValue      string
+		expectedSwap  bool
+		expectedDB    string // expected value in DB after CAS; empty means key should not exist
+	}{
+		{
+			name: "succeeds_when_value_matches",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "cas_cursor", "100")
+				require.NoError(t, err)
+			},
+			expectedValue: "100",
+			newValue:      "200",
+			expectedSwap:  true,
+			expectedDB:    "200",
+		},
+		{
+			name: "fails_when_value_mismatches",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "cas_cursor", "100")
+				require.NoError(t, err)
+			},
+			expectedValue: "50",
+			newValue:      "200",
+			expectedSwap:  false,
+			expectedDB:    "100",
+		},
+		{
+			name:          "fails_when_key_not_found",
+			expectedValue: "100",
+			newValue:      "200",
+			expectedSwap:  false,
+			expectedDB:    "",
+		},
+	}
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			m := &IngestStoreModel{
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
+			}
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			var swapped bool
+			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+				var casErr error
+				swapped, casErr = m.CompareAndSwap(ctx, dbTx, "cas_cursor", tc.expectedValue, tc.newValue)
+				return casErr
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedSwap, swapped)
+
+			if tc.expectedDB != "" {
+				var dbValue string
+				err = m.DB.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, "cas_cursor").Scan(&dbValue)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedDB, dbValue)
+			} else {
+				var count int
+				err = m.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ingest_store WHERE key = $1`, "cas_cursor").Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, 0, count)
+			}
+		})
+	}
+}
+
 func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
