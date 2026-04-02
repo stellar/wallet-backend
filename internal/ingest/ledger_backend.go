@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml"
+	rpc "github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
@@ -41,25 +42,25 @@ func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, 
 		return nil, fmt.Errorf("loading datastore schema: %w", err)
 	}
 
-	ledgerBackend, err := ledgerbackend.NewBufferedStorageBackend(
+	ledgerBackend, err := newOptimizedStorageBackend(
 		storageBackendConfig.BufferedStorageBackendConfig,
 		dataStore,
 		schema,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating buffered storage backend: %w", err)
+		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
 	}
 
-	log.Info("Using BufferedStorageBackend for ledger ingestion")
+	log.Infof("Using optimized storage backend with buffer size %d, %d workers",
+		storageBackendConfig.BufferedStorageBackendConfig.BufferSize,
+		storageBackendConfig.BufferedStorageBackendConfig.NumWorkers)
 	return ledgerBackend, nil
 }
 
 func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
-	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
-		RPCServerURL: cfg.RPCURL,
-		BufferSize:   uint32(cfg.GetLedgersLimit),
-	})
-	log.Infof("Using RPCLedgerBackend for ledger ingestion with buffer size %d", cfg.GetLedgersLimit)
+	client := rpc.NewClient(cfg.RPCURL, nil)
+	backend := newOptimizedRPCBackend(client, uint32(cfg.GetLedgersLimit))
+	log.Infof("Using optimized RPC ledger backend with buffer size %d", cfg.GetLedgersLimit)
 	return backend, nil
 }
 
