@@ -42,16 +42,18 @@ func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, 
 		return nil, fmt.Errorf("loading datastore schema: %w", err)
 	}
 
-	ledgerBackend, err := ledgerbackend.NewBufferedStorageBackend(
+	ledgerBackend, err := newOptimizedStorageBackend(
 		storageBackendConfig.BufferedStorageBackendConfig,
 		dataStore,
 		schema,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating buffered storage backend: %w", err)
+		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
 	}
 
-	log.Info("Using BufferedStorageBackend for ledger ingestion")
+	log.Infof("Using optimized storage backend with buffer size %d, %d workers",
+		storageBackendConfig.BufferedStorageBackendConfig.BufferSize,
+		storageBackendConfig.BufferedStorageBackendConfig.NumWorkers)
 	return ledgerBackend, nil
 }
 
