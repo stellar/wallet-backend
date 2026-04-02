@@ -135,6 +135,26 @@ func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbT
 	return args.Error(0)
 }
 
+func (m *TokenIngestionServiceMock) ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+	args := m.Called(ctx, dbTx, changesByKey)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error {
+	args := m.Called(ctx, dbTx, changes)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessNativeBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByAccountID map[string]types.AccountChange) error {
+	args := m.Called(ctx, dbTx, changesByAccountID)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, changesByKey)
+	return args.Error(0)
+}
+
 // NewTokenIngestionServiceMock creates a new instance of TokenIngestionServiceMock.
 func NewTokenIngestionServiceMock(t interface {
 	mock.TestingT

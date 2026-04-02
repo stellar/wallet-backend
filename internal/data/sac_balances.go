@@ -80,65 +80,80 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	return balances, nil
 }
 
-// BatchUpsert performs upserts and deletes for SAC balances.
-// For upserts (ADD/UPDATE): inserts or updates balance with authorization flags.
-// For deletes (REMOVE): removes the balance row.
+// BatchUpsert performs upserts and deletes for SAC balances using UNNEST-based bulk operations.
+// For upserts (ADD/UPDATE): bulk inserts or updates balance with authorization flags via single UNNEST query.
+// For deletes (REMOVE): bulk removes balance rows via single UNNEST query.
 func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	// Upsert query: insert or update all fields
-	const upsertQuery = `
-		INSERT INTO sac_balances (
-			account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_address, contract_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			is_authorized = EXCLUDED.is_authorized,
-			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountAddresses := make([]string, len(upserts))
+		contractIDs := make([]uuid.UUID, len(upserts))
+		balances := make([]string, len(upserts))
+		isAuthorized := make([]bool, len(upserts))
+		isClawbackEnabled := make([]bool, len(upserts))
+		ledgerNumbers := make([]int32, len(upserts))
 
-	for _, bal := range upserts {
-		batch.Queue(upsertQuery,
-			bal.AccountAddress,
-			bal.ContractID,
-			bal.Balance,
-			bal.IsAuthorized,
-			bal.IsClawbackEnabled,
-			bal.LedgerNumber,
-		)
-	}
+		for i, bal := range upserts {
+			accountAddresses[i] = bal.AccountAddress
+			contractIDs[i] = bal.ContractID
+			balances[i] = bal.Balance
+			isAuthorized[i] = bal.IsAuthorized
+			isClawbackEnabled[i] = bal.IsClawbackEnabled
+			ledgerNumbers[i] = int32(bal.LedgerNumber)
+		}
 
-	// Delete query
-	const deleteQuery = `DELETE FROM sac_balances WHERE account_address = $1 AND contract_id = $2`
+		const upsertQuery = `
+			INSERT INTO sac_balances (
+				account_address, contract_id, balance,
+				is_authorized, is_clawback_enabled, last_modified_ledger
+			)
+			SELECT * FROM UNNEST(
+				$1::text[], $2::uuid[], $3::text[],
+				$4::boolean[], $5::boolean[], $6::int4[]
+			)
+			ON CONFLICT (account_address, contract_id) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				is_authorized = EXCLUDED.is_authorized,
+				is_clawback_enabled = EXCLUDED.is_clawback_enabled,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, bal := range deletes {
-		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery,
+			accountAddresses, contractIDs, balances,
+			isAuthorized, isClawbackEnabled, ledgerNumbers,
+		); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing SAC balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		delAccountAddresses := make([]string, len(deletes))
+		delContractIDs := make([]uuid.UUID, len(deletes))
+
+		for i, bal := range deletes {
+			delAccountAddresses[i] = bal.AccountAddress
+			delContractIDs[i] = bal.ContractID
+		}
+
+		const deleteQuery = `
+			DELETE FROM sac_balances
+			WHERE (account_address, contract_id) IN (
+				SELECT * FROM UNNEST($1::text[], $2::uuid[])
+			)`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, delAccountAddresses, delContractIDs); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting SAC balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
@@ -153,6 +168,10 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
+	}()
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
@@ -178,20 +197,14 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		}),
 	)
 	if err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting SAC balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "sac_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sac_balances").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sac_balances").Inc()
 	return nil
 }

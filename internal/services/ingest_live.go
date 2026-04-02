@@ -23,68 +23,82 @@ const (
 	oldestLedgerSyncInterval           = 100
 )
 
-// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
-// This is the shared core used by both live ingestion and loadtest.
-// It handles: trustline assets, contract tokens, filtered data insertion, channel account unlocking,
-// token changes, and cursor update. Channel unlock is a no-op when chAccStore is nil.
+// PersistLedgerData persists processed ledger data to the database in three phases:
+//
+// Phase 1: Insert FK prerequisites (trustline assets, contract tokens) and commit,
+// making parent rows visible for phase 2's balance upserts.
+//
+// Phase 2: Parallel COPYs (5 tables) + parallel upserts (4 balance tables) via errgroup,
+// each on its own pool connection. UniqueViolation errors are treated as success for
+// idempotent crash recovery.
+//
+// Phase 3: Finalize — unlock channel accounts + advance cursor. The cursor update is the
+// idempotency marker; if we crash before it, everything replays safely.
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
-	var numTxs, numOps int
+	// Phase 1: FK prerequisites — commit so parent rows are visible to phase 2.
+	if err := m.persistFKPrerequisites(ctx, ledgerSeq, buffer); err != nil {
+		return 0, 0, fmt.Errorf("persisting FK prerequisites for ledger %d: %w", ledgerSeq, err)
+	}
 
-	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
+	// Phase 2: Parallel COPYs + upserts on separate pool connections.
+	txs := buffer.GetTransactions()
+	numTxs, numOps, err := m.insertAndUpsertParallel(ctx, txs, buffer)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parallel insert/upsert for ledger %d: %w", ledgerSeq, err)
+	}
+
+	// Phase 3: Finalize — unlock channel accounts + advance cursor.
+	if err := m.persistFinalize(ctx, ledgerSeq, txs, cursorName); err != nil {
+		return 0, 0, fmt.Errorf("finalizing ledger %d: %w", ledgerSeq, err)
+	}
+
+	return numTxs, numOps, nil
+}
+
+// persistFKPrerequisites inserts trustline assets and contract tokens in a committed
+// transaction so that FK parent rows are visible to parallel balance upserts.
+func (m *ingestService) persistFKPrerequisites(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer) error {
+	if err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		uniqueAssets := buffer.GetUniqueTrustlineAssets()
 		if len(uniqueAssets) > 0 {
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-				return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
+			if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+				return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, err)
 			}
 		}
 
-		// 2. Insert new contract tokens (filter existing, fetch metadata for SEP-41 if available, insert)
-		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
-		if txErr != nil {
-			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
+		contracts, err := m.prepareNewContractTokens(ctx, dbTx, buffer.GetUniqueSEP41ContractTokensByID(), buffer.GetSACContracts())
+		if err != nil {
+			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, err)
 		}
 		if len(contracts) > 0 {
-			if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
+			if err = m.models.Contract.BatchInsert(ctx, dbTx, contracts); err != nil {
+				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, err)
 			}
 			log.Ctx(ctx).Infof("✅ inserted %d contract tokens", len(contracts))
 		}
 
-		// 3. Insert transactions/operations/state_changes
-		txs := buffer.GetTransactions()
-		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, txs, buffer)
-		if txErr != nil {
-			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 4. Unlock channel accounts (no-op when chAccStore is nil, e.g., in loadtest)
-		if txErr = m.unlockChannelAccounts(ctx, dbTx, txs); txErr != nil {
-			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 5. Process token changes (trustline add/remove/update, contract token add, native balance, SAC balance)
-		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
-			buffer.GetTrustlineChanges(),
-			buffer.GetContractChanges(),
-			buffer.GetAccountChanges(),
-			buffer.GetSACBalanceChanges(),
-		); txErr != nil {
-			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 6. Update the specified cursor
-		if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
-			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
-		}
-
 		return nil
-	})
-	if err != nil {
-		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
+	}); err != nil {
+		return fmt.Errorf("FK prerequisites transaction: %w", err)
 	}
+	return nil
+}
 
-	return numTxs, numOps, nil
+// persistFinalize unlocks channel accounts and advances the cursor in a committed transaction.
+// The cursor update is the idempotency marker for crash recovery.
+func (m *ingestService) persistFinalize(ctx context.Context, ledgerSeq uint32, txs []*types.Transaction, cursorName string) error {
+	if err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		if err := m.unlockChannelAccounts(ctx, dbTx, txs); err != nil {
+			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, err)
+		}
+		if err := m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); err != nil {
+			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("finalize transaction: %w", err)
+	}
+	return nil
 }
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,

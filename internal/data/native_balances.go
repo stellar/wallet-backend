@@ -72,53 +72,67 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 	return &nb, nil
 }
 
-// BatchUpsert upserts and deletes native balances in batch.
+// BatchUpsert upserts and deletes native balances using UNNEST-based bulk operations.
 func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	const upsertQuery = `
-		INSERT INTO native_balances (account_address, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_address) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			minimum_balance = EXCLUDED.minimum_balance,
-			buying_liabilities = EXCLUDED.buying_liabilities,
-			selling_liabilities = EXCLUDED.selling_liabilities,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountAddresses := make([]string, len(upserts))
+		balances := make([]int64, len(upserts))
+		minimumBalances := make([]int64, len(upserts))
+		buyingLiabilities := make([]int64, len(upserts))
+		sellingLiabilities := make([]int64, len(upserts))
+		ledgerNumbers := make([]int64, len(upserts))
 
-	for _, nb := range upserts {
-		batch.Queue(upsertQuery, nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber)
-	}
+		for i, nb := range upserts {
+			accountAddresses[i] = nb.AccountAddress
+			balances[i] = nb.Balance
+			minimumBalances[i] = nb.MinimumBalance
+			buyingLiabilities[i] = nb.BuyingLiabilities
+			sellingLiabilities[i] = nb.SellingLiabilities
+			ledgerNumbers[i] = int64(nb.LedgerNumber)
+		}
 
-	const deleteQuery = `DELETE FROM native_balances WHERE account_address = $1`
-	for _, addr := range deletes {
-		batch.Queue(deleteQuery, addr)
-	}
+		const upsertQuery = `
+			INSERT INTO native_balances (
+				account_address, balance, minimum_balance,
+				buying_liabilities, selling_liabilities, last_modified_ledger
+			)
+			SELECT * FROM UNNEST(
+				$1::text[], $2::bigint[], $3::bigint[],
+				$4::bigint[], $5::bigint[], $6::bigint[]
+			)
+			ON CONFLICT (account_address) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				minimum_balance = EXCLUDED.minimum_balance,
+				buying_liabilities = EXCLUDED.buying_liabilities,
+				selling_liabilities = EXCLUDED.selling_liabilities,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery,
+			accountAddresses, balances, minimumBalances,
+			buyingLiabilities, sellingLiabilities, ledgerNumbers,
+		); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "native_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "native_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing native balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		const deleteQuery = `DELETE FROM native_balances WHERE account_address = ANY($1::text[])`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, deletes); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "native_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "native_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting native balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
@@ -133,6 +147,10 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
+	}()
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
@@ -144,20 +162,14 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 		}),
 	)
 	if err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("bulk inserting native balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "native_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "native_balances").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "native_balances").Inc()
 	return nil
 }

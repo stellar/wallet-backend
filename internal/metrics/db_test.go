@@ -81,7 +81,7 @@ func TestDBMetrics_BatchSize_Buckets(t *testing.T) {
 			for _, metric := range f.GetMetric() {
 				h := metric.GetHistogram()
 				require.NotNil(t, h)
-				assert.Len(t, h.GetBucket(), 12) // ExponentialBuckets(1, 2, 12)
+				assert.Len(t, h.GetBucket(), 15) // ExponentialBuckets(1, 2, 15)
 			}
 		}
 	}

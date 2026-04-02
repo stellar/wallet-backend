@@ -1081,13 +1081,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
-			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
@@ -1096,7 +1089,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				ChannelAccountStore:    mockChAccStore,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -1634,16 +1626,12 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock AccountTokenService to succeed
+		// Mock token ingestion methods (called in parallel by insertAndUpsertParallel)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything, // ctx
-			mock.Anything, // dbTx
-			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // contractChanges
-			mock.Anything, // accountChangesByAccountID
-			mock.Anything, // sacBalanceChangesByKey
-		).Return(nil)
+		mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockTokenIngestionService.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockTokenIngestionService.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockTokenIngestionService.On("ProcessContractTokenChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
@@ -1718,16 +1706,12 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock AccountTokenService to return error (simulating DB failure)
+		// Mock token ingestion methods - one fails to simulate DB failure
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything, // ctx
-			mock.Anything, // dbTx
-			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // contractChanges
-			mock.Anything, // accountChangesByAccountID
-			mock.Anything, // sacBalanceChangesByKey
-		).Return(fmt.Errorf("db connection failed"))
+		mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db connection failed")).Maybe()
+		mockTokenIngestionService.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessContractTokenChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
@@ -1802,24 +1786,13 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock AccountTokenService to fail once then succeed
+		// Mock token ingestion methods - trustline fails once then succeeds on retry
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-		).Return(fmt.Errorf("transient error")).Once()
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-		).Return(nil).Once()
+		mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("transient error")).Once()
+		mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessContractTokenChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,

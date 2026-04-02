@@ -234,7 +234,6 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 }
 
 // BatchCopy inserts transactions using pgx's binary COPY protocol.
-// Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 //
 // IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
@@ -244,28 +243,30 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByToID map[int64]types.ParticipantSet,
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(time.Since(start).Seconds())
+		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
+	}()
 
-	// COPY transactions using pgx binary format with native pgtype types. Upstream participants handling ensures that
-	// account address is not NULL here.
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
 		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
-			hashBytes, err := tx.Hash.Value()
+			hashVal, err := tx.Hash.Value()
 			if err != nil {
 				return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
 			}
 			return []any{
-				hashBytes,
+				hashVal.([]byte),
 				pgtype.Int8{Int64: tx.ToID, Valid: true},
 				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
 				pgtype.Text{String: tx.ResultCode, Valid: true},
@@ -276,70 +277,71 @@ func (m *TransactionModel) BatchCopy(
 		}),
 	)
 	if err != nil {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom transactions: %w", err)
 	}
 	if int(copyCount) != len(txs) {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", "row_count_mismatch").Inc()
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
 	}
 
-	// COPY transactions_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByToID) > 0 {
-		// Build ToID -> LedgerCreatedAt lookup from transactions
-		ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
-		for _, tx := range txs {
-			ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
-		}
+	return len(txs), nil
+}
 
-		var taRows [][]any
-		for toID, addresses := range stellarAddressesByToID {
-			ledgerCreatedAt := ledgerCreatedAtByToID[toID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				taRows = append(taRows, []any{
-					ledgerCreatedAtPgtype,
-					toIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"transactions_accounts"},
-			[]string{"ledger_created_at", "tx_to_id", "account_id"},
-			pgx.CopyFromRows(taRows),
-		)
-		if err != nil {
-			duration := time.Since(start).Seconds()
-			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-			m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-			m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
-			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
-			return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
-		}
-
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions_accounts").Inc()
+// BatchCopyAccounts inserts transaction participants into transactions_accounts using pgx's binary COPY protocol.
+func (m *TransactionModel) BatchCopyAccounts(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	txs []*types.Transaction,
+	stellarAddressesByToID map[int64]types.ParticipantSet,
+) error {
+	if len(stellarAddressesByToID) == 0 {
+		return nil
 	}
 
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
+	start := time.Now()
+	var rowCount int
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions_accounts").Observe(time.Since(start).Seconds())
+		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions_accounts").Observe(float64(rowCount))
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions_accounts").Inc()
+	}()
 
-	return len(txs), nil
+	// Build ToID -> LedgerCreatedAt lookup from transactions
+	ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
+	for _, tx := range txs {
+		ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
+	}
+
+	taRows := make([][]any, 0, len(stellarAddressesByToID)*2)
+	for toID, addresses := range stellarAddressesByToID {
+		ledgerCreatedAt := ledgerCreatedAtByToID[toID]
+		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
+		toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
+		for _, addr := range addresses.ToSlice() {
+			addrVal, addrErr := types.AddressBytea(addr).Value()
+			if addrErr != nil {
+				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+			}
+			taRows = append(taRows, []any{
+				ledgerCreatedAtPgtype,
+				toIDPgtype,
+				addrVal.([]byte),
+			})
+		}
+	}
+	rowCount = len(taRows)
+
+	_, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{"transactions_accounts"},
+		[]string{"ledger_created_at", "tx_to_id", "account_id"},
+		pgx.CopyFromRows(taRows),
+	)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
+	}
+
+	return nil
 }

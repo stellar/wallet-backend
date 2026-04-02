@@ -161,6 +161,12 @@ type TokenIngestionService interface {
 	//
 	// Both trustline and contract IDs are computed using deterministic hash functions (DeterministicAssetID, DeterministicContractID).
 	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, contractChanges []types.ContractChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
+
+	// Individual token change processors — used by parallel ingestion.
+	ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error
+	ProcessContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error
+	ProcessNativeBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByAccountID map[string]types.AccountChange) error
+	ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
 }
 
 // Verify interface compliance at compile time
@@ -353,23 +359,23 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		return nil
 	}
 
-	if err := s.processTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey); err != nil {
+	if err := s.ProcessTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey); err != nil {
 		return err
 	}
-	if err := s.processContractTokenChanges(ctx, dbTx, contractChanges); err != nil {
+	if err := s.ProcessContractTokenChanges(ctx, dbTx, contractChanges); err != nil {
 		return err
 	}
-	if err := s.processNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
+	if err := s.ProcessNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
 		return err
 	}
-	if err := s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey); err != nil {
+	if err := s.ProcessSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey); err != nil {
 		return err
 	}
 	return nil
 }
 
-// processTrustlineChanges handles trustline balance upserts and deletes.
-func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+// ProcessTrustlineChanges handles trustline balance upserts and deletes.
+func (s *tokenIngestionService) ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
 	if len(changesByKey) == 0 {
 		return nil
 	}
@@ -403,8 +409,8 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 	return nil
 }
 
-// processContractTokenChanges handles SEP-41 contract token inserts.
-func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error {
+// ProcessContractTokenChanges handles SEP-41 contract token inserts.
+func (s *tokenIngestionService) ProcessContractTokenChanges(ctx context.Context, dbTx pgx.Tx, changes []types.ContractChange) error {
 	if len(changes) == 0 {
 		return nil
 	}
@@ -431,8 +437,8 @@ func (s *tokenIngestionService) processContractTokenChanges(ctx context.Context,
 	return nil
 }
 
-// processNativeBalanceChanges handles native XLM balance upserts and deletes.
-func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByAccountID map[string]types.AccountChange) error {
+// ProcessNativeBalanceChanges handles native XLM balance upserts and deletes.
+func (s *tokenIngestionService) ProcessNativeBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByAccountID map[string]types.AccountChange) error {
 	if len(changesByAccountID) == 0 {
 		return nil
 	}
@@ -463,8 +469,8 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 	return nil
 }
 
-// processSACBalanceChanges handles SAC balance upserts and deletes for contract addresses.
-func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+// ProcessSACBalanceChanges handles SAC balance upserts and deletes for contract addresses.
+func (s *tokenIngestionService) ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
 	if len(changesByKey) == 0 {
 		return nil
 	}

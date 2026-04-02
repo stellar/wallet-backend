@@ -49,7 +49,7 @@ func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 		BatchSize: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "wallet_db_batch_operation_size",
 			Help:    "Size of batch database operations.",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+			Buckets: prometheus.ExponentialBuckets(1, 2, 15),
 		}, []string{"operation", "table"}),
 	}
 	reg.MustRegister(

@@ -76,70 +76,86 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	return balances, nil
 }
 
-// BatchUpsert performs upserts and deletes with full XDR fields.
-// For upserts (ADD/UPDATE): inserts or updates all trustline fields.
-// For deletes (REMOVE): removes the trustline row.
+// BatchUpsert performs upserts and deletes using UNNEST-based bulk operations.
+// For upserts (ADD/UPDATE): bulk inserts or updates all trustline fields via single UNNEST query.
+// For deletes (REMOVE): bulk removes trustline rows via single UNNEST query.
 func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	// Upsert query: insert or update all fields
-	const upsertQuery = `
-		INSERT INTO trustline_balances (
-			account_address, asset_id, balance, trust_limit,
-			buying_liabilities, selling_liabilities, flags, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (account_address, asset_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			trust_limit = EXCLUDED.trust_limit,
-			buying_liabilities = EXCLUDED.buying_liabilities,
-			selling_liabilities = EXCLUDED.selling_liabilities,
-			flags = EXCLUDED.flags,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountAddresses := make([]string, len(upserts))
+		assetIDs := make([]uuid.UUID, len(upserts))
+		balances := make([]int64, len(upserts))
+		trustLimits := make([]int64, len(upserts))
+		buyingLiabilities := make([]int64, len(upserts))
+		sellingLiabilities := make([]int64, len(upserts))
+		flags := make([]int32, len(upserts))
+		ledgerNumbers := make([]int64, len(upserts))
 
-	for _, tl := range upserts {
-		batch.Queue(upsertQuery,
-			tl.AccountAddress,
-			tl.AssetID,
-			tl.Balance,
-			tl.Limit,
-			tl.BuyingLiabilities,
-			tl.SellingLiabilities,
-			tl.Flags,
-			tl.LedgerNumber,
-		)
-	}
+		for i, tl := range upserts {
+			accountAddresses[i] = tl.AccountAddress
+			assetIDs[i] = tl.AssetID
+			balances[i] = tl.Balance
+			trustLimits[i] = tl.Limit
+			buyingLiabilities[i] = tl.BuyingLiabilities
+			sellingLiabilities[i] = tl.SellingLiabilities
+			flags[i] = int32(tl.Flags)
+			ledgerNumbers[i] = int64(tl.LedgerNumber)
+		}
 
-	// Delete query
-	const deleteQuery = `DELETE FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`
+		const upsertQuery = `
+			INSERT INTO trustline_balances (
+				account_address, asset_id, balance, trust_limit,
+				buying_liabilities, selling_liabilities, flags, last_modified_ledger
+			)
+			SELECT * FROM UNNEST(
+				$1::text[], $2::uuid[], $3::bigint[], $4::bigint[],
+				$5::bigint[], $6::bigint[], $7::int4[], $8::bigint[]
+			)
+			ON CONFLICT (account_address, asset_id) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				trust_limit = EXCLUDED.trust_limit,
+				buying_liabilities = EXCLUDED.buying_liabilities,
+				selling_liabilities = EXCLUDED.selling_liabilities,
+				flags = EXCLUDED.flags,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, tl := range deletes {
-		batch.Queue(deleteQuery, tl.AccountAddress, tl.AssetID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery,
+			accountAddresses, assetIDs, balances, trustLimits,
+			buyingLiabilities, sellingLiabilities, flags, ledgerNumbers,
+		); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing trustline balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		delAccountAddresses := make([]string, len(deletes))
+		delAssetIDs := make([]uuid.UUID, len(deletes))
+
+		for i, tl := range deletes {
+			delAccountAddresses[i] = tl.AccountAddress
+			delAssetIDs[i] = tl.AssetID
+		}
+
+		const deleteQuery = `
+			DELETE FROM trustline_balances
+			WHERE (account_address, asset_id) IN (
+				SELECT * FROM UNNEST($1::text[], $2::uuid[])
+			)`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, delAccountAddresses, delAssetIDs); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting trustline balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
@@ -154,6 +170,10 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 	}
 
 	start := time.Now()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
+	}()
 
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
@@ -183,20 +203,14 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		}),
 	)
 	if err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting trustline balances via COPY: %w", err)
 	}
 
 	if int(copyCount) != len(balances) {
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "trustline_balances", "row_count_mismatch").Inc()
 		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
 	}
 
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "trustline_balances").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "trustline_balances").Inc()
 	return nil
 }

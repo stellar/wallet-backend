@@ -270,12 +270,8 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
 			}
 			txs := buffer.GetTransactions()
-			if _, _, err := m.insertIntoDB(ctx, dbTx, txs, buffer); err != nil {
+			if _, _, err := m.insertAndUpsertParallel(ctx, txs, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
-			}
-			// Unlock channel accounts using all transactions (not filtered)
-			if err := m.unlockChannelAccounts(ctx, dbTx, txs); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
 			}
 			// Update cursor atomically with data insertion if requested
 			if updateCursorTo != nil {
