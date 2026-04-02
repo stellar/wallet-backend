@@ -393,3 +393,178 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		assert.Equal(t, "300", result[key3].Balance)
 	})
 }
+
+func TestIndexerBuffer_BatchPushTransactionResult(t *testing.T) {
+	t.Run("🟢 pushes all data in single call", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		tx := types.Transaction{Hash: "txhash1", ToID: 1}
+		op1 := types.Operation{ID: 100}
+		op2 := types.Operation{ID: 200}
+
+		sc1 := buildStateChange(10, types.StateChangeReasonDebit, "alice", 100)
+		sc2 := buildStateChange(11, types.StateChangeReasonCredit, "dave", 200)
+		scFee := buildStateChange(12, types.StateChangeReasonDebit, "alice", 0) // fee: no operation
+
+		cc := types.ContractChange{
+			AccountID:    "alice",
+			OperationID:  100,
+			ContractID:   "CCONTRACT",
+			LedgerNumber: 42,
+			ContractType: types.ContractTypeSEP41,
+		}
+
+		buffer.BatchPushTransactionResult(&TransactionResult{
+			Transaction:    &tx,
+			TxParticipants: []string{"alice", "bob"},
+			Operations:     map[int64]*types.Operation{100: &op1, 200: &op2},
+			OpParticipants: map[int64][]string{
+				100: {"alice"},
+				200: {"bob", "charlie"},
+			},
+			ContractChanges:  []types.ContractChange{cc},
+			StateChanges:     []types.StateChange{sc1, sc2, scFee},
+			StateChangeOpMap: map[int64]*types.Operation{100: &op1, 200: &op2},
+		})
+
+		// Verify transaction stored
+		assert.Equal(t, 1, buffer.GetNumberOfTransactions())
+
+		// Verify operations stored
+		assert.Equal(t, 2, buffer.GetNumberOfOperations())
+
+		// Verify tx participants: alice, bob (from TxParticipants) + charlie (from OpParticipants)
+		// + dave (from state change) = all mapped to tx ToID=1
+		txParts := buffer.GetTransactionsParticipants()
+		require.Contains(t, txParts, int64(1))
+		_, hasAlice := txParts[1]["alice"]
+		_, hasBob := txParts[1]["bob"]
+		_, hasCharlie := txParts[1]["charlie"]
+		_, hasDave := txParts[1]["dave"]
+		assert.True(t, hasAlice)
+		assert.True(t, hasBob)
+		assert.True(t, hasCharlie)
+		assert.True(t, hasDave)
+
+		// Verify op participants
+		opParts := buffer.GetOperationsParticipants()
+		require.Contains(t, opParts, int64(100))
+		_, aliceInOp100 := opParts[100]["alice"]
+		assert.True(t, aliceInOp100)
+		require.Contains(t, opParts, int64(200))
+		_, bobInOp200 := opParts[200]["bob"]
+		_, charlieInOp200 := opParts[200]["charlie"]
+		_, daveInOp200 := opParts[200]["dave"]
+		assert.True(t, bobInOp200)
+		assert.True(t, charlieInOp200)
+		// dave's state change has operationID=200, so dave should be an op participant for op 200
+		assert.True(t, daveInOp200)
+
+		// Verify state changes
+		assert.Len(t, buffer.GetStateChanges(), 3)
+
+		// Verify contract changes
+		ccs := buffer.GetContractChanges()
+		require.Len(t, ccs, 1)
+		assert.Equal(t, "CCONTRACT", ccs[0].ContractID)
+
+		// Verify SEP-41 tracking
+		assert.Contains(t, buffer.GetUniqueSEP41ContractTokensByID(), "CCONTRACT")
+	})
+
+	t.Run("🟢 skips state changes with empty AccountID", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "txhash2", ToID: 2}
+
+		scEmpty := types.StateChange{ToID: 20, AccountID: ""}
+		scValid := buildStateChange(21, types.StateChangeReasonCredit, "alice", 0)
+
+		buffer.BatchPushTransactionResult(&TransactionResult{
+			Transaction:      &tx,
+			TxParticipants:   []string{"alice"},
+			Operations:       map[int64]*types.Operation{},
+			OpParticipants:   map[int64][]string{},
+			StateChanges:     []types.StateChange{scEmpty, scValid},
+			StateChangeOpMap: map[int64]*types.Operation{},
+		})
+
+		assert.Len(t, buffer.GetStateChanges(), 1)
+	})
+
+	t.Run("🟢 non-SEP41 contract changes are stored but not tracked", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "txhash3", ToID: 3}
+
+		buffer.BatchPushTransactionResult(&TransactionResult{
+			Transaction:    &tx,
+			TxParticipants: []string{"alice"},
+			Operations:     map[int64]*types.Operation{},
+			OpParticipants: map[int64][]string{},
+			ContractChanges: []types.ContractChange{
+				{AccountID: "alice", ContractID: "COTHER", ContractType: types.ContractType("OTHER")},
+			},
+			StateChangeOpMap: map[int64]*types.Operation{},
+		})
+
+		assert.Len(t, buffer.GetContractChanges(), 1)
+		assert.Empty(t, buffer.GetUniqueSEP41ContractTokensByID())
+	})
+
+	t.Run("🟢 produces same result as individual Push calls", func(t *testing.T) {
+		// Set up identical data via individual pushes
+		individual := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "txhash4", ToID: 4}
+		op := types.Operation{ID: 300}
+		sc := buildStateChange(30, types.StateChangeReasonCredit, "alice", 300)
+
+		individual.PushTransaction("alice", &tx)
+		individual.PushTransaction("bob", &tx)
+		individual.PushOperation("alice", &op, &tx)
+		individual.PushStateChange(&tx, &op, sc)
+		individual.PushContractChange(types.ContractChange{
+			AccountID: "alice", ContractID: "CSEP41", ContractType: types.ContractTypeSEP41,
+		})
+
+		// Set up identical data via batch push
+		batched := NewIndexerBuffer()
+		batched.BatchPushTransactionResult(&TransactionResult{
+			Transaction:    &tx,
+			TxParticipants: []string{"alice", "bob"},
+			Operations:     map[int64]*types.Operation{300: &op},
+			OpParticipants: map[int64][]string{300: {"alice"}},
+			ContractChanges: []types.ContractChange{
+				{AccountID: "alice", ContractID: "CSEP41", ContractType: types.ContractTypeSEP41},
+			},
+			StateChanges:     []types.StateChange{sc},
+			StateChangeOpMap: map[int64]*types.Operation{300: &op},
+		})
+
+		// Compare buffer state
+		assert.Equal(t, individual.GetNumberOfTransactions(), batched.GetNumberOfTransactions())
+		assert.Equal(t, individual.GetNumberOfOperations(), batched.GetNumberOfOperations())
+		assert.Equal(t, len(individual.GetStateChanges()), len(batched.GetStateChanges()))
+		assert.Equal(t, len(individual.GetContractChanges()), len(batched.GetContractChanges()))
+		assert.Equal(t, individual.GetUniqueSEP41ContractTokensByID(), batched.GetUniqueSEP41ContractTokensByID())
+
+		// Compare participants
+		indTxParts := individual.GetTransactionsParticipants()
+		batTxParts := batched.GetTransactionsParticipants()
+		for toID, indSet := range indTxParts {
+			require.Contains(t, batTxParts, toID)
+			for p := range indSet {
+				_, found := batTxParts[toID][p]
+				assert.True(t, found, "missing tx participant %s for toID %d", p, toID)
+			}
+		}
+
+		indOpParts := individual.GetOperationsParticipants()
+		batOpParts := batched.GetOperationsParticipants()
+		for opID, indSet := range indOpParts {
+			require.Contains(t, batOpParts, opID)
+			for p := range indSet {
+				_, found := batOpParts[opID][p]
+				assert.True(t, found, "missing op participant %s for opID %d", p, opID)
+			}
+		}
+	})
+}
