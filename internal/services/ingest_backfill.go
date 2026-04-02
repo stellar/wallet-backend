@@ -146,10 +146,11 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	var pipelineWg sync.WaitGroup
 
 	// Stage 3: flush workers (start first so they're ready)
+	flushStatsCh := make(chan *backfillFlushWorkerStats, m.backfillFlushWorkers)
 	pipelineWg.Add(1)
 	go func() {
 		defer pipelineWg.Done()
-		m.runFlushWorkers(gapCtx, flushCh, watermark, m.backfillFlushWorkers)
+		m.runFlushWorkers(gapCtx, flushCh, watermark, m.backfillFlushWorkers, gap, flushStatsCh)
 	}()
 
 	// Stage 2: process workers
@@ -172,6 +173,10 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	gapStats.mergeWorker(dispatcherStats)
 	for ws := range processStatsCh {
 		gapStats.mergeWorker(ws)
+	}
+	close(flushStatsCh)
+	for fs := range flushStatsCh {
+		gapStats.mergeFlushWorker(fs)
 	}
 	_ = gapStats // used by gap summary log (Task 7)
 
@@ -313,27 +318,55 @@ type flushItem struct {
 
 // runFlushWorkers starts M flush workers that read from flushCh,
 // write data to DB, and report flushed ledgers to the watermark.
+// Each worker sends its stats to statsCh on exit for gap summary aggregation.
 func (m *ingestService) runFlushWorkers(
 	ctx context.Context,
 	flushCh <-chan flushItem,
 	watermark *backfillWatermark,
 	numWorkers int,
+	gap data.LedgerRange,
+	statsCh chan<- *backfillFlushWorkerStats,
 ) {
 	var wg sync.WaitGroup
 	for i := range numWorkers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for item := range flushCh {
+			stats := &backfillFlushWorkerStats{}
+			defer func() { statsCh <- stats }()
+
+			for {
+				recvStart := time.Now()
+				item, ok := <-flushCh
+				if !ok {
+					return
+				}
+				recvDur := time.Since(recvStart)
+				stats.addChannelWait("flush", "receive", recvDur)
+				m.appMetrics.Ingestion.BackfillChannelWait.WithLabelValues("flush", "receive").Observe(recvDur.Seconds())
+
 				if ctx.Err() != nil {
 					return
 				}
+
+				m.appMetrics.Ingestion.BackfillBatchSize.Observe(float64(len(item.Ledgers)))
+
+				flushStart := time.Now()
 				if err := m.flushBufferWithRetry(ctx, item.Buffer); err != nil {
 					log.Ctx(ctx).Errorf("Flush worker %d: %d ledgers failed: %v",
 						workerID, len(item.Ledgers), err)
 					continue
 				}
+				flushDur := time.Since(flushStart)
+				stats.addFlush(flushDur)
+				m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("backfill_flush").Observe(flushDur.Seconds())
+				m.appMetrics.Ingestion.BackfillLedgersFlushed.Add(float64(len(item.Ledgers)))
+
 				if advanced := watermark.MarkFlushed(item.Ledgers); advanced {
+					gapSize := float64(gap.GapEnd - gap.GapStart + 1)
+					progress := float64(watermark.Cursor()-gap.GapStart+1) / gapSize
+					m.appMetrics.Ingestion.BackfillGapProgress.Set(progress)
+
 					if err := m.updateOldestCursor(ctx, watermark.Cursor()); err != nil {
 						log.Ctx(ctx).Warnf("Flush worker %d: cursor update failed: %v",
 							workerID, err)
