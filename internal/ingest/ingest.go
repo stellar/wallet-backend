@@ -69,14 +69,14 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// DatastoreConfigPath is the path to the TOML config file for datastore backend
 	DatastoreConfigPath string
-	// BackfillWorkers limits concurrent batch processing during backfill.
-	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
-	BackfillWorkers int
-	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
-	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillBatchSize int
-	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	// BackfillProcessWorkers is the number of Stage 2 process workers in the pipeline.
+	// Defaults to runtime.NumCPU().
+	BackfillProcessWorkers int
+	// BackfillFlushWorkers is the number of Stage 3 flush workers in the pipeline.
+	// Defaults to 4.
+	BackfillFlushWorkers int
+	// BackfillDBInsertBatchSize is the number of ledgers per flush batch.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
@@ -215,8 +215,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
-		BackfillWorkers:           cfg.BackfillWorkers,
-		BackfillBatchSize:         cfg.BackfillBatchSize,
+		BackfillProcessWorkers:    cfg.BackfillProcessWorkers,
+		BackfillFlushWorkers:      cfg.BackfillFlushWorkers,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 	})
 	if err != nil {

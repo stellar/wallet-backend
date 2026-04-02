@@ -73,9 +73,11 @@ type IngestServiceConfig struct {
 	GetLedgersLimit int
 
 	// === Backfill Tuning ===
-	BackfillWorkers           int
-	BackfillBatchSize         int
-	BackfillDBInsertBatchSize int
+	BackfillProcessWorkers    int // Stage 2 process workers (default: NumCPU)
+	BackfillFlushWorkers      int // Stage 3 flush workers (default: 4)
+	BackfillDBInsertBatchSize int // Ledgers per flush batch (default: 100)
+	BackfillLedgerChanSize    int // ledgerCh buffer size (default: 256)
+	BackfillFlushChanSize     int // flushCh buffer size (default: 8)
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -97,27 +99,29 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode             string
-	models                    *data.Models
-	latestLedgerCursorName    string
-	oldestLedgerCursorName    string
-	advisoryLockID            int
-	appTracker                apptracker.AppTracker
-	rpcService                RPCService
-	ledgerBackend             ledgerbackend.LedgerBackend
-	ledgerBackendFactory      LedgerBackendFactory
-	chAccStore                store.ChannelAccountStore
-	tokenIngestionService     TokenIngestionService
-	contractMetadataService   ContractMetadataService
-	appMetrics                *metrics.Metrics
-	networkPassphrase         string
-	getLedgersLimit           int
-	ledgerIndexer             *indexer.Indexer
-	archive                   historyarchive.ArchiveInterface
-	backfillPool              pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
-	knownContractIDs          set.Set[string]
+	ingestionMode           string
+	models                  *data.Models
+	latestLedgerCursorName  string
+	oldestLedgerCursorName  string
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	ledgerBackend           ledgerbackend.LedgerBackend
+	ledgerBackendFactory    LedgerBackendFactory
+	chAccStore              store.ChannelAccountStore
+	tokenIngestionService   TokenIngestionService
+	contractMetadataService ContractMetadataService
+	appMetrics              *metrics.Metrics
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	archive                 historyarchive.ArchiveInterface
+	backfillProcessWorkers  int
+	backfillFlushWorkers    int
+	backfillFlushBatchSize  uint32
+	backfillLedgerChanSize  int
+	backfillFlushChanSize   int
+	knownContractIDs        set.Set[string]
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -126,37 +130,64 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Create backfill pool with bounded size to control memory usage.
-	// Default to NumCPU if not specified.
-	backfillWorkers := cfg.BackfillWorkers
-	if backfillWorkers <= 0 {
-		backfillWorkers = runtime.NumCPU()
+	// Backfill pipeline defaults
+	processWorkers := cfg.BackfillProcessWorkers
+	if processWorkers <= 0 {
+		processWorkers = runtime.NumCPU()
 	}
-	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
+	flushWorkers := cfg.BackfillFlushWorkers
+	if flushWorkers <= 0 {
+		flushWorkers = 4
+	}
+	flushBatchSize := cfg.BackfillDBInsertBatchSize
+	if flushBatchSize <= 0 {
+		flushBatchSize = 100
+	}
+	ledgerChanSize := cfg.BackfillLedgerChanSize
+	if ledgerChanSize <= 0 {
+		ledgerChanSize = 256
+	}
+	flushChanSize := cfg.BackfillFlushChanSize
+	if flushChanSize <= 0 {
+		flushChanSize = 8
+	}
+
+	// Validate connection pool can handle flush worker concurrency.
+	// Each flush worker runs 5 parallel COPYs, each needing its own connection.
+	if cfg.IngestionMode == IngestionModeBackfill {
+		requiredConns := int32(flushWorkers*5 + 5) // +5 headroom for cursor updates
+		maxConns := cfg.Models.DB.Config().MaxConns
+		if maxConns > 0 && maxConns < requiredConns {
+			return nil, fmt.Errorf(
+				"pgxpool max connections (%d) too low for %d flush workers (need at least %d: %d workers × 5 COPYs + 5 headroom)",
+				maxConns, flushWorkers, requiredConns, flushWorkers)
+		}
+	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		chAccStore:                cfg.ChannelAccountStore,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		contractMetadataService:   cfg.ContractMetadataService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		knownContractIDs:          set.NewSet[string](),
+		ingestionMode:           cfg.IngestionMode,
+		models:                  cfg.Models,
+		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
+		appTracker:              cfg.AppTracker,
+		rpcService:              cfg.RPCService,
+		ledgerBackend:           cfg.LedgerBackend,
+		ledgerBackendFactory:    cfg.LedgerBackendFactory,
+		chAccStore:              cfg.ChannelAccountStore,
+		tokenIngestionService:   cfg.TokenIngestionService,
+		contractMetadataService: cfg.ContractMetadataService,
+		appMetrics:              cfg.Metrics,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		getLedgersLimit:         cfg.GetLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		archive:                 cfg.Archive,
+		backfillProcessWorkers:  processWorkers,
+		backfillFlushWorkers:    flushWorkers,
+		backfillFlushBatchSize:  uint32(flushBatchSize),
+		backfillLedgerChanSize:  ledgerChanSize,
+		backfillFlushChanSize:   flushChanSize,
+		knownContractIDs:        set.NewSet[string](),
 	}, nil
 }
 
