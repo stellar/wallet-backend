@@ -22,9 +22,8 @@ import (
 )
 
 type IndexerBufferInterface interface {
-	PushTransaction(participant string, transaction *types.Transaction)
-	PushOperation(participant string, operation *types.Operation, transaction *types.Transaction)
-	PushStateChange(transaction *types.Transaction, operation *types.Operation, stateChange types.StateChange)
+	BatchPushTransactionResult(result *TransactionResult)
+	BatchPushChanges(trustlines []types.TrustlineChange, accounts []types.AccountChange, sacBalances []types.SACBalanceChange, sacContracts []*data.Contract)
 	GetTransactionsParticipants() map[int64]types.ParticipantSet
 	GetOperationsParticipants() map[int64]types.ParticipantSet
 	GetNumberOfTransactions() int
@@ -36,9 +35,6 @@ type IndexerBufferInterface interface {
 	GetContractChanges() []types.ContractChange
 	GetAccountChanges() map[string]types.AccountChange
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
-	PushContractChange(contractChange types.ContractChange)
-	PushTrustlineChange(trustlineChange types.TrustlineChange)
-	BatchPushChanges(trustlines []types.TrustlineChange, accounts []types.AccountChange, sacBalances []types.SACBalanceChange, sacContracts []*data.Contract)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
@@ -137,6 +133,7 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 }
 
 // processTransaction processes a single transaction - collects data and populates buffer.
+// All buffer writes are batched to minimize mutex contention during parallel processing.
 // Returns participant count for metrics.
 func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransaction, buffer IndexerBufferInterface) (int, error) {
 	// Get transaction participants
@@ -163,61 +160,85 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Count all unique participants for metrics using a plain map to avoid
-	// repeated set allocations from Union().
-	allParticipants := make(map[string]struct{}, txParticipants.Cardinality())
-	for p := range txParticipants.Iter() {
-		allParticipants[p] = struct{}{}
-	}
-	for _, opParticipants := range opsParticipants {
-		for p := range opParticipants.Participants.Iter() {
-			allParticipants[p] = struct{}{}
-		}
-	}
-	for _, stateChange := range stateChanges {
-		allParticipants[string(stateChange.AccountID)] = struct{}{}
-	}
-
-	// Insert transaction participants
-	for participant := range txParticipants.Iter() {
-		buffer.PushTransaction(participant, dataTx)
-	}
-
 	// Get operation results for extracting result codes
 	opResults, _ := tx.Result.OperationResults()
 
-	// Insert operations participants
-	operationsMap := make(map[int64]*types.Operation)
-	for opID, opParticipants := range opsParticipants {
-		dataOp, opErr := processors.ConvertOperation(&tx, &opParticipants.OpWrapper.Operation, opID, opParticipants.OpWrapper.Index, opResults)
+	// Build operations map and collect participants per operation
+	operationsMap := make(map[int64]*types.Operation, len(opsParticipants))
+	opParticipantMap := make(map[int64][]string, len(opsParticipants))
+	for opID, opP := range opsParticipants {
+		dataOp, opErr := processors.ConvertOperation(&tx, &opP.OpWrapper.Operation, opID, opP.OpWrapper.Index, opResults)
 		if opErr != nil {
 			return 0, fmt.Errorf("creating data operation: %w", opErr)
 		}
 		operationsMap[opID] = dataOp
-		for participant := range opParticipants.Participants.Iter() {
-			buffer.PushOperation(participant, dataOp, dataTx)
+		participants := make([]string, 0, opP.Participants.Cardinality())
+		for p := range opP.Participants.Iter() {
+			participants = append(participants, p)
+		}
+		opParticipantMap[opID] = participants
+	}
+
+	// Build contract changes from state changes
+	var contractChanges []types.ContractChange
+	for _, sc := range stateChanges {
+		if sc.StateChangeCategory == types.StateChangeCategoryBalance && sc.ContractType == types.ContractTypeSEP41 {
+			contractChanges = append(contractChanges, types.ContractChange{
+				AccountID:    string(sc.AccountID),
+				OperationID:  sc.OperationID,
+				ContractID:   sc.TokenID.String(),
+				LedgerNumber: tx.Ledger.LedgerSequence(),
+				ContractType: sc.ContractType,
+			})
 		}
 	}
 
+	// Validate state change operation IDs (log warnings for mismatches)
+	for _, sc := range stateChanges {
+		if sc.AccountID == "" || sc.OperationID == 0 {
+			continue
+		}
+		if operationsMap[sc.OperationID] == nil {
+			log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", sc.OperationID, sc.ToID, sc.StateChangeCategory)
+		}
+	}
+
+	// Collect tx participant strings
+	txParticipantList := make([]string, 0, txParticipants.Cardinality())
+	for p := range txParticipants.Iter() {
+		txParticipantList = append(txParticipantList, p)
+	}
+
+	// Push all transaction data in a single lock acquisition
+	buffer.BatchPushTransactionResult(&TransactionResult{
+		Transaction:      dataTx,
+		TxParticipants:   txParticipantList,
+		Operations:       operationsMap,
+		OpParticipants:   opParticipantMap,
+		ContractChanges:  contractChanges,
+		StateChanges:     stateChanges,
+		StateChangeOpMap: operationsMap,
+	})
+
 	// Process trustline, account, and SAC balance changes from ledger changes.
-	// Results are collected locally and pushed in a single lock acquisition per operation.
-	for _, opParticipants := range opsParticipants {
-		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+	// Each operation's changes are pushed in a single lock acquisition.
+	for _, opP := range opsParticipants {
+		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opP.OpWrapper)
 		if tlErr != nil {
 			return 0, fmt.Errorf("processing trustline changes: %w", tlErr)
 		}
 
-		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opP.OpWrapper)
 		if accErr != nil {
 			return 0, fmt.Errorf("processing account changes: %w", accErr)
 		}
 
-		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opP.OpWrapper)
 		if sacErr != nil {
 			return 0, fmt.Errorf("processing SAC balance changes: %w", sacErr)
 		}
 
-		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opP.OpWrapper)
 		if sacInstanceErr != nil {
 			return 0, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
 		}
@@ -225,43 +246,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		buffer.BatchPushChanges(trustlineChanges, accountChanges, sacBalanceChanges, sacContracts)
 	}
 
-	// Process state changes to extract contract changes
-	for _, stateChange := range stateChanges {
-		//exhaustive:ignore
-		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryBalance:
-			// Only store contract changes when contract token is SEP41
-			if stateChange.ContractType == types.ContractTypeSEP41 {
-				contractChange := types.ContractChange{
-					AccountID:    string(stateChange.AccountID),
-					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String(),
-					LedgerNumber: tx.Ledger.LedgerSequence(),
-					ContractType: stateChange.ContractType,
-				}
-				buffer.PushContractChange(contractChange)
-			}
+	// Count all unique participants for metrics
+	allParticipants := make(map[string]struct{}, txParticipants.Cardinality())
+	for _, p := range txParticipantList {
+		allParticipants[p] = struct{}{}
+	}
+	for _, participants := range opParticipantMap {
+		for _, p := range participants {
+			allParticipants[p] = struct{}{}
 		}
 	}
-
-	// Insert state changes
-	for _, stateChange := range stateChanges {
-		// Skip empty state changes (no account to associate with)
-		if stateChange.AccountID == "" {
-			continue
-		}
-
-		// Get the correct operation for this state change
-		var operation *types.Operation
-		if stateChange.OperationID != 0 {
-			operation = operationsMap[stateChange.OperationID]
-			if operation == nil {
-				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeCategory)
-				continue
-			}
-		}
-		// For fee state changes (OperationID == 0), operation remains nil
-		buffer.PushStateChange(dataTx, operation, stateChange)
+	for _, sc := range stateChanges {
+		allParticipants[string(sc.AccountID)] = struct{}{}
 	}
 
 	return len(allParticipants), nil
