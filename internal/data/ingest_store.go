@@ -64,6 +64,20 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 	return nil
 }
 
+func (m *IngestStoreModel) CompareAndSwap(ctx context.Context, dbTx pgx.Tx, cursorName string, expectedValue string, newValue string) (bool, error) {
+	const query = `UPDATE ingest_store SET value = $1 WHERE key = $2 AND value = $3`
+	start := time.Now()
+	result, err := dbTx.Exec(ctx, query, newValue, cursorName, expectedValue)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("CompareAndSwap", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("CompareAndSwap", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("CompareAndSwap", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return false, fmt.Errorf("compare-and-swap for cursor %s: %w", cursorName, err)
+	}
+	return result.RowsAffected() == 1, nil
+}
+
 func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		UPDATE ingest_store

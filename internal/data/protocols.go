@@ -35,6 +35,7 @@ type Protocols struct {
 type ProtocolsModelInterface interface {
 	UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
 	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error)
+	GetClassified(ctx context.Context) ([]Protocols, error)
 	InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error
 }
 
@@ -90,6 +91,26 @@ func (m *ProtocolsModel) GetByIDs(ctx context.Context, protocolIDs []string) ([]
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByIDs", "protocols", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying protocols by IDs: %w", err)
+	}
+	return protocols, nil
+}
+
+// GetClassified returns all protocols with classification_status = 'success'.
+func (m *ProtocolsModel) GetClassified(ctx context.Context) ([]Protocols, error) {
+	const query = `
+		SELECT id, classification_status, history_migration_status, current_state_migration_status, created_at, updated_at
+		FROM protocols
+		WHERE classification_status = 'success'
+	`
+
+	start := time.Now()
+	protocols, err := db.QueryMany[Protocols](ctx, m.DB, query)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetClassified", "protocols").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetClassified", "protocols").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetClassified", "protocols", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying classified protocols: %w", err)
 	}
 	return protocols, nil
 }
