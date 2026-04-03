@@ -187,6 +187,7 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	}()
 
 	var pipelineWg sync.WaitGroup
+	samplerDone := make(chan struct{})
 
 	// Channel utilization sampler — snapshots fill ratios every second
 	pipelineWg.Add(1)
@@ -196,6 +197,8 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 		defer ticker.Stop()
 		for {
 			select {
+			case <-samplerDone:
+				return
 			case <-gapCtx.Done():
 				return
 			case <-ticker.C:
@@ -233,6 +236,12 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	// Stage 1: dispatcher (runs on this goroutine)
 	dispatcherStats := m.runDispatcher(gapCtx, gapCancel, backend, gap, ledgerCh)
 
+	// Stop the channel utilization sampler. It only collects metrics and is safe
+	// to stop once the dispatcher has finished — the remaining flush draining
+	// happens quickly. Without this signal the sampler would deadlock: it waits
+	// for gapCtx.Done(), which is deferred to processGap return, which waits
+	// for pipelineWg (which includes the sampler).
+	close(samplerDone)
 	pipelineWg.Wait()
 
 	// Aggregate gap stats from all pipeline stages
