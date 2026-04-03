@@ -13,11 +13,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stellar/go-stellar-sdk/support/compressxdr"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// zstdDecoderPool reuses zstd decoders across fetch workers.
+// Each decoder allocates internal buffers on first use; pooling avoids
+// re-allocating them on every S3 file download (~39 GB of churn per gap).
+var zstdDecoderPool = sync.Pool{
+	New: func() any {
+		d, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
+		if err != nil {
+			panic(fmt.Sprintf("creating zstd decoder: %v", err))
+		}
+		return d
+	},
+}
 
 // BackfillFetcherConfig configures the parallel S3 fetcher for backfill.
 type BackfillFetcherConfig struct {
@@ -196,6 +209,7 @@ func (f *backfillFetcher) downloadWithRetry(ctx context.Context, cancel context.
 }
 
 // downloadAndDecode fetches and stream-decodes a single S3 file.
+// Uses pooled zstd decoders to avoid reallocating internal buffers per file.
 func (f *backfillFetcher) downloadAndDecode(ctx context.Context, sequence uint32) (xdr.LedgerCloseMetaBatch, error) {
 	objectKey := f.schema.GetObjectKeyFromSequenceNumber(sequence)
 	reader, err := f.dataStore.GetFile(ctx, objectKey)
@@ -204,9 +218,14 @@ func (f *backfillFetcher) downloadAndDecode(ctx context.Context, sequence uint32
 	}
 	defer reader.Close() //nolint:errcheck
 
+	dec := zstdDecoderPool.Get().(*zstd.Decoder)
+	defer zstdDecoderPool.Put(dec)
+	if err := dec.Reset(reader); err != nil {
+		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("resetting zstd decoder for %s: %w", objectKey, err)
+	}
+
 	var batch xdr.LedgerCloseMetaBatch
-	decoder := compressxdr.NewXDRDecoder(compressxdr.DefaultCompressor, &batch)
-	if _, err = decoder.ReadFrom(reader); err != nil {
+	if _, err := xdr.Unmarshal(dec, &batch); err != nil {
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("decoding ledger file %s: %w", objectKey, err)
 	}
 	return batch, nil
