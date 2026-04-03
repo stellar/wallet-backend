@@ -17,6 +17,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
+// backfillBufferPool reuses IndexerBuffers across flush cycles to avoid
+// re-allocating 11 maps + 2 slices per batch. Clear() preserves capacity.
+var backfillBufferPool = sync.Pool{
+	New: func() any { return indexer.NewIndexerBuffer() },
+}
+
 // startBackfilling identifies gaps in the ledger range and fills them
 // sequentially via a 3-stage pipeline (dispatcher → process → flush).
 func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32) error {
@@ -174,10 +180,10 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	var pipelineWg sync.WaitGroup
 	samplerDone := make(chan struct{})
 
-	// Channel utilization sampler — snapshots fill ratios every second
-	pipelineWg.Add(1)
+	// Channel utilization sampler — snapshots fill ratios every second.
+	// Not part of pipelineWg: its lifecycle is controlled by samplerDone,
+	// which is closed after the pipeline finishes.
 	go func() {
-		defer pipelineWg.Done()
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -232,9 +238,9 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 
 	// Wait for all pipeline stages to complete.
 	// The fetcher closes ledgerCh → process workers drain and close flushCh →
-	// flush workers drain. The sampler exits via samplerDone or gapCtx.Done().
-	close(samplerDone)
+	// flush workers drain. Then close samplerDone to stop the utilization sampler.
 	pipelineWg.Wait()
+	close(samplerDone)
 
 	// Aggregate gap stats from all pipeline stages
 	close(processStatsCh)
@@ -304,7 +310,8 @@ func (m *ingestService) runProcessWorkers(
 			stats := &backfillWorkerStats{}
 			defer func() { statsCh <- stats }()
 
-			buffer := indexer.NewIndexerBuffer()
+			buffer := backfillBufferPool.Get().(*indexer.IndexerBuffer)
+			buffer.Clear()
 			var ledgers []uint32
 
 			flush := func() {
@@ -320,7 +327,8 @@ func (m *ingestService) runProcessWorkers(
 				case <-ctx.Done():
 					return
 				}
-				buffer = indexer.NewIndexerBuffer()
+				buffer = backfillBufferPool.Get().(*indexer.IndexerBuffer)
+				buffer.Clear()
 				ledgers = nil
 			}
 
@@ -406,6 +414,8 @@ func (m *ingestService) runFlushWorkers(
 				if err := m.flushBufferWithRetry(ctx, item.Buffer); err != nil {
 					log.Ctx(ctx).Errorf("Flush worker %d: %d ledgers failed: %v",
 						workerID, len(item.Ledgers), err)
+					item.Buffer.Clear()
+					backfillBufferPool.Put(item.Buffer)
 					continue
 				}
 				flushDur := time.Since(flushStart)
@@ -423,6 +433,9 @@ func (m *ingestService) runFlushWorkers(
 							workerID, err)
 					}
 				}
+
+				item.Buffer.Clear()
+				backfillBufferPool.Put(item.Buffer)
 			}
 		}(i)
 	}

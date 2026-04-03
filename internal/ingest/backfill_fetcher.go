@@ -142,6 +142,7 @@ func (f *backfillFetcher) worker(ctx context.Context, cancel context.CancelCause
 		// Fan out individual ledgers to ledgerCh, filtering to gap range.
 		for i := range batch.LedgerCloseMetas {
 			lcm := batch.LedgerCloseMetas[i]
+			batch.LedgerCloseMetas[i] = xdr.LedgerCloseMeta{} // allow GC to collect
 			seq := lcm.LedgerSequence()
 			if seq < f.config.GapStart || seq > f.config.GapEnd {
 				continue
