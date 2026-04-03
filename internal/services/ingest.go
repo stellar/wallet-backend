@@ -336,22 +336,28 @@ func (m *ingestService) insertParallel(ctx context.Context, txs []*types.Transac
 
 	copyOps := []copyOp{
 		{copyTransactions, func(ctx context.Context, tx pgx.Tx) error {
-			_, err := m.models.Transactions.BatchCopy(ctx, tx, txs)
-			return err
+			if _, err := m.models.Transactions.BatchCopy(ctx, tx, txs); err != nil {
+				return fmt.Errorf("copying transactions: %w", err)
+			}
+			return nil
 		}},
 		{copyTransactionsAccounts, func(ctx context.Context, tx pgx.Tx) error {
 			return m.models.Transactions.BatchCopyAccounts(ctx, tx, txs, txParticipants)
 		}},
 		{copyOperations, func(ctx context.Context, tx pgx.Tx) error {
-			_, err := m.models.Operations.BatchCopy(ctx, tx, ops)
-			return err
+			if _, err := m.models.Operations.BatchCopy(ctx, tx, ops); err != nil {
+				return fmt.Errorf("copying operations: %w", err)
+			}
+			return nil
 		}},
 		{copyOperationsAccounts, func(ctx context.Context, tx pgx.Tx) error {
 			return m.models.Operations.BatchCopyAccounts(ctx, tx, ops, opParticipants)
 		}},
 		{copyStateChanges, func(ctx context.Context, tx pgx.Tx) error {
-			_, err := m.models.StateChanges.BatchCopy(ctx, tx, stateChanges)
-			return err
+			if _, err := m.models.StateChanges.BatchCopy(ctx, tx, stateChanges); err != nil {
+				return fmt.Errorf("copying state changes: %w", err)
+			}
+			return nil
 		}},
 	}
 
