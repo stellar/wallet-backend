@@ -44,7 +44,7 @@ func (p *TrustlinesProcessor) ProcessOperation(ctx context.Context, opWrapper *T
 		}
 	}()
 
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.GetChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}

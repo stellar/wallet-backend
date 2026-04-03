@@ -107,7 +107,7 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 		return []EffectOutput{}, nil
 	}
 
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.GetChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -418,7 +418,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 		e.addMuxed(source, EffectAccountFlagsUpdated, flagDetails)
 	}
 
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.GetChanges()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -490,7 +490,7 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 	source := e.operation.SourceAccount()
 
 	op := e.operation.Operation.Body.MustChangeTrustOp()
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.GetChanges()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -588,7 +588,7 @@ func (e *effectsWrapper) addManageDataEffects() error {
 	op := e.operation.Operation.Body.MustManageDataOp()
 	details := map[string]interface{}{"name": op.DataName}
 	effect := EffectType(0)
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.GetChanges()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
