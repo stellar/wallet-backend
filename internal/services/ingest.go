@@ -361,8 +361,14 @@ func (m *ingestService) insertParallel(ctx context.Context, txs []*types.Transac
 		}},
 	}
 
-	// 4 upsert operations — skipped in backfill mode (balance tables represent current state)
-	if m.ingestionMode != IngestionModeBackfill {
+	// 4 upsert operations — skipped in backfill mode (balance tables represent current state).
+	// Mark skipped tables as done so allDone() only reflects actually-attempted tables.
+	if m.ingestionMode == IngestionModeBackfill {
+		result.done[copyTrustlineBalances] = true
+		result.done[copyNativeBalances] = true
+		result.done[copySACBalances] = true
+		result.done[copyContractTokens] = true
+	} else {
 		copyOps = append(copyOps,
 			copyOp{copyTrustlineBalances, func(ctx context.Context, tx pgx.Tx) error {
 				return m.tokenIngestionService.ProcessTrustlineChanges(ctx, tx, buffer.GetTrustlineChanges())
