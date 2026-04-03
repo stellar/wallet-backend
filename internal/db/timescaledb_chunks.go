@@ -27,13 +27,16 @@ var droppableIndexes = []string{
 	"state_changes_ledger_created_at_idx",
 	// transactions (2025-06-10.2-transactions.sql)
 	"idx_transactions_hash",
+	"idx_transactions_toid_time",
 	"idx_transactions_accounts_tx_to_id",
 	"idx_transactions_accounts_account_id",
 	// operations (2025-06-10.3-operations.sql)
+	"idx_operations_id_time",
 	"idx_operations_accounts_operation_id",
 	"idx_operations_accounts_account_id",
 	// state_changes (2025-06-10.4-statechanges.sql)
 	"idx_state_changes_operation_id",
+	"idx_state_changes_toid_opid_scid_time",
 	"idx_state_changes_account_category",
 }
 

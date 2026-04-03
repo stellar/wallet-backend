@@ -208,7 +208,7 @@ func runIngestionLoop(
 
 		// Write to database using shared persistence logic
 		dbStart := time.Now()
-		numTxs, numOps, err := ingestSvc.PersistLedgerData(ctx, currentLedger, buffer, loadtestLatestCursor)
+		numTxs, numOps, err := ingestSvc.PersistLedgerData(ctx, currentLedger, buffer, loadtestLatestCursor, services.NewCopyResult())
 		if err != nil {
 			return fmt.Errorf("persisting ledger %d: %w", currentLedger, err)
 		}

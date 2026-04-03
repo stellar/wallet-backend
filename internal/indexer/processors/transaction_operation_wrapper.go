@@ -34,8 +34,8 @@ type TransactionOperationWrapper struct {
 
 	// Cached operation changes — computed once on first GetChanges() call.
 	// Safe without mutex: each wrapper is processed by a single goroutine.
-	changes    []ingest.Change
-	changesErr error
+	changes     []ingest.Change
+	changesErr  error
 	changesDone bool
 }
 

@@ -186,6 +186,21 @@ func TestShouldDropIndex(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "matches transactions toid_time (PK replacement)",
+			input:    "_hyper_1_5_chunk_idx_transactions_toid_time",
+			expected: true,
+		},
+		{
+			name:     "matches operations id_time (PK replacement)",
+			input:    "_hyper_3_15_chunk_idx_operations_id_time",
+			expected: true,
+		},
+		{
+			name:     "matches state_changes toid_opid_scid_time (PK replacement)",
+			input:    "_hyper_5_20_chunk_idx_state_changes_toid_opid_scid_time",
+			expected: true,
+		},
+		{
 			name:     "empty string",
 			input:    "",
 			expected: false,

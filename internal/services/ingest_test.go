@@ -1000,7 +1000,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		mockChAccStore := &store.ChannelAccountStoreMock{}
 
-		// Mock token ingestion methods (called in parallel by insertAndUpsertParallel)
+		// Mock token ingestion methods (called in parallel by insertParallel)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mockTokenIngestionService.On("ProcessNativeBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil)

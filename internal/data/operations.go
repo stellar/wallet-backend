@@ -294,8 +294,8 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, stateChangeIDs []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
-	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_id) is the primary key of state_changes,
-	// it will be faster to search on this tuple.
+	// Build tuples for the IN clause. (to_id, operation_id, state_change_id) is indexed on state_changes,
+	// so searching on this tuple is efficient.
 	tuples := make([]string, len(stateChangeIDs))
 	for i := range stateChangeIDs {
 		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], stateChangeIDs[i])

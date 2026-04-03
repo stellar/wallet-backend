@@ -443,8 +443,12 @@ func (m *ingestService) runFlushWorkers(
 }
 
 // flushBufferWithRetry persists a buffer's data to DB via parallel COPYs
-// with exponential backoff retry.
+// with exponential backoff retry. A CopyResult tracks which tables have already
+// committed — on retry, only failed tables are re-attempted, preventing duplicates.
 func (m *ingestService) flushBufferWithRetry(ctx context.Context, buffer *indexer.IndexerBuffer) error {
+	txs := buffer.GetTransactions()
+	result := NewCopyResult()
+
 	var lastErr error
 	for attempt := range maxIngestProcessedDataRetries {
 		select {
@@ -453,14 +457,13 @@ func (m *ingestService) flushBufferWithRetry(ctx context.Context, buffer *indexe
 		default:
 		}
 
-		txs := buffer.GetTransactions()
-		if _, _, err := m.insertAndUpsertParallel(ctx, txs, buffer); err != nil {
+		if _, _, err := m.insertParallel(ctx, txs, buffer, result); err != nil {
 			lastErr = err
 			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush").Inc()
 
 			backoff := min(time.Duration(1<<attempt)*time.Second, maxIngestProcessedDataRetryBackoff)
-			log.Ctx(ctx).Warnf("Flush error (attempt %d/%d): %v, retrying in %v...",
-				attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
+			log.Ctx(ctx).Warnf("Flush error (attempt %d/%d, done=%v): %v, retrying in %v...",
+				attempt+1, maxIngestProcessedDataRetries, result.done, lastErr, backoff)
 
 			select {
 			case <-ctx.Done():
