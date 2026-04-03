@@ -42,6 +42,15 @@ const (
 // Each batch needs its own backend because LedgerBackend is not thread-safe.
 type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
 
+// BackfillFetcherRunner starts fetch workers and returns when done.
+// It must close ledgerCh before returning.
+// Returns (fetchCount, fetchTotal, channelWait).
+type BackfillFetcherRunner func(ctx context.Context, cancel context.CancelCauseFunc) (int, time.Duration, map[string]time.Duration)
+
+// BackfillFetcherFactory creates a runner for a specific gap range.
+// Each gap gets its own fetcher with fresh S3 connections.
+type BackfillFetcherFactory func(gapStart, gapEnd uint32, ledgerCh chan<- xdr.LedgerCloseMeta) BackfillFetcherRunner
+
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
 	// === Core ===
@@ -73,11 +82,13 @@ type IngestServiceConfig struct {
 	GetLedgersLimit int
 
 	// === Backfill Tuning ===
-	BackfillProcessWorkers    int // Stage 2 process workers (default: NumCPU)
-	BackfillFlushWorkers      int // Stage 3 flush workers (default: 4)
-	BackfillDBInsertBatchSize int // Ledgers per flush batch (default: 100)
-	BackfillLedgerChanSize    int // ledgerCh buffer size (default: 256)
-	BackfillFlushChanSize     int // flushCh buffer size (default: 8)
+	BackfillProcessWorkers    int                    // Stage 2 process workers (default: NumCPU)
+	BackfillFlushWorkers      int                    // Stage 3 flush workers (default: 4)
+	BackfillDBInsertBatchSize int                    // Ledgers per flush batch (default: 100)
+	BackfillLedgerChanSize    int                    // ledgerCh buffer size (default: 256)
+	BackfillFlushChanSize     int                    // flushCh buffer size (default: 8)
+	BackfillFetcherFactory    BackfillFetcherFactory // Parallel S3 fetcher for backfill gaps
+	BackfillFetchWorkers      int                    // S3 download goroutines (default: 15)
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -121,6 +132,8 @@ type ingestService struct {
 	backfillFlushBatchSize  uint32
 	backfillLedgerChanSize  int
 	backfillFlushChanSize   int
+	backfillFetcherFactory  BackfillFetcherFactory
+	backfillFetchWorkers    int
 	knownContractIDs        set.Set[string]
 }
 
@@ -172,6 +185,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillFlushBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
 		backfillLedgerChanSize:  cfg.BackfillLedgerChanSize,
 		backfillFlushChanSize:   cfg.BackfillFlushChanSize,
+		backfillFetcherFactory:  cfg.BackfillFetcherFactory,
+		backfillFetchWorkers:    cfg.BackfillFetchWorkers,
 		knownContractIDs:        set.NewSet[string](),
 	}, nil
 }

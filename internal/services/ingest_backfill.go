@@ -150,28 +150,13 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 }
 
 // processGap runs the 3-stage pipeline for a single contiguous gap:
-//  1. Dispatcher: fetches ledgers sequentially from backend → ledgerCh
+//  1. Fetcher: parallel S3 downloads → ledgerCh
 //  2. Process workers: N goroutines process ledgers into buffers → flushCh
 //  3. Flush workers: M goroutines write buffers to DB via parallel COPYs
 func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) error {
 	gapStart := time.Now()
 	gapCtx, gapCancel := context.WithCancelCause(ctx)
 	defer gapCancel(nil)
-
-	backend, err := m.ledgerBackendFactory(gapCtx)
-	if err != nil {
-		return fmt.Errorf("creating ledger backend: %w", err)
-	}
-	defer func() {
-		if closeErr := backend.Close(); closeErr != nil {
-			log.Ctx(ctx).Warnf("Error closing backend for gap [%d-%d]: %v",
-				gap.GapStart, gap.GapEnd, closeErr)
-		}
-	}()
-
-	if err := backend.PrepareRange(gapCtx, ledgerbackend.BoundedRange(gap.GapStart, gap.GapEnd)); err != nil {
-		return fmt.Errorf("preparing backend range [%d-%d]: %w", gap.GapStart, gap.GapEnd, err)
-	}
 
 	ledgerCh := make(chan xdr.LedgerCloseMeta, m.backfillLedgerChanSize)
 	flushCh := make(chan flushItem, m.backfillFlushChanSize)
@@ -233,21 +218,32 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 		m.runProcessWorkers(gapCtx, gapCancel, ledgerCh, flushCh, processStatsCh)
 	}()
 
-	// Stage 1: dispatcher (runs on this goroutine)
-	dispatcherStats := m.runDispatcher(gapCtx, gapCancel, backend, gap, ledgerCh)
+	// Stage 1: parallel S3 fetcher (replaces dispatcher + backend)
+	var fetchCount int
+	var fetchTotal time.Duration
+	var fetchChannelWait map[string]time.Duration
 
-	// Stop the channel utilization sampler. It only collects metrics and is safe
-	// to stop once the dispatcher has finished — the remaining flush draining
-	// happens quickly. Without this signal the sampler would deadlock: it waits
-	// for gapCtx.Done(), which is deferred to processGap return, which waits
-	// for pipelineWg (which includes the sampler).
+	pipelineWg.Add(1)
+	go func() {
+		defer pipelineWg.Done()
+		runner := m.backfillFetcherFactory(gap.GapStart, gap.GapEnd, ledgerCh)
+		fetchCount, fetchTotal, fetchChannelWait = runner(gapCtx, gapCancel)
+	}()
+
+	// Wait for all pipeline stages to complete.
+	// The fetcher closes ledgerCh → process workers drain and close flushCh →
+	// flush workers drain. The sampler exits via samplerDone or gapCtx.Done().
 	close(samplerDone)
 	pipelineWg.Wait()
 
 	// Aggregate gap stats from all pipeline stages
 	close(processStatsCh)
 	gapStats := newBackfillGapStats()
-	gapStats.mergeWorker(dispatcherStats)
+	gapStats.fetchCount += fetchCount
+	gapStats.fetchTotal += fetchTotal
+	for k, v := range fetchChannelWait {
+		gapStats.channelWait[k] += v
+	}
 	for ws := range processStatsCh {
 		gapStats.mergeWorker(ws)
 	}
@@ -288,47 +284,6 @@ func (m *ingestService) processGap(ctx context.Context, gap data.LedgerRange) er
 	}
 
 	return nil
-}
-
-// runDispatcher is Stage 1: fetches ledgers sequentially and sends them
-// to ledgerCh. Closes ledgerCh when done or on error.
-// Returns per-worker stats for the gap summary log.
-func (m *ingestService) runDispatcher(
-	ctx context.Context,
-	cancel context.CancelCauseFunc,
-	backend ledgerbackend.LedgerBackend,
-	gap data.LedgerRange,
-	ledgerCh chan<- xdr.LedgerCloseMeta,
-) *backfillWorkerStats {
-	defer close(ledgerCh)
-	stats := &backfillWorkerStats{}
-
-	for seq := gap.GapStart; seq <= gap.GapEnd; seq++ {
-		if ctx.Err() != nil {
-			return stats
-		}
-
-		fetchStart := time.Now()
-		lcm, err := m.getLedgerWithRetry(ctx, backend, seq)
-		fetchDur := time.Since(fetchStart)
-		if err != nil {
-			cancel(fmt.Errorf("fetching ledger %d: %w", seq, err))
-			return stats
-		}
-		stats.addFetch(fetchDur)
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("backfill_fetch").Observe(fetchDur.Seconds())
-
-		sendStart := time.Now()
-		select {
-		case ledgerCh <- lcm:
-			sendDur := time.Since(sendStart)
-			stats.addChannelWait("ledger", "send", sendDur)
-			m.appMetrics.Ingestion.BackfillChannelWait.WithLabelValues("ledger", "send").Observe(sendDur.Seconds())
-		case <-ctx.Done():
-			return stats
-		}
-	}
-	return stats
 }
 
 // runProcessWorkers is Stage 2: N workers pull from ledgerCh, process ledgers

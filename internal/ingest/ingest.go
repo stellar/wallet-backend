@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -84,6 +85,9 @@ type Configs struct {
 	// BackfillFlushChanSize is the bounded channel size between process workers and flush workers.
 	// Defaults to 8.
 	BackfillFlushChanSize int
+	// BackfillFetchWorkers is the number of parallel S3 download goroutines in the backfill fetcher.
+	// Defaults to 15.
+	BackfillFetchWorkers int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -204,6 +208,40 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}
 
+	// Create factory for the parallel backfill fetcher.
+	// Each gap gets its own fetcher with fresh S3 connections.
+	var backfillFetcherFactory services.BackfillFetcherFactory
+	if cfg.LedgerBackendType == LedgerBackendTypeDatastore {
+		fetchWorkers := cfg.BackfillFetchWorkers
+		if fetchWorkers <= 0 {
+			fetchWorkers = 15
+		}
+		backfillFetcherFactory = func(gapStart, gapEnd uint32, ledgerCh chan<- xdr.LedgerCloseMeta) services.BackfillFetcherRunner {
+			return func(ctx context.Context, cancel context.CancelCauseFunc) (int, time.Duration, map[string]time.Duration) {
+				ds, schema, _, err := newDatastoreResources(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+				if err != nil {
+					cancel(fmt.Errorf("creating datastore resources: %w", err))
+					return 0, 0, nil
+				}
+				fetcher := NewBackfillFetcher(BackfillFetcherConfig{
+					NumWorkers: uint32(fetchWorkers),
+					RetryLimit: 3,
+					RetryWait:  5 * time.Second,
+					GapStart:   gapStart,
+					GapEnd:     gapEnd,
+					OnFetchDuration: func(s float64) {
+						m.Ingestion.PhaseDuration.WithLabelValues("backfill_fetch").Observe(s)
+					},
+					OnChannelWait: func(ch, dir string, s float64) {
+						m.Ingestion.BackfillChannelWait.WithLabelValues(ch, dir).Observe(s)
+					},
+				}, ds, schema, ledgerCh)
+				stats := fetcher.Run(ctx, cancel)
+				return stats.FetchCount, stats.FetchTotal, stats.ChannelWait
+			}
+		}
+	}
+
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
 		Models:                    models,
@@ -226,6 +264,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		BackfillLedgerChanSize:    cfg.BackfillLedgerChanSize,
 		BackfillFlushChanSize:     cfg.BackfillFlushChanSize,
+		BackfillFetcherFactory:    backfillFetcherFactory,
+		BackfillFetchWorkers:      cfg.BackfillFetchWorkers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

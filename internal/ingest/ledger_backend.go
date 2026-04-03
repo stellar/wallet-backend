@@ -24,36 +24,47 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 	}
 }
 
-func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
-	storageBackendConfig, err := loadDatastoreBackendConfig(datastoreConfigPath)
+// newDatastoreResources creates the DataStore client and loads the schema
+// from the S3 manifest. Shared by both optimizedStorageBackend (live) and
+// backfillFetcher (backfill).
+func newDatastoreResources(ctx context.Context, configPath string, networkPassphrase string) (
+	datastore.DataStore, datastore.DataStoreSchema, ledgerbackend.BufferedStorageBackendConfig, error,
+) {
+	storageBackendConfig, err := loadDatastoreBackendConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("loading datastore config: %w", err)
+		return nil, datastore.DataStoreSchema{}, ledgerbackend.BufferedStorageBackendConfig{},
+			fmt.Errorf("loading datastore config: %w", err)
 	}
-
 	storageBackendConfig.DataStoreConfig.NetworkPassphrase = networkPassphrase
 
-	dataStore, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
+	ds, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
 	if err != nil {
-		return nil, fmt.Errorf("creating datastore: %w", err)
+		return nil, datastore.DataStoreSchema{}, ledgerbackend.BufferedStorageBackendConfig{},
+			fmt.Errorf("creating datastore: %w", err)
 	}
 
-	schema, err := datastore.LoadSchema(ctx, dataStore, storageBackendConfig.DataStoreConfig)
+	schema, err := datastore.LoadSchema(ctx, ds, storageBackendConfig.DataStoreConfig)
 	if err != nil {
-		return nil, fmt.Errorf("loading datastore schema: %w", err)
+		return nil, datastore.DataStoreSchema{}, ledgerbackend.BufferedStorageBackendConfig{},
+			fmt.Errorf("loading datastore schema: %w", err)
 	}
 
-	ledgerBackend, err := newOptimizedStorageBackend(
-		storageBackendConfig.BufferedStorageBackendConfig,
-		dataStore,
-		schema,
-	)
+	return ds, schema, storageBackendConfig.BufferedStorageBackendConfig, nil
+}
+
+func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
+	ds, schema, bufConfig, err := newDatastoreResources(ctx, datastoreConfigPath, networkPassphrase)
+	if err != nil {
+		return nil, err
+	}
+
+	ledgerBackend, err := newOptimizedStorageBackend(bufConfig, ds, schema)
 	if err != nil {
 		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
 	}
 
 	log.Infof("Using optimized storage backend with buffer size %d, %d workers",
-		storageBackendConfig.BufferedStorageBackendConfig.BufferSize,
-		storageBackendConfig.BufferedStorageBackendConfig.NumWorkers)
+		bufConfig.BufferSize, bufConfig.NumWorkers)
 	return ledgerBackend, nil
 }
 
