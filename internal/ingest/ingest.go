@@ -212,19 +212,22 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	// Each gap gets its own fetcher with fresh S3 connections.
 	var backfillFetcherFactory services.BackfillFetcherFactory
 	if cfg.LedgerBackendType == LedgerBackendTypeDatastore {
-		fetchWorkers := cfg.BackfillFetchWorkers
-		if fetchWorkers <= 0 {
-			fetchWorkers = 15
-		}
 		backfillFetcherFactory = func(gapStart, gapEnd uint32, ledgerCh chan<- xdr.LedgerCloseMeta) services.BackfillFetcherRunner {
 			return func(ctx context.Context, cancel context.CancelCauseFunc) (int, time.Duration, map[string]time.Duration) {
-				ds, schema, _, err := newDatastoreResources(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+				storageConfig, err := loadDatastoreBackendConfig(cfg.DatastoreConfigPath)
 				if err != nil {
-					cancel(fmt.Errorf("creating datastore resources: %w", err))
+					cancel(fmt.Errorf("loading datastore config: %w", err))
+					return 0, 0, nil
+				}
+				storageConfig.DataStoreConfig.NetworkPassphrase = cfg.NetworkPassphrase
+
+				ds, schema, err := newBackfillDataStore(ctx, storageConfig, cfg.BackfillFetchWorkers)
+				if err != nil {
+					cancel(fmt.Errorf("creating backfill datastore: %w", err))
 					return 0, 0, nil
 				}
 				fetcher := NewBackfillFetcher(BackfillFetcherConfig{
-					NumWorkers: uint32(fetchWorkers),
+					NumWorkers: uint32(cfg.BackfillFetchWorkers),
 					RetryLimit: 3,
 					RetryWait:  5 * time.Second,
 					GapStart:   gapStart,

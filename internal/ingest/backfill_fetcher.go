@@ -6,6 +6,7 @@
 package ingest
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -88,7 +89,7 @@ func (f *backfillFetcher) Run(ctx context.Context, cancel context.CancelCauseFun
 	startBoundary := f.schema.GetSequenceNumberStartBoundary(f.config.GapStart)
 	endBoundary := f.schema.GetSequenceNumberStartBoundary(f.config.GapEnd)
 
-	taskCh := make(chan uint32, f.config.NumWorkers)
+	taskCh := make(chan uint32, f.config.NumWorkers*4)
 
 	// Seed tasks in a goroutine to avoid blocking if taskCh fills.
 	go func() {
@@ -218,9 +219,11 @@ func (f *backfillFetcher) downloadAndDecode(ctx context.Context, sequence uint32
 	}
 	defer reader.Close() //nolint:errcheck
 
+	buffered := bufio.NewReaderSize(reader, 256*1024)
+
 	dec := zstdDecoderPool.Get().(*zstd.Decoder)
 	defer zstdDecoderPool.Put(dec)
-	if err := dec.Reset(reader); err != nil {
+	if err := dec.Reset(buffered); err != nil {
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("resetting zstd decoder for %s: %w", objectKey, err)
 	}
 

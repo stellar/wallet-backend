@@ -103,7 +103,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Number of parallel S3 download workers in the backfill fetcher. Each worker downloads and decodes one file at a time.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillFetchWorkers,
-			FlagDefault: 15,
+			FlagDefault: 40,
 			Required:    false,
 		},
 		{

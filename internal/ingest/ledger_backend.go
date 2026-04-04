@@ -3,8 +3,13 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/pelletier/go-toml"
 	rpc "github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -73,6 +78,69 @@ func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	backend := newOptimizedRPCBackend(client, uint32(cfg.GetLedgersLimit))
 	log.Infof("Using optimized RPC ledger backend with buffer size %d", cfg.GetLedgersLimit)
 	return backend, nil
+}
+
+// newBackfillDataStore creates a DataStore with an HTTP transport tuned for
+// high-concurrency S3 downloads. The default AWS SDK transport sets
+// MaxIdleConnsPerHost=10, which forces workers beyond that count to tear down
+// and re-establish TLS connections on every request. This function raises the
+// pool limits to match the worker count, eliminating connection churn.
+func newBackfillDataStore(ctx context.Context, cfg StorageBackendConfig, numWorkers int) (datastore.DataStore, datastore.DataStoreSchema, error) {
+	dsCfg := cfg.DataStoreConfig
+
+	destinationBucketPath, ok := dsCfg.Params["destination_bucket_path"]
+	if !ok {
+		return nil, datastore.DataStoreSchema{}, fmt.Errorf("invalid S3 config, no destination_bucket_path")
+	}
+	region, ok := dsCfg.Params["region"]
+	if !ok {
+		return nil, datastore.DataStoreSchema{}, fmt.Errorf("invalid S3 config, no region")
+	}
+	endpointURL := dsCfg.Params["endpoint_url"]
+
+	poolSize := numWorkers + 20
+	transport := &http.Transport{
+		MaxIdleConns:        poolSize,
+		MaxIdleConnsPerHost: poolSize,
+		IdleConnTimeout:     90 * time.Second,
+		ForceAttemptHTTP2:   true,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	if err != nil {
+		return nil, datastore.DataStoreSchema{}, fmt.Errorf("loading AWS config: %w", err)
+	}
+
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if endpointURL != "" {
+			o.BaseEndpoint = aws.String(endpointURL)
+		}
+		_, credErr := awsCfg.Credentials.Retrieve(ctx)
+		if credErr != nil {
+			o.Credentials = aws.AnonymousCredentials{}
+		}
+		o.Region = region
+		o.UsePathStyle = true
+	})
+
+	ds, err := datastore.FromS3Client(ctx, client, destinationBucketPath)
+	if err != nil {
+		return nil, datastore.DataStoreSchema{}, fmt.Errorf("creating S3 datastore: %w", err)
+	}
+
+	schema, err := datastore.LoadSchema(ctx, ds, dsCfg)
+	if err != nil {
+		return nil, datastore.DataStoreSchema{}, fmt.Errorf("loading datastore schema: %w", err)
+	}
+
+	log.Infof("Backfill S3 client: MaxIdleConnsPerHost=%d for %d workers", poolSize, numWorkers)
+	return ds, schema, nil
 }
 
 func loadDatastoreBackendConfig(configPath string) (StorageBackendConfig, error) {
