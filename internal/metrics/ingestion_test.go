@@ -183,6 +183,63 @@ func TestIngestionMetrics_ErrorsTotal(t *testing.T) {
 	assert.Equal(t, 2.0, testutil.ToFloat64(m.ErrorsTotal.WithLabelValues("ingest_live")))
 }
 
+func TestIngestionMetrics_BackfillRegistration(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	require.NotNil(t, m.BackfillChannelWait)
+	require.NotNil(t, m.BackfillChannelUtilization)
+	require.NotNil(t, m.BackfillLedgersFlushed)
+	require.NotNil(t, m.BackfillBatchSize)
+	require.NotNil(t, m.BackfillGapProgress)
+	require.NotNil(t, m.BackfillGapStartLedger)
+	require.NotNil(t, m.BackfillGapEndLedger)
+}
+
+func TestIngestionMetrics_BackfillChannelWait_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.BackfillChannelWait.WithLabelValues("ledger", "send").Observe(0.1)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_backfill_channel_wait_seconds" {
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 10)
+		}
+	}
+}
+
+func TestIngestionMetrics_BackfillBatchSize_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.BackfillBatchSize.Observe(50)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_backfill_batch_size" {
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 10) // LinearBuckets(10, 10, 10)
+		}
+	}
+}
+
+func TestIngestionMetrics_BackfillChannelWait_Labels(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	assert.NotPanics(t, func() {
+		m.BackfillChannelWait.WithLabelValues("ledger", "send").Observe(0.1)
+		m.BackfillChannelWait.WithLabelValues("ledger", "receive").Observe(0.1)
+		m.BackfillChannelWait.WithLabelValues("flush", "send").Observe(0.1)
+		m.BackfillChannelWait.WithLabelValues("flush", "receive").Observe(0.1)
+	})
+}
+
 func TestIngestionMetrics_Lint(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newIngestionMetrics(reg)
@@ -194,6 +251,9 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 		m.LagLedgers, m.LedgerFetchDuration,
 		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
+		m.BackfillChannelWait, m.BackfillChannelUtilization,
+		m.BackfillLedgersFlushed, m.BackfillBatchSize,
+		m.BackfillGapProgress, m.BackfillGapStartLedger, m.BackfillGapEndLedger,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)

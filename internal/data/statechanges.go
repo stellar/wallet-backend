@@ -209,82 +209,88 @@ func (m *StateChangeModel) BatchCopy(
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
 		},
-		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
-			sc := stateChanges[i]
+		// Use CopyFromFunc with a reusable row buffer to avoid allocating
+		// a fresh []any (27 elements) per row — eliminates ~61M allocations per gap.
+		// Safe because pgx encodes each row immediately and never retains the slice.
+		func() pgx.CopyFromSource {
+			idx := 0
+			row := make([]any, 27)
+			return pgx.CopyFromFunc(func() ([]any, error) {
+				if idx >= len(stateChanges) {
+					return nil, nil
+				}
+				sc := stateChanges[idx]
+				idx++
 
-			// Generate a fresh random ID at insertion time so retries on PK collision
-			// produce new IDs automatically.
-			stateChangeID, err := generateStateChangeID()
-			if err != nil {
-				return nil, err
-			}
+				stateChangeID, err := generateStateChangeID()
+				if err != nil {
+					return nil, err
+				}
 
-			// Convert account_id to BYTEA (required field)
-			accountVal, err := sc.AccountID.Value()
-			if err != nil {
-				return nil, fmt.Errorf("converting account_id: %w", err)
-			}
+				accountVal, err := sc.AccountID.Value()
+				if err != nil {
+					return nil, fmt.Errorf("converting account_id: %w", err)
+				}
 
-			// Convert nullable account_id fields to BYTEA
-			signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting signer_account_id: %w", err)
-			}
-			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting spender_account_id: %w", err)
-			}
-			sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
-			}
-			sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
-			}
-			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
-			}
-			funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting funder_account_id: %w", err)
-			}
-			tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
-			if err != nil {
-				return nil, fmt.Errorf("converting token_id: %w", err)
-			}
+				signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting signer_account_id: %w", err)
+				}
+				spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting spender_account_id: %w", err)
+				}
+				sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
+				}
+				sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
+				}
+				deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting deployer_account_id: %w", err)
+				}
+				funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
+				if err != nil {
+					return nil, fmt.Errorf("converting funder_account_id: %w", err)
+				}
+				tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+				if err != nil {
+					return nil, fmt.Errorf("converting token_id: %w", err)
+				}
 
-			return []any{
-				pgtype.Int8{Int64: sc.ToID, Valid: true},
-				pgtype.Int8{Int64: stateChangeID, Valid: true},
-				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReason(sc.StateChangeReason),
-				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				accountVal.([]byte),
-				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				tokenBytes,
-				pgtypeTextFromNullString(sc.Amount),
-				signerBytes,
-				spenderBytes,
-				sponsoredBytes,
-				sponsorBytes,
-				deployerBytes,
-				funderBytes,
-				pgtypeTextFromNullString(sc.ClaimableBalanceID),
-				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeTextFromNullString(sc.SponsoredData),
-				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
-				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
-				pgtypeInt2FromNullInt16(sc.ThresholdOld),
-				pgtypeInt2FromNullInt16(sc.ThresholdNew),
-				pgtypeTextFromNullString(sc.TrustlineLimitOld),
-				pgtypeTextFromNullString(sc.TrustlineLimitNew),
-				pgtypeInt2FromNullInt16(sc.Flags),
-				jsonbFromMap(sc.KeyValue),
-			}, nil
-		}),
+				row[0] = pgtype.Int8{Int64: sc.ToID, Valid: true}
+				row[1] = pgtype.Int8{Int64: stateChangeID, Valid: true}
+				row[2] = pgtype.Text{String: string(sc.StateChangeCategory), Valid: true}
+				row[3] = pgtypeTextFromReason(sc.StateChangeReason)
+				row[4] = pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true}
+				row[5] = pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true}
+				row[6] = accountVal.([]byte)
+				row[7] = pgtype.Int8{Int64: sc.OperationID, Valid: true}
+				row[8] = tokenBytes
+				row[9] = pgtypeTextFromNullString(sc.Amount)
+				row[10] = signerBytes
+				row[11] = spenderBytes
+				row[12] = sponsoredBytes
+				row[13] = sponsorBytes
+				row[14] = deployerBytes
+				row[15] = funderBytes
+				row[16] = pgtypeTextFromNullString(sc.ClaimableBalanceID)
+				row[17] = pgtypeTextFromNullString(sc.LiquidityPoolID)
+				row[18] = pgtypeTextFromNullString(sc.SponsoredData)
+				row[19] = pgtypeInt2FromNullInt16(sc.SignerWeightOld)
+				row[20] = pgtypeInt2FromNullInt16(sc.SignerWeightNew)
+				row[21] = pgtypeInt2FromNullInt16(sc.ThresholdOld)
+				row[22] = pgtypeInt2FromNullInt16(sc.ThresholdNew)
+				row[23] = pgtypeTextFromNullString(sc.TrustlineLimitOld)
+				row[24] = pgtypeTextFromNullString(sc.TrustlineLimitNew)
+				row[25] = pgtypeInt2FromNullInt16(sc.Flags)
+				row[26] = jsonbFromMap(sc.KeyValue)
+				return row, nil
+			})
+		}(),
 	)
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", utils.GetDBErrorType(err)).Inc()

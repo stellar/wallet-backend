@@ -106,7 +106,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	}
 
 	// Get operation changes to access old values when needed
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.GetChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}

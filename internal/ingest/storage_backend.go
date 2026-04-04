@@ -168,6 +168,12 @@ func (b *optimizedStorageBackend) newStorageBuffer(ledgerRange ledgerbackend.Ran
 		ledgerRange:    ledgerRange,
 	}
 
+	// Start workers first so they can consume from taskQueue during seeding.
+	for i := uint32(0); i < b.config.NumWorkers; i++ {
+		buf.wg.Add(1)
+		go buf.worker()
+	}
+
 	// Seed task queue with initial tasks. The +1 matches the SDK's buffer invariant:
 	// len(taskQueue) + len(batchQueue) + priorityQueue.Len() <= bufferSize,
 	// and the extra task accounts for the one being actively processed by a worker.
@@ -175,12 +181,6 @@ func (b *optimizedStorageBackend) newStorageBuffer(ledgerRange ledgerbackend.Ran
 		if !buf.pushTaskQueue() {
 			break
 		}
-	}
-
-	// Start workers.
-	for i := uint32(0); i < b.config.NumWorkers; i++ {
-		buf.wg.Add(1)
-		go buf.worker()
 	}
 
 	return buf

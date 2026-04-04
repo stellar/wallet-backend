@@ -2,22 +2,20 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -41,6 +39,15 @@ const (
 // LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
 // Each batch needs its own backend because LedgerBackend is not thread-safe.
 type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
+
+// BackfillFetcherRunner starts fetch workers and returns when done.
+// It must close ledgerCh before returning.
+// Returns (fetchCount, fetchTotal, channelWait).
+type BackfillFetcherRunner func(ctx context.Context, cancel context.CancelCauseFunc) (int, time.Duration, map[string]time.Duration)
+
+// BackfillFetcherFactory creates a runner for a specific gap range.
+// Each gap gets its own fetcher with fresh S3 connections.
+type BackfillFetcherFactory func(gapStart, gapEnd uint32, ledgerCh chan<- xdr.LedgerCloseMeta) BackfillFetcherRunner
 
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
@@ -73,9 +80,13 @@ type IngestServiceConfig struct {
 	GetLedgersLimit int
 
 	// === Backfill Tuning ===
-	BackfillWorkers           int
-	BackfillBatchSize         int
-	BackfillDBInsertBatchSize int
+	BackfillProcessWorkers    int                    // Stage 2 process workers (default: NumCPU)
+	BackfillFlushWorkers      int                    // Stage 3 flush workers (default: 4)
+	BackfillDBInsertBatchSize int                    // Ledgers per flush batch (default: 100)
+	BackfillLedgerChanSize    int                    // ledgerCh buffer size (default: 256)
+	BackfillFlushChanSize     int                    // flushCh buffer size (default: 8)
+	BackfillFetcherFactory    BackfillFetcherFactory // Parallel S3 fetcher for backfill gaps
+	BackfillFetchWorkers      int                    // S3 download goroutines (default: 15)
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -88,36 +99,41 @@ func generateAdvisoryLockID(network string) int {
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
-	// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
+	// PersistLedgerData persists processed ledger data to the database.
 	// This is the shared core used by both live ingestion and loadtest.
+	// The CopyResult tracks per-table success across retries to prevent duplicates.
 	// Returns the number of transactions and operations persisted.
-	PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error)
+	PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string, result *CopyResult) (int, int, error)
 }
 
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode             string
-	models                    *data.Models
-	latestLedgerCursorName    string
-	oldestLedgerCursorName    string
-	advisoryLockID            int
-	appTracker                apptracker.AppTracker
-	rpcService                RPCService
-	ledgerBackend             ledgerbackend.LedgerBackend
-	ledgerBackendFactory      LedgerBackendFactory
-	chAccStore                store.ChannelAccountStore
-	tokenIngestionService     TokenIngestionService
-	contractMetadataService   ContractMetadataService
-	appMetrics                *metrics.Metrics
-	networkPassphrase         string
-	getLedgersLimit           int
-	ledgerIndexer             *indexer.Indexer
-	archive                   historyarchive.ArchiveInterface
-	backfillPool              pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
-	knownContractIDs          set.Set[string]
+	ingestionMode           string
+	models                  *data.Models
+	latestLedgerCursorName  string
+	oldestLedgerCursorName  string
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	ledgerBackend           ledgerbackend.LedgerBackend
+	ledgerBackendFactory    LedgerBackendFactory
+	chAccStore              store.ChannelAccountStore
+	tokenIngestionService   TokenIngestionService
+	contractMetadataService ContractMetadataService
+	appMetrics              *metrics.Metrics
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	archive                 historyarchive.ArchiveInterface
+	backfillProcessWorkers  int
+	backfillFlushWorkers    int
+	backfillFlushBatchSize  uint32
+	backfillLedgerChanSize  int
+	backfillFlushChanSize   int
+	backfillFetcherFactory  BackfillFetcherFactory
+	backfillFetchWorkers    int
+	knownContractIDs        set.Set[string]
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -126,37 +142,51 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Create backfill pool with bounded size to control memory usage.
-	// Default to NumCPU if not specified.
-	backfillWorkers := cfg.BackfillWorkers
-	if backfillWorkers <= 0 {
-		backfillWorkers = runtime.NumCPU()
+	// Backfill pipeline defaults — only process workers needs a runtime default (NumCPU).
+	// All other defaults are set via CLI flag defaults in cmd/ingest.go.
+	processWorkers := cfg.BackfillProcessWorkers
+	if processWorkers <= 0 {
+		processWorkers = runtime.NumCPU()
 	}
-	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
+
+	// Validate connection pool can handle flush worker concurrency.
+	// Each flush worker runs 5 parallel COPYs, each needing its own connection.
+	if cfg.IngestionMode == IngestionModeBackfill && cfg.BackfillFlushWorkers > 0 {
+		requiredConns := int32(cfg.BackfillFlushWorkers*5 + 5) // +5 headroom for cursor updates
+		maxConns := cfg.Models.DB.Config().MaxConns
+		if maxConns > 0 && maxConns < requiredConns {
+			return nil, fmt.Errorf(
+				"pgxpool max connections (%d) too low for %d flush workers (need at least %d: %d workers × 5 COPYs + 5 headroom)",
+				maxConns, cfg.BackfillFlushWorkers, requiredConns, cfg.BackfillFlushWorkers)
+		}
+	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		chAccStore:                cfg.ChannelAccountStore,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		contractMetadataService:   cfg.ContractMetadataService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		knownContractIDs:          set.NewSet[string](),
+		ingestionMode:           cfg.IngestionMode,
+		models:                  cfg.Models,
+		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
+		appTracker:              cfg.AppTracker,
+		rpcService:              cfg.RPCService,
+		ledgerBackend:           cfg.LedgerBackend,
+		ledgerBackendFactory:    cfg.LedgerBackendFactory,
+		chAccStore:              cfg.ChannelAccountStore,
+		tokenIngestionService:   cfg.TokenIngestionService,
+		contractMetadataService: cfg.ContractMetadataService,
+		appMetrics:              cfg.Metrics,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		getLedgersLimit:         cfg.GetLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		archive:                 cfg.Archive,
+		backfillProcessWorkers:  processWorkers,
+		backfillFlushWorkers:    cfg.BackfillFlushWorkers,
+		backfillFlushBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		backfillLedgerChanSize:  cfg.BackfillLedgerChanSize,
+		backfillFlushChanSize:   cfg.BackfillFlushChanSize,
+		backfillFetcherFactory:  cfg.BackfillFetcherFactory,
+		backfillFetchWorkers:    cfg.BackfillFetchWorkers,
+		knownContractIDs:        set.NewSet[string](),
 	}, nil
 }
 
@@ -227,82 +257,153 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	return nil
 }
 
-// insertAndUpsertParallel runs parallel goroutines via errgroup: 5 COPY operations (transactions,
+// processLedgerSequential processes a single ledger without the pond pool.
+// Used by backfill where multiple process workers already provide parallelism.
+func (m *ingestService) processLedgerSequential(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	participantCount, err := indexer.ProcessLedgerSequential(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+	if err != nil {
+		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	m.appMetrics.Ingestion.ParticipantsCount.Observe(float64(participantCount))
+	return nil
+}
+
+// copyTable identifies one of the parallel insert/upsert targets.
+type copyTable int
+
+const (
+	copyTransactions copyTable = iota
+	copyTransactionsAccounts
+	copyOperations
+	copyOperationsAccounts
+	copyStateChanges
+	// Live-only balance upserts (skipped in backfill mode)
+	copyTrustlineBalances
+	copyNativeBalances
+	copySACBalances
+	copyContractTokens
+	numCopyTables // = 9
+)
+
+// CopyResult tracks per-table COPY outcomes across retry attempts.
+// On retry, tables where done[i] is true are skipped — preventing duplicates
+// without requiring uniqueness constraints.
+type CopyResult struct {
+	done [numCopyTables]bool
+	errs [numCopyTables]error
+}
+
+// NewCopyResult creates a fresh CopyResult for tracking parallel insert outcomes.
+func NewCopyResult() *CopyResult { return &CopyResult{} }
+
+func (cr *CopyResult) allDone() bool {
+	for _, d := range cr.done {
+		if !d {
+			return false
+		}
+	}
+	return true
+}
+
+func (cr *CopyResult) firstError() error {
+	for i, d := range cr.done {
+		if !d && cr.errs[i] != nil {
+			return cr.errs[i]
+		}
+	}
+	return nil
+}
+
+// insertParallel runs parallel goroutines via sync.WaitGroup: 5 COPY operations (transactions,
 // transactions_accounts, operations, operations_accounts, state_changes) plus, in live mode only,
 // 4 balance upserts (trustline, native, SAC, account-contract tokens). Balance upserts are
 // skipped in backfill mode since they represent current state, not historical data.
-// Each goroutine acquires its own pool connection. UniqueViolation errors are treated as
-// success for idempotent retry.
-func (m *ingestService) insertAndUpsertParallel(ctx context.Context, txs []*types.Transaction, buffer indexer.IndexerBufferInterface) (int, int, error) {
+//
+// Unlike errgroup, sync.WaitGroup does not cancel sibling goroutines on failure. Each COPY
+// runs fully to completion, and result.done[i] is set only after a confirmed commit. On retry,
+// already-committed tables are skipped — guaranteeing zero duplicates without uniqueness constraints.
+func (m *ingestService) insertParallel(ctx context.Context, txs []*types.Transaction, buffer indexer.IndexerBufferInterface, result *CopyResult) (int, int, error) {
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
 	stateChanges := buffer.GetStateChanges()
 
-	g, gCtx := errgroup.WithContext(ctx)
+	// Define all table operations indexed by copyTable.
+	type copyOp struct {
+		table copyTable
+		fn    func(context.Context, pgx.Tx) error
+	}
 
-	// 5 COPY goroutines
-	g.Go(func() error {
-		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+	copyOps := []copyOp{
+		{copyTransactions, func(ctx context.Context, tx pgx.Tx) error {
 			if _, err := m.models.Transactions.BatchCopy(ctx, tx, txs); err != nil {
 				return fmt.Errorf("copying transactions: %w", err)
 			}
 			return nil
-		})
-	})
-	g.Go(func() error {
-		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+		}},
+		{copyTransactionsAccounts, func(ctx context.Context, tx pgx.Tx) error {
 			return m.models.Transactions.BatchCopyAccounts(ctx, tx, txs, txParticipants)
-		})
-	})
-	g.Go(func() error {
-		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+		}},
+		{copyOperations, func(ctx context.Context, tx pgx.Tx) error {
 			if _, err := m.models.Operations.BatchCopy(ctx, tx, ops); err != nil {
 				return fmt.Errorf("copying operations: %w", err)
 			}
 			return nil
-		})
-	})
-	g.Go(func() error {
-		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+		}},
+		{copyOperationsAccounts, func(ctx context.Context, tx pgx.Tx) error {
 			return m.models.Operations.BatchCopyAccounts(ctx, tx, ops, opParticipants)
-		})
-	})
-	g.Go(func() error {
-		return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
+		}},
+		{copyStateChanges, func(ctx context.Context, tx pgx.Tx) error {
 			if _, err := m.models.StateChanges.BatchCopy(ctx, tx, stateChanges); err != nil {
 				return fmt.Errorf("copying state changes: %w", err)
 			}
 			return nil
-		})
-	})
-
-	// 4 upsert goroutines — skipped in backfill mode (balance tables represent current state)
-	if m.ingestionMode != IngestionModeBackfill {
-		g.Go(func() error {
-			return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
-				return m.tokenIngestionService.ProcessTrustlineChanges(ctx, tx, buffer.GetTrustlineChanges())
-			})
-		})
-		g.Go(func() error {
-			return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
-				return m.tokenIngestionService.ProcessNativeBalanceChanges(ctx, tx, buffer.GetAccountChanges())
-			})
-		})
-		g.Go(func() error {
-			return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
-				return m.tokenIngestionService.ProcessSACBalanceChanges(ctx, tx, buffer.GetSACBalanceChanges())
-			})
-		})
-		g.Go(func() error {
-			return m.copyWithPoolConn(gCtx, func(ctx context.Context, tx pgx.Tx) error {
-				return m.tokenIngestionService.ProcessContractTokenChanges(ctx, tx, buffer.GetContractChanges())
-			})
-		})
+		}},
 	}
 
-	if err := g.Wait(); err != nil {
-		return 0, 0, fmt.Errorf("parallel insert/upsert: %w", err)
+	// 4 upsert operations — skipped in backfill mode (balance tables represent current state).
+	// Mark skipped tables as done so allDone() only reflects actually-attempted tables.
+	if m.ingestionMode == IngestionModeBackfill {
+		result.done[copyTrustlineBalances] = true
+		result.done[copyNativeBalances] = true
+		result.done[copySACBalances] = true
+		result.done[copyContractTokens] = true
+	} else {
+		copyOps = append(copyOps,
+			copyOp{copyTrustlineBalances, func(ctx context.Context, tx pgx.Tx) error {
+				return m.tokenIngestionService.ProcessTrustlineChanges(ctx, tx, buffer.GetTrustlineChanges())
+			}},
+			copyOp{copyNativeBalances, func(ctx context.Context, tx pgx.Tx) error {
+				return m.tokenIngestionService.ProcessNativeBalanceChanges(ctx, tx, buffer.GetAccountChanges())
+			}},
+			copyOp{copySACBalances, func(ctx context.Context, tx pgx.Tx) error {
+				return m.tokenIngestionService.ProcessSACBalanceChanges(ctx, tx, buffer.GetSACBalanceChanges())
+			}},
+			copyOp{copyContractTokens, func(ctx context.Context, tx pgx.Tx) error {
+				return m.tokenIngestionService.ProcessContractTokenChanges(ctx, tx, buffer.GetContractChanges())
+			}},
+		)
+	}
+
+	var wg sync.WaitGroup
+	for _, op := range copyOps {
+		if result.done[op.table] {
+			continue // Already committed on a previous attempt
+		}
+		wg.Add(1)
+		go func(idx copyTable, fn func(context.Context, pgx.Tx) error) {
+			defer wg.Done()
+			if err := m.copyWithPoolConn(ctx, fn); err != nil {
+				result.errs[idx] = err
+				return
+			}
+			result.done[idx] = true
+		}(op.table, op.fn)
+	}
+	wg.Wait()
+
+	if !result.allDone() {
+		return 0, 0, fmt.Errorf("parallel insert: %w", result.firstError())
 	}
 
 	m.recordStateChangeMetrics(stateChanges)
@@ -311,8 +412,7 @@ func (m *ingestService) insertAndUpsertParallel(ctx context.Context, txs []*type
 }
 
 // copyWithPoolConn acquires a connection from the pool, begins a transaction, runs fn,
-// and commits. On UniqueViolation the insert is idempotent (prior partial insert) so we
-// return nil.
+// and commits.
 func (m *ingestService) copyWithPoolConn(ctx context.Context, fn func(context.Context, pgx.Tx) error) error {
 	conn, err := m.models.DB.Acquire(ctx)
 	if err != nil {
@@ -327,15 +427,12 @@ func (m *ingestService) copyWithPoolConn(ctx context.Context, fn func(context.Co
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Ingestion is idempotent (replayed from cursor on crash), so WAL fsync durability
-	// is unnecessary. This eliminates fsync latency from each of the 9 parallel commits.
+	// is unnecessary. This eliminates fsync latency from each of the parallel commits.
 	if _, err := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
 		return fmt.Errorf("setting synchronous_commit=off: %w", err)
 	}
 
 	if err := fn(ctx, tx); err != nil {
-		if isUniqueViolation(err) {
-			return nil
-		}
 		return err
 	}
 
@@ -343,12 +440,6 @@ func (m *ingestService) copyWithPoolConn(ctx context.Context, fn func(context.Co
 		return fmt.Errorf("committing copy transaction: %w", err)
 	}
 	return nil
-}
-
-// isUniqueViolation checks if an error is a PostgreSQL unique_violation (23505).
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // recordStateChangeMetrics aggregates state changes by reason and category, then records metrics.

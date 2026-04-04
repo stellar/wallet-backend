@@ -28,13 +28,13 @@ const (
 // Phase 1: Insert FK prerequisites (trustline assets, contract tokens) and commit,
 // making parent rows visible for phase 2's balance upserts.
 //
-// Phase 2: Parallel COPYs (5 tables) + parallel upserts (4 balance tables) via errgroup,
-// each on its own pool connection. UniqueViolation errors are treated as success for
-// idempotent crash recovery.
+// Phase 2: Parallel COPYs (5 tables) + parallel upserts (4 balance tables),
+// each on its own pool connection. Per-table success is tracked in result so
+// retries skip already-committed tables (zero duplicates without PK constraints).
 //
 // Phase 3: Finalize — unlock channel accounts + advance cursor. The cursor update is the
 // idempotency marker; if we crash before it, everything replays safely.
-func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
+func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string, result *CopyResult) (int, int, error) {
 	// Phase 1: FK prerequisites — commit so parent rows are visible to phase 2.
 	if err := m.persistFKPrerequisites(ctx, ledgerSeq, buffer); err != nil {
 		return 0, 0, fmt.Errorf("persisting FK prerequisites for ledger %d: %w", ledgerSeq, err)
@@ -42,7 +42,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 
 	// Phase 2: Parallel COPYs + upserts on separate pool connections.
 	txs := buffer.GetTransactions()
-	numTxs, numOps, err := m.insertAndUpsertParallel(ctx, txs, buffer)
+	numTxs, numOps, err := m.insertParallel(ctx, txs, buffer, result)
 	if err != nil {
 		return 0, 0, fmt.Errorf("parallel insert/upsert for ledger %d: %w", ledgerSeq, err)
 	}
@@ -234,7 +234,11 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 }
 
 // ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
+// A CopyResult is created once and passed across retries so that already-committed
+// tables are skipped on subsequent attempts — preventing duplicates.
 func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
+	result := NewCopyResult()
+
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -243,7 +247,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		default:
 		}
 
-		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, m.latestLedgerCursorName)
+		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, m.latestLedgerCursorName, result)
 		if err == nil {
 			return numTxs, numOps, nil
 		}

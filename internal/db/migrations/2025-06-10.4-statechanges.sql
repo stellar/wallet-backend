@@ -42,8 +42,7 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
-    ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (to_id, operation_id, state_change_id, ledger_created_at)
+    ledger_created_at TIMESTAMPTZ NOT NULL
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -57,6 +56,7 @@ SELECT enable_chunk_skipping('state_changes', 'to_id');
 SELECT enable_chunk_skipping('state_changes', 'operation_id');
 
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
+CREATE INDEX idx_state_changes_toid_opid_scid_time ON state_changes(to_id, operation_id, state_change_id, ledger_created_at);
 CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC);
 
 -- +migrate Down

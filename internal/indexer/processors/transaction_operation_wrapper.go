@@ -31,6 +31,22 @@ type TransactionOperationWrapper struct {
 	LedgerSequence uint32
 	Network        string
 	LedgerClosed   time.Time
+
+	// Cached operation changes — computed once on first GetChanges() call.
+	// Safe without mutex: each wrapper is processed by a single goroutine.
+	changes     []ingest.Change
+	changesErr  error
+	changesDone bool
+}
+
+// GetChanges returns the operation's ledger entry changes, caching the result
+// so multiple processors can read them without redundant SDK allocations.
+func (operation *TransactionOperationWrapper) GetChanges() ([]ingest.Change, error) {
+	if !operation.changesDone {
+		operation.changes, operation.changesErr = operation.Transaction.GetOperationChanges(operation.Index)
+		operation.changesDone = true
+	}
+	return operation.changes, operation.changesErr
 }
 
 // ID returns the ID for the operation.
@@ -101,7 +117,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 }
 
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.GetChanges()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
