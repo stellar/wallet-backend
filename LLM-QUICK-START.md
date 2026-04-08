@@ -111,7 +111,7 @@ Ask the user which setup path they prefer:
 ### Option A: Full Docker Compose (simplest)
 
 ```bash
-docker compose up
+NETWORK=testnet docker compose up
 ```
 
 This starts everything: Postgres, Stellar RPC, API server, and ingestion.
@@ -120,7 +120,7 @@ This starts everything: Postgres, Stellar RPC, API server, and ingestion.
 
 ```bash
 # Start dependencies
-docker compose up -d db stellar-rpc
+NETWORK=testnet docker compose up -d db stellar-rpc
 
 # Wait for DB to be ready, then run migrations
 go run main.go migrate up
@@ -154,9 +154,9 @@ Setup Complete
   Configured: .env with required variables
 
   Next steps:
-  1. docker compose up          (full setup)
+  1. NETWORK=testnet docker compose up          (full setup)
      OR
-  1. docker compose up -d db stellar-rpc
+  1. NETWORK=testnet docker compose up -d db stellar-rpc
   2. go run main.go migrate up
   3. go run main.go serve       (terminal 1)
   4. go run main.go ingest      (terminal 2)

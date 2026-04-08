@@ -37,7 +37,7 @@ git clone https://github.com/stellar/wallet-backend.git
 cd wallet-backend
 cp .env.example .env
 # Fill in required values (see Environment Variables below)
-docker compose up
+NETWORK=testnet docker compose up
 ```
 
 This starts:
@@ -57,7 +57,7 @@ source .env
 set +a
 
 # Start dependencies only
-docker compose up -d db stellar-rpc
+NETWORK=testnet docker compose up -d db stellar-rpc
 
 # Run migrations
 go run main.go migrate up
