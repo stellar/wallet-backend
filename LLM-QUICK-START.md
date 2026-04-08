@@ -12,7 +12,7 @@ For each tool, try the version command first. If it fails (e.g., sandbox
 restrictions), fall back to `which <tool>` to confirm presence.
 
 ```bash
-# Go >= 1.24.0
+# Go >= 1.23.2
 go version 2>&1 || which go
 
 # Docker
@@ -38,7 +38,7 @@ Show a clear summary:
 ```
 Wallet Backend — Prerequisites Check
 =====================================
-  Go             1.24.2         >= 1.24.0 required    OK
+  Go             1.23.x         >= 1.23.2 required    OK
   Docker         27.x.x         any                   OK
   Docker Compose 2.x.x          any                   OK
   golangci-lint  1.x.x          any                   OK
@@ -65,7 +65,7 @@ summary.
 - **Docker**: `brew install --cask docker` (macOS) or follow
   [docs.docker.com](https://docs.docker.com/engine/install/) (Linux)
 - **golangci-lint**: `brew install golangci-lint` (macOS) or
-  `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
+  `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
 
 ## Step 4: Configure environment
 
@@ -90,15 +90,17 @@ required variable, tell the user the value or how to set it up:
 
 **Variables NOT in `.env.example` but needed for local Go binary dev:**
 
-These are set automatically by `docker-compose.yaml` for containerized services,
-but if running `go run main.go` directly, add them to `.env` or export in shell:
+For containerized services, `docker-compose.yaml` supplies some of these values,
+but `NETWORK` must still be set for Docker Compose as well (it is referenced as
+`${NETWORK}` with no default). If running `go run main.go` directly on the host,
+add these to `.env` or export them in your shell:
 
 | Variable             | Value for local dev                                                    |
 | -------------------- | ---------------------------------------------------------------------- |
 | `DATABASE_URL`       | `postgres://postgres@localhost:5432/wallet-backend?sslmode=disable`    |
 | `NETWORK`            | `testnet` (recommended for dev) or `pubnet`                            |
 | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` (testnet)                          |
-| `RPC_URL`            | `http://localhost:8000` (default Docker Compose Stellar RPC port)      |
+| `RPC_URL`            | `http://localhost:8000` for host-side `go run`. Do **not** set this in `.env` for containerized services; inside Docker they use `http://stellar-rpc:8000`. |
 
 Skip any variable that already has a value.
 
@@ -112,13 +114,13 @@ Ask the user which setup path they prefer:
 docker compose up
 ```
 
-This starts everything: TimescaleDB, Stellar RPC, API server, and ingestion.
+This starts everything: Postgres, Stellar RPC, API server, and ingestion.
 
 ### Option B: Local Go binary + Docker services (for active development)
 
 ```bash
 # Start dependencies
-docker compose up -d db stellar-rpc-testnet
+docker compose up -d db stellar-rpc
 
 # Wait for DB to be ready, then run migrations
 go run main.go migrate up
@@ -134,8 +136,8 @@ go run main.go ingest    # Terminal 2
 ## Step 6: Verify
 
 ```bash
-make check        # Run all quality checks (lint, fmt, vet, generate, etc.)
-make unit-test    # Run unit tests (requires DATABASE_URL)
+golangci-lint run  # Run lint checks
+go test ./...      # Run unit tests (requires DATABASE_URL)
 ```
 
 If both pass, the setup is working.
@@ -154,7 +156,7 @@ Setup Complete
   Next steps:
   1. docker compose up          (full setup)
      OR
-  1. docker compose up -d db stellar-rpc-testnet
+  1. docker compose up -d db stellar-rpc
   2. go run main.go migrate up
   3. go run main.go serve       (terminal 1)
   4. go run main.go ingest      (terminal 2)
