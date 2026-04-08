@@ -90,7 +90,8 @@ sets these internally for containerized services):
 | `DATABASE_URL`       | `postgres://postgres@localhost:5432/wallet-backend?sslmode=disable` |
 | `NETWORK`            | `testnet` (recommended) or `pubnet`                                 |
 | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` (testnet)                       |
-| `RPC_URL`            | `http://localhost:8000` (Docker Compose default)                    |
+| `RPC_URL`            | `http://localhost:8000` for host-side `go run`. Do **not** set this in `.env` for containerized services; inside Docker they use `http://stellar-rpc:8000`. |
+| `STELLAR_ENVIRONMENT`| `development` for local dev                                        |
 
 For integration tests, also set `CLIENT_AUTH_PRIVATE_KEY`,
 `PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY`, and
@@ -127,7 +128,7 @@ go test ./...
 **Integration tests:** Require `db` and `stellar-rpc` Docker services running.
 
 ```bash
-ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
+go run main.go integration-tests
 ```
 
 ## Pull Requests

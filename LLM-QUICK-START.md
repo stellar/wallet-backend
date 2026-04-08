@@ -25,7 +25,7 @@ docker compose version 2>&1 || docker-compose --version 2>&1 || which docker-com
 golangci-lint --version 2>&1 || which golangci-lint
 
 # Make
-make --version 2>&1 | head -1 || which make
+make --version 2>&1 || which make
 
 # PostgreSQL client (optional — for debugging)
 psql --version 2>&1 || echo "psql not installed (optional)"
@@ -101,6 +101,7 @@ add these to `.env` or export them in your shell:
 | `NETWORK`            | `testnet` (recommended for dev) or `pubnet`                            |
 | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` (testnet)                          |
 | `RPC_URL`            | `http://localhost:8000` for host-side `go run`. Do **not** set this in `.env` for containerized services; inside Docker they use `http://stellar-rpc:8000`. |
+| `STELLAR_ENVIRONMENT`| `development` for local dev                                                   |
 
 Skip any variable that already has a value.
 
