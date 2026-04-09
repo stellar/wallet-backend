@@ -1,4 +1,4 @@
-# Wallet Backend — LLM Quick Start
+# Wallet Backend — Quick Start Guide
 
 Evaluate the contributor's machine against all prerequisites for wallet-backend
 (Go service), install what's missing, and run the initial setup.
