@@ -3024,7 +3024,7 @@ func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 		},
 	}
 
-	err := svc.produceProtocolState(ctx, xdr.LedgerCloseMeta{}, 123)
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, svc.protocolProcessors)
 	require.NoError(t, err)
 	mockMetrics.AssertExpectations(t)
 }

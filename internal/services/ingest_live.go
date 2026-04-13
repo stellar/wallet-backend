@@ -347,11 +347,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// produceProtocolState runs all registered protocol processors against a ledger.
-func (m *ingestService) produceProtocolState(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32) error {
-	return m.produceProtocolStateForProcessors(ctx, ledgerMeta, ledgerSeq, m.protocolProcessors)
-}
-
+// produceProtocolStateForProcessors runs the given protocol processors against
+// a ledger. Callers pass either `m.protocolProcessors` (all registered) or a
+// filtered subset (e.g., live ingestion scopes to `eligibleProtocolProcessors`).
 func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32, processors map[string]ProtocolProcessor) error {
 	if len(processors) == 0 {
 		return nil
