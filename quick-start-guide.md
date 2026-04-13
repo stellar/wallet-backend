@@ -65,7 +65,7 @@ summary.
 - **Docker**: `brew install --cask docker` (macOS) or follow
   [docs.docker.com](https://docs.docker.com/engine/install/) (Linux)
 - **golangci-lint**: `brew install golangci-lint` (macOS) or
-  `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
+  `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.2`
 
 ## Step 4: Configure environment
 
