@@ -3088,12 +3088,9 @@ func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(
 	svc.refreshProtocolContractCache(ctx, 200)
 
 	// lastRefreshLedger must advance despite batch failure so we don't
-	// hammer the DB on every subsequent ledger.
+	// hammer the DB on every subsequent ledger (staleness is gated by
+	// getProtocolContracts against this value).
 	assert.Equal(t, uint32(200), svc.protocolContractCache.lastRefreshLedger)
-
-	// Calling again at currentLedger+1 should be a no-op (not stale yet).
-	// The .Once() expectation on the mock ensures no extra DB call happens.
-	svc.refreshProtocolContractCache(ctx, 201)
 
 	mockMetrics.AssertExpectations(t)
 }
