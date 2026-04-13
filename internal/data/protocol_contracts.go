@@ -26,6 +26,7 @@ type ProtocolContracts struct {
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
+	BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error)
 }
 
 // ProtocolContractsModel implements ProtocolContractsModelInterface.
@@ -120,4 +121,46 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 	m.MetricsService.ObserveDBQueryDuration("GetByProtocolID", "protocol_contracts", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("GetByProtocolID", "protocol_contracts")
 	return contracts, nil
+}
+
+// BatchGetByProtocolIDs returns all contracts for the given protocol IDs in a single query,
+// grouped by protocol ID.
+func (m *ProtocolContractsModel) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
+	if len(protocolIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `
+		SELECT pw.protocol_id, pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
+		FROM protocol_contracts pc
+		JOIN protocol_wasms pw ON pc.wasm_hash = pw.wasm_hash
+		WHERE pw.protocol_id = ANY($1)
+	`
+
+	start := time.Now()
+	rows, err := m.DB.PgxPool().Query(ctx, query, protocolIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("batch querying contracts for protocols: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]ProtocolContracts, len(protocolIDs))
+	for rows.Next() {
+		var protocolID string
+		var c ProtocolContracts
+		if err := rows.Scan(&protocolID, &c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
+			m.MetricsService.IncDBQueryError("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err))
+			return nil, fmt.Errorf("scanning batch protocol contract row: %w", err)
+		}
+		result[protocolID] = append(result[protocolID], c)
+	}
+	if err := rows.Err(); err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("iterating batch protocol contract rows: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByProtocolIDs", "protocol_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("BatchGetByProtocolIDs", "protocol_contracts")
+	return result, nil
 }

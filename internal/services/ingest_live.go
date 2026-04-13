@@ -397,11 +397,13 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 	return m.protocolContractCache.contractsByProtocol[protocolID]
 }
 
-// refreshProtocolContractCache reloads all protocol contracts from the DB.
-// The write lock is held only to check staleness and swap the new data in,
-// keeping DB queries outside the lock to avoid blocking concurrent readers.
+// refreshProtocolContractCache reloads all protocol contracts from the DB in a
+// single batch query. The write lock is held only to check staleness and swap
+// the new data in, keeping the DB query outside the lock to avoid blocking
+// readers. On failure, the previous cache is preserved wholesale — a single
+// SELECT has the same failure domain as N per-protocol SELECTs.
 func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) {
-	// 1. Check staleness under write lock, copy previous data for fallback
+	// 1. Check staleness under write lock, snapshot previous data for fallback.
 	m.protocolContractCache.mu.Lock()
 	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
 		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
@@ -409,35 +411,29 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 		m.protocolContractCache.mu.Unlock()
 		return
 	}
-	// Snapshot previous entries for fallback on partial failure
 	prevContracts := m.protocolContractCache.contractsByProtocol
 	m.protocolContractCache.mu.Unlock()
 
-	// 2. Fetch new data outside the lock
+	// 2. Fetch new data outside the lock.
 	start := time.Now()
-	newMap := make(map[string][]data.ProtocolContracts, len(m.protocolProcessors))
-	allSucceeded := true
+	protocolIDs := make([]string, 0, len(m.protocolProcessors))
 	for protocolID := range m.protocolProcessors {
-		contracts, err := m.models.ProtocolContracts.GetByProtocolID(ctx, protocolID)
-		if err != nil {
-			log.Ctx(ctx).Warnf("Error refreshing protocol contract cache for %s: %v; preserving previous entry", protocolID, err)
-			allSucceeded = false
-			if prev, ok := prevContracts[protocolID]; ok {
-				newMap[protocolID] = prev
-			}
-			continue
-		}
-		newMap[protocolID] = contracts
+		protocolIDs = append(protocolIDs, protocolID)
+	}
+	newMap, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, protocolIDs)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Error refreshing protocol contract cache: %v; preserving previous entries", err)
+		newMap = prevContracts
 	}
 
-	// 3. Swap under write lock
+	// 3. Swap under write lock.
 	m.protocolContractCache.mu.Lock()
 	defer m.protocolContractCache.mu.Unlock()
 	m.protocolContractCache.contractsByProtocol = newMap
 	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())
-	if !allSucceeded {
-		log.Ctx(ctx).Warnf("Protocol contract cache partially refreshed at ledger %d; will retry at next interval", currentLedger)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; will retry at next interval", currentLedger)
 	} else {
 		log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
 	}
