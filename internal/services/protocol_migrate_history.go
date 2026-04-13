@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -17,8 +18,9 @@ import (
 )
 
 const (
-	// convergencePollTimeout is the timeout for polling for new ledgers at the tip.
-	convergencePollTimeout = 5 * time.Second
+	// defaultConvergencePollTimeout bounds how long a single GetLedger call may
+	// block waiting for a new ledger at the tip. Exceeding it signals convergence.
+	defaultConvergencePollTimeout = 5 * time.Second
 )
 
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
@@ -45,8 +47,8 @@ type protocolMigrateHistoryService struct {
 	ingestStore            *data.IngestStoreModel
 	networkPassphrase      string
 	processors             map[string]ProtocolProcessor
-	latestLedgerCursorName string
 	oldestLedgerCursorName string
+	convergencePollTimeout time.Duration
 }
 
 // ProtocolMigrateHistoryConfig holds the configuration for creating a protocolMigrateHistoryService.
@@ -58,8 +60,10 @@ type ProtocolMigrateHistoryConfig struct {
 	IngestStore            *data.IngestStoreModel
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
+	// ConvergencePollTimeout optionally overrides the per-ledger fetch deadline
+	// used to detect convergence at the RPC tip. Zero uses defaultConvergencePollTimeout.
+	ConvergencePollTimeout time.Duration
 }
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
@@ -76,13 +80,14 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
-	latestCursor := cfg.LatestLedgerCursorName
-	if latestCursor == "" {
-		latestCursor = data.LatestLedgerCursorName
-	}
 	oldestCursor := cfg.OldestLedgerCursorName
 	if oldestCursor == "" {
 		oldestCursor = data.OldestLedgerCursorName
+	}
+
+	pollTimeout := cfg.ConvergencePollTimeout
+	if pollTimeout == 0 {
+		pollTimeout = defaultConvergencePollTimeout
 	}
 
 	return &protocolMigrateHistoryService{
@@ -93,8 +98,8 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		ingestStore:            cfg.IngestStore,
 		networkPassphrase:      cfg.NetworkPassphrase,
 		processors:             ppMap,
-		latestLedgerCursorName: latestCursor,
 		oldestLedgerCursorName: oldestCursor,
+		convergencePollTimeout: pollTimeout,
 	}, nil
 }
 
@@ -217,8 +222,14 @@ func (s *protocolMigrateHistoryService) validate(ctx context.Context, protocolID
 
 // processAllProtocols runs history migration for all protocols using ledger-first iteration.
 // Each ledger is fetched once and processed by all eligible protocols, avoiding redundant RPC calls.
+//
+// The backend is prepared exactly once with an UnboundedRange starting at the
+// minimum tracker cursor + 1. Convergence with live ingestion is detected in
+// two ways:
+//   - Per-protocol CAS failure (live ingestion advanced the cursor past us) → handoff.
+//   - GetLedger blocks past convergencePollTimeout because no newer ledger is
+//     available at the RPC tip → all remaining work is done.
 func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context, protocolIDs []string) ([]string, error) {
-	// Read oldest_ingest_ledger
 	oldestLedger, err := s.ingestStore.Get(ctx, s.oldestLedgerCursorName)
 	if err != nil {
 		return nil, fmt.Errorf("reading oldest ingest ledger: %w", err)
@@ -227,7 +238,121 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		return nil, fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
 	}
 
-	// Initialize trackers: read/initialize cursor for each protocol
+	trackers, err := s.initTrackers(ctx, protocolIDs, oldestLedger)
+	if err != nil {
+		return nil, err
+	}
+
+	contractsByProtocol, err := s.loadContracts(ctx, trackers)
+	if err != nil {
+		return nil, err
+	}
+
+	startLedger := minNonHandedOffCursor(trackers) + 1
+
+	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s)", startLedger, len(protocolIDs))
+
+	prepareFn := func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerbackend.UnboundedRange(startLedger))
+	}
+	if _, prepErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff, prepareFn,
+		func(attempt int, err error, backoff time.Duration) {
+			log.Ctx(ctx).Warnf("Error preparing unbounded range from %d (attempt %d/%d): %v, retrying in %v...",
+				startLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
+		},
+	); prepErr != nil {
+		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
+	}
+
+	for seq := startLedger; ; seq++ {
+		if err := ctx.Err(); err != nil {
+			return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", err)
+		}
+		if allHandedOff(trackers) {
+			return handedOffProtocolIDs(trackers), nil
+		}
+
+		// Skip if no non-handed-off tracker needs this ledger.
+		if !anyTrackerNeedsLedger(trackers, seq) {
+			continue
+		}
+
+		ledgerMeta, fetchErr := s.fetchLedgerOrConverge(ctx, seq)
+		if errors.Is(fetchErr, errConverged) {
+			log.Ctx(ctx).Infof("Converged at ledger %d (no new ledger within %v)", seq-1, s.convergencePollTimeout)
+			return handedOffProtocolIDs(trackers), nil
+		}
+		if fetchErr != nil {
+			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
+		}
+
+		for _, t := range trackers {
+			if t.handedOff || t.cursorValue >= seq {
+				continue
+			}
+			if err := s.processTrackerAtLedger(ctx, t, seq, ledgerMeta, contractsByProtocol[t.protocolID]); err != nil {
+				return handedOffProtocolIDs(trackers), err
+			}
+		}
+
+		if seq%100 == 0 {
+			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
+		}
+	}
+}
+
+// errConverged signals that a GetLedger poll hit its deadline without a new
+// ledger arriving — migration has caught up to the RPC tip.
+var errConverged = errors.New("converged: no new ledger within poll timeout")
+
+// fetchLedgerOrConverge fetches a single ledger, retrying on transient RPC errors
+// with exponential backoff. Returns errConverged when the per-call deadline
+// elapses without a response (signaling we've caught up to the tip). Returns
+// the wrapped parent-context error if the caller's context is cancelled.
+func (s *protocolMigrateHistoryService) fetchLedgerOrConverge(ctx context.Context, seq uint32) (xdr.LedgerCloseMeta, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", err)
+		}
+
+		pollCtx, cancel := context.WithTimeout(ctx, s.convergencePollTimeout)
+		meta, err := s.ledgerBackend.GetLedger(pollCtx, seq)
+		pollDeadline := pollCtx.Err() == context.DeadlineExceeded
+		cancel()
+
+		if err == nil {
+			return meta, nil
+		}
+		if ctx.Err() != nil {
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+		// If the per-call deadline fired with no result, treat as convergence.
+		if pollDeadline || errors.Is(err, context.DeadlineExceeded) {
+			return xdr.LedgerCloseMeta{}, errConverged
+		}
+		lastErr = err
+
+		backoff := time.Duration(1<<attempt) * time.Second
+		if backoff > maxRetryBackoff {
+			backoff = maxRetryBackoff
+		}
+		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+			seq, attempt+1, maxLedgerFetchRetries, err, backoff)
+
+		select {
+		case <-ctx.Done():
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+	}
+	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
+}
+
+// initTrackers reads (or initializes) each protocol's history cursor and builds
+// the per-protocol tracker slice. Freshly-seen protocols have their cursor set
+// to oldestLedger-1 so the first processed ledger is oldestLedger.
+func (s *protocolMigrateHistoryService) initTrackers(ctx context.Context, protocolIDs []string, oldestLedger uint32) ([]*protocolTracker, error) {
 	trackers := make([]*protocolTracker, 0, len(protocolIDs))
 	for _, pid := range protocolIDs {
 		cursorName := utils.ProtocolHistoryCursorName(pid)
@@ -253,9 +378,13 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			processor:   s.processors[pid],
 		})
 	}
+	return trackers, nil
+}
 
-	// Load contracts once — all relevant contracts are in the DB before migration starts
-	// (validate() requires ClassificationStatus == StatusSuccess).
+// loadContracts preloads each protocol's contract set once up front. validate()
+// already enforces ClassificationStatus == StatusSuccess, so the DB is the
+// source of truth for the full contract set.
+func (s *protocolMigrateHistoryService) loadContracts(ctx context.Context, trackers []*protocolTracker) (map[string][]data.ProtocolContracts, error) {
 	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(trackers))
 	for _, t := range trackers {
 		contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
@@ -264,180 +393,83 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 		}
 		contractsByProtocol[t.protocolID] = contracts
 	}
+	return contractsByProtocol, nil
+}
 
-	for {
-		if allHandedOff(trackers) {
-			return handedOffProtocolIDs(trackers), nil
-		}
-
-		latestLedger, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
-		if err != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("reading latest ingest ledger: %w", err)
-		}
-
-		// Find minimum cursor among non-handed-off trackers
-		var minCursor uint32
-		first := true
-		for _, t := range trackers {
-			if t.handedOff {
-				continue
-			}
-			if first || t.cursorValue < minCursor {
-				minCursor = t.cursorValue
-				first = false
-			}
-		}
-
-		startLedger := minCursor + 1
-		if startLedger > latestLedger {
-			log.Ctx(ctx).Infof("All protocols at or past tip %d, migration complete", latestLedger)
-			return handedOffProtocolIDs(trackers), nil
-		}
-
-		log.Ctx(ctx).Infof("Processing ledgers %d to %d for %d protocol(s)", startLedger, latestLedger, len(protocolIDs))
-
-		if err := s.ledgerBackend.PrepareRange(ctx, ledgerbackend.BoundedRange(startLedger, latestLedger)); err != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("preparing ledger range [%d, %d]: %w", startLedger, latestLedger, err)
-		}
-
-		for seq := startLedger; seq <= latestLedger; seq++ {
-			select {
-			case <-ctx.Done():
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", ctx.Err())
-			default:
-			}
-
-			// Skip if no tracker needs this ledger
-			needsFetch := false
-			for _, t := range trackers {
-				if !t.handedOff && t.cursorValue < seq {
-					needsFetch = true
-					break
-				}
-			}
-			if !needsFetch {
-				continue
-			}
-
-			// Fetch ledger ONCE for all protocols
-			ledgerMeta, fetchErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
-				func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
-					return s.ledgerBackend.GetLedger(ctx, seq)
-				},
-				func(attempt int, err error, backoff time.Duration) {
-					log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-						seq, attempt+1, maxLedgerFetchRetries, err, backoff)
-				},
-			)
-			if fetchErr != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
-			}
-
-			// Process each eligible tracker
-			for _, t := range trackers {
-				if t.handedOff || t.cursorValue >= seq {
-					continue
-				}
-
-				contracts := contractsByProtocol[t.protocolID]
-				input := ProtocolProcessorInput{
-					LedgerSequence:    seq,
-					LedgerCloseMeta:   ledgerMeta,
-					ProtocolContracts: contracts,
-					NetworkPassphrase: s.networkPassphrase,
-				}
-				if err := t.processor.ProcessLedger(ctx, input); err != nil {
-					return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, err)
-				}
-
-				// CAS + persist in a transaction
-				expected := strconv.FormatUint(uint64(seq-1), 10)
-				next := strconv.FormatUint(uint64(seq), 10)
-
-				var swapped bool
-				if err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-					var casErr error
-					swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
-					if casErr != nil {
-						return fmt.Errorf("CAS history cursor for %s: %w", t.protocolID, casErr)
-					}
-					if swapped {
-						return t.processor.PersistHistory(ctx, dbTx)
-					}
-					return nil
-				}); err != nil {
-					return handedOffProtocolIDs(trackers), fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, err)
-				}
-
-				if !swapped {
-					log.Ctx(ctx).Infof("Protocol %s: CAS failed at ledger %d, handoff to live ingestion detected", t.protocolID, seq)
-					t.handedOff = true
-				} else {
-					t.cursorValue = seq
-				}
-			}
-
-			if allHandedOff(trackers) {
-				return handedOffProtocolIDs(trackers), nil
-			}
-
-			if seq%100 == 0 {
-				log.Ctx(ctx).Infof("Progress: processed ledger %d / %d", seq, latestLedger)
-			}
-		}
-
-		if allHandedOff(trackers) {
-			return handedOffProtocolIDs(trackers), nil
-		}
-
-		// Check if tip has advanced
-		newLatest, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
-		if err != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("re-reading latest ingest ledger: %w", err)
-		}
-		if newLatest > latestLedger {
-			continue
-		}
-
-		// At tip — poll briefly for convergence.
-		//
-		// This transitions the backend from BoundedRange (line 264) to UnboundedRange
-		// on the same instance. The captive core implementation handles this internally
-		// by closing the existing subprocess before starting a new one (see
-		// CaptiveStellarCore.startPreparingRange). If the poll succeeds and a new ledger
-		// is detected, the outer loop iterates again and re-prepares a BoundedRange —
-		// the same implicit close-and-reopen applies in that direction too.
-		pollCtx, cancel := context.WithTimeout(ctx, convergencePollTimeout)
-		prepErr := s.ledgerBackend.PrepareRange(pollCtx, ledgerbackend.UnboundedRange(latestLedger+1))
-		if prepErr != nil {
-			cancel()
-			if ctx.Err() != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
-			}
-			if pollCtx.Err() == context.DeadlineExceeded {
-				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return handedOffProtocolIDs(trackers), nil
-			}
-			log.Ctx(ctx).Warnf("Transient error during convergence poll PrepareRange: %v, retrying", prepErr)
-			continue
-		}
-
-		_, getLedgerErr := s.ledgerBackend.GetLedger(pollCtx, latestLedger+1)
-		cancel()
-		if getLedgerErr != nil {
-			if ctx.Err() != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
-			}
-			if pollCtx.Err() == context.DeadlineExceeded {
-				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return handedOffProtocolIDs(trackers), nil
-			}
-			log.Ctx(ctx).Warnf("Transient error during convergence poll GetLedger: %v, retrying", getLedgerErr)
-			continue
-		}
-
-		// New ledger available, loop again
+// processTrackerAtLedger runs one protocol's processor on the given ledger and,
+// on success, performs the CAS+persist transaction that atomically commits the
+// cursor advance and the processor's history rows. A failed CAS (cursor already
+// advanced by live ingestion) marks the tracker as handed off.
+func (s *protocolMigrateHistoryService) processTrackerAtLedger(
+	ctx context.Context,
+	t *protocolTracker,
+	seq uint32,
+	ledgerMeta xdr.LedgerCloseMeta,
+	contracts []data.ProtocolContracts,
+) error {
+	input := ProtocolProcessorInput{
+		LedgerSequence:    seq,
+		LedgerCloseMeta:   ledgerMeta,
+		ProtocolContracts: contracts,
+		NetworkPassphrase: s.networkPassphrase,
 	}
+	if err := t.processor.ProcessLedger(ctx, input); err != nil {
+		return fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, err)
+	}
+
+	expected := strconv.FormatUint(uint64(seq-1), 10)
+	next := strconv.FormatUint(uint64(seq), 10)
+
+	var swapped bool
+	if err := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		var casErr error
+		swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
+		if casErr != nil {
+			return fmt.Errorf("CAS history cursor for %s: %w", t.protocolID, casErr)
+		}
+		if swapped {
+			return t.processor.PersistHistory(ctx, dbTx)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, err)
+	}
+
+	if !swapped {
+		log.Ctx(ctx).Infof("Protocol %s: CAS failed at ledger %d, handoff to live ingestion detected", t.protocolID, seq)
+		t.handedOff = true
+	} else {
+		t.cursorValue = seq
+	}
+	return nil
+}
+
+// minNonHandedOffCursor returns the smallest cursorValue among trackers that
+// have not yet been handed off. If every tracker is handed off, it returns 0.
+func minNonHandedOffCursor(trackers []*protocolTracker) uint32 {
+	var minCursor uint32
+	first := true
+	for _, t := range trackers {
+		if t.handedOff {
+			continue
+		}
+		if first || t.cursorValue < minCursor {
+			minCursor = t.cursorValue
+			first = false
+		}
+	}
+	return minCursor
+}
+
+// anyTrackerNeedsLedger reports whether at least one non-handed-off tracker
+// still needs to process the given ledger sequence.
+func anyTrackerNeedsLedger(trackers []*protocolTracker, seq uint32) bool {
+	for _, t := range trackers {
+		if !t.handedOff && t.cursorValue < seq {
+			return true
+		}
+	}
+	return false
 }
 
 // allHandedOff returns true if every tracker has been handed off to live ingestion.

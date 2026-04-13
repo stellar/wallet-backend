@@ -11,11 +11,10 @@ import (
 	"sync"
 
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // TransactionByHash is the resolver for the transactionByHash field.

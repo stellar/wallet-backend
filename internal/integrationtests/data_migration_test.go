@@ -286,8 +286,10 @@ func (s *DataMigrationTestSuite) newHistoryMigrationService(
 		IngestStore:            models.IngestStore,
 		NetworkPassphrase:      "Test SDF Network ; September 2015",
 		Processors:             []services.ProtocolProcessor{processor},
-		LatestLedgerCursorName: data.LatestLedgerCursorName,
 		OldestLedgerCursorName: data.OldestLedgerCursorName,
+		// Short poll so the integration test converges quickly once the
+		// migration reaches the RPC tip.
+		ConvergencePollTimeout: 500 * time.Millisecond,
 	})
 	s.Require().NoError(err)
 	return svc
