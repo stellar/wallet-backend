@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // BackfillMode indicates the purpose of backfilling.
@@ -521,7 +523,15 @@ func (m *ingestService) processLedgersInBatch(
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+		ledgerMeta, err := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return backend.GetLedger(ctx, ledgerSeq)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+		)
 		if err != nil {
 			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}

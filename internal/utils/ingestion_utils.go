@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -40,4 +41,14 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	// TODO: track in Sentry
 	// sentry.CaptureException(fmt.Errorf("failed to parse memo for type %q and transaction %s", memoType.String(), txHash))
 	return nil, memoType.String()
+}
+
+// ProtocolHistoryCursorName returns the ingest_store key for a protocol's history migration cursor.
+func ProtocolHistoryCursorName(protocolID string) string {
+	return fmt.Sprintf("protocol_%s_history_cursor", protocolID)
+}
+
+// ProtocolCurrentStateCursorName returns the ingest_store key for a protocol's current state cursor.
+func ProtocolCurrentStateCursorName(protocolID string) string {
+	return fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
 }

@@ -98,6 +98,34 @@ func TestProtocolsModel(t *testing.T) {
 		assert.Equal(t, StatusInProgress, status)
 	})
 
+	t.Run("UpdateHistoryMigrationStatus updates status", func(t *testing.T) {
+		cleanUpDB()
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", mock.Anything, mock.Anything, mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", mock.Anything, mock.Anything).Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		model := &ProtocolsModel{DB: dbConnectionPool, MetricsService: mockMetricsService}
+
+		// Insert protocol first
+		err := db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.InsertIfNotExists(ctx, dbTx, "SEP41")
+		})
+		require.NoError(t, err)
+
+		// Update status
+		err = db.RunInPgxTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.UpdateHistoryMigrationStatus(ctx, dbTx, []string{"SEP41"}, StatusInProgress)
+		})
+		require.NoError(t, err)
+
+		// Verify
+		var status string
+		err = dbConnectionPool.GetContext(ctx, &status, `SELECT history_migration_status FROM protocols WHERE id = 'SEP41'`)
+		require.NoError(t, err)
+		assert.Equal(t, StatusInProgress, status)
+	})
+
 	t.Run("GetByIDs returns matching protocols", func(t *testing.T) {
 		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()

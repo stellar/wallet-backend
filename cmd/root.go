@@ -53,4 +53,5 @@ func SetupCLI(cfg RootConfig) {
 	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
 	rootCmd.AddCommand((&loadtestCmd{}).Command())
 	rootCmd.AddCommand((&protocolSetupCmd{}).Command())
+	rootCmd.AddCommand((&protocolMigrateCmd{}).Command())
 }

@@ -33,6 +33,7 @@ type Protocols struct {
 // ProtocolsModelInterface defines the interface for protocols operations.
 type ProtocolsModelInterface interface {
 	UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
+	UpdateHistoryMigrationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
 	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error)
 	GetClassified(ctx context.Context) ([]Protocols, error)
 	InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error
@@ -67,6 +68,30 @@ func (m *ProtocolsModel) UpdateClassificationStatus(ctx context.Context, dbTx pg
 
 	m.MetricsService.ObserveDBQueryDuration("UpdateClassificationStatus", "protocols", time.Since(start).Seconds())
 	m.MetricsService.IncDBQuery("UpdateClassificationStatus", "protocols")
+	return nil
+}
+
+// UpdateHistoryMigrationStatus updates history_migration_status and updated_at for the given protocol IDs.
+func (m *ProtocolsModel) UpdateHistoryMigrationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+	if len(protocolIDs) == 0 {
+		return nil
+	}
+
+	const query = `
+		UPDATE protocols
+		SET history_migration_status = $1, updated_at = NOW()
+		WHERE id = ANY($2)
+	`
+
+	start := time.Now()
+	_, err := dbTx.Exec(ctx, query, status, protocolIDs)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("UpdateHistoryMigrationStatus", "protocols", utils.GetDBErrorType(err))
+		return fmt.Errorf("updating history migration status for protocols: %w", err)
+	}
+
+	m.MetricsService.ObserveDBQueryDuration("UpdateHistoryMigrationStatus", "protocols", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("UpdateHistoryMigrationStatus", "protocols")
 	return nil
 }
 

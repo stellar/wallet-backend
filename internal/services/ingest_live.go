@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 )
 
 // protocolContractCache caches classified protocol contracts to avoid per-ledger DB queries.
-// Only accessed from the single-threaded live ingestion loop, so no mutex is needed.
+// Accessed only from the single-goroutine live ingestion loop; no locking needed.
 type protocolContractCache struct {
 	contractsByProtocol map[string][]data.ProtocolContracts
 	lastRefreshLedger   uint32
@@ -52,13 +53,13 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 
 	eligible := make(map[string]ProtocolProcessor, len(m.protocolProcessors))
 	for protocolID, processor := range m.protocolProcessors {
-		historyCursor := fmt.Sprintf("protocol_%s_history_cursor", protocolID)
+		historyCursor := utils.ProtocolHistoryCursorName(protocolID)
 		historyVal, err := m.models.IngestStore.Get(ctx, historyCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading history cursor for %s: %w", protocolID, err)
 		}
 
-		currentStateCursor := fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
+		currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
 		currentStateVal, err := m.models.IngestStore.Get(ctx, currentStateCursor)
 		if err != nil {
 			return nil, fmt.Errorf("reading current state cursor for %s: %w", protocolID, err)
@@ -149,8 +150,8 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 					// No previous ledger to form an expected cursor value; skip CAS for this ledger.
 					continue
 				}
-				historyCursor := fmt.Sprintf("protocol_%s_history_cursor", protocolID)
-				currentStateCursor := fmt.Sprintf("protocol_%s_current_state_cursor", protocolID)
+				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
+				currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
 
 				expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 				next := strconv.FormatUint(uint64(ledgerSeq), 10)
@@ -286,7 +287,15 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
-		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return m.ledgerBackend.GetLedger(ctx, currentLedger)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					currentLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+		)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
@@ -308,8 +317,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// Run protocol state production (in-memory analysis before DB transaction) only
 		// for processors that may actually persist this ledger.
-		if err := m.produceProtocolStateForProcessors(ctx, ledgerMeta, currentLedger, eligibleProcessors); err != nil {
-			return fmt.Errorf("producing protocol state for ledger %d: %w", currentLedger, err)
+		if produceErr := m.produceProtocolStateForProcessors(ctx, ledgerMeta, currentLedger, eligibleProcessors); produceErr != nil {
+			return fmt.Errorf("producing protocol state for ledger %d: %w", currentLedger, produceErr)
 		}
 
 		// All DB operations in a single atomic transaction with retry
@@ -337,6 +346,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
+// produceProtocolStateForProcessors runs the given protocol processors against
+// a ledger. Callers pass either `m.protocolProcessors` (all registered) or a
+// filtered subset (e.g., live ingestion scopes to `eligibleProtocolProcessors`).
 func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32, processors map[string]ProtocolProcessor) error {
 	if len(processors) == 0 {
 		return nil
@@ -377,8 +389,10 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 	return m.protocolContractCache.contractsByProtocol[protocolID]
 }
 
-// refreshProtocolContractCache reloads all protocol contracts from the DB.
-// Only called from the single-threaded live ingestion loop.
+// refreshProtocolContractCache reloads all protocol contracts from the DB in a
+// single batch query. On failure, the existing cache is left untouched — a
+// single SELECT has the same failure domain as N per-protocol SELECTs, so
+// there's no partial-failure path to handle.
 func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) {
 	start := time.Now()
 	protocolIDs := make([]string, 0, len(m.protocolProcessors))
@@ -386,19 +400,14 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 		protocolIDs = append(protocolIDs, protocolID)
 	}
 	newMap, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, protocolIDs)
-	if err != nil {
-		log.Ctx(ctx).Warnf("Error refreshing protocol contract cache: %v; preserving previous entries", err)
-		newMap = m.protocolContractCache.contractsByProtocol
-	}
-
-	m.protocolContractCache.contractsByProtocol = newMap
 	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.metricsService.ObserveProtocolContractCacheRefreshDuration(time.Since(start).Seconds())
 	if err != nil {
-		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; will retry at next interval", currentLedger)
-	} else {
-		log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
+		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; preserving previous entries, will retry at next interval: %v", currentLedger, err)
+		return
 	}
+	m.protocolContractCache.contractsByProtocol = newMap
+	log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
 }
 
 // ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
