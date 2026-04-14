@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -32,23 +31,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 		}
 	}
 
-	// Convert simulation result if provided
-	var simulationResult *entities.RPCSimulateTransactionResult
-	if input.SimulationResult != nil {
-		convertedSimulationResult, err := convertSimulationResult(input.SimulationResult)
-		if err != nil {
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_SIMULATION_RESULT",
-				},
-			}
-		}
-		simulationResult = &convertedSimulationResult
-	}
-
-	// Build transaction from XDR with optional simulation result
-	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx, simulationResult)
+	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrInvalidTimeout),
@@ -61,8 +44,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 				},
 			}
 		case errors.Is(err, services.ErrInvalidSorobanOperationCount),
-			errors.Is(err, services.ErrInvalidSorobanSimulationEmpty),
-			errors.Is(err, services.ErrInvalidSorobanSimulationFailed),
+			errors.Is(err, services.ErrMissingSorobanTransactionData),
 			errors.Is(err, services.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),

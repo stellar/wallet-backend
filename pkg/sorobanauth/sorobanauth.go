@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	pkgUtils "github.com/stellar/wallet-backend/pkg/utils"
 )
 
@@ -132,9 +131,9 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// CheckForForbiddenSigners checks if the auth entries in the simulation response expect a forbidden signer.
+// CheckForForbiddenSigners checks if the auth entries expect a forbidden signer.
 func CheckForForbiddenSigners(
-	simulationResponseResults []entities.RPCSimulateHostFunctionResult,
+	authEntries []xdr.SorobanAuthorizationEntry,
 	opSourceAccount string,
 	forbiddenSigners ...string,
 ) error {
@@ -145,26 +144,24 @@ func CheckForForbiddenSigners(
 		return fmt.Errorf("resolving operation source account: %w", err)
 	}
 
-	for _, res := range simulationResponseResults {
-		for _, auth := range res.Auth {
-			switch auth.Credentials.Type {
-			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				if slices.Contains(append(forbiddenSigners, ""), opSourceGAddress) {
-					return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
-				}
-
-			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-				if auth.Credentials.Address == nil {
-					return fmt.Errorf("unable to get auth entry signer because credential address is nil")
-				} else if authEntrySigner, err := auth.Credentials.Address.Address.String(); err != nil {
-					return fmt.Errorf("unable to get auth entry signer string: %w", err)
-				} else if slices.Contains(forbiddenSigners, authEntrySigner) {
-					return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
-				}
-
-			default:
-				return fmt.Errorf("unsupported auth entry type %d", auth.Credentials.Type)
+	for _, auth := range authEntries {
+		switch auth.Credentials.Type {
+		case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
+			if slices.Contains(append(forbiddenSigners, ""), opSourceGAddress) {
+				return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
 			}
+
+		case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+			if auth.Credentials.Address == nil {
+				return fmt.Errorf("unable to get auth entry signer because credential address is nil")
+			} else if authEntrySigner, err := auth.Credentials.Address.Address.String(); err != nil {
+				return fmt.Errorf("unable to get auth entry signer string: %w", err)
+			} else if slices.Contains(forbiddenSigners, authEntrySigner) {
+				return fmt.Errorf("handling %s: %w", auth.Credentials.Type.String(), ErrForbiddenSigner)
+			}
+
+		default:
+			return fmt.Errorf("unsupported auth entry type %d", auth.Credentials.Type)
 		}
 	}
 	return nil

@@ -7,14 +7,12 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
-	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -28,8 +26,8 @@ func (m *mockTransactionService) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, genericTx *txnbuild.GenericTransaction, simulationResult *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
-	args := m.Called(ctx, genericTx, simulationResult)
+func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, genericTx *txnbuild.GenericTransaction) (*txnbuild.Transaction, error) {
+	args := m.Called(ctx, genericTx)
 	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
 }
 
@@ -386,52 +384,6 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 	})
 }
 
-func Test_convertSimulationResult(t *testing.T) {
-	t.Run("results are mapped through conversion", func(t *testing.T) {
-		// Use the same known auth entry XDR from sorobanauth tests
-		const authEntryXDR = "AAAAAQAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKVxxKYXs/ivgQAAAAAAAAABAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAABIAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAACgAAAAAAAAAAAAAAAAX14QAAAAAA"
-
-		xdrVal := xdr.ScVal{Type: xdr.ScValTypeScvBool, B: new(bool)}
-		*xdrVal.B = true
-		xdrBase64, err := xdr.MarshalBase64(xdrVal)
-		require.NoError(t, err)
-
-		resultJSON := `{"auth":["` + authEntryXDR + `"],"xdr":"` + xdrBase64 + `"}`
-
-		input := &graphql.SimulationResultInput{
-			Results: []string{resultJSON},
-		}
-
-		result, err := convertSimulationResult(input)
-		require.NoError(t, err)
-		require.Len(t, result.Results, 1)
-		require.Len(t, result.Results[0].Auth, 1)
-		assert.Equal(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, result.Results[0].Auth[0].Credentials.Type)
-
-		gotSigner, err := result.Results[0].Auth[0].Credentials.Address.Address.String()
-		require.NoError(t, err)
-		assert.Equal(t, "GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO", gotSigner)
-	})
-
-	t.Run("invalid results JSON returns error", func(t *testing.T) {
-		input := &graphql.SimulationResultInput{
-			Results: []string{"not-valid-json"},
-		}
-
-		_, err := convertSimulationResult(input)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "unmarshalling simulation result[0]")
-	})
-
-	t.Run("empty results stays empty", func(t *testing.T) {
-		input := &graphql.SimulationResultInput{}
-
-		result, err := convertSimulationResult(input)
-		require.NoError(t, err)
-		assert.Empty(t, result.Results)
-	})
-}
-
 func TestMutationResolver_BuildTransaction(t *testing.T) {
 	ctx := context.Background()
 
@@ -470,7 +422,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return(tx, nil)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction")).Return(tx, nil)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -538,7 +490,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction")).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -547,216 +499,6 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 		assert.ErrorContains(t, err, "transaction build failed")
 
 		mockTransactionService.AssertExpectations(t)
-	})
-
-	t.Run("with simulation result", func(t *testing.T) {
-		mockTransactionService := &mockTransactionService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				transactionService: mockTransactionService,
-				models:             &data.Models{},
-			},
-		}
-
-		// Create a complete test transaction
-		sourceAccount := keypair.MustRandom()
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.Payment{
-					Destination: keypair.MustRandom().Address(),
-					Asset:       txnbuild.NativeAsset{},
-					Amount:      "10",
-				},
-			},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
-		})
-		require.NoError(t, err)
-
-		// Get the transaction XDR
-		txXDR, err := tx.Base64()
-		require.NoError(t, err)
-
-		// Create simulation result
-		latestLedger := int32(12345)
-		minResourceFee := "1000000"
-		errorMsg := "simulation error example"
-		events := []string{"event1", "event2"}
-
-		transactionData := (*string)(nil)
-
-		input := graphql.BuildTransactionInput{
-			TransactionXdr: txXDR,
-			SimulationResult: &graphql.SimulationResultInput{
-				LatestLedger:    &latestLedger,
-				MinResourceFee:  &minResourceFee,
-				Error:           &errorMsg,
-				Events:          events,
-				TransactionData: transactionData,
-			},
-		}
-
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount",
-			ctx,
-			mock.AnythingOfType("*txnbuild.GenericTransaction"),
-			mock.MatchedBy(func(simResult *entities.RPCSimulateTransactionResult) bool {
-				// Verify all simulation result fields are properly converted
-				return simResult != nil &&
-					simResult.LatestLedger == int64(latestLedger) &&
-					simResult.MinResourceFee == minResourceFee &&
-					simResult.Error == errorMsg &&
-					len(simResult.Events) == 2 &&
-					simResult.Events[0] == "event1" &&
-					simResult.Events[1] == "event2"
-			})).Return(tx, nil)
-
-		result, err := resolver.BuildTransaction(ctx, input)
-
-		require.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.True(t, result.Success)
-		assert.NotEmpty(t, result.TransactionXdr)
-
-		mockTransactionService.AssertExpectations(t)
-	})
-
-	t.Run("with valid transaction data", func(t *testing.T) {
-		mockTransactionService := &mockTransactionService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				transactionService: mockTransactionService,
-				models:             &data.Models{},
-			},
-		}
-
-		// Create a complete test transaction
-		sourceAccount := keypair.MustRandom()
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.Payment{
-					Destination: keypair.MustRandom().Address(),
-					Asset:       txnbuild.NativeAsset{},
-					Amount:      "10",
-				},
-			},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
-		})
-		require.NoError(t, err)
-
-		// Get the transaction XDR
-		txXDR, err := tx.Base64()
-		require.NoError(t, err)
-
-		// Create a valid SorobanTransactionData
-		validTxData := xdr.SorobanTransactionData{
-			Ext: xdr.SorobanTransactionDataExt{
-				V: 0, // Version 0
-			},
-			Resources: xdr.SorobanResources{
-				Footprint: xdr.LedgerFootprint{
-					ReadOnly:  []xdr.LedgerKey{},
-					ReadWrite: []xdr.LedgerKey{},
-				},
-				Instructions:  1000000,
-				DiskReadBytes: 1000,
-				WriteBytes:    1000,
-			},
-			ResourceFee: 1000000,
-		}
-
-		validTxDataBase64, err := xdr.MarshalBase64(validTxData)
-		require.NoError(t, err)
-
-		input := graphql.BuildTransactionInput{
-			TransactionXdr: txXDR,
-			SimulationResult: &graphql.SimulationResultInput{
-				TransactionData: &validTxDataBase64,
-				Events:          []string{"test-event"},
-			},
-		}
-
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount",
-			ctx,
-			mock.AnythingOfType("*txnbuild.GenericTransaction"),
-			mock.MatchedBy(func(simResult *entities.RPCSimulateTransactionResult) bool {
-				// Verify that TransactionData was successfully parsed and matches our original data
-				expectedTxDataBase64, marshalErr := xdr.MarshalBase64(simResult.TransactionData)
-				if marshalErr != nil {
-					return false
-				}
-				return simResult != nil &&
-					expectedTxDataBase64 == validTxDataBase64 &&
-					len(simResult.Events) == 1 &&
-					simResult.Events[0] == "test-event"
-			})).Return(tx, nil)
-
-		result, err := resolver.BuildTransaction(ctx, input)
-
-		require.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.True(t, result.Success)
-		assert.NotEmpty(t, result.TransactionXdr)
-
-		mockTransactionService.AssertExpectations(t)
-	})
-
-	t.Run("invalid transaction data", func(t *testing.T) {
-		mockTransactionService := &mockTransactionService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				transactionService: mockTransactionService,
-				models:             &data.Models{},
-			},
-		}
-
-		// Create a complete test transaction
-		sourceAccount := keypair.MustRandom()
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.Payment{
-					Destination: keypair.MustRandom().Address(),
-					Asset:       txnbuild.NativeAsset{},
-					Amount:      "10",
-				},
-			},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
-		})
-		require.NoError(t, err)
-
-		// Get the transaction XDR
-		txXDR, err := tx.Base64()
-		require.NoError(t, err)
-
-		invalidTransactionData := "invalid-transaction-data-xdr"
-
-		input := graphql.BuildTransactionInput{
-			TransactionXdr: txXDR,
-			SimulationResult: &graphql.SimulationResultInput{
-				TransactionData: &invalidTransactionData,
-			},
-		}
-
-		result, err := resolver.BuildTransaction(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "unmarshalling transaction data")
-
-		var gqlErr *gqlerror.Error
-		if errors.As(err, &gqlErr) {
-			assert.Equal(t, "INVALID_SIMULATION_RESULT", gqlErr.Extensions["code"])
-		}
 	})
 
 	t.Run("invalid operation structure error", func(t *testing.T) {
@@ -794,7 +536,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), services.ErrInvalidTimeout)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction")).Return((*txnbuild.Transaction)(nil), services.ErrInvalidTimeout)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -845,7 +587,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), services.ErrInvalidSorobanOperationCount)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction")).Return((*txnbuild.Transaction)(nil), services.ErrInvalidSorobanOperationCount)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 

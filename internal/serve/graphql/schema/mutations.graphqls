@@ -13,17 +13,6 @@ input CreateFeeBumpTransactionInput {
 # Input types for transaction mutations
 input BuildTransactionInput {
     transactionXdr: String!
-    simulationResult: SimulationResultInput
-}
-
-# Optional simulation result input for Soroban transactions
-input SimulationResultInput {
-    transactionData: String
-    events: [String!]
-    minResourceFee: String
-    results: [String!]
-    latestLedger: Int
-    error: String
 }
 
 
