@@ -107,6 +107,12 @@ func TestExtractIP(t *testing.T) {
 			remoteAddr: "10.0.0.1",
 			expected:   "10.0.0.1",
 		},
+		{
+			name:       "ignores invalid X-Real-IP and falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xRealIP:    "not-an-ip",
+			expected:   "10.0.0.1",
+		},
 	}
 
 	for _, tt := range tests {

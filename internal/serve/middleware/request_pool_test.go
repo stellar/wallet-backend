@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,36 +71,23 @@ func TestRequestPoolMiddleware(t *testing.T) {
 	})
 
 	t.Run("pool is stopped after handler returns", func(t *testing.T) {
-		var capturedStopped bool
+		var capturedPool pond.Pool
 		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			pool := RequestPoolFromContext(r.Context())
-			require.NotNil(t, pool)
+			capturedPool = RequestPoolFromContext(r.Context())
+			require.NotNil(t, capturedPool)
 			// Submit a task to ensure pool is running
-			task := pool.Submit(func() {})
+			task := capturedPool.Submit(func() {})
 			task.Wait()
-			assert.False(t, pool.Stopped(), "pool should not be stopped during handler")
+			assert.False(t, capturedPool.Stopped(), "pool should not be stopped during handler")
 		})
 
-		var afterHandlerPool bool
-		wrappedMiddleware := func(next http.Handler) http.Handler {
-			return RequestPoolMiddleware(5)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r)
-				// After inner handler returns but before middleware returns,
-				// the pool should still be accessible
-				pool := RequestPoolFromContext(r.Context())
-				afterHandlerPool = pool != nil
-				// Note: pool.Stopped() may or may not be true here since
-				// StopAndWait happens after ServeHTTP returns in the middleware
-			}))
-		}
-
-		handler := wrappedMiddleware(inner)
+		handler := RequestPoolMiddleware(5)(inner)
 		req := httptest.NewRequest(http.MethodPost, "/graphql/query", nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 
-		_ = capturedStopped
-		assert.True(t, afterHandlerPool, "pool should be in context")
+		require.NotNil(t, capturedPool)
+		assert.True(t, capturedPool.Stopped(), "pool should be stopped after middleware returns")
 	})
 }
 

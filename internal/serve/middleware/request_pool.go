@@ -18,6 +18,12 @@ func RequestPoolFromContext(ctx context.Context) pond.Pool {
 	return pool
 }
 
+// WithRequestPool returns a new context with the given pool set. This is useful
+// in tests to inject a request-scoped pool without the HTTP middleware.
+func WithRequestPool(ctx context.Context, pool pond.Pool) context.Context {
+	return context.WithValue(ctx, requestPoolKey, pool)
+}
+
 // RequestPoolMiddleware creates a bounded worker pool for each HTTP request and
 // injects it into the request context. All GraphQL field resolutions within the
 // same request share this pool, which caps the total number of concurrent worker

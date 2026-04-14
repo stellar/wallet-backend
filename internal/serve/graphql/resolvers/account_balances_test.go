@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
@@ -1100,5 +1101,43 @@ func TestQueryResolver_BalancesByAccountAddresses(t *testing.T) {
 		assert.Nil(t, results[1].Error)
 		require.Len(t, results[1].Balances, 1)
 		assert.IsType(t, &graphql1.SEP41Balance{}, results[1].Balances[0])
+	})
+
+	t.Run("uses per-request pool from context when available", func(t *testing.T) {
+		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
+		mockNativeBalanceModel := data.NewNativeBalanceModelMock(t)
+		mockAccountContractTokens := data.NewAccountContractTokensModelMock(t)
+		mockRPCService := services.NewRPCServiceMock(t)
+
+		// Inject a request-scoped pool into the context
+		requestPool := pond.NewPool(5)
+		defer requestPool.StopAndWait()
+		ctx := middleware.WithRequestPool(context.Background(), requestPool)
+
+		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 10000000000}, nil)
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return([]data.TrustlineBalance{}, nil)
+		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).Return([]*data.Contract{}, nil)
+		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
+
+		resolver := &queryResolver{
+			&Resolver{
+				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
+				accountContractTokensModel: mockAccountContractTokens,
+				rpcService:                 mockRPCService,
+				pool:                       pond.NewPool(0),
+				config:                     ResolverConfig{MaxAccountsPerBalancesQuery: 10, MaxWorkerPoolSize: 10},
+			},
+		}
+
+		results, err := resolver.BalancesByAccountAddresses(ctx, []string{testAccountAddress})
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, testAccountAddress, results[0].Address)
+		assert.Nil(t, results[0].Error)
+		require.Len(t, results[0].Balances, 1)
+
+		// Verify the request pool was used (it has tasks submitted)
+		assert.Greater(t, requestPool.CompletedTasks(), uint64(0),
+			"request pool should have been used instead of the shared pool")
 	})
 }

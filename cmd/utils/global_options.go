@@ -287,10 +287,10 @@ func GraphQLRateLimitPerSecondOption(configKey *int) *config.ConfigOption {
 func GraphQLRateLimitBurstOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-rate-limit-burst",
-		Usage:       "Maximum burst of GraphQL requests allowed per IP address. Defaults to the per-second rate if not set.",
+		Usage:       "Maximum burst of GraphQL requests allowed per IP address. Set to 0 to use the per-second rate as the burst value.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 20,
+		FlagDefault: 0,
 		Required:    false,
 	}
 }
