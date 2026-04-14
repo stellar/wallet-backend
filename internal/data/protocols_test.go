@@ -84,6 +84,27 @@ func TestProtocolsModel(t *testing.T) {
 		assert.Equal(t, StatusInProgress, status)
 	})
 
+	t.Run("UpdateHistoryMigrationStatus updates status", func(t *testing.T) {
+		cleanUpDB()
+
+		model := &ProtocolsModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.InsertIfNotExists(ctx, dbTx, "SEP41")
+		})
+		require.NoError(t, err)
+
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.UpdateHistoryMigrationStatus(ctx, dbTx, []string{"SEP41"}, StatusInProgress)
+		})
+		require.NoError(t, err)
+
+		var status string
+		err = dbConnectionPool.QueryRow(ctx, `SELECT history_migration_status FROM protocols WHERE id = 'SEP41'`).Scan(&status)
+		require.NoError(t, err)
+		assert.Equal(t, StatusInProgress, status)
+	})
+
 	t.Run("GetByIDs returns matching protocols", func(t *testing.T) {
 		cleanUpDB()
 

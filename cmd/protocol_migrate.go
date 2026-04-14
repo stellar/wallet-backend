@@ -1,0 +1,223 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"go/types"
+	"io"
+
+	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/stellar/go-stellar-sdk/support/config"
+	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/cmd/utils"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/ingest"
+	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services"
+)
+
+type protocolMigrateCmd struct{}
+
+func (c *protocolMigrateCmd) Command() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "protocol-migrate",
+		Short: "Data migration commands for protocol state",
+		Long:  "Parent command for protocol data migrations. Use subcommands to run specific migration tasks.",
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := cmd.Help(); err != nil {
+				log.Fatalf("Error calling help command: %s", err.Error())
+			}
+		},
+	}
+
+	cmd.AddCommand(c.historyCommand())
+
+	return cmd
+}
+
+// historyCmdOpts holds the resolved flag values for `protocol-migrate history`.
+type historyCmdOpts struct {
+	databaseURL            string
+	rpcURL                 string
+	networkPassphrase      string
+	protocolIDs            []string
+	logLevel               string
+	oldestLedgerCursorName string
+	ledgerBackendType      string
+	datastoreConfigPath    string
+	getLedgersLimit        int
+}
+
+func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
+	var opts historyCmdOpts
+
+	cfgOpts := config.ConfigOptions{
+		utils.DatabaseURLOption(&opts.databaseURL),
+		utils.NetworkPassphraseOption(&opts.networkPassphrase),
+		// RPC URL is only required when --ledger-backend-type=rpc; validated in PersistentPreRunE.
+		{
+			Name:        "rpc-url",
+			Usage:       "The URL of the RPC Server. Required when --ledger-backend-type=rpc.",
+			OptType:     types.String,
+			ConfigKey:   &opts.rpcURL,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:        "ledger-backend-type",
+			Usage:       "Type of ledger backend to use for fetching historical ledgers. Options: 'rpc' or 'datastore' (default). Datastore is recommended for migrations because it can reach ledgers outside the RPC retention window.",
+			OptType:     types.String,
+			ConfigKey:   &opts.ledgerBackendType,
+			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
+			Required:    false,
+		},
+		{
+			Name:        "datastore-config-path",
+			Usage:       "Path to TOML config file for datastore backend. Required when --ledger-backend-type=datastore.",
+			OptType:     types.String,
+			ConfigKey:   &opts.datastoreConfigPath,
+			FlagDefault: "config/datastore-pubnet.toml",
+			Required:    false,
+		},
+		{
+			Name:        "get-ledgers-limit",
+			Usage:       "Per-request ledger buffer size for the RPC backend. Ignored for datastore.",
+			OptType:     types.Int,
+			ConfigKey:   &opts.getLedgersLimit,
+			FlagDefault: 10,
+			Required:    false,
+		},
+	}
+
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "Backfill protocol history state from oldest to latest ingested ledger",
+		Long:  "Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors.",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := cfgOpts.RequireE(); err != nil {
+				return fmt.Errorf("requiring values of config options: %w", err)
+			}
+			if err := cfgOpts.SetValues(); err != nil {
+				return fmt.Errorf("setting values of config options: %w", err)
+			}
+
+			if opts.logLevel != "" {
+				ll, err := logrus.ParseLevel(opts.logLevel)
+				if err != nil {
+					return fmt.Errorf("invalid log level %q: %w", opts.logLevel, err)
+				}
+				log.DefaultLogger.SetLevel(ll)
+			}
+
+			if len(opts.protocolIDs) == 0 {
+				return fmt.Errorf("at least one --protocol-id is required")
+			}
+
+			// Per-backend required-field validation.
+			switch opts.ledgerBackendType {
+			case string(ingest.LedgerBackendTypeRPC):
+				if opts.rpcURL == "" {
+					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
+				}
+			case string(ingest.LedgerBackendTypeDatastore):
+				if opts.datastoreConfigPath == "" {
+					return fmt.Errorf("--datastore-config-path is required when --ledger-backend-type=datastore")
+				}
+			default:
+				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
+			}
+			return nil
+		},
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return c.RunHistory(opts)
+		},
+	}
+
+	if err := cfgOpts.Init(cmd); err != nil {
+		log.Fatalf("Error initializing a config option: %s", err.Error())
+	}
+
+	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
+	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
+	cmd.Flags().StringVar(&opts.oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+
+	return cmd
+}
+
+func (c *protocolMigrateCmd) RunHistory(opts historyCmdOpts) error {
+	ctx := context.Background()
+
+	// Build processors from protocol IDs using the dynamic registry
+	var processors []services.ProtocolProcessor
+	for _, pid := range opts.protocolIDs {
+		factory, ok := services.GetProcessor(pid)
+		if !ok {
+			return fmt.Errorf("unknown protocol ID %q — no processor registered", pid)
+		}
+		p := factory()
+		if p == nil {
+			return fmt.Errorf("processor factory for protocol %q returned nil", pid)
+		}
+		processors = append(processors, p)
+	}
+
+	// Open DB connection
+	dbPool, err := db.OpenDBConnectionPool(ctx, opts.databaseURL)
+	if err != nil {
+		return fmt.Errorf("opening database connection: %w", err)
+	}
+	defer dbPool.Close()
+
+	// Create models
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(dbPool, m.DB)
+	if err != nil {
+		return fmt.Errorf("creating models: %w", err)
+	}
+
+	// Build a ledger backend using the same selector the ingest service uses,
+	// so protocol-migrate inherits the datastore path (recommended for
+	// backfills — unbounded history, unlike RPC retention windows).
+	ledgerBackend, err := ingest.NewLedgerBackend(ctx, ingest.Configs{
+		LedgerBackendType:   ingest.LedgerBackendType(opts.ledgerBackendType),
+		DatastoreConfigPath: opts.datastoreConfigPath,
+		NetworkPassphrase:   opts.networkPassphrase,
+		RPCURL:              opts.rpcURL,
+		GetLedgersLimit:     opts.getLedgersLimit,
+	})
+	if err != nil {
+		return fmt.Errorf("creating ledger backend: %w", err)
+	}
+	defer func() {
+		if closer, ok := ledgerBackend.(io.Closer); ok {
+			if closeErr := closer.Close(); closeErr != nil {
+				log.Ctx(ctx).Errorf("error closing ledger backend: %v", closeErr)
+			}
+		}
+	}()
+
+	service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
+		DB:                     dbPool,
+		LedgerBackend:          ledgerBackend,
+		ProtocolsModel:         models.Protocols,
+		ProtocolContractsModel: models.ProtocolContracts,
+		IngestStore:            models.IngestStore,
+		NetworkPassphrase:      opts.networkPassphrase,
+		Processors:             processors,
+		OldestLedgerCursorName: opts.oldestLedgerCursorName,
+	})
+	if err != nil {
+		return fmt.Errorf("creating protocol migrate history service: %w", err)
+	}
+
+	if err := service.Run(ctx, opts.protocolIDs); err != nil {
+		return fmt.Errorf("running protocol migrate history: %w", err)
+	}
+
+	return nil
+}
