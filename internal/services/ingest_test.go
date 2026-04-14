@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var (
@@ -380,7 +382,7 @@ func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
 		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `duplicate protocol processor ID "dup-id"`)
+		assert.Contains(t, err.Error(), `duplicate key "dup-id"`)
 	})
 }
 
@@ -649,116 +651,6 @@ func Test_analyzeBatchResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			numFailed := analyzeBatchResults(ctx, tc.results)
 			assert.Equal(t, tc.wantFailures, numFailed)
-		})
-	}
-}
-
-func Test_ingestService_getLedgerWithRetry(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	testCases := []struct {
-		name            string
-		setupBackend    func(*LedgerBackendMock)
-		ctxFunc         func() (context.Context, context.CancelFunc)
-		wantErr         bool
-		wantErrContains string
-	}{
-		{
-			name: "success_on_first_try",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "success_after_retries",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				// Fail twice, then succeed
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("temporary error")).Twice()
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "context_cancelled_immediately",
-			setupBackend: func(lb *LedgerBackendMock) {
-				// May or may not be called depending on timing
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("error")).Maybe()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				cancelledCtx, cancel := context.WithCancel(ctx)
-				cancel() // Cancel immediately
-				return cancelledCtx, cancel
-			},
-			wantErr:         true,
-			wantErrContains: "context cancelled",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			m := metrics.NewMetrics(prometheus.NewRegistry())
-
-			models, err := data.NewModels(dbConnectionPool, m.DB)
-			require.NoError(t, err)
-
-			mockLedgerBackend := &LedgerBackendMock{}
-			tc.setupBackend(mockLedgerBackend)
-			defer mockLedgerBackend.AssertExpectations(t)
-
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-
-			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-			})
-			require.NoError(t, err)
-
-			testCtx, cancel := tc.ctxFunc()
-			defer cancel()
-
-			ledger, err := svc.getLedgerWithRetry(testCtx, mockLedgerBackend, 100)
-			if tc.wantErr {
-				require.Error(t, err)
-				if tc.wantErrContains != "" {
-					assert.Contains(t, err.Error(), tc.wantErrContains)
-				}
-			} else {
-				require.NoError(t, err)
-
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				assert.Equal(t, meta, ledger)
-			}
 		})
 	}
 }
@@ -2630,11 +2522,11 @@ func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Helper()
 	_, err := pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		fmt.Sprintf("protocol_%s_history_cursor", protocolID), historyCursor)
+		utils.ProtocolHistoryCursorName(protocolID), historyCursor)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		fmt.Sprintf("protocol_%s_current_state_cursor", protocolID), currentStateCursor)
+		utils.ProtocolCurrentStateCursorName(protocolID), currentStateCursor)
 	require.NoError(t, err)
 }
 
@@ -2884,11 +2776,6 @@ func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedP
 	require.NoError(t, err)
 }
 
-// produceProtocolState runs all registered protocol processors against a ledger.
-func (m *ingestService) produceProtocolState(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32) error {
-	return m.produceProtocolStateForProcessors(ctx, ledgerMeta, ledgerSeq, m.protocolProcessors)
-}
-
 func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -2917,7 +2804,7 @@ func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 		},
 	}
 
-	err := svc.produceProtocolState(ctx, xdr.LedgerCloseMeta{}, 123)
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, svc.protocolProcessors)
 	require.NoError(t, err)
 }
 
@@ -2956,30 +2843,28 @@ func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.AnythingOfType("[]string")).
-		Return(nil, fmt.Errorf("db error")).Once()
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 2 && slices.Contains(ids, "proto_ok") && slices.Contains(ids, "proto_fail")
+	})).Return(nil, fmt.Errorf("db error")).Once()
 
 	svc := &ingestService{
 		appMetrics: m,
 		models:     &data.Models{ProtocolContracts: protocolContractsModel},
 		protocolProcessors: map[string]ProtocolProcessor{
-			"proto_a": NewProtocolProcessorMock(t),
-			"proto_b": NewProtocolProcessorMock(t),
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
 		},
 		protocolContractCache: &protocolContractCache{
 			contractsByProtocol: make(map[string][]data.ProtocolContracts),
 		},
 	}
 
-	// First call triggers refresh (cache is empty, so stale)
-	svc.getProtocolContracts(ctx, "proto_a", 200)
+	svc.refreshProtocolContractCache(ctx, 200)
 
-	// lastRefreshLedger must advance despite failure
+	// lastRefreshLedger must advance despite batch failure so we don't
+	// hammer the DB on every subsequent ledger (staleness is gated by
+	// getProtocolContracts against this value).
 	assert.Equal(t, uint32(200), svc.protocolContractCache.lastRefreshLedger)
-
-	// Calling again at currentLedger+1 should be a cache hit (not stale yet).
-	// The .Once() expectation on the mock ensures no extra DB calls happen.
-	svc.getProtocolContracts(ctx, "proto_a", 201)
 }
 
 func Test_ingestService_refreshProtocolContractCache_Failure_PreservesPreviousEntries(t *testing.T) {
@@ -2988,30 +2873,32 @@ func Test_ingestService_refreshProtocolContractCache_Failure_PreservesPreviousEn
 	ctx := context.Background()
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 
-	previousContracts := map[string][]data.ProtocolContracts{
-		"proto_a": {{ContractID: types.HashBytea(txHash1)}},
-		"proto_b": {{ContractID: types.HashBytea(txHash2)}},
-	}
+	previousContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1)}}
 
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.AnythingOfType("[]string")).
-		Return(nil, fmt.Errorf("db error")).Once()
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 2 && slices.Contains(ids, "proto_ok") && slices.Contains(ids, "proto_fail")
+	})).Return(nil, fmt.Errorf("db error")).Once()
 
 	svc := &ingestService{
 		appMetrics: m,
 		models:     &data.Models{ProtocolContracts: protocolContractsModel},
 		protocolProcessors: map[string]ProtocolProcessor{
-			"proto_a": NewProtocolProcessorMock(t),
-			"proto_b": NewProtocolProcessorMock(t),
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
 		},
 		protocolContractCache: &protocolContractCache{
-			contractsByProtocol: previousContracts,
-			lastRefreshLedger:   0, // force refresh
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"proto_ok":   previousContracts,
+				"proto_fail": previousContracts,
+			},
+			lastRefreshLedger: 0, // force refresh
 		},
 	}
 
 	svc.refreshProtocolContractCache(ctx, 300)
 
-	// All previous entries preserved on failure
-	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol)
+	// Batch failure → both protocols' previous entries are preserved wholesale.
+	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_ok"])
+	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_fail"])
 }

@@ -34,6 +34,7 @@ type Protocols struct {
 // ProtocolsModelInterface defines the interface for protocols operations.
 type ProtocolsModelInterface interface {
 	UpdateClassificationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
+	UpdateHistoryMigrationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
 	GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error)
 	GetClassified(ctx context.Context) ([]Protocols, error)
 	InsertIfNotExists(ctx context.Context, dbTx pgx.Tx, protocolID string) error
@@ -67,6 +68,30 @@ func (m *ProtocolsModel) UpdateClassificationStatus(ctx context.Context, dbTx pg
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("UpdateClassificationStatus", "protocols", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("updating classification status for protocols: %w", err)
+	}
+	return nil
+}
+
+// UpdateHistoryMigrationStatus updates history_migration_status and updated_at for the given protocol IDs.
+func (m *ProtocolsModel) UpdateHistoryMigrationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+	if len(protocolIDs) == 0 {
+		return nil
+	}
+
+	const query = `
+		UPDATE protocols
+		SET history_migration_status = $1, updated_at = NOW()
+		WHERE id = ANY($2)
+	`
+
+	start := time.Now()
+	_, err := dbTx.Exec(ctx, query, status, protocolIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("UpdateHistoryMigrationStatus", "protocols").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("UpdateHistoryMigrationStatus", "protocols").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("UpdateHistoryMigrationStatus", "protocols", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("updating history migration status for protocols: %w", err)
 	}
 	return nil
 }

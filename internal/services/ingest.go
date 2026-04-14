@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -140,16 +141,16 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
 	// Build protocol processor map from slice
-	ppMap := make(map[string]ProtocolProcessor, len(cfg.ProtocolProcessors))
 	for i, p := range cfg.ProtocolProcessors {
 		if p == nil {
 			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
 		}
-		id := p.ProtocolID()
-		if _, exists := ppMap[id]; exists {
-			return nil, fmt.Errorf("duplicate protocol processor ID %q", id)
-		}
-		ppMap[id] = p
+	}
+	ppMap, err := utils.BuildMap(cfg.ProtocolProcessors, func(p ProtocolProcessor) string {
+		return p.ProtocolID()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
 	var ppCache *protocolContractCache
@@ -198,49 +199,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
-}
-
-// getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
-// It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
-// LedgerFetchDuration is always observed (including on error/exhaustion paths) to capture full retry latency.
-func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
-	fetchStart := time.Now()
-	defer func() {
-		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
-	}()
-
-	var lastErr error
-	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
-		default:
-		}
-
-		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
-		if err == nil {
-			return ledgerMeta, nil
-		}
-		lastErr = err
-
-		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxRetryBackoff {
-			backoff = maxRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-	}
-	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("ledger_fetch").Inc()
-	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ledger_fetch").Inc()
-	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
 // processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
