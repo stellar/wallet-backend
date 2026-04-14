@@ -370,27 +370,3 @@ func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, 
 	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
 }
 
-type KnownWasmModelMock struct {
-	mock.Mock
-}
-
-var _ KnownWasmModelInterface = (*KnownWasmModelMock)(nil)
-
-// NewKnownWasmModelMock creates a new instance of KnownWasmModelMock.
-func NewKnownWasmModelMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *KnownWasmModelMock {
-	mockModel := &KnownWasmModelMock{}
-	mockModel.Mock.Test(t)
-
-	t.Cleanup(func() { mockModel.AssertExpectations(t) })
-
-	return mockModel
-}
-
-func (m *KnownWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []KnownWasm) error {
-	args := m.Called(ctx, dbTx, wasms)
-	return args.Error(0)
-}

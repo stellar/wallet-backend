@@ -129,12 +129,6 @@ type ingestService struct {
 	eligibleProtocolProcessors map[string]ProtocolProcessor
 }
 
-// SetEligibleProtocolProcessorsForTest sets the eligible protocol processors for testing.
-// In production, this is set by ingestLiveLedgers before each PersistLedgerData call.
-func (m *ingestService) SetEligibleProtocolProcessorsForTest(processors map[string]ProtocolProcessor) {
-	m.eligibleProtocolProcessors = processors
-}
-
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
