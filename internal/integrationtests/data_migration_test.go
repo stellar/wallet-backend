@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -186,6 +188,8 @@ func (b *singleLedgerBackend) Close() error {
 type rangeLedgerBackend struct {
 	startSeq, endSeq uint32
 	ledgerMeta       xdr.LedgerCloseMeta
+	onMiss           func(seq uint32)
+	onMissOnce       sync.Once
 }
 
 func (b *rangeLedgerBackend) GetLatestLedgerSequence(context.Context) (uint32, error) {
@@ -195,6 +199,16 @@ func (b *rangeLedgerBackend) GetLatestLedgerSequence(context.Context) (uint32, e
 func (b *rangeLedgerBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
 	if sequence >= b.startSeq && sequence <= b.endSeq {
 		return b.ledgerMeta, nil
+	}
+	if b.onMiss != nil {
+		var called bool
+		b.onMissOnce.Do(func() {
+			b.onMiss(sequence)
+			called = true
+		})
+		if called {
+			return b.ledgerMeta, nil
+		}
 	}
 	<-ctx.Done()
 	return xdr.LedgerCloseMeta{}, ctx.Err()
@@ -287,9 +301,6 @@ func (s *DataMigrationTestSuite) newHistoryMigrationService(
 		NetworkPassphrase:      "Test SDF Network ; September 2015",
 		Processors:             []services.ProtocolProcessor{processor},
 		OldestLedgerCursorName: data.OldestLedgerCursorName,
-		// Short poll so the integration test converges quickly once the
-		// migration reaches the RPC tip.
-		ConvergencePollTimeout: 500 * time.Millisecond,
 	})
 	s.Require().NoError(err)
 	return svc
@@ -630,6 +641,15 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 		endSeq:     baseSeq + 2,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
+	// When the migration requests the first ledger past the range, simulate
+	// live ingestion racing ahead by advancing the cursor. This triggers a CAS
+	// failure, handing off the tracker and letting the migration exit cleanly.
+	rangeBackend.onMiss = func(seq uint32) {
+		//nolint:errcheck
+		pool.ExecContext(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
+			strconv.FormatUint(uint64(seq+100), 10), "protocol_SEP41_history_cursor")
+	}
 
 	migrationSvc := s.newHistoryMigrationService(
 		pool, models, rangeBackend, processor,
@@ -637,10 +657,6 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 
 	err = migrationSvc.Run(ctx, []string{sep41ProtocolID})
 	s.Require().NoError(err, "history migration should complete successfully")
-
-	historyCursor, err := models.IngestStore.Get(ctx, "protocol_SEP41_history_cursor")
-	s.Require().NoError(err)
-	s.Assert().Equal(baseSeq+2, historyCursor, "history cursor should advance to the tip of the migration range")
 
 	historyWritten, err := models.IngestStore.Get(ctx, "test_SEP41_history_written")
 	s.Require().NoError(err)
@@ -657,6 +673,9 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 		"PersistHistory should be called for every ledger in the migration range")
 
 	// Phase 3: Live ingestion handoff — process baseSeq+3, proving CAS picks up where migration left off.
+	// Reset the history cursor to baseSeq+2 (the onMiss callback advanced it
+	// past this point to simulate live ingestion handoff during migration).
+	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", baseSeq+2)
 	const liveCursorName = "test_handoff_live_cursor"
 	s.upsertIngestStoreValue(ctx, pool, liveCursorName, baseSeq+2)
 	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+3)

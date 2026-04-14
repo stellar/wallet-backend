@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -23,14 +22,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// testConvergenceTimeout keeps tests fast: 200ms is long enough for a block to
-// land in a local goroutine and short enough that "no new ledger" cases don't
-// dominate test runtime.
-const testConvergenceTimeout = 200 * time.Millisecond
-
 // multiLedgerBackend is a test double that serves ledger meta for a range of ledgers.
+// When GetLedger is called for a missing sequence, it fires the optional onMiss
+// callback once (which can inject new ledgers or advance DB cursors to simulate
+// live ingestion racing ahead), re-checks the map, and blocks on ctx.Done() if
+// the ledger is still absent.
 type multiLedgerBackend struct {
-	ledgers map[uint32]xdr.LedgerCloseMeta
+	ledgers    map[uint32]xdr.LedgerCloseMeta
+	onMiss     func(seq uint32)
+	onMissOnce sync.Once
 }
 
 func (b *multiLedgerBackend) GetLatestLedgerSequence(_ context.Context) (uint32, error) {
@@ -44,6 +44,12 @@ func (b *multiLedgerBackend) GetLatestLedgerSequence(_ context.Context) (uint32,
 }
 
 func (b *multiLedgerBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
+	if meta, ok := b.ledgers[sequence]; ok {
+		return meta, nil
+	}
+	if b.onMiss != nil {
+		b.onMissOnce.Do(func() { b.onMiss(sequence) })
+	}
 	if meta, ok := b.ledgers[sequence]; ok {
 		return meta, nil
 	}
@@ -63,18 +69,31 @@ func (b *multiLedgerBackend) Close() error {
 	return nil
 }
 
+// simulateHandoffOnMiss returns an onMiss callback that injects a dummy ledger
+// into the backend and advances all protocol cursors in the DB, simulating live
+// ingestion racing ahead. This causes the subsequent CAS to fail, handing off
+// each tracker.
+func simulateHandoffOnMiss(backend *multiLedgerBackend, dbPool db.ConnectionPool, protocolIDs []string) func(uint32) {
+	return func(seq uint32) {
+		backend.ledgers[seq] = dummyLedgerMeta(seq)
+		for _, pid := range protocolIDs {
+			cursor := utils.ProtocolHistoryCursorName(pid)
+			//nolint:errcheck
+			dbPool.ExecContext(context.Background(),
+				`UPDATE ingest_store SET value = $1 WHERE key = $2`,
+				strconv.FormatUint(uint64(seq+100), 10), cursor)
+		}
+	}
+}
+
 // transientErrorBackend wraps multiLedgerBackend and injects transient errors
-// on the initial PrepareRange call and on missing-ledger GetLedger calls
-// before delegating normally. Simulates RPC blips that should not be mistaken
-// for convergence.
+// on the initial PrepareRange call before delegating normally. Simulates RPC
+// blips that should be retried.
 type transientErrorBackend struct {
 	multiLedgerBackend
 	// prepareFailsLeft counts how many PrepareRange calls should return a
 	// transient error before succeeding.
 	prepareFailsLeft atomic.Int32
-	// missingGetLedgerFailsLeft counts how many GetLedger calls for missing
-	// ledgers should return a transient error instead of blocking.
-	missingGetLedgerFailsLeft atomic.Int32
 }
 
 func (b *transientErrorBackend) PrepareRange(ctx context.Context, r ledgerbackend.Range) error {
@@ -82,15 +101,6 @@ func (b *transientErrorBackend) PrepareRange(ctx context.Context, r ledgerbacken
 		return fmt.Errorf("transient RPC error: connection refused")
 	}
 	return b.multiLedgerBackend.PrepareRange(ctx, r)
-}
-
-func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
-	if _, ok := b.multiLedgerBackend.ledgers[sequence]; !ok {
-		if b.missingGetLedgerFailsLeft.Add(-1) >= 0 {
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("transient RPC error: connection reset")
-		}
-	}
-	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
 
 // rangeTrackingBackend wraps multiLedgerBackend and records every
@@ -274,7 +284,7 @@ func getIngestStoreValue(t *testing.T, ctx context.Context, dbPool db.Connection
 }
 
 func TestProtocolMigrateHistory(t *testing.T) {
-	t.Run("happy path — single protocol, 3 ledgers, all CAS succeed", func(t *testing.T) {
+	t.Run("happy path — single protocol, 3 ledgers, CAS handoff after last", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
@@ -304,23 +314,21 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				102: dummyLedgerMeta(102),
 			},
 		}
+		// When the migration requests the first ledger past the available set,
+		// simulate live ingestion racing ahead: inject a dummy ledger and advance
+		// the cursor so the subsequent CAS fails and the tracker is handed off.
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err)
-
-		// Verify cursor advanced
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(102), cursorVal)
 
 		// Verify PersistHistory actually committed sentinel values to the DB
 		for _, seq := range []uint32{100, 101, 102} {
@@ -329,31 +337,36 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			assert.Equal(t, seq, val, "sentinel value for ledger %d", seq)
 		}
 
-		// Verify processor recorded all inputs
-		require.Len(t, processor.processedInputs, 3)
-		for i, seq := range []uint32{100, 101, 102} {
+		// Verify processor recorded all inputs (100-102 real + 103 dummy handoff ledger)
+		require.Len(t, processor.processedInputs, 4)
+		for i, seq := range []uint32{100, 101, 102, 103} {
 			assert.Equal(t, seq, processor.processedInputs[i].LedgerSequence)
 			assert.Equal(t, "Test SDF Network ; September 2015", processor.processedInputs[i].NetworkPassphrase)
 		}
+		// PersistHistory is called for 100-102 (CAS succeeds) but NOT for 103 (CAS fails → handoff)
 		assert.Equal(t, []uint32{100, 101, 102}, processor.persistedSeqs)
 	})
 
-	t.Run("CAS failure (handoff) — CAS fails at ledger N, status success", func(t *testing.T) {
+	t.Run("CAS failure (handoff) — live ingestion advances cursor, CAS fails, status success", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
 		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
 		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
-		// Pre-set cursor to 100, so processing starts at 101
-		// But we'll simulate CAS failure at 101 by having someone else advance it
-		setIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor", 100)
 
 		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
 		require.NoError(t, err)
 
 		protocolsModel := data.NewProtocolsModelMock(t)
 		protocolContractsModel := data.NewProtocolContractsModelMock(t)
-		processorMock := NewProtocolProcessorMock(t)
+
+		// cursorAdvancingProcessor advances the cursor at ledger 100,
+		// simulating live ingestion racing ahead and causing CAS failure.
+		processor := &cursorAdvancingProcessor{
+			recordingProcessor: recordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:             dbPool,
+			advanceAtSeq:       100,
+		}
 
 		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
@@ -361,14 +374,11 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Maybe()
-
-		processorMock.On("ProtocolID").Return("testproto")
-		processorMock.On("ProcessLedger", mock.Anything, mock.Anything).Return(nil).Maybe()
-		processorMock.On("PersistHistory", mock.Anything, mock.Anything).Return(nil).Maybe()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
 				101: dummyLedgerMeta(101),
 				102: dummyLedgerMeta(102),
 			},
@@ -378,17 +388,17 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
-			Processors: []ProtocolProcessor{processorMock},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
-		// Simulate CAS failure: advance cursor externally before service runs
-		setIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor", 105)
-
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err) // Handoff is success
+
+		// Only ledger 100 was processed (CAS failed there → handoff)
+		require.Len(t, processor.processedInputs, 1)
+		assert.Equal(t, uint32(100), processor.processedInputs[0].LedgerSequence)
+		assert.Empty(t, processor.persistedSeqs) // CAS failed, PersistHistory not called
 	})
 
 	t.Run("validation: classification not complete", func(t *testing.T) {
@@ -410,8 +420,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -438,8 +446,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -465,8 +471,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -504,13 +508,13 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				101: dummyLedgerMeta(101),
 			},
 		}
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
@@ -518,14 +522,11 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		err = svc.Run(ctx, []string{"testproto", "testproto", "testproto"})
 		require.NoError(t, err)
 
-		// Single cursor write — only one tracker was created.
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(101), cursorVal)
-
-		// Each ledger processed exactly once.
-		require.Len(t, processor.processedInputs, 2)
+		// Each ledger processed exactly once (100, 101 real + 102 handoff dummy).
+		require.Len(t, processor.processedInputs, 3)
 		assert.Equal(t, uint32(100), processor.processedInputs[0].LedgerSequence)
 		assert.Equal(t, uint32(101), processor.processedInputs[1].LedgerSequence)
+		// PersistHistory called for 100-101 (CAS succeeds), not for 102 (CAS fails → handoff)
 		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
 	})
 
@@ -559,22 +560,18 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				103: dummyLedgerMeta(103),
 			},
 		}
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err)
-
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(103), cursorVal)
 
 		// Verify sentinels exist only for 102, 103 (not 100, 101)
 		for _, seq := range []uint32{100, 101} {
@@ -624,8 +621,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -671,8 +666,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -686,7 +679,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		assert.Equal(t, uint32(99), cursorVal) // initialized to oldest-1
 	})
 
-	t.Run("already at tip — cursor equals latest, immediate success", func(t *testing.T) {
+	t.Run("already at tip — cursor equals latest, handoff on first fetch", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
@@ -710,13 +703,14 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{}}
+		// Cursor is already at 105; the loop starts at 106 which doesn't exist.
+		// Simulate live ingestion taking over so CAS fails on the first fetch.
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
@@ -724,10 +718,10 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err)
 
-		// No processing happened — no sentinels should exist
-		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 105)
-		assert.False(t, ok, "no sentinel should exist when already at tip")
-		assert.Empty(t, processor.processedInputs)
+		// Only the handoff dummy ledger was processed; no sentinels persisted
+		// because the CAS fails immediately (cursor was advanced by onMiss).
+		require.Len(t, processor.processedInputs, 1)
+		assert.Empty(t, processor.persistedSeqs)
 	})
 
 	t.Run("multiple protocols — both process each ledger via shared fetch", func(t *testing.T) {
@@ -763,13 +757,12 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				101: dummyLedgerMeta(101),
 			},
 		}
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"proto1", "proto2"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{proc1, proc2},
 		})
 		require.NoError(t, err)
@@ -777,12 +770,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		err = svc.Run(ctx, []string{"proto1", "proto2"})
 		require.NoError(t, err)
 
-		cursor1 := getIngestStoreValue(t, ctx, dbPool, "protocol_proto1_history_cursor")
-		cursor2 := getIngestStoreValue(t, ctx, dbPool, "protocol_proto2_history_cursor")
-		assert.Equal(t, uint32(101), cursor1)
-		assert.Equal(t, uint32(101), cursor2)
-
-		// Verify each protocol has independently keyed sentinels
+		// Verify each protocol has independently keyed sentinels for the real ledgers
 		for _, id := range []string{"proto1", "proto2"} {
 			for _, seq := range []uint32{100, 101} {
 				val, ok := getHistorySentinel(t, ctx, dbPool, id, seq)
@@ -832,13 +820,12 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				102: dummyLedgerMeta(102),
 			},
 		}
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"proto1", "proto2"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{proc1, proc2},
 		})
 		require.NoError(t, err)
@@ -846,21 +833,17 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		err = svc.Run(ctx, []string{"proto1", "proto2"})
 		require.NoError(t, err)
 
-		cursor1 := getIngestStoreValue(t, ctx, dbPool, "protocol_proto1_history_cursor")
-		cursor2 := getIngestStoreValue(t, ctx, dbPool, "protocol_proto2_history_cursor")
-		assert.Equal(t, uint32(102), cursor1)
-		assert.Equal(t, uint32(102), cursor2)
-
-		// proto1 should process 99-102, proto2 should process 101-102
-		require.Len(t, proc1.processedInputs, 4)
-		for i, seq := range []uint32{99, 100, 101, 102} {
+		// proto1 should process 99-102 + 103 handoff, proto2 should process 101-102 + 103 handoff
+		require.Len(t, proc1.processedInputs, 5)
+		for i, seq := range []uint32{99, 100, 101, 102, 103} {
 			assert.Equal(t, seq, proc1.processedInputs[i].LedgerSequence)
 		}
-		require.Len(t, proc2.processedInputs, 2)
-		for i, seq := range []uint32{101, 102} {
+		require.Len(t, proc2.processedInputs, 3)
+		for i, seq := range []uint32{101, 102, 103} {
 			assert.Equal(t, seq, proc2.processedInputs[i].LedgerSequence)
 		}
 
+		// PersistHistory called for real ledgers only (CAS fails on 103)
 		assert.Equal(t, []uint32{99, 100, 101, 102}, proc1.persistedSeqs)
 		assert.Equal(t, []uint32{101, 102}, proc2.persistedSeqs)
 	})
@@ -904,13 +887,14 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				102: dummyLedgerMeta(102),
 			},
 		}
+		// proto1 hands off via cursorAdvancingProcessor at 100; proto2 still needs
+		// handoff after processing 102. onMiss advances proto2's cursor.
+		backend.onMiss = simulateHandoffOnMiss(backend, dbPool, []string{"proto2"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{proc1, proc2},
 		})
 		require.NoError(t, err)
@@ -918,9 +902,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		err = svc.Run(ctx, []string{"proto1", "proto2"})
 		require.NoError(t, err)
 
-		// proto2 should have processed all 3 ledgers
-		cursor2 := getIngestStoreValue(t, ctx, dbPool, "protocol_proto2_history_cursor")
-		assert.Equal(t, uint32(102), cursor2)
+		// proto2 should have processed 100-102 real + 103 handoff dummy
 		assert.Equal(t, []uint32{100, 101, 102}, proc2.persistedSeqs)
 
 		// proto1 should have processed only ledger 100 (then CAS failed, handed off)
@@ -929,7 +911,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		// proto1 PersistHistory was NOT called because CAS failed
 		assert.Empty(t, proc1.persistedSeqs)
 
-		// Verify proto2 sentinels exist for all ledgers
+		// Verify proto2 sentinels exist for the real ledgers
 		for _, seq := range []uint32{100, 101, 102} {
 			val, ok := getHistorySentinel(t, ctx, dbPool, "proto2", seq)
 			require.True(t, ok, "sentinel for proto2 ledger %d should exist", seq)
@@ -989,8 +971,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{proc1, proc2},
 		})
 		require.NoError(t, err)
@@ -1022,8 +1002,6 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-
 			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
@@ -1032,7 +1010,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		require.NoError(t, err) // No-op, nothing to do
 	})
 
-	t.Run("transient PrepareRange error retries then converges", func(t *testing.T) {
+	t.Run("transient PrepareRange error retries then succeeds", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
@@ -1061,6 +1039,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				},
 			},
 		}
+		backend.onMiss = simulateHandoffOnMiss(&backend.multiLedgerBackend, dbPool, []string{"testproto"})
 		// First PrepareRange call fails transiently; RetryWithBackoff must retry
 		// until success. A second call would be the retry and will succeed.
 		backend.prepareFailsLeft.Store(1)
@@ -1069,68 +1048,14 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
 		err = svc.Run(ctx, []string{"testproto"})
 		require.NoError(t, err)
 
-		// Verify all ledgers were processed — the transient error did not cause premature convergence.
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(101), cursorVal)
-		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
-	})
-
-	t.Run("transient GetLedger error retries then converges", func(t *testing.T) {
-		ctx := context.Background()
-		dbPool, ingestStore := setupTestDB(t)
-
-		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
-		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
-
-		_, err := dbPool.ExecContext(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
-		require.NoError(t, err)
-
-		protocolsModel := data.NewProtocolsModelMock(t)
-		protocolContractsModel := data.NewProtocolContractsModelMock(t)
-		processor := &recordingProcessor{id: "testproto", ingestStore: ingestStore}
-
-		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
-			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
-		}, nil)
-		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
-
-		backend := &transientErrorBackend{
-			multiLedgerBackend: multiLedgerBackend{
-				ledgers: map[uint32]xdr.LedgerCloseMeta{
-					100: dummyLedgerMeta(100),
-					101: dummyLedgerMeta(101),
-				},
-			},
-		}
-		// First GetLedger call for the convergence poll (ledger 102, which doesn't exist)
-		// will fail transiently instead of blocking until context done.
-		backend.missingGetLedgerFailsLeft.Store(1)
-
-		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
-			DB: dbPool, LedgerBackend: backend,
-			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
-			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
-		})
-		require.NoError(t, err)
-
-		err = svc.Run(ctx, []string{"testproto"})
-		require.NoError(t, err)
-
-		// Verify all ledgers were processed — the transient error did not cause premature convergence.
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(101), cursorVal)
+		// Verify all real ledgers were processed.
 		assert.Equal(t, []uint32{100, 101}, processor.persistedSeqs)
 	})
 
@@ -1173,13 +1098,15 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			backend.multiLedgerBackend.ledgers[103] = dummyLedgerMeta(103)
 			backend.mu.Unlock()
 		}
+		// After 100-103 are processed, ledger 104 misses on the inner backend.
+		// Simulate live ingestion handoff so the loop terminates.
+		backend.multiLedgerBackend.onMiss = simulateHandoffOnMiss(&backend.multiLedgerBackend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
@@ -1196,9 +1123,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 		require.Len(t, ranges, 1, "PrepareRange must be called exactly once")
 		assert.False(t, ranges[0].bounded, "PrepareRange must be unbounded")
 
-		// All ledgers 100-103 processed despite the tip advancing mid-run.
-		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
-		assert.Equal(t, uint32(103), cursorVal)
+		// All ledgers 100-103 processed plus handoff dummy (104).
 		assert.Equal(t, []uint32{100, 101, 102, 103}, processor.persistedSeqs)
 
 		for _, seq := range []uint32{100, 101, 102, 103} {
@@ -1240,13 +1165,13 @@ func TestProtocolMigrateHistory(t *testing.T) {
 				},
 			},
 		}
+		backend.multiLedgerBackend.onMiss = simulateHandoffOnMiss(&backend.multiLedgerBackend, dbPool, []string{"testproto"})
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
@@ -1257,11 +1182,9 @@ func TestProtocolMigrateHistory(t *testing.T) {
 	})
 
 	t.Run("context cancelled during fetch — returns context error, status failed", func(t *testing.T) {
-		// Aditya review comment #8: the ctx.Done() select inside the fetch loop
-		// had no test coverage. Deterministic: we cancel the parent context from
-		// inside a GetLedger onMiss hook (ledger 101 is absent), so cancellation
-		// fires while fetchLedgerOrConverge is trying to serve 101 — before any
-		// tracker processes it.
+		// Cancel the parent context from inside a GetLedger onMiss hook (ledger
+		// 101 is absent), so cancellation fires while RetryWithBackoff is trying
+		// to fetch 101 — before any tracker processes it.
 		parentCtx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
@@ -1290,16 +1213,14 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			},
 		}
 		// On the first miss (seq 101 is absent), cancel the parent context.
-		// fetchLedgerOrConverge then sees ctx.Err() != nil and returns a
-		// "context cancelled" error.
+		// GetLedger then unblocks via ctx.Done() and returns a context error.
 		backend.onMiss = func(_ uint32) { cancel() }
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processor},
+			Processors: []ProtocolProcessor{processor},
 		})
 		require.NoError(t, err)
 
@@ -1344,8 +1265,7 @@ func TestProtocolMigrateHistory(t *testing.T) {
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
-			ConvergencePollTimeout: testConvergenceTimeout,
-			Processors:             []ProtocolProcessor{processorMock},
+			Processors: []ProtocolProcessor{processorMock},
 		})
 		require.NoError(t, err)
 

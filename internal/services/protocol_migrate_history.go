@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -15,12 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/utils"
-)
-
-const (
-	// defaultConvergencePollTimeout bounds how long a single GetLedger call may
-	// block waiting for a new ledger at the tip. Exceeding it signals convergence.
-	defaultConvergencePollTimeout = 5 * time.Second
 )
 
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
@@ -48,7 +41,6 @@ type protocolMigrateHistoryService struct {
 	networkPassphrase      string
 	processors             map[string]ProtocolProcessor
 	oldestLedgerCursorName string
-	convergencePollTimeout time.Duration
 }
 
 // ProtocolMigrateHistoryConfig holds the configuration for creating a protocolMigrateHistoryService.
@@ -61,9 +53,6 @@ type ProtocolMigrateHistoryConfig struct {
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
 	OldestLedgerCursorName string
-	// ConvergencePollTimeout optionally overrides the per-ledger fetch deadline
-	// used to detect convergence at the RPC tip. Zero uses defaultConvergencePollTimeout.
-	ConvergencePollTimeout time.Duration
 }
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
@@ -85,11 +74,6 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		oldestCursor = data.OldestLedgerCursorName
 	}
 
-	pollTimeout := cfg.ConvergencePollTimeout
-	if pollTimeout == 0 {
-		pollTimeout = defaultConvergencePollTimeout
-	}
-
 	return &protocolMigrateHistoryService{
 		db:                     cfg.DB,
 		ledgerBackend:          cfg.LedgerBackend,
@@ -99,7 +83,6 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		networkPassphrase:      cfg.NetworkPassphrase,
 		processors:             ppMap,
 		oldestLedgerCursorName: oldestCursor,
-		convergencePollTimeout: pollTimeout,
 	}, nil
 }
 
@@ -221,14 +204,12 @@ func (s *protocolMigrateHistoryService) validate(ctx context.Context, protocolID
 }
 
 // processAllProtocols runs history migration for all protocols using ledger-first iteration.
-// Each ledger is fetched once and processed by all eligible protocols, avoiding redundant RPC calls.
-//
-// The backend is prepared exactly once with an UnboundedRange starting at the
-// minimum tracker cursor + 1. Convergence with live ingestion is detected in
-// two ways:
-//   - Per-protocol CAS failure (live ingestion advanced the cursor past us) → handoff.
-//   - GetLedger blocks past convergencePollTimeout because no newer ledger is
-//     available at the RPC tip → all remaining work is done.
+// Each ledger is fetched once and processed by all eligible protocols, avoiding redundant
+// backend calls. The backend is prepared exactly once with an UnboundedRange starting at
+// the minimum tracker cursor + 1. Convergence with live ingestion is detected by
+// per-protocol CAS failure: when live ingestion advances a protocol's cursor past the
+// migration's position, the CAS loses and the tracker is marked as handed off. The loop
+// exits once every tracker has been handed off.
 func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context, protocolIDs []string) ([]string, error) {
 	oldestLedger, err := s.ingestStore.Get(ctx, s.oldestLedgerCursorName)
 	if err != nil {
@@ -277,11 +258,7 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			continue
 		}
 
-		ledgerMeta, fetchErr := s.fetchLedgerOrConverge(ctx, seq)
-		if errors.Is(fetchErr, errConverged) {
-			log.Ctx(ctx).Infof("Converged at ledger %d (no new ledger within %v)", seq-1, s.convergencePollTimeout)
-			return handedOffProtocolIDs(trackers), nil
-		}
+		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
 		if fetchErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 		}
@@ -299,54 +276,6 @@ func (s *protocolMigrateHistoryService) processAllProtocols(ctx context.Context,
 			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
 		}
 	}
-}
-
-// errConverged signals that a GetLedger poll hit its deadline without a new
-// ledger arriving — migration has caught up to the RPC tip.
-var errConverged = errors.New("converged: no new ledger within poll timeout")
-
-// fetchLedgerOrConverge fetches a single ledger, retrying on transient RPC errors
-// with exponential backoff. Returns errConverged when the per-call deadline
-// elapses without a response (signaling we've caught up to the tip). Returns
-// the wrapped parent-context error if the caller's context is cancelled.
-func (s *protocolMigrateHistoryService) fetchLedgerOrConverge(ctx context.Context, seq uint32) (xdr.LedgerCloseMeta, error) {
-	var lastErr error
-	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", err)
-		}
-
-		pollCtx, cancel := context.WithTimeout(ctx, s.convergencePollTimeout)
-		meta, err := s.ledgerBackend.GetLedger(pollCtx, seq)
-		pollDeadline := pollCtx.Err() == context.DeadlineExceeded
-		cancel()
-
-		if err == nil {
-			return meta, nil
-		}
-		if ctx.Err() != nil {
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
-		}
-		// If the per-call deadline fired with no result, treat as convergence.
-		if pollDeadline || errors.Is(err, context.DeadlineExceeded) {
-			return xdr.LedgerCloseMeta{}, errConverged
-		}
-		lastErr = err
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxRetryBackoff {
-			backoff = maxRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-			seq, attempt+1, maxLedgerFetchRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-	}
-	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
 // initTrackers reads (or initializes) each protocol's history cursor and builds
