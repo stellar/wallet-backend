@@ -52,7 +52,7 @@ type migrationCommandOpts struct {
 	latestLedgerCursorName string
 	ledgerBackendType      string
 	datastoreConfigPath    string
-	getLedgersLimit         int
+	getLedgersLimit        int
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
