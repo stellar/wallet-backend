@@ -248,8 +248,10 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_MultiAccoun
 // TestCheckpoint_MultiAccount_ExceedsMaxLimitReturnsError verifies that exceeding the maximum
 // number of addresses returns an appropriate error.
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_MultiAccount_ExceedsMaxLimitReturnsError() {
-	// Create 101 addresses to exceed the typical max limit
-	addresses := make([]string, 101)
+	// Create 21 addresses to exceed the default max limit of 20.
+	// We use a small excess (not 101) to stay under the GraphQL complexity
+	// limit, which now scales with the number of addresses.
+	addresses := make([]string, 21)
 	for i := range addresses {
 		addresses[i] = suite.testEnv.BalanceTestAccount1KP.Address()
 	}
