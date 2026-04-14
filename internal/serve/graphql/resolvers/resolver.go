@@ -193,6 +193,15 @@ func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInp
 		simulationResult.LatestLedger = int64(*simulationResultInput.LatestLedger)
 	}
 
+	// Handle Results if provided
+	for i, resultJSON := range simulationResultInput.Results {
+		var result entities.RPCSimulateHostFunctionResult
+		if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
+			return entities.RPCSimulateTransactionResult{}, fmt.Errorf("unmarshalling simulation result[%d]: %w", i, err)
+		}
+		simulationResult.Results = append(simulationResult.Results, result)
+	}
+
 	// Handle TransactionData if provided
 	if simulationResultInput.TransactionData != nil {
 		var txData xdr.SorobanTransactionData

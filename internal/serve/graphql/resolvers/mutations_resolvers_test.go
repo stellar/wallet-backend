@@ -386,6 +386,52 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 	})
 }
 
+func Test_convertSimulationResult(t *testing.T) {
+	t.Run("results are mapped through conversion", func(t *testing.T) {
+		// Use the same known auth entry XDR from sorobanauth tests
+		const authEntryXDR = "AAAAAQAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKVxxKYXs/ivgQAAAAAAAAABAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAABIAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAACgAAAAAAAAAAAAAAAAX14QAAAAAA"
+
+		xdrVal := xdr.ScVal{Type: xdr.ScValTypeScvBool, B: new(bool)}
+		*xdrVal.B = true
+		xdrBase64, err := xdr.MarshalBase64(xdrVal)
+		require.NoError(t, err)
+
+		resultJSON := `{"auth":["` + authEntryXDR + `"],"xdr":"` + xdrBase64 + `"}`
+
+		input := &graphql.SimulationResultInput{
+			Results: []string{resultJSON},
+		}
+
+		result, err := convertSimulationResult(input)
+		require.NoError(t, err)
+		require.Len(t, result.Results, 1)
+		require.Len(t, result.Results[0].Auth, 1)
+		assert.Equal(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, result.Results[0].Auth[0].Credentials.Type)
+
+		gotSigner, err := result.Results[0].Auth[0].Credentials.Address.Address.String()
+		require.NoError(t, err)
+		assert.Equal(t, "GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO", gotSigner)
+	})
+
+	t.Run("invalid results JSON returns error", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{
+			Results: []string{"not-valid-json"},
+		}
+
+		_, err := convertSimulationResult(input)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "unmarshalling simulation result[0]")
+	})
+
+	t.Run("empty results stays empty", func(t *testing.T) {
+		input := &graphql.SimulationResultInput{}
+
+		result, err := convertSimulationResult(input)
+		require.NoError(t, err)
+		assert.Empty(t, result.Results)
+	})
+}
+
 func TestMutationResolver_BuildTransaction(t *testing.T) {
 	ctx := context.Background()
 
