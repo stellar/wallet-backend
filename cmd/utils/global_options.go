@@ -262,6 +262,39 @@ func MaxGraphQLWorkerPoolSizeOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func GraphQLMaxConcurrencyPerRequestOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "graphql-max-concurrency-per-request",
+		Usage:       "Maximum number of concurrent worker goroutines per GraphQL request. Limits how much of the worker pool a single request can consume.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 30,
+		Required:    false,
+	}
+}
+
+func GraphQLRateLimitPerSecondOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "graphql-rate-limit-per-second",
+		Usage:       "Maximum GraphQL requests per second per IP address. Set to 0 to disable rate limiting.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 10,
+		Required:    false,
+	}
+}
+
+func GraphQLRateLimitBurstOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "graphql-rate-limit-burst",
+		Usage:       "Maximum burst of GraphQL requests allowed per IP address. Defaults to the per-second rate if not set.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 20,
+		Required:    false,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))

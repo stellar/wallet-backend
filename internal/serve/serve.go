@@ -65,6 +65,9 @@ type Configs struct {
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
+	GraphQLRateLimitPerSecond      int
+	GraphQLRateLimitBurst          int
+	GraphQLMaxConcurrencyPerReq int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -119,6 +122,9 @@ type handlerDeps struct {
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
+	GraphQLRateLimitPerSecond      int
+	GraphQLRateLimitBurst          int
+	GraphQLMaxConcurrencyPerReq int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -234,6 +240,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
 		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
+		GraphQLRateLimitPerSecond:      cfg.GraphQLRateLimitPerSecond,
+		GraphQLRateLimitBurst:          cfg.GraphQLRateLimitBurst,
+		GraphQLMaxConcurrencyPerReq: cfg.GraphQLMaxConcurrencyPerReq,
 	}, nil
 }
 
@@ -271,6 +280,16 @@ func handler(deps handlerDeps) http.Handler {
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
+			if deps.GraphQLRateLimitPerSecond > 0 {
+				burst := deps.GraphQLRateLimitBurst
+				if burst <= 0 {
+					burst = deps.GraphQLRateLimitPerSecond
+				}
+				r.Use(middleware.RateLimiter(float64(deps.GraphQLRateLimitPerSecond), burst))
+			}
+			if deps.GraphQLMaxConcurrencyPerReq > 0 {
+				r.Use(middleware.RequestPoolMiddleware(deps.GraphQLMaxConcurrencyPerReq))
+			}
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
 			resolver := resolvers.NewResolver(
@@ -382,4 +401,14 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
+
+	// BalancesByAccountAddresses spawns multiple parallel worker pool tasks per address,
+	// so its complexity must scale with the number of addresses requested.
+	config.Complexity.Query.BalancesByAccountAddresses = func(childComplexity int, addresses []string) int {
+		count := len(addresses)
+		if count == 0 {
+			count = 1
+		}
+		return childComplexity * count
+	}
 }

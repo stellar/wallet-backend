@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -331,9 +332,19 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 		}
 	}
 
+	// Use the per-request pool (bounded concurrency) if available, otherwise
+	// fall back to the shared pool. The per-request pool is injected by
+	// RequestPoolMiddleware and limits the total worker goroutines a single
+	// HTTP request can consume, preventing one request from monopolising the
+	// shared pool via aliased queries.
+	pool := middleware.RequestPoolFromContext(ctx)
+	if pool == nil {
+		pool = r.pool
+	}
+
 	// Phase 1: Parallel collection of trustlines/contracts for each account
 	accountInfos := make([]*accountKeyInfo, len(addresses))
-	group := r.pool.NewGroupContext(ctx)
+	group := pool.NewGroupContext(ctx)
 
 	for idx, addr := range addresses {
 		index := idx
@@ -443,7 +454,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 	// Phase 2: Parallel processing of results per account
 	networkPassphrase := r.rpcService.NetworkPassphrase()
 	results := make([]*graphql1.AccountBalances, len(addresses))
-	group = r.pool.NewGroupContext(ctx)
+	group = pool.NewGroupContext(ctx)
 	var resultsMu sync.Mutex
 
 	for idx, info := range accountInfos {
@@ -476,7 +487,7 @@ func (r *queryResolver) BalancesByAccountAddresses(ctx context.Context, addresse
 			}
 
 			// Parse ledger entries for this account
-			balances, parseErr := parseAccountBalances(ctx, info, r.contractMetadataService, networkPassphrase, r.pool)
+			balances, parseErr := parseAccountBalances(ctx, info, r.contractMetadataService, networkPassphrase, pool)
 			if parseErr != nil {
 				errStr := fmt.Sprintf("parsing account balances: %v", parseErr)
 				result.Error = &errStr

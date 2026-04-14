@@ -36,6 +36,9 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.MaxAccountsPerBalancesQueryOption(&cfg.MaxAccountsPerBalancesQuery),
 		utils.MaxGraphQLWorkerPoolSizeOption(&cfg.MaxGraphQLWorkerPoolSize),
+		utils.GraphQLRateLimitPerSecondOption(&cfg.GraphQLRateLimitPerSecond),
+		utils.GraphQLRateLimitBurstOption(&cfg.GraphQLRateLimitBurst),
+		utils.GraphQLMaxConcurrencyPerRequestOption(&cfg.GraphQLMaxConcurrencyPerReq),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
