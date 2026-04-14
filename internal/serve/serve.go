@@ -65,8 +65,8 @@ type Configs struct {
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
-	GraphQLRateLimitPerSecond      int
-	GraphQLRateLimitBurst          int
+	GraphQLRateLimitPerSecond   int
+	GraphQLRateLimitBurst       int
 	GraphQLMaxConcurrencyPerReq int
 
 	// Error Tracker
@@ -122,8 +122,8 @@ type handlerDeps struct {
 	GraphQLComplexityLimit      int
 	MaxAccountsPerBalancesQuery int
 	MaxGraphQLWorkerPoolSize    int
-	GraphQLRateLimitPerSecond      int
-	GraphQLRateLimitBurst          int
+	GraphQLRateLimitPerSecond   int
+	GraphQLRateLimitBurst       int
 	GraphQLMaxConcurrencyPerReq int
 
 	// Error Tracker
@@ -240,8 +240,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
 		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
-		GraphQLRateLimitPerSecond:      cfg.GraphQLRateLimitPerSecond,
-		GraphQLRateLimitBurst:          cfg.GraphQLRateLimitBurst,
+		GraphQLRateLimitPerSecond:   cfg.GraphQLRateLimitPerSecond,
+		GraphQLRateLimitBurst:       cfg.GraphQLRateLimitBurst,
 		GraphQLMaxConcurrencyPerReq: cfg.GraphQLMaxConcurrencyPerReq,
 	}, nil
 }

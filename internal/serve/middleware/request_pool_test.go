@@ -77,7 +77,7 @@ func TestRequestPoolMiddleware(t *testing.T) {
 			require.NotNil(t, capturedPool)
 			// Submit a task to ensure pool is running
 			task := capturedPool.Submit(func() {})
-			task.Wait()
+			require.NoError(t, task.Wait())
 			assert.False(t, capturedPool.Stopped(), "pool should not be stopped during handler")
 		})
 
