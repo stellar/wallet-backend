@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -31,7 +30,6 @@ const (
 // protocolContractCache caches classified protocol contracts to avoid per-ledger DB queries.
 // Accessed only from the single-goroutine live ingestion loop; no locking needed.
 type protocolContractCache struct {
-	mu                  sync.RWMutex
 	contractsByProtocol map[string][]data.ProtocolContracts
 	lastRefreshLedger   uint32
 }
@@ -380,10 +378,8 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 	if m.protocolContractCache == nil {
 		return nil
 	}
-	m.protocolContractCache.mu.RLock()
 	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
 		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
-	m.protocolContractCache.mu.RUnlock()
 
 	if stale {
 		m.metricsService.IncProtocolContractCacheAccess(protocolID, "miss")
@@ -395,8 +391,6 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 		m.refreshProtocolContractCache(ctx, currentLedger)
 	}
 
-	m.protocolContractCache.mu.RLock()
-	defer m.protocolContractCache.mu.RUnlock()
 	return m.protocolContractCache.contractsByProtocol[protocolID]
 }
 

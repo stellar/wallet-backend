@@ -913,6 +913,15 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 		endSeq:     baseSeq + 2,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
+	// When the migration requests the first ledger past the range, simulate
+	// live ingestion racing ahead by advancing the cursor. This triggers a CAS
+	// failure, handing off the tracker and letting the migration exit cleanly.
+	rangeBackend.onMiss = func(seq uint32) {
+		//nolint:errcheck
+		pool.ExecContext(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
+			strconv.FormatUint(uint64(seq+100), 10), "protocol_SEP41_current_state_cursor")
+	}
 
 	migrationSvc := s.newCurrentStateMigrationService(
 		pool, models, rangeBackend, processor, baseSeq,
@@ -920,10 +929,6 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 
 	err = migrationSvc.Run(ctx, []string{sep41ProtocolID})
 	s.Require().NoError(err, "current-state migration should complete successfully")
-
-	currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_SEP41_current_state_cursor")
-	s.Require().NoError(err)
-	s.Assert().Equal(baseSeq+2, currentStateCursor, "current-state cursor should advance to the tip of the migration range")
 
 	currentStateWritten, err := models.IngestStore.Get(ctx, "test_SEP41_current_state_written")
 	s.Require().NoError(err)
@@ -940,6 +945,9 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 		"PersistCurrentState should be called for every ledger in the migration range")
 
 	// Phase 3: Live ingestion handoff — process baseSeq+3, proving CAS picks up where migration left off.
+	// Reset the current-state cursor to baseSeq+2 (the onMiss callback advanced it
+	// past this point to simulate live ingestion handoff during migration).
+	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_current_state_cursor", baseSeq+2)
 	const liveCursorName = "test_current_state_handoff_live_cursor"
 	s.upsertIngestStoreValue(ctx, pool, liveCursorName, baseSeq+2)
 	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+3)

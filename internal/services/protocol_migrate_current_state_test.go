@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,8 @@ func TestNewProtocolMigrateCurrentStateService(t *testing.T) {
 // CurrentStateMigrationStatus, ProtocolCurrentStateCursorName, PersistCurrentState,
 // UpdateCurrentStateMigrationStatus, and uses StartLedger config (no oldest_ingest_ledger read).
 func TestCurrentStateStrategySpecifics(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	dbPool, ingestStore := setupTestDB(t)
 
 	// Current-state strategy does NOT read oldest_ingest_ledger — uses StartLedger config.
@@ -69,7 +71,8 @@ func TestCurrentStateStrategySpecifics(t *testing.T) {
 	}, nil)
 	// Verify it calls UpdateCurrentStateMigrationStatus (not history)
 	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+	// After context cancellation the engine marks the protocol as failed
+	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 	backend := &multiLedgerBackend{
@@ -87,11 +90,16 @@ func TestCurrentStateStrategySpecifics(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// With unbounded range, GetLedger blocks when no more ledgers are available.
+	// The context timeout causes the engine to return a context error after
+	// processing all available ledgers.
 	err = svc.Run(ctx, []string{"testproto"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.ErrorIs(t, context.DeadlineExceeded, ctx.Err())
 
-	// Verify current-state cursor name used
-	cursorVal := getIngestStoreValue(t, ctx, dbPool, utils.ProtocolCurrentStateCursorName("testproto"))
+	// Verify current-state cursor advanced for the available ledger
+	verifyCtx := context.Background()
+	cursorVal := getIngestStoreValue(t, verifyCtx, dbPool, utils.ProtocolCurrentStateCursorName("testproto"))
 	assert.Equal(t, uint32(100), cursorVal)
 
 	// Verify PersistCurrentState was called (not PersistHistory)
@@ -99,12 +107,12 @@ func TestCurrentStateStrategySpecifics(t *testing.T) {
 	assert.Empty(t, processor.persistedHistorySeqs)
 
 	// Verify current state sentinel written
-	val, ok := getCurrentStateSentinel(t, ctx, dbPool, "testproto", 100)
+	val, ok := getCurrentStateSentinel(t, verifyCtx, dbPool, "testproto", 100)
 	require.True(t, ok)
 	assert.Equal(t, uint32(100), val)
 
 	// Verify no history sentinel written
-	_, ok = getHistorySentinel(t, ctx, dbPool, "testproto", 100)
+	_, ok = getHistorySentinel(t, verifyCtx, dbPool, "testproto", 100)
 	assert.False(t, ok)
 
 	protocolsModel.AssertExpectations(t)

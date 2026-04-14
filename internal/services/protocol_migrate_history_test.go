@@ -51,9 +51,16 @@ func TestHistoryStrategySpecifics(t *testing.T) {
 
 	protocolsModel := data.NewProtocolsModelMock(t)
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+	// Use testCursorAdvancingProcessor to trigger CAS handoff on ledger 100,
+	// allowing the unbounded loop to terminate.
+	processor := &testCursorAdvancingProcessor{
+		testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+		dbPool:                 dbPool,
+		advanceAtSeq:           100,
+		cursorNameFunc:         utils.ProtocolHistoryCursorName,
+	}
 
-	protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+	protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
 		{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 	}, nil)
 	// Verify it calls UpdateHistoryMigrationStatus (not current state)
@@ -78,21 +85,22 @@ func TestHistoryStrategySpecifics(t *testing.T) {
 	err = svc.Run(ctx, []string{"testproto"})
 	require.NoError(t, err)
 
-	// Verify history cursor name used
-	cursorVal := getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"))
-	assert.Equal(t, uint32(100), cursorVal)
+	// DB cursor is 200 (advanceAtSeq=100 + 100) — CAS failed on 100 due to handoff.
+	// The processor advanced it to simulate live ingestion takeover.
+	verifyCtx := context.Background()
+	cursorVal := getIngestStoreValue(t, verifyCtx, dbPool, utils.ProtocolHistoryCursorName("testproto"))
+	assert.Equal(t, uint32(200), cursorVal)
 
-	// Verify PersistHistory was called (not PersistCurrentState)
-	assert.Equal(t, []uint32{100}, processor.persistedHistorySeqs)
+	// PersistHistory was NOT called because CAS failed on ledger 100
+	assert.Empty(t, processor.persistedHistorySeqs)
 	assert.Empty(t, processor.persistedCurrentStateSeqs)
 
-	// Verify history sentinel written
-	val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 100)
-	require.True(t, ok)
-	assert.Equal(t, uint32(100), val)
+	// No history sentinel written (CAS failed)
+	_, ok := getHistorySentinel(t, verifyCtx, dbPool, "testproto", 100)
+	assert.False(t, ok)
 
 	// Verify no current state sentinel written
-	_, ok = getCurrentStateSentinel(t, ctx, dbPool, "testproto", 100)
+	_, ok = getCurrentStateSentinel(t, verifyCtx, dbPool, "testproto", 100)
 	assert.False(t, ok)
 
 	protocolsModel.AssertExpectations(t)

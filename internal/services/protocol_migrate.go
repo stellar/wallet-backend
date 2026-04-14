@@ -9,16 +9,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/utils"
-)
-
-const (
-	// convergencePollTimeout is the timeout for polling for new ledgers at the tip.
-	convergencePollTimeout = 5 * time.Second
 )
 
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
@@ -229,172 +223,115 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		contractsByProtocol[t.protocolID] = contracts
 	}
 
-	for {
-		if allHandedOff(trackers) {
-			return handedOffProtocolIDs(trackers), nil
-		}
+	startLedger := minNonHandedOffCursor(trackers) + 1
 
-		latestLedger, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
-		if err != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("reading latest ingest ledger: %w", err)
-		}
+	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s)", startLedger, len(protocolIDs))
 
-		// Find minimum cursor among non-handed-off trackers
-		var minCursor uint32
-		first := true
-		for _, t := range trackers {
-			if t.handedOff {
-				continue
-			}
-			if first || t.cursorValue < minCursor {
-				minCursor = t.cursorValue
-				first = false
-			}
-		}
-
-		startLedger := minCursor + 1
-		if startLedger > latestLedger {
-			log.Ctx(ctx).Infof("All protocols at or past tip %d, migration complete", latestLedger)
-			return handedOffProtocolIDs(trackers), nil
-		}
-
-		log.Ctx(ctx).Infof("Processing ledgers %d to %d for %d protocol(s)", startLedger, latestLedger, len(protocolIDs))
-
-		if prepErr := s.ledgerBackend.PrepareRange(ctx, ledgerbackend.BoundedRange(startLedger, latestLedger)); prepErr != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("preparing ledger range [%d, %d]: %w", startLedger, latestLedger, prepErr)
-		}
-
-		for seq := startLedger; seq <= latestLedger; seq++ {
-			select {
-			case <-ctx.Done():
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", ctx.Err())
-			default:
-			}
-
-			// Skip if no tracker needs this ledger
-			needsFetch := false
-			for _, t := range trackers {
-				if !t.handedOff && t.cursorValue < seq {
-					needsFetch = true
-					break
-				}
-			}
-			if !needsFetch {
-				continue
-			}
-
-			// Fetch ledger ONCE for all protocols
-			ledgerMeta, fetchErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
-				func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
-					return s.ledgerBackend.GetLedger(ctx, seq)
-				},
-				func(attempt int, err error, backoff time.Duration) {
-					log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-						seq, attempt+1, maxLedgerFetchRetries, err, backoff)
-				},
-			)
-			if fetchErr != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
-			}
-
-			// Process each eligible tracker
-			for _, t := range trackers {
-				if t.handedOff || t.cursorValue >= seq {
-					continue
-				}
-
-				contracts := contractsByProtocol[t.protocolID]
-				input := ProtocolProcessorInput{
-					LedgerSequence:    seq,
-					LedgerCloseMeta:   ledgerMeta,
-					ProtocolContracts: contracts,
-					NetworkPassphrase: s.networkPassphrase,
-				}
-				if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
-					return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
-				}
-
-				// CAS + persist in a transaction
-				expected := strconv.FormatUint(uint64(seq-1), 10)
-				next := strconv.FormatUint(uint64(seq), 10)
-
-				var swapped bool
-				if txErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-					var casErr error
-					swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
-					if casErr != nil {
-						return fmt.Errorf("CAS %s cursor for %s: %w", s.strategy.Label, t.protocolID, casErr)
-					}
-					if swapped {
-						return s.strategy.Persist(ctx, dbTx, t.processor)
-					}
-					return nil
-				}); txErr != nil {
-					return handedOffProtocolIDs(trackers), fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, txErr)
-				}
-
-				if !swapped {
-					log.Ctx(ctx).Infof("Protocol %s: CAS failed at ledger %d, handoff to live ingestion detected", t.protocolID, seq)
-					t.handedOff = true
-				} else {
-					t.cursorValue = seq
-				}
-			}
-
-			if allHandedOff(trackers) {
-				return handedOffProtocolIDs(trackers), nil
-			}
-
-			if seq%100 == 0 {
-				log.Ctx(ctx).Infof("Progress: processed ledger %d / %d", seq, latestLedger)
-			}
-		}
-
-		if allHandedOff(trackers) {
-			return handedOffProtocolIDs(trackers), nil
-		}
-
-		// Check if tip has advanced
-		newLatest, err := s.ingestStore.Get(ctx, s.latestLedgerCursorName)
-		if err != nil {
-			return handedOffProtocolIDs(trackers), fmt.Errorf("re-reading latest ingest ledger: %w", err)
-		}
-		if newLatest > latestLedger {
-			continue
-		}
-
-		// At tip — poll briefly for convergence.
-		pollCtx, cancel := context.WithTimeout(ctx, convergencePollTimeout)
-		prepErr := s.ledgerBackend.PrepareRange(pollCtx, ledgerbackend.UnboundedRange(latestLedger+1))
-		if prepErr != nil {
-			cancel()
-			if ctx.Err() != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
-			}
-			if pollCtx.Err() == context.DeadlineExceeded {
-				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return handedOffProtocolIDs(trackers), nil
-			}
-			log.Ctx(ctx).Warnf("Transient error during convergence poll PrepareRange: %v, retrying", prepErr)
-			continue
-		}
-
-		_, getLedgerErr := s.ledgerBackend.GetLedger(pollCtx, latestLedger+1)
-		cancel()
-		if getLedgerErr != nil {
-			if ctx.Err() != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled during convergence poll: %w", ctx.Err())
-			}
-			if pollCtx.Err() == context.DeadlineExceeded {
-				log.Ctx(ctx).Infof("Converged at ledger %d", latestLedger)
-				return handedOffProtocolIDs(trackers), nil
-			}
-			log.Ctx(ctx).Warnf("Transient error during convergence poll GetLedger: %v, retrying", getLedgerErr)
-			continue
-		}
-
-		// New ledger available, loop again
+	prepareFn := func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerbackend.UnboundedRange(startLedger))
 	}
+	if _, prepErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff, prepareFn,
+		func(attempt int, err error, backoff time.Duration) {
+			log.Ctx(ctx).Warnf("Error preparing unbounded range from %d (attempt %d/%d): %v, retrying in %v...",
+				startLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
+		},
+	); prepErr != nil {
+		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
+	}
+
+	for seq := startLedger; ; seq++ {
+		if err := ctx.Err(); err != nil {
+			return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", err)
+		}
+		if allHandedOff(trackers) {
+			return handedOffProtocolIDs(trackers), nil
+		}
+
+		// Skip if no non-handed-off tracker needs this ledger.
+		if !anyTrackerNeedsLedger(trackers, seq) {
+			continue
+		}
+
+		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
+		if fetchErr != nil {
+			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
+		}
+
+		for _, t := range trackers {
+			if t.handedOff || t.cursorValue >= seq {
+				continue
+			}
+
+			contracts := contractsByProtocol[t.protocolID]
+			input := ProtocolProcessorInput{
+				LedgerSequence:    seq,
+				LedgerCloseMeta:   ledgerMeta,
+				ProtocolContracts: contracts,
+				NetworkPassphrase: s.networkPassphrase,
+			}
+			if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
+				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
+			}
+
+			// CAS + persist in a transaction
+			expected := strconv.FormatUint(uint64(seq-1), 10)
+			next := strconv.FormatUint(uint64(seq), 10)
+
+			var swapped bool
+			if txErr := db.RunInPgxTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+				var casErr error
+				swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
+				if casErr != nil {
+					return fmt.Errorf("CAS %s cursor for %s: %w", s.strategy.Label, t.protocolID, casErr)
+				}
+				if swapped {
+					return s.strategy.Persist(ctx, dbTx, t.processor)
+				}
+				return nil
+			}); txErr != nil {
+				return handedOffProtocolIDs(trackers), fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, txErr)
+			}
+
+			if !swapped {
+				log.Ctx(ctx).Infof("Protocol %s: CAS failed at ledger %d, handoff to live ingestion detected", t.protocolID, seq)
+				t.handedOff = true
+			} else {
+				t.cursorValue = seq
+			}
+		}
+
+		if seq%100 == 0 {
+			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
+		}
+	}
+}
+
+// minNonHandedOffCursor returns the smallest cursorValue among trackers that
+// have not yet been handed off. If every tracker is handed off, it returns 0.
+func minNonHandedOffCursor(trackers []*protocolTracker) uint32 {
+	var minCursor uint32
+	first := true
+	for _, t := range trackers {
+		if t.handedOff {
+			continue
+		}
+		if first || t.cursorValue < minCursor {
+			minCursor = t.cursorValue
+			first = false
+		}
+	}
+	return minCursor
+}
+
+// anyTrackerNeedsLedger reports whether at least one non-handed-off tracker
+// still needs to process the given ledger sequence.
+func anyTrackerNeedsLedger(trackers []*protocolTracker, seq uint32) bool {
+	for _, t := range trackers {
+		if !t.handedOff && t.cursorValue < seq {
+			return true
+		}
+	}
+	return false
 }
 
 // allHandedOff returns true if every tracker has been handed off to live ingestion.
