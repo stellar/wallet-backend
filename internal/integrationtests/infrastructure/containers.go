@@ -452,6 +452,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"GRAPHQL_RATE_LIMIT_PER_SECOND":           "0",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
