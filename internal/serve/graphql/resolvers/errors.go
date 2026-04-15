@@ -15,10 +15,6 @@ const (
 	// TransactionByHash / StateChanges hash filter errors
 	ErrMsgInvalidTransactionHash = "invalid transaction hash format: must be a 64-character hex string"
 
-	// BalancesByAccountAddresses errors (multiple accounts)
-	ErrMsgEmptyAddresses      = "addresses array cannot be empty"
-	ErrMsgTooManyAddresses    = "maximum %d addresses allowed per query, got %d"
-	ErrMsgInvalidAddressAt    = "invalid address format at index %d: %s"
-	ErrMsgRPCUnavailable      = "failed to fetch ledger entries from RPC"
+	// Balance query processing errors
 	ErrMsgBalancesFetchFailed = "failed to process account balances"
 )

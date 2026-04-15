@@ -1,5 +1,4 @@
 // Package resolvers provides utility functions for parsing Stellar ledger entries into GraphQL balance types.
-// These functions support both single-account and multi-account balance queries.
 package resolvers
 
 import (
@@ -18,18 +17,6 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
-
-// accountKeyInfo tracks ledger key information for a single account during multi-account balance fetch
-type accountKeyInfo struct {
-	address          string
-	isContract       bool
-	nativeBalance    *data.NativeBalance     // Native XLM balance from DB
-	trustlines       []data.TrustlineBalance // Full trustline balance data from DB
-	sacBalances      []data.SACBalance       // SAC balances from DB (for contract addresses)
-	contractsByID    map[string]*data.Contract
-	sep41ContractIDs []string
-	collectionErr    error // error during data collection phase
-}
 
 // buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
 func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphrase string) (*graphql1.NativeBalance, error) {
@@ -249,46 +236,4 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 	}
 
 	return results, nil
-}
-
-// parseAccountBalances parses ledger entries and DB data for a single account and returns balances.
-// Native XLM and trustlines come from DB, while SAC contracts use RPC.
-// This is used by the multi-account balance resolver.
-func parseAccountBalances(ctx context.Context, info *accountKeyInfo, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
-	var balances []graphql1.Balance
-
-	// Add native balance from DB
-	if info.nativeBalance != nil {
-		nativeBalance, err := buildNativeBalanceFromDB(info.nativeBalance, networkPassphrase)
-		if err != nil {
-			return nil, fmt.Errorf("building native balance: %w", err)
-		}
-		balances = append(balances, nativeBalance)
-	}
-
-	// Add trustline balances from DB
-	for _, trustline := range info.trustlines {
-		trustlineBalance, err := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
-		if err != nil {
-			return nil, fmt.Errorf("building trustline balance: %w", err)
-		}
-		balances = append(balances, trustlineBalance)
-	}
-
-	// Add SAC balances from DB (for C addresses)
-	// Contract metadata is embedded in SACBalance from JOIN with contract_tokens
-	for _, sacBalance := range info.sacBalances {
-		balances = append(balances, buildSACBalanceFromDB(sacBalance))
-	}
-
-	// Add SEP-41 balances from RPC
-	if len(info.sep41ContractIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
-		if err != nil {
-			return nil, fmt.Errorf("getting SEP41 balances: %w", err)
-		}
-		balances = append(balances, sep41Balances...)
-	}
-
-	return balances, nil
 }

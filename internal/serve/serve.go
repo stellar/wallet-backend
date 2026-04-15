@@ -62,9 +62,8 @@ type Configs struct {
 	RPCURL string
 
 	// GraphQL
-	GraphQLComplexityLimit      int
-	MaxAccountsPerBalancesQuery int
-	MaxGraphQLWorkerPoolSize    int
+	GraphQLComplexityLimit   int
+	MaxGraphQLWorkerPoolSize int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -116,9 +115,8 @@ type handlerDeps struct {
 	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
-	GraphQLComplexityLimit      int
-	MaxAccountsPerBalancesQuery int
-	MaxGraphQLWorkerPoolSize    int
+	GraphQLComplexityLimit   int
+	MaxGraphQLWorkerPoolSize int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -217,23 +215,22 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:                      models,
-		RequestAuthVerifier:         requestAuthVerifier,
-		SupportedAssets:             cfg.SupportedAssets,
-		FeeBumpService:              feeBumpService,
-		Metrics:                     m,
-		RPCService:                  rpcService,
-		TrustlineBalanceModel:       models.TrustlineBalance,
-		NativeBalanceModel:          models.NativeBalance,
-		SACBalanceModel:             models.SACBalance,
-		AccountContractTokensModel:  models.AccountContractTokens,
-		ContractMetadataService:     contractMetadataService,
-		AppTracker:                  cfg.AppTracker,
-		NetworkPassphrase:           cfg.NetworkPassphrase,
-		TransactionService:          txService,
-		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
-		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
-		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
+		Models:                     models,
+		RequestAuthVerifier:        requestAuthVerifier,
+		SupportedAssets:            cfg.SupportedAssets,
+		FeeBumpService:             feeBumpService,
+		Metrics:                    m,
+		RPCService:                 rpcService,
+		TrustlineBalanceModel:      models.TrustlineBalance,
+		NativeBalanceModel:         models.NativeBalance,
+		SACBalanceModel:            models.SACBalance,
+		AccountContractTokensModel: models.AccountContractTokens,
+		ContractMetadataService:    contractMetadataService,
+		AppTracker:                 cfg.AppTracker,
+		NetworkPassphrase:          cfg.NetworkPassphrase,
+		TransactionService:         txService,
+		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
+		MaxGraphQLWorkerPoolSize:   cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 
@@ -283,8 +280,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.ContractMetadataService,
 				deps.Metrics,
 				resolvers.ResolverConfig{
-					MaxAccountsPerBalancesQuery: deps.MaxAccountsPerBalancesQuery,
-					MaxWorkerPoolSize:           deps.MaxGraphQLWorkerPoolSize,
+					MaxWorkerPoolSize: deps.MaxGraphQLWorkerPoolSize,
 				},
 			)
 

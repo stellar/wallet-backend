@@ -42,8 +42,7 @@ const (
 
 // ResolverConfig holds configuration values for the GraphQL resolver.
 type ResolverConfig struct {
-	MaxAccountsPerBalancesQuery int
-	MaxWorkerPoolSize           int
+	MaxWorkerPoolSize int
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")

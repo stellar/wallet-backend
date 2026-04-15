@@ -412,21 +412,6 @@ func buildBalancesByAccountAddressQuery() string {
 	`, balanceFragments)
 }
 
-// buildBalancesByAccountAddressesQuery builds the GraphQL query for fetching balances for multiple accounts
-func buildBalancesByAccountAddressesQuery() string {
-	return fmt.Sprintf(`
-		query BalancesByAccountAddresses($addresses: [String!]!) {
-			balancesByAccountAddresses(addresses: $addresses) {
-				address
-				balances {
-					%s
-				}
-				error
-			}
-		}
-	`, balanceFragments)
-}
-
 // buildFieldList constructs a field list string from a slice of field names
 // If fields is nil or empty, returns the defaultFields
 func buildFieldList(fields []string, defaultFields string) string {
