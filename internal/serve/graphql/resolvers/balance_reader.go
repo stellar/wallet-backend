@@ -28,20 +28,12 @@ func NewBalanceReader(trustlineBalanceModel data.TrustlineBalanceModelInterface,
 	}
 }
 
-// GetTrustlineBalances retrieves all trustline balances for an account.
-func (r *balanceReaderAdapter) GetTrustlineBalances(ctx context.Context, accountAddress string) ([]data.TrustlineBalance, error) {
-	balances, err := r.trustlineBalanceModel.GetByAccount(ctx, accountAddress)
+// GetTrustlineBalances retrieves trustline balances for an account. Pass nil
+// limit/cursor to fetch all rows, or provide them for keyset pagination.
+func (r *balanceReaderAdapter) GetTrustlineBalances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.TrustlineBalance, error) {
+	balances, err := r.trustlineBalanceModel.GetByAccount(ctx, accountAddress, limit, cursor, sortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting trustline balances: %w", err)
-	}
-	return balances, nil
-}
-
-// GetTrustlineBalancesPaginated retrieves a page of trustline balances for an account.
-func (r *balanceReaderAdapter) GetTrustlineBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.TrustlineBalance, error) {
-	balances, err := r.trustlineBalanceModel.GetByAccountPaginated(ctx, accountAddress, limit, cursor, sortOrder)
-	if err != nil {
-		return nil, fmt.Errorf("getting paginated trustline balances: %w", err)
 	}
 	return balances, nil
 }
@@ -55,20 +47,12 @@ func (r *balanceReaderAdapter) GetNativeBalance(ctx context.Context, accountAddr
 	return balance, nil
 }
 
-// GetSACBalances retrieves all SAC balances for a contract address.
-func (r *balanceReaderAdapter) GetSACBalances(ctx context.Context, accountAddress string) ([]data.SACBalance, error) {
-	balances, err := r.sacBalanceModel.GetByAccount(ctx, accountAddress)
+// GetSACBalances retrieves SAC balances for a contract address. Pass nil
+// limit/cursor to fetch all rows, or provide them for keyset pagination.
+func (r *balanceReaderAdapter) GetSACBalances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error) {
+	balances, err := r.sacBalanceModel.GetByAccount(ctx, accountAddress, limit, cursor, sortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting SAC balances: %w", err)
-	}
-	return balances, nil
-}
-
-// GetSACBalancesPaginated retrieves a page of SAC balances for a contract address.
-func (r *balanceReaderAdapter) GetSACBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error) {
-	balances, err := r.sacBalanceModel.GetByAccountPaginated(ctx, accountAddress, limit, cursor, sortOrder)
-	if err != nil {
-		return nil, fmt.Errorf("getting paginated SAC balances: %w", err)
 	}
 	return balances, nil
 }

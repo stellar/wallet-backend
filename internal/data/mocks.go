@@ -65,15 +65,7 @@ func NewTrustlineBalanceModelMock(t interface {
 	return mockModel
 }
 
-func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]TrustlineBalance, error) {
-	args := m.Called(ctx, accountAddress)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]TrustlineBalance), args.Error(1)
-}
-
-func (m *TrustlineBalanceModelMock) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error) {
+func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error) {
 	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -151,15 +143,7 @@ func NewSACBalanceModelMock(t interface {
 	return mockModel
 }
 
-func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
-	args := m.Called(ctx, accountAddress)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]SACBalance), args.Error(1)
-}
-
-func (m *SACBalanceModelMock) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
+func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
 	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

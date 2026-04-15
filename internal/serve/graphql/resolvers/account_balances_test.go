@@ -96,7 +96,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(nil, nil)
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{}, nil)
 		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{}, nil)
@@ -133,7 +133,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 2000000000}, nil)
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{{
 				AssetID:      trustlineID,
 				Code:         "USDC",
@@ -191,7 +191,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		sacContractID := data.DeterministicContractID(testSACContractAddress)
 		sep41Contract := createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)
 
-		mockSACBalanceModel.On("GetByAccountPaginated", ctx, testContractAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
+		mockSACBalanceModel.On("GetByAccount", ctx, testContractAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.SACBalance{{
 				AccountAddress:    testContractAddress,
 				ContractID:        sacContractID,
@@ -243,7 +243,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil).
 			Once()
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.ASC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{{
 				AssetID:      trustlineID,
 				Code:         "USDC",
@@ -258,7 +258,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 			Return([]*data.Contract{sep41Contract1}, nil).
 			Once()
 
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(3), cursorUUIDMatcher(trustlineID), data.ASC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(3), cursorUUIDMatcher(trustlineID), data.ASC).
 			Return([]data.TrustlineBalance{}, nil).
 			Once()
 		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.ASC).
@@ -315,7 +315,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 
 		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.DESC).
 			Return([]*data.Contract{sep41Contract}, nil)
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.DESC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.DESC).
 			Return([]data.TrustlineBalance{{
 				AssetID:      trustlineID,
 				Code:         "USDC",
@@ -373,7 +373,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil)
-		mockTrustlineBalanceModel.On("GetByAccountPaginated", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
+		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
 			Return(nil, errors.New("database query failed"))
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 

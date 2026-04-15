@@ -35,11 +35,10 @@ type SACBalance struct {
 
 // SACBalanceModelInterface defines the interface for SAC balance operations.
 type SACBalanceModelInterface interface {
-	// Read operations (for API/balances queries)
-	GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error)
-	// GetByAccountPaginated returns SAC balances ordered by contract UUID so
-	// GraphQL can page them with stable keyset cursors.
-	GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error)
+	// GetByAccount returns SAC balances for a contract holder ordered by
+	// contract_id. Pass nil limit/cursor to fetch all rows, or provide them for
+	// keyset pagination so GraphQL can page with stable cursors.
+	GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error)
 
 	// Write operations (for live ingestion)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error
@@ -56,36 +55,11 @@ type SACBalanceModel struct {
 
 var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
 
-// GetByAccount retrieves all SAC balances for a contract address with contract metadata.
-// JOINs with contract_tokens to get code, issuer, and decimals for API responses.
-func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
-	if accountAddress == "" {
-		return nil, fmt.Errorf("empty account address")
-	}
-
-	const query = `
-		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
-		       asb.is_clawback_enabled, asb.last_modified_ledger,
-		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
-		FROM sac_balances asb
-		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
-		WHERE asb.account_address = $1`
-
-	start := time.Now()
-	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, accountAddress)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
-	}
-	return balances, nil
-}
-
-// GetByAccountPaginated retrieves SAC balances for a contract holder ordered by
-// contract_id. The cursor is the last seen contract UUID from the previous page.
-func (m *SACBalanceModel) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
+// GetByAccount retrieves SAC balances for a contract holder ordered by
+// contract_id, JOINed with contract_tokens for code/issuer/decimals. Pass nil
+// limit/cursor to fetch all rows; provide them for keyset pagination (the
+// cursor is the last seen contract UUID from the previous page).
+func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -125,10 +99,10 @@ func (m *SACBalanceModel) GetByAccountPaginated(ctx context.Context, accountAddr
 	start := time.Now()
 	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetByAccountPaginated", "sac_balances").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetByAccountPaginated", "sac_balances").Inc()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetByAccountPaginated", "sac_balances", utils.GetDBErrorType(err)).Inc()
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying paginated SAC balances for %s: %w", accountAddress, err)
 	}
 	return balances, nil

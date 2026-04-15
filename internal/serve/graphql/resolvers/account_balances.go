@@ -51,10 +51,10 @@ const (
 // - sac/sep41 -> contract UUID
 //
 // Example:
-// - canonical order: native, classic(A), classic(B), sep41(X)
-// - endCursor after returning classic(B): base64("v1:classic:<B-uuid>")
-// - next forward page skips native entirely, resumes classic after B, then
-//   continues into later sources if it still needs more rows.
+//   - canonical order: native, classic(A), classic(B), sep41(X)
+//   - endCursor after returning classic(B): base64("v1:classic:<B-uuid>")
+//   - next forward page skips native entirely, resumes classic after B, then
+//     continues into later sources if it still needs more rows.
 type balanceCursor struct {
 	Source balanceSource
 	ID     string
@@ -458,7 +458,7 @@ func (r *Resolver) getTrustlineBalanceNodes(
 		return nil, balanceBadUserInputError("invalid balance cursor id")
 	}
 
-	trustlines, err := r.balanceReader.GetTrustlineBalancesPaginated(ctx, address, &limit, cursorID, sortOrder)
+	trustlines, err := r.balanceReader.GetTrustlineBalances(ctx, address, &limit, cursorID, sortOrder)
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get paginated trustline balances for %s: %v", address, err)
 		return nil, balanceInternalError()
@@ -496,7 +496,7 @@ func (r *Resolver) getSACBalanceNodes(
 		return nil, balanceBadUserInputError("invalid balance cursor id")
 	}
 
-	sacBalances, err := r.balanceReader.GetSACBalancesPaginated(ctx, address, &limit, cursorID, sortOrder)
+	sacBalances, err := r.balanceReader.GetSACBalances(ctx, address, &limit, cursorID, sortOrder)
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get paginated SAC balances for %s: %v", address, err)
 		return nil, balanceInternalError()
