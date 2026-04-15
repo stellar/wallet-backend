@@ -22,6 +22,11 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 	return string(obj.StellarAddress), nil
 }
 
+// Balances is the resolver for the balances field.
+func (r *accountResolver) Balances(ctx context.Context, obj *types.Account) ([]graphql1.Balance, error) {
+	return r.getAccountBalances(ctx, string(obj.StellarAddress))
+}
+
 // Transactions is the resolver for the transactions field.
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account

@@ -401,12 +401,14 @@ const balanceFragments = `
 		}
 	`
 
-// buildBalancesByAccountAddressQuery builds the GraphQL query for fetching account balances
-func buildBalancesByAccountAddressQuery() string {
+// buildAccountBalancesQuery builds the GraphQL query for fetching account balances.
+func buildAccountBalancesQuery() string {
 	return fmt.Sprintf(`
-		query BalancesByAccountAddress($address: String!) {
-			balancesByAccountAddress(address: $address) {
-				%s
+		query GetAccountBalances($address: String!) {
+			accountByAddress(address: $address) {
+				balances {
+					%s
+				}
 			}
 		}
 	`, balanceFragments)

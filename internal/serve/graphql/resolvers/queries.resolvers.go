@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -73,7 +71,7 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
 	if !utils.IsValidStellarAddress(address) {
 		return nil, &gqlerror.Error{
-			Message: "invalid Stellar address",
+			Message: ErrMsgSingleInvalidAddress,
 			Extensions: map[string]interface{}{
 				"code":    "INVALID_ADDRESS",
 				"address": address,
@@ -153,130 +151,6 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 		Edges:    edges,
 		PageInfo: conn.PageInfo,
 	}, nil
-}
-
-// BalancesByAccountAddress is the resolver for the balancesByAccountAddress field.
-func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address string) ([]graphql1.Balance, error) {
-	// Validate input: address format
-	if !utils.IsValidStellarAddress(address) {
-		return nil, &gqlerror.Error{
-			Message: ErrMsgSingleInvalidAddress,
-			Extensions: map[string]interface{}{
-				"code":    "INVALID_ADDRESS",
-				"address": address,
-			},
-		}
-	}
-
-	networkPassphrase := r.rpcService.NetworkPassphrase()
-	var balances []graphql1.Balance
-
-	if utils.IsContractAddress(address) {
-		// Contract addresses (C...): Fetch SAC balances from DB
-		// SAC balances have embedded contract metadata from JOIN with contract_tokens
-		sacBalances, sacErr := r.balanceReader.GetSACBalances(ctx, address)
-		if sacErr != nil {
-			log.Ctx(ctx).Errorf("failed to get SAC balances for %s: %v", address, sacErr)
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
-			}
-		}
-		for _, sacBalance := range sacBalances {
-			balances = append(balances, buildSACBalanceFromDB(sacBalance))
-		}
-	} else {
-		// G-addresses: Fetch native XLM balance and trustlines from DB
-		nativeBalance, nativeErr := r.balanceReader.GetNativeBalance(ctx, address)
-		if nativeErr != nil {
-			log.Ctx(ctx).Errorf("failed to get native balance for %s: %v", address, nativeErr)
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
-			}
-		}
-		if nativeBalance != nil {
-			nativeBalanceResult, buildErr := buildNativeBalanceFromDB(nativeBalance, networkPassphrase)
-			if buildErr != nil {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-			balances = append(balances, nativeBalanceResult)
-		}
-
-		// Fetch trustline balances from DB
-		trustlines, trustlineErr := r.balanceReader.GetTrustlineBalances(ctx, address)
-		if trustlineErr != nil {
-			log.Ctx(ctx).Errorf("failed to get trustline balances for %s: %v", address, trustlineErr)
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
-			}
-		}
-
-		for _, trustline := range trustlines {
-			trustlineBalance, buildErr := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
-			if buildErr != nil {
-				return nil, &gqlerror.Error{
-					Message: ErrMsgBalancesFetchFailed,
-					Extensions: map[string]interface{}{
-						"code": "INTERNAL_ERROR",
-					},
-				}
-			}
-			balances = append(balances, trustlineBalance)
-		}
-	}
-
-	// Fetch SEP-41 contract tokens for the account (both G-addresses and C-addresses)
-	contractTokens, err := r.accountContractTokensModel.GetByAccount(ctx, address)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to get contract tokens for %s: %v", address, err)
-		return nil, &gqlerror.Error{
-			Message: ErrMsgBalancesFetchFailed,
-			Extensions: map[string]interface{}{
-				"code": "INTERNAL_ERROR",
-			},
-		}
-	}
-
-	// Collect SEP-41 contract IDs for balance simulation
-	contractsByContractID := make(map[string]*data.Contract)
-	sep41TokenIDs := make([]string, 0)
-	for _, contract := range contractTokens {
-		if contract.Type == "SEP41" {
-			sep41TokenIDs = append(sep41TokenIDs, contract.ContractID)
-			contractsByContractID[contract.ContractID] = contract
-		}
-	}
-
-	// Simulate call to `balance(id)` function of SEP-41 contracts
-	if len(sep41TokenIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
-		if err != nil {
-			return nil, &gqlerror.Error{
-				Message: ErrMsgBalancesFetchFailed,
-				Extensions: map[string]interface{}{
-					"code": "INTERNAL_ERROR",
-				},
-			}
-		}
-		for _, result := range sep41Balances {
-			balances = append(balances, result)
-		}
-	}
-
-	return balances, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

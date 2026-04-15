@@ -119,7 +119,7 @@ query {
 
 ## Queries
 
-The GraphQL API provides seven root queries for accessing blockchain data:
+The GraphQL API provides six root queries for accessing blockchain data. Account balances are fetched through `accountByAddress`:
 
 | # | Query | Description |
 |---|-------|-------------|
@@ -129,7 +129,6 @@ The GraphQL API provides seven root queries for accessing blockchain data:
 | 4 | [`operations`](#4-list-all-operations) | List all operations with pagination |
 | 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
 | 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
-| 7 | [`balancesByAccountAddress`](#7-get-account-balances) | Get all token balances for an account |
 
 ### 1. Get Transaction by Hash
 
@@ -453,43 +452,45 @@ Retrieve all token balances for an account, including native XLM, classic trustl
 
 ```graphql
 query GetAccountBalances {
-  balancesByAccountAddress(address: "GABC...") {
-    __typename
-    tokenId
-    tokenType
-    balance
+  accountByAddress(address: "GABC...") {
+    balances {
+      __typename
+      tokenId
+      tokenType
+      balance
 
-    ... on NativeBalance {
-      minimumBalance
-      buyingLiabilities
-      sellingLiabilities
-      lastModifiedLedger
-    }
+      ... on NativeBalance {
+        minimumBalance
+        buyingLiabilities
+        sellingLiabilities
+        lastModifiedLedger
+      }
 
-    ... on TrustlineBalance {
-      code
-      issuer
-      type
-      limit
-      buyingLiabilities
-      sellingLiabilities
-      lastModifiedLedger
-      isAuthorized
-      isAuthorizedToMaintainLiabilities
-    }
+      ... on TrustlineBalance {
+        code
+        issuer
+        type
+        limit
+        buyingLiabilities
+        sellingLiabilities
+        lastModifiedLedger
+        isAuthorized
+        isAuthorizedToMaintainLiabilities
+      }
 
-    ... on SACBalance {
-      code
-      issuer
-      decimals
-      isAuthorized
-      isClawbackEnabled
-    }
+      ... on SACBalance {
+        code
+        issuer
+        decimals
+        isAuthorized
+        isClawbackEnabled
+      }
 
-    ... on SEP41Balance {
-      name
-      symbol
-      decimals
+      ... on SEP41Balance {
+        name
+        symbol
+        decimals
+      }
     }
   }
 }
@@ -527,35 +528,37 @@ The query returns different balance types based on the token:
 
 ```graphql
 query GetDetailedBalances {
-  balancesByAccountAddress(address: "GABC...") {
-    tokenId
-    balance
-    tokenType
+  accountByAddress(address: "GABC...") {
+    balances {
+      tokenId
+      balance
+      tokenType
 
-    ... on NativeBalance {
-      minimumBalance
-      buyingLiabilities
-      sellingLiabilities
-      lastModifiedLedger
-    }
+      ... on NativeBalance {
+        minimumBalance
+        buyingLiabilities
+        sellingLiabilities
+        lastModifiedLedger
+      }
 
-    ... on TrustlineBalance {
-      code
-      issuer
-      limit
-      isAuthorized
-    }
+      ... on TrustlineBalance {
+        code
+        issuer
+        limit
+        isAuthorized
+      }
 
-    ... on SACBalance {
-      code
-      issuer
-      decimals
-    }
+      ... on SACBalance {
+        code
+        issuer
+        decimals
+      }
 
-    ... on SEP41Balance {
-      name
-      symbol
-      decimals
+      ... on SEP41Balance {
+        name
+        symbol
+        decimals
+      }
     }
   }
 }
@@ -566,34 +569,36 @@ query GetDetailedBalances {
 ```json
 {
   "data": {
-    "balancesByAccountAddress": [
-      {
-        "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        "balance": "100.0000000",
-        "tokenType": "NATIVE",
-        "minimumBalance": "1.0000000",
-        "buyingLiabilities": "0.0000000",
-        "sellingLiabilities": "0.0000000",
-        "lastModifiedLedger": 12345678
-      },
-      {
-        "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
-        "balance": "500.0000000",
-        "tokenType": "CLASSIC",
-        "code": "USDC",
-        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-        "limit": "922337203685.4775807",
-        "isAuthorized": true
-      },
-      {
-        "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
-        "balance": "1000.0000000",
-        "tokenType": "SEP41",
-        "name": "Example Token",
-        "symbol": "EXT",
-        "decimals": 7
-      }
-    ]
+    "accountByAddress": {
+      "balances": [
+        {
+          "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+          "balance": "100.0000000",
+          "tokenType": "NATIVE",
+          "minimumBalance": "1.0000000",
+          "buyingLiabilities": "0.0000000",
+          "sellingLiabilities": "0.0000000",
+          "lastModifiedLedger": 12345678
+        },
+        {
+          "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
+          "balance": "500.0000000",
+          "tokenType": "CLASSIC",
+          "code": "USDC",
+          "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "limit": "922337203685.4775807",
+          "isAuthorized": true
+        },
+        {
+          "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
+          "balance": "1000.0000000",
+          "tokenType": "SEP41",
+          "name": "Example Token",
+          "symbol": "EXT",
+          "decimals": 7
+        }
+      ]
+    }
   }
 }
 ```
@@ -632,10 +637,12 @@ This query returns structured GraphQL errors with error codes in the `extensions
         "code": "INVALID_ADDRESS",
         "address": "invalid-address"
       },
-      "path": ["balancesByAccountAddress"]
+      "path": ["accountByAddress"]
     }
   ],
-  "data": null
+  "data": {
+    "accountByAddress": null
+  }
 }
 ```
 

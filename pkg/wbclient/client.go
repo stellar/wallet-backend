@@ -112,8 +112,10 @@ type OperationStateChangesData struct {
 	} `json:"operationById"`
 }
 
-type BalancesByAccountAddressData struct {
-	BalancesByAccountAddress []json.RawMessage `json:"balancesByAccountAddress"`
+type AccountBalancesData struct {
+	AccountByAddress struct {
+		Balances []json.RawMessage `json:"balances"`
+	} `json:"accountByAddress"`
 }
 
 // QueryOptions allows clients to specify which fields to fetch for each entity type
@@ -612,19 +614,19 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetBalancesByAccountAddress(ctx context.Context, address string) ([]types.Balance, error) {
+func (c *Client) GetAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
 	variables := map[string]any{
 		"address": address,
 	}
 
-	data, err := executeGraphQL[BalancesByAccountAddressData](c, ctx, buildBalancesByAccountAddressQuery(), variables)
+	data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
 	if err != nil {
 		return nil, err
 	}
 
 	// Unmarshal each raw balance into the appropriate concrete type
-	balances := make([]types.Balance, 0, len(data.BalancesByAccountAddress))
-	for i, rawBalance := range data.BalancesByAccountAddress {
+	balances := make([]types.Balance, 0, len(data.AccountByAddress.Balances))
+	for i, rawBalance := range data.AccountByAddress.Balances {
 		balance, err := types.UnmarshalBalance(rawBalance)
 		if err != nil {
 			return nil, fmt.Errorf("unmarshaling balance %d: %w", i, err)

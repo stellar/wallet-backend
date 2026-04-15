@@ -93,11 +93,11 @@ func TestGetOperationIdentifier(t *testing.T) {
 				Operation: &ast.OperationDefinition{
 					SelectionSet: ast.SelectionSet{
 						&ast.InlineFragment{},
-						&ast.Field{Name: "balancesByAccountAddress"},
+						&ast.Field{Name: "accountByAddress"},
 					},
 				},
 			},
-			expected: "balancesByAccountAddress",
+			expected: "accountByAddress",
 		},
 	}
 

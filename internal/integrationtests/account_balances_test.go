@@ -64,7 +64,7 @@ type AccountBalancesAfterCheckpointTestSuite struct {
 // - EURC trustline (100)
 // - SEP-41 contract tokens (500)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
 	)
@@ -121,7 +121,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 // - Native XLM (~10000)
 // - USDC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
 	)
@@ -163,7 +163,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 // - USDC SAC tokens (200)
 // - SEP-41 contract tokens (500)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
 	)
@@ -215,7 +215,7 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - EURC trustline (50) - reduced from 100 after transfer to contract
 // - SEP-41 contract tokens (0) - reduced from 500 after transfer to account 2
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
 	)
@@ -276,7 +276,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - EURC trustline (75) - NEW from trustline creation and payment
 // - SEP-41 contract tokens (500) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
 	)
@@ -336,7 +336,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - SEP-41 contract tokens (500) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+	balances, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
 	)

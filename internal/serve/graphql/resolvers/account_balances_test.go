@@ -1,4 +1,4 @@
-// Tests for the balancesByAccountAddress GraphQL query resolver
+// Tests for the Account.balances GraphQL field resolver
 package resolvers
 
 import (
@@ -69,7 +69,11 @@ func createI128ScVal(amount int64) xdr.ScVal {
 	}
 }
 
-func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
+func testParentAccount(address string) *types.Account {
+	return &types.Account{StellarAddress: types.AddressBytea(address)}
+}
+
+func TestAccountResolver_Balances(t *testing.T) {
 	// Success Cases
 	t.Run("success - native balance only", func(t *testing.T) {
 		ctx := context.Background()
@@ -85,7 +89,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		// No GetLedgerEntries call needed - native balance comes from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -93,7 +97,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 
@@ -149,7 +153,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		// No GetLedgerEntries call needed - native and trustlines come from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -157,7 +161,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 3) // 1 native + 2 trustlines
 
@@ -218,7 +222,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountContractTokens.On("GetByAccount", ctx, testContractAddress).Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -226,7 +230,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testContractAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 1) // 1 SAC
 
@@ -267,7 +271,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return(createI128ScVal(50000000000), nil)
 		// No GetLedgerEntries call needed - SEP-41 uses FetchSingleField, native comes from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -277,7 +281,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 2) // 1 native + 1 SEP-41
 
@@ -333,7 +337,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(30000000000), nil)
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -343,7 +347,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 3) // native + trustline + SEP-41
 
@@ -382,7 +386,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(10000000000), nil)
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -392,7 +396,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testContractAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 
@@ -437,7 +441,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		// No GetLedgerEntries call needed - native and trustlines come from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -445,7 +449,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 
 		for _, balance := range balances {
@@ -464,15 +468,6 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 
 	// Error Cases
 
-	t.Run("error - empty address", func(t *testing.T) {
-		ctx := context.Background()
-		resolver := &queryResolver{&Resolver{}}
-
-		balances, err := resolver.BalancesByAccountAddress(ctx, "")
-		assert.Error(t, err)
-		assert.Nil(t, balances)
-	})
-
 	t.Run("error - GetTrustlineBalances fails", func(t *testing.T) {
 		ctx := context.Background()
 		mockTrustlineBalanceModel := data.NewTrustlineBalanceModelMock(t)
@@ -484,14 +479,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress).
 			Return([]data.TrustlineBalance{}, errors.New("database query failed"))
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader: NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				rpcService:    mockRPCService,
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
@@ -511,7 +506,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockAccountContractTokens.On("GetByAccount", ctx, testAccountAddress).
 			Return([]*data.Contract{}, errors.New("database query failed"))
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -519,7 +514,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
@@ -535,14 +530,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return(nil, errors.New("database connection failed"))
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader: NewBalanceReader(data.NewTrustlineBalanceModelMock(t), data.NewNativeBalanceModelMock(t), mockSACBalanceModel),
 				rpcService:    mockRPCService,
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testContractAddress))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
@@ -566,14 +561,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader: NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				rpcService:    mockRPCService,
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
@@ -620,7 +615,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			Return(wrongTypeScVal, nil)
 		// No GetLedgerEntries call needed - SEP-41 uses FetchSingleField, native comes from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -630,7 +625,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgBalancesFetchFailed)
 		assert.Nil(t, balances)
@@ -658,7 +653,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		// No GetLedgerEntries call needed - native comes from DB, unknown contracts are skipped
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -666,7 +661,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		// Should only have native balance, contract balance skipped
 		require.Len(t, balances, 1)
@@ -714,7 +709,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		// No GetLedgerEntries call needed - native and trustlines come from DB
 
-		resolver := &queryResolver{
+		resolver := &accountResolver{
 			&Resolver{
 				balanceReader:              NewBalanceReader(mockTrustlineBalanceModel, mockNativeBalanceModel, data.NewSACBalanceModelMock(t)),
 				accountContractTokensModel: mockAccountContractTokens,
@@ -722,7 +717,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 			},
 		}
 
-		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		balances, err := resolver.Balances(ctx, testParentAccount(testAccountAddress))
 		require.NoError(t, err)
 		require.Len(t, balances, 3)
 

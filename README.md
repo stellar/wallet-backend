@@ -212,7 +212,7 @@ The wallet-backend includes several internal services that power its high-perfor
 The wallet-backend implements a high-performance **Account Token Cache** system that enables fast retrieval of account balances across all token types. This Redis-backed cache tracks every account's token holdings, including native XLM, classic trustlines, and Stellar Asset Contract (SAC) tokens.
 
 **Why it exists:**
-- **Fast Balance Queries**: Enables sub-second response times for the GraphQL query `balancesByAccountAddress`
+- **Fast Balance Queries**: Enables sub-second response times for the GraphQL query shape `accountByAddress { balances }`
 - **Complete Token Coverage**: Tracks all token types an account holds without expensive RPC lookups
 - **Efficient Updates**: Incrementally updates during live ingestion without rescanning the entire ledger
 - **Horizontal Scalability**: Redis-based architecture supports distributed deployments
@@ -284,7 +284,7 @@ flowchart TD
 
 #### GraphQL Integration
 
-The Account Token Cache powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query. See the [Get Account Balances](#7-get-account-balances) section for query examples and response formats.
+The Account Token Cache powers the `accountByAddress { balances }` GraphQL query shape. See the [Get Account Balances](#7-get-account-balances) section for query examples and response formats.
 
 #### Storage Optimization Strategies
 
@@ -552,7 +552,7 @@ The wallet-backend implements a **Contract Validator Service** that validates wh
 - **Automatic Token Classification**: Identifies which contracts follow the SEP-41 fungible token standard without manual configuration
 - **Standards Compliance**: Ensures contracts expose the required token interface (balance, transfer, decimals, etc.)
 - **Balance Tracking**: Only SEP-41-compliant contracts are tracked in the account token cache for balance queries
-- **Integration with GraphQL**: Powers the [`balancesByAccountAddress`](#7-get-account-balances) query by distinguishing SEP-41 tokens from unknown contracts
+- **Integration with GraphQL**: Powers the `accountByAddress { balances }` query shape by distinguishing SEP-41 tokens from unknown contracts
 
 #### How Validation Works
 
@@ -778,7 +778,7 @@ This is handled automatically in `PopulateAccountTokens()`.
 
 ### Contract Metadata Service
 
-The wallet-backend implements a **Contract Metadata Service** that fetches and stores rich metadata for Stellar Asset Contract (SAC) and SEP-41 token contracts. This service enriches the [Account Token Cache](#account-token-cache) by providing human-readable token information (name, symbol, decimals) that powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query.
+The wallet-backend implements a **Contract Metadata Service** that fetches and stores rich metadata for Stellar Asset Contract (SAC) and SEP-41 token contracts. This service enriches the [Account Token Cache](#account-token-cache) by providing human-readable token information (name, symbol, decimals) that powers the `accountByAddress { balances }` GraphQL query shape.
 
 **Why it exists:**
 - **Rich Token Information**: Provides name, symbol, and decimals for contract tokens without requiring clients to fetch this data
@@ -934,17 +934,19 @@ This allows the GraphQL API to return both the contract address and the underlyi
 
 #### Integration with GraphQL Balances
 
-Contract metadata stored in `contract_tokens` enriches the [`balancesByAccountAddress`](#7-get-account-balances) query:
+Contract metadata stored in `contract_tokens` enriches the `accountByAddress { balances }` query shape:
 
 **For SAC Balances:**
 ```graphql
 {
-  balancesByAccountAddress(address: "GABC...") {
-    ... on SACBalance {
-      code       # From contract_tokens.code
-      issuer     # From contract_tokens.issuer
-      decimals   # From contract_tokens.decimals
-      balance    # From RPC ledger entry
+  accountByAddress(address: "GABC...") {
+    balances {
+      ... on SACBalance {
+        code       # From contract_tokens.code
+        issuer     # From contract_tokens.issuer
+        decimals   # From contract_tokens.decimals
+        balance    # From RPC ledger entry
+      }
     }
   }
 }
@@ -953,12 +955,14 @@ Contract metadata stored in `contract_tokens` enriches the [`balancesByAccountAd
 **For SEP-41 Balances:**
 ```graphql
 {
-  balancesByAccountAddress(address: "GABC...") {
-    ... on SEP41Balance {
-      name       # From contract_tokens.name
-      symbol     # From contract_tokens.symbol
-      decimals   # From contract_tokens.decimals
-      balance    # From RPC ledger entry
+  accountByAddress(address: "GABC...") {
+    balances {
+      ... on SEP41Balance {
+        name       # From contract_tokens.name
+        symbol     # From contract_tokens.symbol
+        decimals   # From contract_tokens.decimals
+        balance    # From RPC ledger entry
+      }
     }
   }
 }
