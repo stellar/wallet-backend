@@ -4,7 +4,6 @@ package resolvers
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/amount"
@@ -186,28 +185,6 @@ func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contr
 		Symbol:    *contract.Symbol,
 		Decimals:  int32(contract.Decimals),
 	}, nil
-}
-
-// getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
-// The accountAddress parameter is the address of the account whose balance we're querying.
-func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract) ([]graphql1.Balance, error) {
-	results := make([]graphql1.Balance, 0, len(contractIDs))
-	var errs []error
-
-	for _, contractID := range contractIDs {
-		balance, err := getSep41Balance(ctx, accountAddress, contractMetadataService, contractsByContractID[contractID])
-		if err != nil {
-			errs = append(errs, fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
-			continue
-		}
-		results = append(results, balance)
-	}
-
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("getting SEP41 balances: %w", errors.Join(errs...))
-	}
-
-	return results, nil
 }
 
 // getSep41Balance fetches and parses a single SEP-41 balance. The paginated
