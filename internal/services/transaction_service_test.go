@@ -259,7 +259,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		ChannelAccountSignatureClient:      &mChannelAccountSignatureClient,
 		ChannelAccountStore:                &mChannelAccountStore,
 		RPCService:                         &mRPCService,
-		BaseFee:                            114,
+		// Use a BaseFee large enough to accommodate typical Soroban ResourceFees under the server-side re-simulation
+		// bound. The specific value is not meaningful to any single subtest; it just needs to be > ResourceFee for
+		// the Soroban success path to clear the cap.
+		BaseFee: 1_000_000,
 	})
 	require.NoError(t, outerErr)
 
@@ -401,7 +404,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.EqualError(t, err, "assigning channel account to tx: unable to assign channel account to tx")
 	})
 
-	t.Run("🔴handle_SignStellarTransaction_err", func(t *testing.T) {
+	t.Run("🔴handle_SignStellarTransaction_err_releases_channel_account", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background(), 30).
@@ -417,6 +420,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		mChannelAccountStore.
 			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(nil).
+			Once().
+			// After signing fails, the channel account must be released so the pool doesn't leak locks on every
+			// bad/incomplete build call. Otherwise an attacker flooding buildTransaction can wedge the pool for
+			// up to the lock TTL (minutes) with a handful of requests.
+			On("UnassignTxAndUnlockChannelAccounts", context.Background(), mock.Anything, mock.AnythingOfType("string")).
+			Return(int64(1), nil).
 			Once()
 
 		mRPCService.
@@ -462,6 +471,9 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		mRPCService.
 			On("GetAccountLedgerSequence", channelAccount.Address()).
 			Return(int64(1), nil).
+			Once().
+			On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
 			Once()
 
 		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
@@ -545,6 +557,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 		baseFee             int64
 		incomingOps         []txnbuild.Operation
 		simulationResponse  entities.RPCSimulateTransactionResult
+		setupRPCMock        func(t *testing.T, m *RPCServiceMock)
 		wantBuildTxParamsFn func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams
 		wantErrContains     string
 	}{
@@ -621,6 +634,10 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				buildInvokeContractOp(t),
 			},
 			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
+			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				newInvokeContractOp := buildInvokeContractOp(t)
 				require.Empty(t, newInvokeContractOp.Ext)
@@ -642,39 +659,16 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			},
 		},
 		{
-			name:    "🟢successful_InvokeHostFunction_minBaseFee",
-			baseFee: txnbuild.MinBaseFee,
-			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
-			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
-			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				newInvokeContractOp := buildInvokeContractOp(t)
-				require.Empty(t, newInvokeContractOp.Ext)
-				var err error
-				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
-				require.NoError(t, err)
-
-				return txnbuild.TransactionParams{
-					Operations: []txnbuild.Operation{newInvokeContractOp},
-					BaseFee:    initialBuildTxParams.BaseFee,
-					SourceAccount: &txnbuild.SimpleAccount{
-						AccountID: txSourceAccount,
-						Sequence:  1,
-					},
-					Preconditions: txnbuild.Preconditions{
-						TimeBounds: txnbuild.NewTimeout(300),
-					},
-				}
-			},
-		},
-		{
-			name:    "🟢successful_ExtendFootprintTtl_minBaseFee",
-			baseFee: txnbuild.MinBaseFee,
+			name:    "🟢successful_ExtendFootprintTtl_largeBaseFee",
+			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
 				&txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937},
 			},
 			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
+			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				newExtendFootprintTTLOp := &txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937}
 				var err error
@@ -683,7 +677,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 
 				return txnbuild.TransactionParams{
 					Operations: []txnbuild.Operation{newExtendFootprintTTLOp},
-					BaseFee:    initialBuildTxParams.BaseFee,
+					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
 						Sequence:  1,
@@ -695,12 +689,16 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			},
 		},
 		{
-			name:    "🟢successful_RestoreFootprint_minBaseFee",
-			baseFee: txnbuild.MinBaseFee,
+			name:    "🟢successful_RestoreFootprint_largeBaseFee",
+			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
 				&txnbuild.RestoreFootprint{},
 			},
 			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
+			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
 				var err error
@@ -709,7 +707,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 
 				return txnbuild.TransactionParams{
 					Operations: []txnbuild.Operation{newRestoreFootprintOp},
-					BaseFee:    initialBuildTxParams.BaseFee,
+					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
 						Sequence:  1,
@@ -721,12 +719,16 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			},
 		},
 		{
-			name:    "🟢successful_RestoreFootprint_minBaseFee_signedByContractAuthEntry",
-			baseFee: txnbuild.MinBaseFee,
+			name:    "🟢successful_RestoreFootprint_largeBaseFee_signedByContractAuthEntry",
+			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
 				&txnbuild.RestoreFootprint{},
 			},
 			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
+			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
 				var err error
@@ -735,7 +737,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 
 				return txnbuild.TransactionParams{
 					Operations: []txnbuild.Operation{newRestoreFootprintOp},
-					BaseFee:    initialBuildTxParams.BaseFee,
+					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
 						Sequence:  1,
@@ -745,13 +747,76 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 					},
 				}
 			},
+		},
+		{
+			name:    "🚨rejects_inflated_ResourceFee_above_server_resim_bound",
+			baseFee: 10_000_000,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			// Client-declared ResourceFee is 133301 (inside sorobanTxData), but server re-sim reports a MinResourceFee
+			// of "50000". With safety_factor=2, maxAllowed = min(100000, 10_000_000) = 100000. 133301 > 100000 → reject.
+			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "50000"}, nil).Once()
+			},
+			wantErrContains: "resource fee",
+		},
+		{
+			name:    "🚨rejects_ResourceFee_above_base_fee_cap",
+			baseFee: 100_000,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			// Client-declared ResourceFee = 133301. baseFee cap = 100000. Server returns high MinResourceFee that
+			// would *allow* it via safety factor, but hard cap at t.BaseFee should still reject.
+			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
+			},
+			wantErrContains: "resource fee",
+		},
+		{
+			name:    "🚨rejects_when_server_resim_returns_payload_error",
+			baseFee: 1_000_000,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{Error: "server said no"}, nil).Once()
+			},
+			wantErrContains: "server-side re-simulation failed",
+		},
+		{
+			name:    "🚨rejects_when_server_resim_rpc_error",
+			baseFee: 1_000_000,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
+			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
+				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+					Return(entities.RPCSimulateTransactionResult{}, errors.New("rpc down")).Once()
+			},
+			wantErrContains: "server-side re-simulation",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			mRPCService := &RPCServiceMock{}
+			if tc.setupRPCMock != nil {
+				tc.setupRPCMock(t, mRPCService)
+			}
+			defer mRPCService.AssertExpectations(t)
+
 			txService := &transactionService{
-				BaseFee: tc.baseFee,
+				BaseFee:    tc.baseFee,
+				RPCService: mRPCService,
 			}
 
 			incomingBuildTxParams := txnbuild.TransactionParams{

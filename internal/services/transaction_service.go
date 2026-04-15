@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -22,6 +26,11 @@ import (
 const (
 	MaxTimeoutInSeconds     = 300
 	DefaultTimeoutInSeconds = 30
+
+	// sorobanResourceFeeSafetyFactor multiplies the server-authoritative MinResourceFee to produce the upper bound
+	// we accept from the client. This absorbs normal simulation drift while preventing inflated ResourceFee values
+	// from draining the sponsor account. The value is also capped by the operator-configured BaseFee.
+	sorobanResourceFeeSafetyFactor = 2
 )
 
 var (
@@ -32,6 +41,7 @@ var (
 	ErrInvalidSorobanSimulationEmpty  = errors.New("invalid Soroban transaction: simulation response cannot be empty")
 	ErrInvalidSorobanSimulationFailed = errors.New("invalid Soroban transaction: simulation failed")
 	ErrInvalidSorobanOperationType    = errors.New("invalid Soroban transaction: operation type not supported")
+	ErrSorobanResourceFeeExceedsBound = errors.New("invalid Soroban transaction: client-declared resource fee exceeds the allowed bound")
 )
 
 type TransactionService interface {
@@ -104,7 +114,7 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResponse *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResponse *entities.RPCSimulateTransactionResult) (signedTx *txnbuild.Transaction, retErr error) {
 	timeoutInSecs := DefaultTimeoutInSeconds
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, timeoutInSecs)
 	if err != nil {
@@ -194,6 +204,15 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("assigning channel account to tx: %w", err)
 	}
 
+	// After AssignTxToChannelAccount succeeds, the channel row is locked to this tx hash until the ingest path
+	// confirms the tx on ledger (see internal/services/ingest_live.go:unlockChannelAccounts) or the locked_until
+	// TTL expires. If anything below fails, the channel would otherwise be held hostage for the full TTL. Release on error.
+	defer func() {
+		if retErr != nil {
+			t.releaseChannelAccountLock(ctx, txHash)
+		}
+	}()
+
 	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
@@ -202,10 +221,28 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	return tx, nil
 }
 
+// releaseChannelAccountLock is a best-effort unlock of the channel account previously assigned to txHash. Failures
+// are logged but not surfaced: the caller is already unwinding with a more meaningful error, and the lock will
+// eventually expire via the channel's locked_until TTL even if this release fails.
+func (t *transactionService) releaseChannelAccountLock(ctx context.Context, txHash string) {
+	releaseErr := db.RunInTransaction(ctx, t.DB, func(pgxTx pgx.Tx) error {
+		if _, err := t.ChannelAccountStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, txHash); err != nil {
+			return fmt.Errorf("unassigning channel account for tx %s: %w", txHash, err)
+		}
+		return nil
+	})
+	if releaseErr != nil {
+		log.Ctx(ctx).Errorf("failed to release channel account lock for tx %s: %v", txHash, releaseErr)
+	}
+}
+
 // adjustParamsForSoroban will use the `simulationResponse` to set the `Ext` field in the sorobanOp, in case the transaction
 // is a soroban transaction. The resulting `buildTxParams` will be later used by `txnbuild.NewTransaction` to:
 // - Calculate the total fee.
 // - Include the `Ext` information to the transaction envelope.
+//
+// Before the fee is accepted, this method re-simulates the transaction server-side and rejects any client-declared
+// `ResourceFee` that exceeds `min(serverMinResourceFee * sorobanResourceFeeSafetyFactor, t.BaseFee)`.
 func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams, simulationResponse entities.RPCSimulateTransactionResult) (txnbuild.TransactionParams, error) {
 	// Ensure this is a soroban transaction.
 	operations := buildTxParams.Operations
@@ -250,11 +287,72 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %T", ErrInvalidSorobanOperationType, operations[0])
 	}
 
+	// Bound the client-declared ResourceFee against a server-side re-simulation.
+	clientResourceFee := int64(transactionExt.SorobanData.ResourceFee)
+	if err := t.validateSorobanResourceFee(buildTxParams, clientResourceFee); err != nil {
+		return txnbuild.TransactionParams{}, err
+	}
+
 	// Adjust the base fee to ensure the total fee computed by `txnbuild.NewTransaction` (baseFee+sorobanFee) will stay
 	// within the limits configured by the host.
-	sorobanFee := int64(transactionExt.SorobanData.ResourceFee)
-	adjustedBaseFee := buildTxParams.BaseFee - sorobanFee
+	adjustedBaseFee := buildTxParams.BaseFee - clientResourceFee
 	buildTxParams.BaseFee = int64(math.Max(float64(adjustedBaseFee), float64(txnbuild.MinBaseFee)))
 
 	return buildTxParams, nil
+}
+
+// validateSorobanResourceFee re-simulates the Soroban transaction against the wallet-backend's own Stellar RPC and
+// rejects the request if the client-declared resource fee exceeds the bound
+// `min(serverMinResourceFee * sorobanResourceFeeSafetyFactor, t.BaseFee)`.
+func (t *transactionService) validateSorobanResourceFee(buildTxParams txnbuild.TransactionParams, clientResourceFee int64) error {
+	// Build a throw-away transaction for simulation. Copy the source account so the real build path's sequence is
+	// untouched, and explicitly disable sequence increment since simulation does not consume a sequence number.
+	var simSourceAccount txnbuild.SimpleAccount
+	if src, ok := buildTxParams.SourceAccount.(*txnbuild.SimpleAccount); ok && src != nil {
+		simSourceAccount = *src
+	} else {
+		return fmt.Errorf("unexpected source account type for soroban re-simulation: %T", buildTxParams.SourceAccount)
+	}
+
+	simTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &simSourceAccount,
+		Operations:           buildTxParams.Operations,
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        buildTxParams.Preconditions,
+		Memo:                 buildTxParams.Memo,
+		IncrementSequenceNum: false,
+	})
+	if err != nil {
+		return fmt.Errorf("building soroban re-simulation transaction: %w", err)
+	}
+
+	simTxXDR, err := simTx.Base64()
+	if err != nil {
+		return fmt.Errorf("serializing soroban re-simulation transaction: %w", err)
+	}
+
+	serverSim, err := t.RPCService.SimulateTransaction(simTxXDR, entities.RPCResourceConfig{})
+	if err != nil {
+		return fmt.Errorf("server-side re-simulation of soroban transaction: %w", err)
+	}
+	if serverSim.Error != "" {
+		return fmt.Errorf("server-side re-simulation failed: %s", serverSim.Error)
+	}
+
+	serverMinResourceFee, err := strconv.ParseInt(serverSim.MinResourceFee, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parsing server-side re-simulation MinResourceFee %q: %w", serverSim.MinResourceFee, err)
+	}
+
+	maxAllowedResourceFee := serverMinResourceFee * sorobanResourceFeeSafetyFactor
+	if t.BaseFee < maxAllowedResourceFee {
+		maxAllowedResourceFee = t.BaseFee
+	}
+
+	if clientResourceFee > maxAllowedResourceFee {
+		return fmt.Errorf("%w: client resource fee %d exceeds allowed maximum %d (server MinResourceFee %d, base fee cap %d)",
+			ErrSorobanResourceFeeExceedsBound, clientResourceFee, maxAllowedResourceFee, serverMinResourceFee, t.BaseFee)
+	}
+
+	return nil
 }

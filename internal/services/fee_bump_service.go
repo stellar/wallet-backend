@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -43,6 +44,22 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 
 	if tx.BaseFee() > s.BaseFee {
 		return "", "", ErrFeeExceedsMaximumBaseFee
+	}
+
+	// For Soroban inner transactions the base fee alone does not reflect the total cost — the ResourceFee sits on the
+	// transaction's Ext and is added on top. If the declared ResourceFee pushes the inner's total max fee above what
+	// the fee-bump envelope commits (s.BaseFee × innerOps), the network will reject the envelope with txINSUFF_FEE
+	// anyway. Reject early so the sponsor never signs.
+	if sorobanResourceFee, ok := innerSorobanResourceFee(tx); ok {
+		innerOps := int64(len(tx.Operations()))
+		if innerOps == 0 {
+			innerOps = 1
+		}
+		innerTotalMaxFee := tx.BaseFee()*innerOps + sorobanResourceFee
+		if innerTotalMaxFee > s.BaseFee*innerOps {
+			return "", "", fmt.Errorf("%w: soroban inner total max fee %d exceeds sponsor cap %d",
+				ErrFeeExceedsMaximumBaseFee, innerTotalMaxFee, s.BaseFee*innerOps)
+		}
 	}
 
 	sigs := tx.Signatures()
@@ -116,4 +133,21 @@ func NewFeeBumpService(opts FeeBumpServiceOptions) (*feeBumpService, error) {
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,
 	}, nil
+}
+
+// innerSorobanResourceFee returns the transaction-level Soroban ResourceFee declared in the inner transaction's Ext,
+// if present. Classic (non-Soroban) transactions return (0, false).
+func innerSorobanResourceFee(tx *txnbuild.Transaction) (int64, bool) {
+	envelope := tx.ToXDR()
+	v1, ok := envelope.GetV1()
+	if !ok {
+		return 0, false
+	}
+	if v1.Tx.Ext.V != 1 || v1.Tx.Ext.SorobanData == nil {
+		return 0, false
+	}
+	if envelope.Type != xdr.EnvelopeTypeEnvelopeTypeTx {
+		return 0, false
+	}
+	return int64(v1.Tx.Ext.SorobanData.ResourceFee), true
 }
