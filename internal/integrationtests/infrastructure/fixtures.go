@@ -1192,7 +1192,8 @@ func (f *Fixtures) buildMultiOperationUseCase(
 	}, nil
 }
 
-// buildSorobanUseCase creates a UseCase for Soroban operations with simulation results.
+// buildSorobanUseCase creates a UseCase for Soroban operations with simulation data already
+// embedded in the transaction XDR (via the operation's Ext field).
 func (f *Fixtures) buildSorobanUseCase(
 	opXDR string,
 	txSigners *Set[*keypair.Full],
@@ -1200,7 +1201,7 @@ func (f *Fixtures) buildSorobanUseCase(
 	name string,
 	timeoutSeconds int64,
 ) (*UseCase, error) {
-	txXDR, err := f.buildTransactionXDR([]string{opXDR}, timeoutSeconds)
+	txXDR, err := f.buildSorobanTransactionXDR(opXDR, simulationResult.TransactionData, timeoutSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("building transaction XDR for %s: %w", name, err)
 	}
@@ -1210,7 +1211,7 @@ func (f *Fixtures) buildSorobanUseCase(
 		category:             categorySoroban,
 		TxSigners:            txSigners,
 		DelayTime:            2 * time.Second,
-		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResult},
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 	}, nil
 }
 
@@ -1455,6 +1456,60 @@ func (f *Fixtures) buildTransactionXDR(operationXDRs []string, timeoutSeconds in
 	}
 
 	// Convert to XDR string
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+	}
+
+	return txXDR, nil
+}
+
+// buildSorobanTransactionXDR builds a transaction XDR for a Soroban operation with
+// SorobanTransactionData embedded in the operation's Ext field.
+func (f *Fixtures) buildSorobanTransactionXDR(opXDRStr string, sorobanData xdr.SorobanTransactionData, timeoutSeconds int64) (string, error) {
+	_ = timeoutSeconds // Reserved for future use; currently using NewInfiniteTimeout()
+
+	opXDR, err := utils.OperationXDRFromBase64(opXDRStr)
+	if err != nil {
+		return "", fmt.Errorf("converting operation XDR from base64: %w", err)
+	}
+	op, err := utils.OperationXDRToTxnBuildOp(opXDR)
+	if err != nil {
+		return "", fmt.Errorf("converting operation XDR to txnbuild operation: %w", err)
+	}
+
+	// Embed SorobanTransactionData in the operation's Ext field
+	txExt, err := xdr.NewTransactionExt(1, sorobanData)
+	if err != nil {
+		return "", fmt.Errorf("creating transaction ext: %w", err)
+	}
+	switch sorobanOp := op.(type) {
+	case *txnbuild.InvokeHostFunction:
+		sorobanOp.Ext = txExt
+	case *txnbuild.ExtendFootprintTtl:
+		sorobanOp.Ext = txExt
+	case *txnbuild.RestoreFootprint:
+		sorobanOp.Ext = txExt
+	default:
+		return "", fmt.Errorf("unsupported Soroban operation type: %T", op)
+	}
+
+	sourceAccKP := keypair.MustRandom()
+	sourceAcc := txnbuild.SimpleAccount{AccountID: sourceAccKP.Address(), Sequence: 0}
+
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &sourceAcc,
+		Operations:    []txnbuild.Operation{op},
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
+		},
+		IncrementSequenceNum: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("building transaction: %w", err)
+	}
+
 	txXDR, err := tx.Base64()
 	if err != nil {
 		return "", fmt.Errorf("encoding transaction to base64: %w", err)

@@ -128,8 +128,27 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("invalid transaction type in XDR")
 	}
 
-	// Validate operations
+	// Extract operations and propagate the transaction-level Ext (SorobanTransactionData) to
+	// Soroban operations. The SDK's TransactionFromXDR only copies Ext to InvokeHostFunction;
+	// ExtendFootprintTtl and RestoreFootprint need it too but their FromXDR doesn't set it.
 	operations := clientTx.Operations()
+	if txEnv := clientTx.ToXDR(); txEnv.V1 != nil && txEnv.V1.Tx.Ext.V != 0 {
+		txExt := txEnv.V1.Tx.Ext
+		for _, op := range operations {
+			switch sorobanOp := op.(type) {
+			case *txnbuild.ExtendFootprintTtl:
+				if sorobanOp.Ext.V == 0 {
+					sorobanOp.Ext = txExt
+				}
+			case *txnbuild.RestoreFootprint:
+				if sorobanOp.Ext.V == 0 {
+					sorobanOp.Ext = txExt
+				}
+			}
+		}
+	}
+
+	// Validate operations
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
 		// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)

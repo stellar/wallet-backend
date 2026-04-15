@@ -556,6 +556,116 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.ErrorContains(t, err, sorobanauth.ErrForbiddenSigner.Error())
 	})
 
+	t.Run("🟢build_and_sign_ExtendFootprintTtl_from_xdr", func(t *testing.T) {
+		// This test verifies that ExtendFootprintTtl works through the real XDR deserialization
+		// path, which the SDK does NOT propagate Ext to (unlike InvokeHostFunction).
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+
+		sorobanExt, err := xdr.NewTransactionExt(1, sorobanTxData)
+		require.NoError(t, err)
+
+		// Build a transaction with ExtendFootprintTtl, serialize to XDR, then parse it back.
+		// This exercises the real deserialization path where the SDK drops Ext.
+		op := &txnbuild.ExtendFootprintTtl{ExtendTo: 1000, Ext: sorobanExt}
+		originalTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		txXDR, err := originalTx.Base64()
+		require.NoError(t, err)
+
+		// Parse from XDR (this is what the resolver does)
+		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		require.NoError(t, err)
+
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(originalTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once().
+			On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.NotNil(t, tx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("🟢build_and_sign_RestoreFootprint_from_xdr", func(t *testing.T) {
+		// Same as above but for RestoreFootprint.
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+
+		sorobanExt, err := xdr.NewTransactionExt(1, sorobanTxData)
+		require.NoError(t, err)
+
+		op := &txnbuild.RestoreFootprint{Ext: sorobanExt}
+		originalTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		txXDR, err := originalTx.Base64()
+		require.NoError(t, err)
+
+		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		require.NoError(t, err)
+
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(originalTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once().
+			On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.NotNil(t, tx)
+		assert.NoError(t, err)
+	})
+
 	t.Run("🟢handle_max_timebound_greater_than_wallet_backend_max_timebound", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{

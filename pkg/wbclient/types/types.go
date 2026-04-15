@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 // OperationType represents the type of Stellar operation
@@ -218,8 +216,7 @@ type Account struct {
 
 // Transaction represents a Stellar transaction
 type Transaction struct {
-	TransactionXdr   string                                `json:"transactionXdr" validate:"required"`
-	SimulationResult entities.RPCSimulateTransactionResult `json:"simulationResult,omitempty"`
+	TransactionXdr string `json:"transactionXdr" validate:"required"`
 }
 
 // GraphQLTransaction represents a transaction from the GraphQL API
