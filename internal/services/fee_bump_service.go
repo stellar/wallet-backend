@@ -47,18 +47,23 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 	}
 
 	// For Soroban inner transactions the base fee alone does not reflect the total cost — the ResourceFee sits on the
-	// transaction's Ext and is added on top. If the declared ResourceFee pushes the inner's total max fee above what
-	// the fee-bump envelope commits (s.BaseFee × innerOps), the network will reject the envelope with txINSUFF_FEE
-	// anyway. Reject early so the sponsor never signs.
-	if sorobanResourceFee, ok := innerSorobanResourceFee(tx); ok {
+	// transaction's Ext and is added on top. `tx.MaxFee()` on a parsed tx returns the envelope's `Fee` field which
+	// for Soroban already equals `BaseFee*innerOps + ResourceFee`; we compare it directly to the per-op sponsor cap
+	// (`s.BaseFee * innerOps`) to match the bound enforced by `validateSorobanResourceFee` in the build path.
+	//
+	// This catches envelopes that bypass the build path (i.e., client hand-crafted a Soroban envelope and submitted
+	// it directly to the fee-bump endpoint); txs that went through the build path already had their ResourceFee
+	// capped, so they land at exactly `s.BaseFee * innerOps` and pass the check.
+	if _, ok := innerSorobanResourceFee(tx); ok {
 		innerOps := int64(len(tx.Operations()))
 		if innerOps == 0 {
 			innerOps = 1
 		}
-		innerTotalMaxFee := tx.BaseFee()*innerOps + sorobanResourceFee
-		if innerTotalMaxFee > s.BaseFee*innerOps {
-			return "", "", fmt.Errorf("%w: soroban inner total max fee %d exceeds sponsor cap %d",
-				ErrFeeExceedsMaximumBaseFee, innerTotalMaxFee, s.BaseFee*innerOps)
+		innerMaxFee := tx.MaxFee()
+		sponsorCap := s.BaseFee * innerOps
+		if innerMaxFee > sponsorCap {
+			return "", "", fmt.Errorf("%w: soroban inner max fee %d exceeds sponsor cap %d",
+				ErrFeeExceedsMaximumBaseFee, innerMaxFee, sponsorCap)
 		}
 	}
 

@@ -291,7 +291,9 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %T", ErrInvalidSorobanOperationType, operations[0])
 	}
 
-	// Bound the client-declared ResourceFee against a server-side re-simulation.
+	// Bound the client-declared ResourceFee against a server-side re-simulation. Without this the caller can inflate
+	// `simulationResponse.TransactionData.ResourceFee` arbitrarily — the floor below would silently absorb it, but
+	// the fee-bump wrapper would still commit distribution-account funds up to the fee-bump ceiling.
 	clientResourceFee := int64(transactionExt.SorobanData.ResourceFee)
 	if err := t.validateSorobanResourceFee(buildTxParams, clientResourceFee); err != nil {
 		return txnbuild.TransactionParams{}, err
