@@ -40,10 +40,21 @@ const (
 //
 //	base64("v1:<source>:<id>")
 //
+// The cursor represents a position in the single logical Account.balances
+// connection, not just a position inside one backing table. The <source> part
+// tells the resolver which source owned the last returned edge, and the <id>
+// part is that source's local keyset cursor.
+//
 // The ID is source-specific:
 // - native -> literal "native"
 // - classic -> trustline asset UUID
 // - sac/sep41 -> contract UUID
+//
+// Example:
+// - canonical order: native, classic(A), classic(B), sep41(X)
+// - endCursor after returning classic(B): base64("v1:classic:<B-uuid>")
+// - next forward page skips native entirely, resumes classic after B, then
+//   continues into later sources if it still needs more rows.
 type balanceCursor struct {
 	Source balanceSource
 	ID     string
@@ -121,8 +132,16 @@ func parseBalancePaginationParams(first *int32, after *string, last *int32, befo
 	return params, nil
 }
 
-// parseBalanceCursor validates and decodes the string cursor into a typed form
-// the resolver can dispatch to the correct backing source.
+// parseBalanceCursor validates and decodes the inner cursor payload into a typed
+// form the resolver can dispatch to the correct backing source. The outer
+// base64 layer was already removed by parsePaginationParams.
+//
+// Validation is intentionally source-aware:
+// - the source must exist in the canonical source list for this address type
+// - the id must match the source's local key type
+//
+// That prevents a cursor from one balance collection shape from being replayed
+// against another, such as passing a native/classic cursor to a contract address.
 func parseBalanceCursor(cursor *string, sources []balanceSource) (*balanceCursor, error) {
 	if cursor == nil {
 		return nil, nil
@@ -173,9 +192,12 @@ func (c *balanceCursor) uuid() (*uuid.UUID, error) {
 }
 
 // getAccountBalances is the main field implementation for Account.balances.
-// It validates Relay args, decodes the opaque cursor, gathers requested+1
-// balance nodes from the backing sources, and then lets the shared Relay helper
-// compute edges and PageInfo.
+// It treats native/classic/SAC/SEP-41 balances as one logical Relay
+// connection:
+//  1. parse Relay args
+//  2. decode the source-aware cursor into a global boundary
+//  3. fetch requested+1 rows across the ordered sources
+//  4. hand the assembled nodes to the shared Relay helper for edges/PageInfo
 func (r *Resolver) getAccountBalances(ctx context.Context, address string, first *int32, after *string, last *int32, before *string) (*graphql1.BalanceConnection, error) {
 	params, err := parseBalancePaginationParams(first, after, last, before)
 	if err != nil {
@@ -215,9 +237,15 @@ func (r *Resolver) getAccountBalances(ctx context.Context, address string, first
 }
 
 // getAccountBalanceNodes delegates to separate forward/backward walkers because
-// the backing data comes from multiple sources rather than one DB query. Both
-// walkers gather requested+1 nodes so PageInfo can be computed by the shared
-// Relay helper without loading the full balance set.
+// the backing data comes from multiple sources rather than one DB query.
+//
+// The important rule is that the decoded cursor marks one boundary in the
+// global source-ordered list. Only the source that owns that boundary receives
+// a source-local cursor; earlier/later sources are either skipped or scanned
+// from their natural start depending on pagination direction.
+//
+// Both walkers gather requested+1 nodes so PageInfo can be computed by the
+// shared Relay helper without loading the full balance set.
 func (r *Resolver) getAccountBalanceNodes(
 	ctx context.Context,
 	address string,
@@ -242,6 +270,14 @@ func (r *Resolver) getAccountBalanceNodes(
 
 // getAccountBalanceNodesForward walks sources in canonical order and only uses
 // the decoded cursor on the source where the previous page ended.
+//
+// Example:
+// - canonical order: native -> classic -> sep41
+// - after = classic:<uuid-B>
+// Then the forward walk:
+// - skips native (already fully consumed by earlier pages)
+// - resumes classic after uuid-B
+// - continues into sep41 only if classic does not fill the page
 func (r *Resolver) getAccountBalanceNodesForward(
 	ctx context.Context,
 	address string,
@@ -288,7 +324,16 @@ func (r *Resolver) getAccountBalanceNodesForward(
 
 // getAccountBalanceNodesBackward mirrors the forward walk but traverses sources
 // in reverse. Each source fetch runs DESC in the DB, and the combined slice is
-// reversed once at the end so the final connection still returns canonical ASC order.
+// reversed once at the end so the final connection still returns canonical ASC
+// order.
+//
+// Example:
+// - canonical order: native -> classic -> sep41
+// - before = sep41:<uuid-X>
+// Then the backward walk:
+// - skips sources after sep41 in canonical order (none in this example)
+// - resumes sep41 before uuid-X
+// - falls back into classic, then native, until the page is full
 func (r *Resolver) getAccountBalanceNodesBackward(
 	ctx context.Context,
 	address string,
@@ -333,9 +378,13 @@ func (r *Resolver) getAccountBalanceNodesBackward(
 	return nodes, nil
 }
 
-// getBalanceNodesForSource converts a single balance source into connection
-// nodes. Each source owns its own cursor semantics, but they all flow into the
-// same balanceNode shape for final connection assembly.
+// getBalanceNodesForSource converts one backing source into connection nodes.
+// Each source owns its own local keyset semantics, but all of them flow into
+// the same balanceNode shape for final connection assembly.
+//
+// The caller only passes a non-nil cursor when this source owns the global page
+// boundary. Every other source either starts from its natural beginning/end or
+// is skipped entirely by the source walkers above.
 func (r *Resolver) getBalanceNodesForSource(
 	ctx context.Context,
 	address string,
@@ -364,7 +413,9 @@ func (r *Resolver) getBalanceNodesForSource(
 }
 
 // Native balances are a special case: there is at most one row, so pagination
-// only needs to know whether the page has already advanced past the native source.
+// only needs to know whether the global page boundary has already advanced past
+// the native source. Any non-nil cursor means the window is no longer at the
+// native position, so there is nothing left to emit from this source.
 func (r *Resolver) getNativeBalanceNodes(ctx context.Context, address string, cursor *balanceCursor, networkPassphrase string) ([]*balanceNode, error) {
 	if cursor != nil {
 		return nil, nil
