@@ -251,7 +251,6 @@ func newGraphQLTestHandler(t *testing.T, complexityLimit int) http.Handler {
 		SACBalanceModel:            models.SACBalance,
 		AccountContractTokensModel: models.AccountContractTokens,
 		GraphQLComplexityLimit:     complexityLimit,
-		MaxGraphQLWorkerPoolSize:   10,
 	})
 }
 

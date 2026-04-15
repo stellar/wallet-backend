@@ -80,7 +80,7 @@ func (r *Resolver) getAccountBalances(ctx context.Context, address string) ([]gr
 		return balances, nil
 	}
 
-	sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID, r.pool)
+	sep41Balances, err := getSep41Balances(ctx, address, r.contractMetadataService, sep41TokenIDs, contractsByContractID)
 	if err != nil {
 		return nil, internalErr()
 	}

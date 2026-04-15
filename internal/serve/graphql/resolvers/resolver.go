@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -41,9 +40,7 @@ const (
 )
 
 // ResolverConfig holds configuration values for the GraphQL resolver.
-type ResolverConfig struct {
-	MaxWorkerPoolSize int
-}
+type ResolverConfig struct{}
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
@@ -64,8 +61,6 @@ type Resolver struct {
 	contractMetadataService    services.ContractMetadataService
 	// metrics provides metrics collection capabilities
 	metrics *metrics.Metrics
-	// pool provides parallel processing capabilities for batch operations
-	pool pond.Pool
 	// config holds resolver-specific configuration values
 	config ResolverConfig
 }
@@ -74,10 +69,6 @@ type Resolver struct {
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
 func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, m *metrics.Metrics, config ResolverConfig) *Resolver {
-	poolSize := config.MaxWorkerPoolSize
-	if poolSize <= 0 {
-		poolSize = 100 // default fallback
-	}
 	return &Resolver{
 		models:                     models,
 		transactionService:         transactionService,
@@ -87,7 +78,6 @@ func NewResolver(models *data.Models, transactionService services.TransactionSer
 		accountContractTokensModel: accountContractTokensModel,
 		contractMetadataService:    contractMetadataService,
 		metrics:                    m,
-		pool:                       pond.NewPool(poolSize),
 		config:                     config,
 	}
 }

@@ -6,9 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sync"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -192,43 +190,33 @@ func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contr
 
 // getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
 // The accountAddress parameter is the address of the account whose balance we're querying.
-func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
-	results := make([]graphql1.Balance, len(contractIDs))
-	group := pool.NewGroupContext(ctx)
+func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract) ([]graphql1.Balance, error) {
+	results := make([]graphql1.Balance, 0, len(contractIDs))
 	var errs []error
-	mu := sync.Mutex{}
 
-	appendError := func(err error) {
-		mu.Lock()
-		errs = append(errs, err)
-		mu.Unlock()
-	}
+	for _, contractID := range contractIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
+		}
 
-	for i, contractID := range contractIDs {
-		group.Submit(func() {
-			// Convert the account address to an xdr.ScVal for passing to the balance function
-			addressArg, err := addressToScVal(accountAddress)
-			if err != nil {
-				appendError(fmt.Errorf("converting account address to ScVal: %w", err))
-				return
-			}
+		// Convert the account address to an xdr.ScVal for passing to the balance function
+		addressArg, err := addressToScVal(accountAddress)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("converting account address to ScVal: %w", err))
+			continue
+		}
 
-			balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
-			if err != nil {
-				appendError(fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
-				return
-			}
-			balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
-			if err != nil {
-				appendError(fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
-				return
-			}
-			results[i] = balance
-		})
-	}
-
-	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for SEP41 balance fetch group: %w", err)
+		balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
+			continue
+		}
+		balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
+			continue
+		}
+		results = append(results, balance)
 	}
 
 	if len(errs) > 0 {

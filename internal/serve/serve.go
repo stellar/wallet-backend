@@ -62,8 +62,7 @@ type Configs struct {
 	RPCURL string
 
 	// GraphQL
-	GraphQLComplexityLimit   int
-	MaxGraphQLWorkerPoolSize int
+	GraphQLComplexityLimit int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -115,8 +114,7 @@ type handlerDeps struct {
 	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
-	GraphQLComplexityLimit   int
-	MaxGraphQLWorkerPoolSize int
+	GraphQLComplexityLimit int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -230,7 +228,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		NetworkPassphrase:          cfg.NetworkPassphrase,
 		TransactionService:         txService,
 		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
-		MaxGraphQLWorkerPoolSize:   cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 
@@ -279,9 +276,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.Metrics,
-				resolvers.ResolverConfig{
-					MaxWorkerPoolSize: deps.MaxGraphQLWorkerPoolSize,
-				},
+				resolvers.ResolverConfig{},
 			)
 
 			config := generated.Config{

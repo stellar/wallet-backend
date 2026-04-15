@@ -6,7 +6,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/alitto/pond/v2"
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -277,7 +276,6 @@ func TestAccountResolver_Balances(t *testing.T) {
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
-				pool:                       pond.NewPool(0),
 			},
 		}
 
@@ -343,7 +341,6 @@ func TestAccountResolver_Balances(t *testing.T) {
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
-				pool:                       pond.NewPool(0),
 			},
 		}
 
@@ -392,7 +389,6 @@ func TestAccountResolver_Balances(t *testing.T) {
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
-				pool:                       pond.NewPool(0),
 			},
 		}
 
@@ -621,7 +617,6 @@ func TestAccountResolver_Balances(t *testing.T) {
 				accountContractTokensModel: mockAccountContractTokens,
 				rpcService:                 mockRPCService,
 				contractMetadataService:    mockContractMetadataService,
-				pool:                       pond.NewPool(0),
 			},
 		}
 
