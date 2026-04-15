@@ -13,11 +13,8 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-)
-
-const (
-	DefaultLimit = int32(50)
 )
 
 // GenericEdge is a generic wrapper for a GraphQL edge.
@@ -292,7 +289,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	var cursor *string
-	limit := DefaultLimit
+	limit := graphqlutils.DefaultPageLimit
 	forwardPagination := true
 	sortOrder := data.ASC
 	if first != nil {

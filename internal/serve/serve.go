@@ -363,8 +363,9 @@ func addComplexityCalculation(config *generated.Config) {
 		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
 		--------------------------------
 	*/
-	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, after *string, last *int32, before *string) int {
-		limit := 10 // default limit when no pagination parameters provided
+	calculatePaginatedComplexity := func(childComplexity int, first *int32, last *int32) int {
+		// Use the same default page size as resolver execution when pagination args are omitted.
+		limit := int(graphqlutils.DefaultPageLimit)
 		if first != nil {
 			limit = int(*first)
 		} else if last != nil {
@@ -372,9 +373,21 @@ func addComplexityCalculation(config *generated.Config) {
 		}
 		return childComplexity * limit
 	}
+	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, _ *string, last *int32, _ *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
 	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
 	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Account.Transactions = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
+	config.Complexity.Account.Operations = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
+	config.Complexity.Account.StateChanges = func(childComplexity int, filter *generated.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
