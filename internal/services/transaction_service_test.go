@@ -423,8 +423,9 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once().
 			// After signing fails, the channel account must be released so the pool doesn't leak locks on every
 			// bad/incomplete build call. Otherwise an attacker flooding buildTransaction can wedge the pool for
-			// up to the lock TTL (minutes) with a handful of requests.
-			On("UnassignTxAndUnlockChannelAccounts", context.Background(), mock.Anything, mock.AnythingOfType("string")).
+			// up to the lock TTL (minutes) with a handful of requests. The ctx here is context.WithoutCancel-wrapped
+			// so the unlock still runs when the request ctx is cancelled — mock.Anything matches the wrapped type.
+			On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.AnythingOfType("string")).
 			Return(int64(1), nil).
 			Once()
 

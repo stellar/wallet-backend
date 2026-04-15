@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 
@@ -207,9 +206,14 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	// After AssignTxToChannelAccount succeeds, the channel row is locked to this tx hash until the ingest path
 	// confirms the tx on ledger (see internal/services/ingest_live.go:unlockChannelAccounts) or the locked_until
 	// TTL expires. If anything below fails, the channel would otherwise be held hostage for the full TTL. Release on error.
+	//
+	// Use a cancel-detached context so the cleanup still runs when the caller's request context is cancelled
+	// (client disconnect, request timeout); otherwise the DB op inside releaseChannelAccountLock would inherit
+	// the cancellation and leave the channel locked until the locked_until TTL expires.
+	unlockCtx := context.WithoutCancel(ctx)
 	defer func() {
 		if retErr != nil {
-			t.releaseChannelAccountLock(ctx, txHash)
+			t.releaseChannelAccountLock(unlockCtx, txHash)
 		}
 	}()
 
@@ -293,20 +297,30 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 		return txnbuild.TransactionParams{}, err
 	}
 
-	// Adjust the base fee to ensure the total fee computed by `txnbuild.NewTransaction` (baseFee+sorobanFee) will stay
-	// within the limits configured by the host.
+	// Adjust the base fee so the total computed by `txnbuild.NewTransaction` (BaseFee*ops + ResourceFee) stays within
+	// the sponsor's per-op cap. The floor at MinBaseFee is protocol-required; validateSorobanResourceFee has already
+	// ensured clientResourceFee leaves enough headroom that adjustedBaseFee >= MinBaseFee, so the flooring is a no-op
+	// in practice and total ≤ t.BaseFee is provable rather than asymptotic.
 	adjustedBaseFee := buildTxParams.BaseFee - clientResourceFee
-	buildTxParams.BaseFee = int64(math.Max(float64(adjustedBaseFee), float64(txnbuild.MinBaseFee)))
+	if adjustedBaseFee < int64(txnbuild.MinBaseFee) {
+		adjustedBaseFee = int64(txnbuild.MinBaseFee)
+	}
+	buildTxParams.BaseFee = adjustedBaseFee
 
 	return buildTxParams, nil
 }
 
 // validateSorobanResourceFee re-simulates the Soroban transaction against the wallet-backend's own Stellar RPC and
 // rejects the request if the client-declared resource fee exceeds the bound
-// `min(serverMinResourceFee * sorobanResourceFeeSafetyFactor, t.BaseFee)`.
+// `min(serverMinResourceFee * sorobanResourceFeeSafetyFactor, t.BaseFee - MinBaseFee*ops)`.
+//
+// The `t.BaseFee - MinBaseFee*ops` term (rather than plain t.BaseFee) reserves room for the protocol-required base-fee
+// floor after adjustParamsForSoroban subtracts the resource fee, guaranteeing the total envelope fee stays within the
+// sponsor's configured per-op cap.
 func (t *transactionService) validateSorobanResourceFee(buildTxParams txnbuild.TransactionParams, clientResourceFee int64) error {
 	// Build a throw-away transaction for simulation. Copy the source account so the real build path's sequence is
-	// untouched, and explicitly disable sequence increment since simulation does not consume a sequence number.
+	// untouched. IncrementSequenceNum matches the real build path so the simulated tx has the exact sequence the
+	// submitted tx will have.
 	var simSourceAccount txnbuild.SimpleAccount
 	if src, ok := buildTxParams.SourceAccount.(*txnbuild.SimpleAccount); ok && src != nil {
 		simSourceAccount = *src
@@ -320,7 +334,7 @@ func (t *transactionService) validateSorobanResourceFee(buildTxParams txnbuild.T
 		BaseFee:              txnbuild.MinBaseFee,
 		Preconditions:        buildTxParams.Preconditions,
 		Memo:                 buildTxParams.Memo,
-		IncrementSequenceNum: false,
+		IncrementSequenceNum: true,
 	})
 	if err != nil {
 		return fmt.Errorf("building soroban re-simulation transaction: %w", err)
@@ -344,9 +358,20 @@ func (t *transactionService) validateSorobanResourceFee(buildTxParams txnbuild.T
 		return fmt.Errorf("parsing server-side re-simulation MinResourceFee %q: %w", serverSim.MinResourceFee, err)
 	}
 
+	// Reserve MinBaseFee per op for the base fee portion so that after adjustParamsForSoroban subtracts resource
+	// fee and floors at MinBaseFee, the total `BaseFee*ops + ResourceFee` provably stays ≤ t.BaseFee.
+	opsCount := int64(len(buildTxParams.Operations))
+	if opsCount < 1 {
+		opsCount = 1
+	}
+	baseFeeCap := t.BaseFee - int64(txnbuild.MinBaseFee)*opsCount
+	if baseFeeCap < 0 {
+		baseFeeCap = 0
+	}
+
 	maxAllowedResourceFee := serverMinResourceFee * sorobanResourceFeeSafetyFactor
-	if t.BaseFee < maxAllowedResourceFee {
-		maxAllowedResourceFee = t.BaseFee
+	if baseFeeCap < maxAllowedResourceFee {
+		maxAllowedResourceFee = baseFeeCap
 	}
 
 	if clientResourceFee > maxAllowedResourceFee {
