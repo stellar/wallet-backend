@@ -43,6 +43,16 @@ type AccountStateChangeFilterInput struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+type BalanceConnection struct {
+	Edges    []*BalanceEdge `json:"edges"`
+	PageInfo *PageInfo      `json:"pageInfo"`
+}
+
+type BalanceEdge struct {
+	Node   Balance `json:"node"`
+	Cursor string  `json:"cursor"`
+}
+
 type BuildTransactionInput struct {
 	TransactionXdr   string                 `json:"transactionXdr"`
 	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`

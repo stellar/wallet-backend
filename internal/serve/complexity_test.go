@@ -124,6 +124,22 @@ func TestGraphQLComplexityLimitRejectsLargeQueries(t *testing.T) {
 			expectedMessage: "operation has complexity 151, which exceeds the limit of 100",
 		},
 		{
+			name:  "account balances use default page size",
+			limit: 100,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					balances {
+						edges {
+							node {
+								tokenId
+							}
+						}
+					}
+				}
+			}`,
+			expectedMessage: "operation has complexity 151, which exceeds the limit of 100",
+		},
+		{
 			name:  "transaction accounts can no longer bypass account pagination complexity",
 			limit: 100,
 			query: `query {
@@ -199,6 +215,22 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 						edges {
 							node {
 								id
+							}
+						}
+					}
+				}
+			}`,
+			expectedMessage: "operation has complexity 7, which exceeds the limit of 6",
+		},
+		{
+			name:  "account balances first argument is used in complexity calculation",
+			limit: 6,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					balances(first: 2) {
+						edges {
+							node {
+								tokenId
 							}
 						}
 					}

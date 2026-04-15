@@ -8,7 +8,7 @@ type Account{
 
   # All balances associated with this account
   # Returns native XLM, trustlines, SAC, and SEP-41 balances for the account address
-  balances: [Balance!]
+  balances(first: Int, after: String, last: Int, before: String): BalanceConnection!
 
   # All transactions associated with this account
   # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at

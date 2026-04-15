@@ -28,6 +28,16 @@ type StateChangeEdge {
     cursor: String!
 }
 
+type BalanceConnection {
+    edges: [BalanceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type BalanceEdge {
+    node: Balance!
+    cursor: String!
+}
+
 type PageInfo {
     startCursor: String
     endCursor: String

@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/stellar/wallet-backend/internal/data"
 )
 
@@ -35,6 +37,15 @@ func (r *balanceReaderAdapter) GetTrustlineBalances(ctx context.Context, account
 	return balances, nil
 }
 
+// GetTrustlineBalancesPaginated retrieves a page of trustline balances for an account.
+func (r *balanceReaderAdapter) GetTrustlineBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.TrustlineBalance, error) {
+	balances, err := r.trustlineBalanceModel.GetByAccountPaginated(ctx, accountAddress, limit, cursor, sortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated trustline balances: %w", err)
+	}
+	return balances, nil
+}
+
 // GetNativeBalance retrieves the native XLM balance for an account.
 func (r *balanceReaderAdapter) GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error) {
 	balance, err := r.nativeBalanceModel.GetByAccount(ctx, accountAddress)
@@ -49,6 +60,15 @@ func (r *balanceReaderAdapter) GetSACBalances(ctx context.Context, accountAddres
 	balances, err := r.sacBalanceModel.GetByAccount(ctx, accountAddress)
 	if err != nil {
 		return nil, fmt.Errorf("getting SAC balances: %w", err)
+	}
+	return balances, nil
+}
+
+// GetSACBalancesPaginated retrieves a page of SAC balances for a contract address.
+func (r *balanceReaderAdapter) GetSACBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error) {
+	balances, err := r.sacBalanceModel.GetByAccountPaginated(ctx, accountAddress, limit, cursor, sortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated SAC balances: %w", err)
 	}
 	return balances, nil
 }

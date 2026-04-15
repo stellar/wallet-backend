@@ -195,25 +195,9 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 	var errs []error
 
 	for _, contractID := range contractIDs {
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
-		}
-
-		// Convert the account address to an xdr.ScVal for passing to the balance function
-		addressArg, err := addressToScVal(accountAddress)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("converting account address to ScVal: %w", err))
-			continue
-		}
-
-		balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
+		balance, err := getSep41Balance(ctx, accountAddress, contractMetadataService, contractsByContractID[contractID])
 		if err != nil {
 			errs = append(errs, fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
-			continue
-		}
-		balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
 			continue
 		}
 		results = append(results, balance)
@@ -224,4 +208,30 @@ func getSep41Balances(ctx context.Context, accountAddress string, contractMetada
 	}
 
 	return results, nil
+}
+
+// getSep41Balance fetches and parses a single SEP-41 balance. The paginated
+// balances resolver uses this one-at-a-time form so it can avoid RPC calls for
+// rows that are fetched only to determine PageInfo.
+func getSep41Balance(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contract *data.Contract) (*graphql1.SEP41Balance, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
+	}
+
+	addressArg, err := addressToScVal(accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address to ScVal: %w", err)
+	}
+
+	balanceResult, err := contractMetadataService.FetchSingleField(ctx, contract.ContractID, "balance", addressArg)
+	if err != nil {
+		return nil, fmt.Errorf("getting SEP41 balance: %w", err)
+	}
+
+	balance, err := parseSEP41Balance(balanceResult, contract.ContractID, contract)
+	if err != nil {
+		return nil, fmt.Errorf("parsing SEP41 balance: %w", err)
+	}
+
+	return balance, nil
 }

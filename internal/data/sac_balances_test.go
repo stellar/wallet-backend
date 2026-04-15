@@ -3,6 +3,7 @@ package data
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -128,6 +129,69 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			require.Equal(t, accountAddr, b.AccountAddress)
 		}
 	})
+}
+
+func TestSACBalanceModel_GetByAccountPaginated(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	contractAddr1 := "CCONTRACT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	contractAddr2 := "CCONTRACT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	contractAddr3 := "CCONTRACT3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	contractID1 := DeterministicContractID(contractAddr1)
+	contractID2 := DeterministicContractID(contractAddr2)
+	contractID3 := DeterministicContractID(contractAddr3)
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals) VALUES
+		($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
+		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
+		($5, $6, 'SAC', 'BTC', 'GISSUER3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
+	`, contractID1, contractAddr1, contractID2, contractAddr2, contractID3, contractAddr3)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO sac_balances
+		(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+		VALUES
+		('CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', $1, '1000', true, false, 100),
+		('CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', $2, '2000', true, false, 101),
+		('CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', $3, '3000', true, false, 102)
+	`, contractID1, contractID2, contractID3)
+	require.NoError(t, err)
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &SACBalanceModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	expectedOrder := []string{contractID1.String(), contractID2.String(), contractID3.String()}
+	slices.Sort(expectedOrder)
+
+	limit := int32(2)
+	page, err := m.GetByAccountPaginated(ctx, "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, page, 2)
+	require.Equal(t, expectedOrder[0], page[0].ContractID.String())
+	require.Equal(t, expectedOrder[1], page[1].ContractID.String())
+
+	cursor := page[1].ContractID
+	nextPage, err := m.GetByAccountPaginated(ctx, "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &limit, &cursor, ASC)
+	require.NoError(t, err)
+	require.Len(t, nextPage, 1)
+	require.Equal(t, expectedOrder[2], nextPage[0].ContractID.String())
+
+	descPage, err := m.GetByAccountPaginated(ctx, "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &limit, nil, DESC)
+	require.NoError(t, err)
+	require.Len(t, descPage, 2)
+	require.Equal(t, expectedOrder[2], descPage[0].ContractID.String())
+	require.Equal(t, expectedOrder[1], descPage[1].ContractID.String())
 }
 
 func TestSACBalanceModel_BatchUpsert(t *testing.T) {

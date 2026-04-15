@@ -73,6 +73,14 @@ func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAdd
 	return args.Get(0).([]TrustlineBalance), args.Error(1)
 }
 
+func (m *TrustlineBalanceModelMock) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]TrustlineBalance), args.Error(1)
+}
+
 func (m *TrustlineBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error {
 	args := m.Called(ctx, dbTx, upserts, deletes)
 	return args.Error(0)
@@ -151,6 +159,14 @@ func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress s
 	return args.Get(0).([]SACBalance), args.Error(1)
 }
 
+func (m *SACBalanceModelMock) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]SACBalance), args.Error(1)
+}
+
 func (m *SACBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
 	args := m.Called(ctx, dbTx, upserts, deletes)
 	return args.Error(0)
@@ -184,6 +200,14 @@ func NewAccountContractTokensModelMock(t interface {
 
 func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error) {
 	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*Contract), args.Error(1)
+}
+
+func (m *AccountContractTokensModelMock) GetSEP41ByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

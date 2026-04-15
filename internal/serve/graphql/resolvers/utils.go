@@ -39,11 +39,14 @@ const (
 	CursorTypeComposite
 	// CursorTypeStateChange is used for state change queries (ledger_created_at:to_id:op_id:sc_order format)
 	CursorTypeStateChange
+	// CursorTypeString is used for opaque string-based cursors.
+	CursorTypeString
 )
 
 type PaginationParams struct {
 	Limit             *int32
 	Cursor            *int64
+	StringCursor      *string
 	CompositeCursor   *types.CompositeCursor
 	StateChangeCursor *types.StateChangeCursor
 	ForwardPagination bool
@@ -60,7 +63,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	hasNextPage := false
 	hasPreviousPage := false
 
-	hasCursor := params.Cursor != nil || params.CompositeCursor != nil || params.StateChangeCursor != nil
+	hasCursor := params.Cursor != nil || params.StringCursor != nil || params.CompositeCursor != nil || params.StateChangeCursor != nil
 
 	if params.ForwardPagination {
 		if int32(len(nodes)) > *params.Limit {
@@ -321,6 +324,12 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 			return PaginationParams{}, fmt.Errorf("parsing composite cursor: %w", err)
 		}
 		paginationParams.CompositeCursor = compositeCursor
+	case CursorTypeString:
+		decodedCursor, err := decodeStringCursor(cursor)
+		if err != nil {
+			return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
+		}
+		paginationParams.StringCursor = decodedCursor
 	default:
 		decodedCursor, err := decodeInt64Cursor(cursor)
 		if err != nil {

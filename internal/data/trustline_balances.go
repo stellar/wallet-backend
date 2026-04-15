@@ -34,6 +34,9 @@ type TrustlineBalance struct {
 type TrustlineBalanceModelInterface interface {
 	// Read operations (for API/balances queries)
 	GetByAccount(ctx context.Context, accountAddress string) ([]TrustlineBalance, error)
+	// GetByAccountPaginated returns trustlines ordered by asset_id so the GraphQL
+	// balances connection can page without scanning the full account balance set.
+	GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error)
 
 	// Write operations (for live ingestion)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error
@@ -72,6 +75,59 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying trustline balances for %s: %w", accountAddress, err)
+	}
+	return balances, nil
+}
+
+// GetByAccountPaginated retrieves trustline balances for an account ordered by
+// asset_id. The cursor is the last seen asset UUID from the previous page.
+func (m *TrustlineBalanceModel) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	query := `
+		SELECT atb.account_address, atb.asset_id, ta.code, ta.issuer,
+		       atb.balance, atb.trust_limit, atb.buying_liabilities,
+		       atb.selling_liabilities, atb.flags, atb.last_modified_ledger
+		FROM trustline_balances atb
+		INNER JOIN trustline_assets ta ON ta.id = atb.asset_id
+		WHERE atb.account_address = $1`
+	args := []interface{}{accountAddress}
+	argIndex := 2
+
+	if cursor != nil {
+		// Cursor comparisons mirror keyset pagination semantics:
+		// - ASC pages fetch rows greater than the previous row
+		// - DESC pages fetch rows less than the previous row
+		op := ">"
+		if sortOrder == DESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" AND atb.asset_id %s $%d", op, argIndex)
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == DESC {
+		query += " ORDER BY atb.asset_id DESC"
+	} else {
+		query += " ORDER BY atb.asset_id ASC"
+	}
+
+	if limit != nil {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, *limit)
+	}
+
+	start := time.Now()
+	balances, err := db.QueryMany[TrustlineBalance](ctx, m.DB, query, args...)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccountPaginated", "trustline_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccountPaginated", "trustline_balances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccountPaginated", "trustline_balances", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying paginated trustline balances for %s: %w", accountAddress, err)
 	}
 	return balances, nil
 }

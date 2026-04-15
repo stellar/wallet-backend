@@ -374,6 +374,7 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
 	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Account.Balances = paginatedQueryComplexityFunc
 	config.Complexity.Account.Transactions = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}

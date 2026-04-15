@@ -3,6 +3,7 @@ package data
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -125,6 +126,66 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			require.Equal(t, accountAddr, b.AccountAddress)
 		}
 	})
+}
+
+func TestTrustlineBalanceModel_GetByAccountPaginated(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	assetID1 := DeterministicAssetID("USDC", "ISSUER1")
+	assetID2 := DeterministicAssetID("EURC", "ISSUER2")
+	assetID3 := DeterministicAssetID("BTC", "ISSUER3")
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO trustline_assets (id, code, issuer) VALUES
+		($1, 'USDC', 'ISSUER1'),
+		($2, 'EURC', 'ISSUER2'),
+		($3, 'BTC', 'ISSUER3')
+	`, assetID1, assetID2, assetID3)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO trustline_balances
+		(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
+		VALUES
+		('GACCOUNT1', $1, 1000, 10000, 0, 0, 0, 100),
+		('GACCOUNT1', $2, 2000, 20000, 0, 0, 0, 101),
+		('GACCOUNT1', $3, 3000, 30000, 0, 0, 0, 102)
+	`, assetID1, assetID2, assetID3)
+	require.NoError(t, err)
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &TrustlineBalanceModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	expectedOrder := []string{assetID1.String(), assetID2.String(), assetID3.String()}
+	slices.Sort(expectedOrder)
+
+	limit := int32(2)
+	page, err := m.GetByAccountPaginated(ctx, "GACCOUNT1", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, page, 2)
+	require.Equal(t, expectedOrder[0], page[0].AssetID.String())
+	require.Equal(t, expectedOrder[1], page[1].AssetID.String())
+
+	cursor := page[1].AssetID
+	nextPage, err := m.GetByAccountPaginated(ctx, "GACCOUNT1", &limit, &cursor, ASC)
+	require.NoError(t, err)
+	require.Len(t, nextPage, 1)
+	require.Equal(t, expectedOrder[2], nextPage[0].AssetID.String())
+
+	descPage, err := m.GetByAccountPaginated(ctx, "GACCOUNT1", &limit, nil, DESC)
+	require.NoError(t, err)
+	require.Len(t, descPage, 2)
+	require.Equal(t, expectedOrder[2], descPage[0].AssetID.String())
+	require.Equal(t, expectedOrder[1], descPage[1].AssetID.String())
 }
 
 func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {

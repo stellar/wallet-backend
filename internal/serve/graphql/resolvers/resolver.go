@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -31,8 +32,10 @@ import (
 // This interface abstracts balance retrieval for trustlines, native XLM, and SAC balances.
 type BalanceReader interface {
 	GetTrustlineBalances(ctx context.Context, accountAddress string) ([]data.TrustlineBalance, error)
+	GetTrustlineBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.TrustlineBalance, error)
 	GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error)
 	GetSACBalances(ctx context.Context, accountAddress string) ([]data.SACBalance, error)
+	GetSACBalancesPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error)
 }
 
 const (

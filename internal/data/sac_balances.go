@@ -37,6 +37,9 @@ type SACBalance struct {
 type SACBalanceModelInterface interface {
 	// Read operations (for API/balances queries)
 	GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error)
+	// GetByAccountPaginated returns SAC balances ordered by contract UUID so
+	// GraphQL can page them with stable keyset cursors.
+	GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error)
 
 	// Write operations (for live ingestion)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error
@@ -76,6 +79,57 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
+	}
+	return balances, nil
+}
+
+// GetByAccountPaginated retrieves SAC balances for a contract holder ordered by
+// contract_id. The cursor is the last seen contract UUID from the previous page.
+func (m *SACBalanceModel) GetByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("empty account address")
+	}
+
+	query := `
+		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
+		       asb.is_clawback_enabled, asb.last_modified_ledger,
+		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
+		FROM sac_balances asb
+		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
+		WHERE asb.account_address = $1`
+	args := []interface{}{accountAddress}
+	argIndex := 2
+
+	if cursor != nil {
+		// Cursor comparisons implement keyset pagination over the primary key.
+		op := ">"
+		if sortOrder == DESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" AND asb.contract_id %s $%d", op, argIndex)
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == DESC {
+		query += " ORDER BY asb.contract_id DESC"
+	} else {
+		query += " ORDER BY asb.contract_id ASC"
+	}
+
+	if limit != nil {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, *limit)
+	}
+
+	start := time.Now()
+	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, args...)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccountPaginated", "sac_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccountPaginated", "sac_balances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccountPaginated", "sac_balances", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying paginated SAC balances for %s: %w", accountAddress, err)
 	}
 	return balances, nil
 }
