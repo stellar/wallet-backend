@@ -160,6 +160,19 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, pgxTx pgx.Tx, limit i
 	return cas, nil
 }
 
+func (ca *ChannelAccountModel) ListAll(ctx context.Context) ([]*ChannelAccount, error) {
+	const query = `
+		SELECT * FROM channel_accounts
+		ORDER BY created_at ASC
+	`
+
+	cas, err := db.QueryManyPtrs[ChannelAccount](ctx, ca.DB, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing all channel accounts: %w", err)
+	}
+	return cas, nil
+}
+
 func (ca *ChannelAccountModel) Delete(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error) {
 	query := `DELETE FROM channel_accounts WHERE public_key = ANY($1)`
 

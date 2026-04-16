@@ -65,6 +65,14 @@ func (s *ChannelAccountStoreMock) GetAll(ctx context.Context, pgxTx pgx.Tx, limi
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
 }
 
+func (s *ChannelAccountStoreMock) ListAll(ctx context.Context) ([]*ChannelAccount, error) {
+	args := s.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*ChannelAccount), args.Error(1)
+}
+
 func (s *ChannelAccountStoreMock) Delete(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error) {
 	args := s.Called(ctx, pgxTx, publicKeys)
 	return args.Get(0).(int64), args.Error(1)

@@ -433,6 +433,42 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 	}
 }
 
+func TestChannelAccountModelListAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	t.Run("returns all accounts ordered by creation time", func(t *testing.T) {
+		defer func() {
+			_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
+			require.NoError(t, err)
+		}()
+
+		first := keypair.MustRandom()
+		second := keypair.MustRandom()
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+			PublicKey:           first.Address(),
+			EncryptedPrivateKey: first.Seed(),
+		})
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+			PublicKey:           second.Address(),
+			EncryptedPrivateKey: second.Seed(),
+		})
+
+		accounts, err := m.ListAll(ctx)
+		require.NoError(t, err)
+		require.Len(t, accounts, 2)
+		assert.Equal(t, first.Address(), accounts[0].PublicKey)
+		assert.Equal(t, second.Address(), accounts[1].PublicKey)
+	})
+}
+
 func TestChannelAccountModelDelete(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

@@ -390,6 +390,123 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 	}
 }
 
+func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	type testCase struct {
+		name          string
+		minimum       int64
+		setupMocks    func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock)
+		expectedError string
+	}
+
+	channelAccount1 := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+	channelAccount2 := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+
+	testCases := []testCase{
+		{
+			name:    "count query fails",
+			minimum: 2,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(0, fmt.Errorf("db unavailable")).Once()
+			},
+			expectedError: "getting the number of channel accounts already stored: db unavailable",
+		},
+		{
+			name:    "count below minimum",
+			minimum: 2,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
+			},
+			expectedError: "stored channel account count 1 is below required minimum 2",
+		},
+		{
+			name:    "list all fails",
+			minimum: 2,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
+				channelAccountStore.On("ListAll", mock.Anything).Return(nil, fmt.Errorf("read failed")).Once()
+			},
+			expectedError: "listing stored channel accounts: read failed",
+		},
+		{
+			name:    "stored account missing on network",
+			minimum: 1,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
+				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), ErrAccountNotFound).Once()
+			},
+			expectedError: fmt.Sprintf("channel account %s does not exist on the configured Stellar network", channelAccount1.PublicKey),
+		},
+		{
+			name:    "rpc failure during validation",
+			minimum: 1,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
+				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), fmt.Errorf("rpc unavailable")).Once()
+			},
+			expectedError: fmt.Sprintf("validating channel account %s: rpc unavailable", channelAccount1.PublicKey),
+		},
+		{
+			name:    "success with exact configured count",
+			minimum: 2,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
+				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
+			},
+		},
+		{
+			name:    "success with extra valid accounts",
+			minimum: 1,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
+				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
+				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rpcService := NewRPCServiceMock(t)
+			channelAccountStore := store.NewChannelAccountStoreMock(t)
+			service, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         rpcService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: signing.NewSignatureClientMock(t),
+				ChannelAccountSignatureClient:      signing.NewSignatureClientMock(t),
+				ChannelAccountStore:                channelAccountStore,
+				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
+				EncryptionPassphrase:               "my-encryption-passphrase",
+			})
+			require.NoError(t, err)
+
+			tc.setupMocks(channelAccountStore, rpcService)
+
+			err = service.ValidateChannelAccounts(ctx, tc.minimum)
+
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestSubmitTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

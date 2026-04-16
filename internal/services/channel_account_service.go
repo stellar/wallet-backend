@@ -46,6 +46,34 @@ type channelAccountService struct {
 
 var _ ChannelAccountService = (*channelAccountService)(nil)
 
+func (s *channelAccountService) ValidateChannelAccounts(ctx context.Context, minimum int64) error {
+	currentChannelAccountNumber, err := s.ChannelAccountStore.Count(ctx)
+	if err != nil {
+		return fmt.Errorf("getting the number of channel accounts already stored: %w", err)
+	}
+
+	if currentChannelAccountNumber < minimum {
+		return fmt.Errorf("stored channel account count %d is below required minimum %d", currentChannelAccountNumber, minimum)
+	}
+
+	channelAccounts, err := s.ChannelAccountStore.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("listing stored channel accounts: %w", err)
+	}
+
+	for _, channelAccount := range channelAccounts {
+		_, err = s.RPCService.GetAccountLedgerSequence(channelAccount.PublicKey)
+		if err != nil {
+			if errors.Is(err, ErrAccountNotFound) {
+				return fmt.Errorf("channel account %s does not exist on the configured Stellar network: %w", channelAccount.PublicKey, err)
+			}
+			return fmt.Errorf("validating channel account %s: %w", channelAccount.PublicKey, err)
+		}
+	}
+
+	return nil
+}
+
 func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, number int64) error {
 	currentChannelAccountNumber, err := s.ChannelAccountStore.Count(ctx)
 	if err != nil {
