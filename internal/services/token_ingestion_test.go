@@ -263,7 +263,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-		got, err := trustlineBalanceModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		got, err := trustlineBalanceModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", nil, nil, wbdata.ASC)
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -294,7 +294,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := trustlineBalanceModel.GetByAccount(ctx, accountAddress)
+		got, err := trustlineBalanceModel.GetByAccount(ctx, accountAddress, nil, nil, wbdata.ASC)
 		assert.NoError(t, err)
 		assert.Len(t, got, 1)
 		assert.Equal(t, "USDC", got[0].Code)

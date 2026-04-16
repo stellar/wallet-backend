@@ -441,7 +441,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"RPC_URL":                          "http://stellar-rpc:8000",
 			"DATABASE_URL":                     "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
 			"PORT":                             walletBackendContainerAPIPort,
-			"GRAPHQL_COMPLEXITY_LIMIT":         "2000",
+			"GRAPHQL_COMPLEXITY_LIMIT":         "5000",
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
 			"NETWORK_PASSPHRASE":               networkPassphrase,

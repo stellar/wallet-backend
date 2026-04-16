@@ -112,12 +112,15 @@ type OperationStateChangesData struct {
 	} `json:"operationById"`
 }
 
-type BalancesByAccountAddressData struct {
-	BalancesByAccountAddress []json.RawMessage `json:"balancesByAccountAddress"`
-}
-
-type BalancesByAccountAddressesData struct {
-	BalancesByAccountAddresses []*types.AccountBalances `json:"balancesByAccountAddresses"`
+type AccountBalancesData struct {
+	AccountByAddress struct {
+		Balances struct {
+			Edges []struct {
+				Node json.RawMessage `json:"node"`
+			} `json:"edges"`
+			PageInfo *types.PageInfo `json:"pageInfo"`
+		} `json:"balances"`
+	} `json:"accountByAddress"`
 }
 
 // QueryOptions allows clients to specify which fields to fetch for each entity type
@@ -616,40 +619,42 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetBalancesByAccountAddress(ctx context.Context, address string) ([]types.Balance, error) {
-	variables := map[string]any{
-		"address": address,
-	}
+func (c *Client) GetAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
+	const pageSize int32 = 100
 
-	data, err := executeGraphQL[BalancesByAccountAddressData](c, ctx, buildBalancesByAccountAddressQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
+	var (
+		after    *string
+		balances []types.Balance
+	)
 
-	// Unmarshal each raw balance into the appropriate concrete type
-	balances := make([]types.Balance, 0, len(data.BalancesByAccountAddress))
-	for i, rawBalance := range data.BalancesByAccountAddress {
-		balance, err := types.UnmarshalBalance(rawBalance)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshaling balance %d: %w", i, err)
+	for {
+		variables := map[string]any{
+			"address": address,
+			"first":   pageSize,
+			"after":   after,
 		}
-		balances = append(balances, balance)
+
+		data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+		if err != nil {
+			return nil, err
+		}
+
+		for i, edge := range data.AccountByAddress.Balances.Edges {
+			balance, unmarshalErr := types.UnmarshalBalance(edge.Node)
+			if unmarshalErr != nil {
+				return nil, fmt.Errorf("unmarshaling balance %d: %w", len(balances)+i, unmarshalErr)
+			}
+			balances = append(balances, balance)
+		}
+
+		pageInfo := data.AccountByAddress.Balances.PageInfo
+		if pageInfo == nil || !pageInfo.HasNextPage || pageInfo.EndCursor == nil {
+			break
+		}
+		after = pageInfo.EndCursor
 	}
 
 	return balances, nil
-}
-
-func (c *Client) GetBalancesByAccountAddresses(ctx context.Context, addresses []string) ([]*types.AccountBalances, error) {
-	variables := map[string]any{
-		"addresses": addresses,
-	}
-
-	data, err := executeGraphQL[BalancesByAccountAddressesData](c, ctx, buildBalancesByAccountAddressesQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return data.BalancesByAccountAddresses, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
