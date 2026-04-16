@@ -11,6 +11,10 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
+// DefaultPageLimit is the implicit page size used when GraphQL pagination args
+// are omitted. Execution and complexity accounting must share this value.
+const DefaultPageLimit int32 = 50
+
 // CustomErrorPresenter provides more detailed error messages for GraphQL validation errors
 func CustomErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 	var gqlErr *gqlerror.Error

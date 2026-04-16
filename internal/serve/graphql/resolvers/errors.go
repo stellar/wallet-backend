@@ -9,7 +9,7 @@ const (
 	ErrMsgInvalidTransaction               = "Transaction is not a valid transaction"
 	ErrMsgFeeBumpCreationFailed            = "Failed to create fee bump transaction: %s"
 
-	// BalancesByAccountAddress errors (single account)
+	// Account balance errors
 	ErrMsgSingleInvalidAddress = "invalid address format: must be a valid Stellar account (G...) or contract (C...) address"
 
 	// TransactionByHash / StateChanges hash filter errors

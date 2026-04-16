@@ -62,8 +62,7 @@ type Configs struct {
 	RPCURL string
 
 	// GraphQL
-	GraphQLComplexityLimit   int
-	MaxGraphQLWorkerPoolSize int
+	GraphQLComplexityLimit int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -115,8 +114,7 @@ type handlerDeps struct {
 	ContractMetadataService    services.ContractMetadataService
 
 	// GraphQL
-	GraphQLComplexityLimit   int
-	MaxGraphQLWorkerPoolSize int
+	GraphQLComplexityLimit int
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -230,7 +228,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		NetworkPassphrase:          cfg.NetworkPassphrase,
 		TransactionService:         txService,
 		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
-		MaxGraphQLWorkerPoolSize:   cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
 }
 
@@ -279,9 +276,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.AccountContractTokensModel,
 				deps.ContractMetadataService,
 				deps.Metrics,
-				resolvers.ResolverConfig{
-					MaxWorkerPoolSize: deps.MaxGraphQLWorkerPoolSize,
-				},
+				resolvers.ResolverConfig{},
 			)
 
 			config := generated.Config{
@@ -331,11 +326,12 @@ func addComplexityCalculation(config *generated.Config) {
 		It is used to determine the performance of a query and to prevent
 		queries that are too complex from being executed.
 
-		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
-		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
-		to calculate the final complexity.
+		By default, graphql assigns a complexity of 1 to each field.
+		For paginated connections, the child complexity is multiplied by the
+		page size: the explicit first/last argument, or DefaultPageLimit (50)
+		when omitted.
 
-		For example, for the following query, the complexity is calculated as follows:
+		Example — explicit pagination arguments:
 		--------------------------------
 		transactions(first: 10) {
 				edges {
@@ -361,10 +357,17 @@ func addComplexityCalculation(config *generated.Config) {
 			}
 		--------------------------------
 		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
+
+		Without explicit args the same shape uses DefaultPageLimit (50):
+		Complexity = 50*(1+1+1+50*(1+1+1+50*(1+1+1+1))) = 507,650
+
+		Clients should provide explicit first/last arguments to keep
+		query complexity within the configured limit (default 5000).
 		--------------------------------
 	*/
-	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, after *string, last *int32, before *string) int {
-		limit := 10 // default limit when no pagination parameters provided
+	calculatePaginatedComplexity := func(childComplexity int, first *int32, last *int32) int {
+		// Use the same default page size as resolver execution when pagination args are omitted.
+		limit := int(graphqlutils.DefaultPageLimit)
 		if first != nil {
 			limit = int(*first)
 		} else if last != nil {
@@ -372,9 +375,22 @@ func addComplexityCalculation(config *generated.Config) {
 		}
 		return childComplexity * limit
 	}
+	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, _ *string, last *int32, _ *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
 	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
 	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Account.Balances = paginatedQueryComplexityFunc
+	config.Complexity.Account.Transactions = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
+	config.Complexity.Account.Operations = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
+	config.Complexity.Account.StateChanges = func(childComplexity int, filter *generated.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
