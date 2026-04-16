@@ -310,56 +310,12 @@ func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.T
 	return args.Error(0)
 }
 
-// ProtocolWasmModelMock is a mock implementation of ProtocolWasmModelInterface.
-type ProtocolWasmModelMock struct {
-	mock.Mock
-}
-
-var _ ProtocolWasmModelInterface = (*ProtocolWasmModelMock)(nil)
-
-// NewProtocolWasmModelMock creates a new instance of ProtocolWasmModelMock.
-func NewProtocolWasmModelMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ProtocolWasmModelMock {
-	mockModel := &ProtocolWasmModelMock{}
-	mockModel.Mock.Test(t)
-
-	t.Cleanup(func() { mockModel.AssertExpectations(t) })
-
-	return mockModel
-}
-
-func (m *ProtocolWasmModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasm) error {
-	args := m.Called(ctx, dbTx, wasms)
-	return args.Error(0)
-}
-
-// ProtocolContractsModelMock is a mock implementation of ProtocolContractsModelInterface.
-type ProtocolContractsModelMock struct {
-	mock.Mock
-}
-
-var _ ProtocolContractsModelInterface = (*ProtocolContractsModelMock)(nil)
-
-// NewProtocolContractsModelMock creates a new instance of ProtocolContractsModelMock.
-func NewProtocolContractsModelMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ProtocolContractsModelMock {
-	mockModel := &ProtocolContractsModelMock{}
-	mockModel.Mock.Test(t)
-
-	t.Cleanup(func() { mockModel.AssertExpectations(t) })
-
-	return mockModel
-}
-
-func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error {
-	args := m.Called(ctx, dbTx, contracts)
-	return args.Error(0)
+func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+	args := m.Called(ctx, protocolID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ProtocolContracts), args.Error(1)
 }
 
 func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {

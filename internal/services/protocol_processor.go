@@ -19,7 +19,25 @@ type ProtocolProcessor interface {
 	// implementations must deterministically rebuild staged state from the
 	// provided input.
 	ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
+	// PersistHistory writes the history rows staged by ProcessLedger using the
+	// provided transaction. Called inside the ledger's DB transaction only
+	// when the history cursor CAS advances for this ledger, so writes commit
+	// atomically with the cursor update and any failure rolls back both. On
+	// rollback the next retry re-stages via ProcessLedger and calls
+	// PersistHistory again, so implementations must not depend on in-memory
+	// state surviving across invocations.
 	PersistHistory(ctx context.Context, dbTx pgx.Tx) error
+	// PersistCurrentState writes the protocol's current state using the
+	// provided transaction and updates the processor's in-memory cache to
+	// reflect the writes (write-through). Called inside the ledger's DB
+	// transaction only when the current_state cursor CAS advances for this
+	// ledger, and only after LoadCurrentState has hydrated the cache on
+	// first CAS success. If the transaction rolls back after this runs,
+	// the caller resets the loaded flag to force a reload on the next
+	// attempt, since the in-memory cache may be ahead of committed DB
+	// state. Implementations must mutate the cache only via writes that
+	// also go through dbTx so committed state and cached state stay in
+	// sync on commit.
 	PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
 	// LoadCurrentState reads the protocol's current state from its state tables
 	// into processor memory. Called inside the DB transaction on the first
