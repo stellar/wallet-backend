@@ -219,7 +219,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	}()
 
 	// Get latest ingested ledger to determine DB state
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
@@ -274,7 +274,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
 func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledger uint32) error {
-	if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
+	if err := m.models.IngestStore.Update(ctx, dbTx, data.LatestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing latest cursor: %w", err)
 	}
 	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
@@ -422,7 +422,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		default:
 		}
 
-		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, m.latestLedgerCursorName)
+		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}

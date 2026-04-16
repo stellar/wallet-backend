@@ -266,13 +266,11 @@ func (s *DataMigrationTestSuite) newLiveRunService(
 	ledgerBackend ledgerbackend.LedgerBackend,
 	metricsService metrics.MetricsService,
 	processor services.ProtocolProcessor,
-	cursorName string,
 ) services.IngestService {
 	svc, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:          services.IngestionModeLive,
 		Models:                 models,
-		LatestLedgerCursorName: cursorName,
-		OldestLedgerCursorName: cursorName,
+		OldestLedgerCursorName: data.OldestLedgerCursorName,
 		AppTracker:             &apptracker.MockAppTracker{},
 		RPCService:             rpcService,
 		LedgerBackend:          ledgerBackend,
@@ -371,7 +369,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionProcessesSetupClassifiedSEP41W
 	s.Require().NotEmpty(classifiedContracts, "setup-classified SEP41 contracts should be queryable for live ingestion")
 	expectedContractKeys := protocolContractKeys(classifiedContracts)
 
-	const cursorName = "test_live_run_cursor"
+	const cursorName = data.LatestLedgerCursorName
 	s.upsertIngestStoreValue(ctx, pool, cursorName, testLedger-1)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", testLedger-1)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_current_state_cursor", testLedger-1)
@@ -389,7 +387,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionProcessesSetupClassifiedSEP41W
 		ledgerSeq:  testLedger,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
-	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor, cursorName)
+	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -464,7 +462,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41Witho
 	s.Require().NoError(err)
 	s.Require().NotEmpty(classifiedContracts, "setup-classified SEP41 contracts should be queryable for live ingestion")
 
-	const cursorName = "test_live_run_cursor"
+	const cursorName = data.LatestLedgerCursorName
 	s.upsertIngestStoreValue(ctx, pool, cursorName, testLedger-1)
 
 	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
@@ -480,7 +478,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41Witho
 		ledgerSeq:  testLedger,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
-	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor, cursorName)
+	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -540,7 +538,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41WhenP
 	s.Require().NoError(err)
 	s.Require().NotEmpty(classifiedContracts, "setup-classified SEP41 contracts should be queryable for live ingestion")
 
-	const cursorName = "test_live_run_cursor"
+	const cursorName = data.LatestLedgerCursorName
 	s.upsertIngestStoreValue(ctx, pool, cursorName, testLedger-1)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", testLedger-2)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_current_state_cursor", testLedger-2)
@@ -558,7 +556,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41WhenP
 		ledgerSeq:  testLedger,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
-	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor, cursorName)
+	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -676,9 +674,7 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 	// Reset the history cursor to baseSeq+2 (the onMiss callback advanced it
 	// past this point to simulate live ingestion handoff during migration).
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", baseSeq+2)
-	const liveCursorName = "test_handoff_live_cursor"
-	s.upsertIngestStoreValue(ctx, pool, liveCursorName, baseSeq+2)
-	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+3)
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+2)
 
 	processor.processedLedger = 0
 	processor.seenContracts = nil
@@ -698,7 +694,7 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 	}, nil).Once()
 
 	metricsService := s.newServiceMetricsMock()
-	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, metricsService, processor, liveCursorName)
+	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -776,7 +772,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionHistoryCursorReadyCurrentState
 	// Set up asymmetric cursors:
 	// history_cursor = testLedger-1 → ready (CAS expected matches)
 	// current_state_cursor = testLedger-2 → lags (CAS expected=testLedger-1 ≠ testLedger-2)
-	const cursorName = "test_asymmetric_cursor"
+	const cursorName = data.LatestLedgerCursorName
 	s.upsertIngestStoreValue(ctx, pool, cursorName, testLedger-1)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_history_cursor", testLedger-1)
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_current_state_cursor", testLedger-2)
@@ -794,7 +790,7 @@ func (s *DataMigrationTestSuite) TestLiveIngestionHistoryCursorReadyCurrentState
 		ledgerSeq:  testLedger,
 		ledgerMeta: s.mustLedgerCloseMeta(),
 	}
-	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor, cursorName)
+	svc := s.newLiveRunService(models, rpcService, ledgerBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -872,7 +868,6 @@ func (s *DataMigrationTestSuite) newCurrentStateMigrationService(
 		IngestStore:            models.IngestStore,
 		NetworkPassphrase:      "Test SDF Network ; September 2015",
 		Processors:             []services.ProtocolProcessor{processor},
-		LatestLedgerCursorName: data.LatestLedgerCursorName,
 		StartLedger:            startLedger,
 	})
 	s.Require().NoError(err)
@@ -948,9 +943,7 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 	// Reset the current-state cursor to baseSeq+2 (the onMiss callback advanced it
 	// past this point to simulate live ingestion handoff during migration).
 	s.upsertIngestStoreValue(ctx, pool, "protocol_SEP41_current_state_cursor", baseSeq+2)
-	const liveCursorName = "test_current_state_handoff_live_cursor"
-	s.upsertIngestStoreValue(ctx, pool, liveCursorName, baseSeq+2)
-	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+3)
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, baseSeq+2)
 
 	processor.processedLedger = 0
 	processor.seenContracts = nil
@@ -970,7 +963,7 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 	}, nil).Once()
 
 	metricsService := s.newServiceMetricsMock()
-	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, metricsService, processor, liveCursorName)
+	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, metricsService, processor)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

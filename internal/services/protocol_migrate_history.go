@@ -32,7 +32,6 @@ type ProtocolMigrateHistoryConfig struct {
 	IngestStore            *data.IngestStoreModel
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 }
 
@@ -50,10 +49,6 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
-	latestCursor := cfg.LatestLedgerCursorName
-	if latestCursor == "" {
-		latestCursor = data.LatestLedgerCursorName
-	}
 	oldestCursor := cfg.OldestLedgerCursorName
 	if oldestCursor == "" {
 		oldestCursor = data.OldestLedgerCursorName
@@ -70,7 +65,6 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 			ingestStore:            cfg.IngestStore,
 			networkPassphrase:      cfg.NetworkPassphrase,
 			processors:             ppMap,
-			latestLedgerCursorName: latestCursor,
 			strategy: migrationStrategy{
 				Label:                 "history",
 				UpdateMigrationStatus: cfg.ProtocolsModel.UpdateHistoryMigrationStatus,

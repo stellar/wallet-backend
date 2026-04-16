@@ -142,7 +142,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
 	}
 
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
@@ -245,7 +245,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
-			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger)
+			innerErr = m.models.IngestStore.Update(ctx, dbTx, data.LatestLedgerCursorName, endLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", endLedger, innerErr)
 			}

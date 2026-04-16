@@ -32,7 +32,6 @@ type ProtocolMigrateCurrentStateConfig struct {
 	IngestStore            *data.IngestStoreModel
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
-	LatestLedgerCursorName string
 	StartLedger            uint32
 }
 
@@ -54,11 +53,6 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
-	latestCursor := cfg.LatestLedgerCursorName
-	if latestCursor == "" {
-		latestCursor = data.LatestLedgerCursorName
-	}
-
 	startLedger := cfg.StartLedger
 
 	return &protocolMigrateCurrentStateService{
@@ -70,7 +64,6 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			ingestStore:            cfg.IngestStore,
 			networkPassphrase:      cfg.NetworkPassphrase,
 			processors:             ppMap,
-			latestLedgerCursorName: latestCursor,
 			strategy: migrationStrategy{
 				Label:                 "current state",
 				UpdateMigrationStatus: cfg.ProtocolsModel.UpdateCurrentStateMigrationStatus,

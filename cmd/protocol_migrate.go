@@ -44,15 +44,14 @@ func (c *protocolMigrateCmd) Command() *cobra.Command {
 
 // migrationCommandOpts captures the shared flags for migration subcommands.
 type migrationCommandOpts struct {
-	databaseURL            string
-	rpcURL                 string
-	networkPassphrase      string
-	protocolIDs            []string
-	logLevel               string
-	latestLedgerCursorName string
-	ledgerBackendType      string
-	datastoreConfigPath    string
-	getLedgersLimit        int
+	databaseURL         string
+	rpcURL              string
+	networkPassphrase   string
+	protocolIDs         []string
+	logLevel            string
+	ledgerBackendType   string
+	datastoreConfigPath string
+	getLedgersLimit     int
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
@@ -158,7 +157,11 @@ func buildMigrationCommand(
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
 	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
-	cmd.Flags().StringVar(&opts.latestLedgerCursorName, "latest-ledger-cursor-name", data.LatestLedgerCursorName, "Name of the latest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+	var deprecatedLatestLedgerCursorName string
+	cmd.Flags().StringVar(&deprecatedLatestLedgerCursorName, "latest-ledger-cursor-name", "", "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded.")
+	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
+		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
+	}
 
 	if addFlags != nil {
 		addFlags(cmd, &opts)
@@ -259,7 +262,6 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					IngestStore:            models.IngestStore,
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
-					LatestLedgerCursorName: opts.latestLedgerCursorName,
 					OldestLedgerCursorName: oldestLedgerCursorName,
 				})
 				if err != nil {
@@ -300,7 +302,6 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					IngestStore:            models.IngestStore,
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
-					LatestLedgerCursorName: opts.latestLedgerCursorName,
 					StartLedger:            startLedger,
 				})
 				if err != nil {

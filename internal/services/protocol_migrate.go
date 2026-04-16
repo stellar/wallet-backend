@@ -56,7 +56,6 @@ type protocolMigrateEngine struct {
 	ingestStore            *data.IngestStoreModel
 	networkPassphrase      string
 	processors             map[string]ProtocolProcessor
-	latestLedgerCursorName string
 	strategy               migrationStrategy
 }
 
