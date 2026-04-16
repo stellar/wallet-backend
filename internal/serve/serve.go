@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -169,6 +170,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+	if err = validateDistributionAccount(ctx, cfg.DistributionAccountSignatureClient, rpcService); err != nil {
+		return handlerDeps{}, fmt.Errorf("validating distribution account: %w", err)
+	}
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
@@ -235,6 +239,23 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		MaxAccountsPerBalancesQuery: cfg.MaxAccountsPerBalancesQuery,
 		MaxGraphQLWorkerPoolSize:    cfg.MaxGraphQLWorkerPoolSize,
 	}, nil
+}
+
+func validateDistributionAccount(ctx context.Context, distributionAccountSignatureClient signing.SignatureClient, rpcService services.RPCService) error {
+	distributionAccountPublicKey, err := distributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	if err != nil {
+		return fmt.Errorf("getting distribution account public key: %w", err)
+	}
+
+	_, err = rpcService.GetAccountLedgerSequence(distributionAccountPublicKey)
+	if err != nil {
+		if errors.Is(err, services.ErrAccountNotFound) {
+			return fmt.Errorf("distribution account %s does not exist on the configured Stellar network: %w", distributionAccountPublicKey, err)
+		}
+		return fmt.Errorf("validating distribution account %s: %w", distributionAccountPublicKey, err)
+	}
+
+	return nil
 }
 
 func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
