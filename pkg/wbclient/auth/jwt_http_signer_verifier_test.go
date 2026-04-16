@@ -115,6 +115,67 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 			expectedStatus:  http.StatusOK,
 			wantErrContains: `{"message": "ok"}`,
 		},
+		{
+			name: "🟢valid_GET_with_query_string",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/graphql/query?query=A&variables=%7B%7D", nil)
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				return req
+			},
+			expectedStatus:  http.StatusOK,
+			wantErrContains: `{"message": "ok"}`,
+		},
+		{
+			name: "🟢valid_POST_with_query_string_and_body",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("POST", "http://example.com/graphql/query?op=build", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				return req
+			},
+			expectedStatus:  http.StatusOK,
+			wantErrContains: `{"message": "ok"}`,
+		},
+		{
+			name: "🔴tampered_query_string_value",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/graphql/query?query=A", nil)
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				// Mutate the query string after signing — token is bound to "?query=A".
+				req.URL.RawQuery = "query=B"
+				return req
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			wantErrContains: "method-and-path",
+		},
+		{
+			name: "🔴tampered_query_string_added",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/graphql/query", nil)
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				// Add a query parameter that was not present when the token was signed.
+				req.URL.RawQuery = "injected=1"
+				return req
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			wantErrContains: "method-and-path",
+		},
+		{
+			name: "🔴tampered_query_string_removed",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/graphql/query?a=1", nil)
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				// Strip the query the token was signed for.
+				req.URL.RawQuery = ""
+				return req
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			wantErrContains: "method-and-path",
+		},
 	}
 
 	for _, tc := range testCases {

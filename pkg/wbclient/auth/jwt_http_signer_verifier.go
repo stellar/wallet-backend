@@ -49,8 +49,10 @@ func (s *JWTHTTPSignerVerifier) SignHTTPRequest(req *http.Request, timeout time.
 		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}()
 
-	// Generate the method and path
-	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.Path)
+	// Generate the method and full request target (path + query).
+	// RequestURI() binds the signature to the query string so GET operations
+	// — whose payload lives in the URL — can't be tampered with under a valid token.
+	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.RequestURI())
 
 	// Generate the token and sign the request
 	jwtToken, err := s.generator.GenerateJWT(methodAndPath, bodyBytes, time.Now().Add(timeout))
@@ -87,8 +89,8 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request) error {
 		}
 	}
 
-	// Generate the method and path
-	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.Path)
+	// Generate the method and full request target (path + query) — must match the signer.
+	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.RequestURI())
 
 	// Parse the JWT
 	tokenString := authHeader[len("Bearer "):] // Remove "Bearer " prefix
