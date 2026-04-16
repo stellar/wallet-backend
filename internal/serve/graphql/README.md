@@ -574,7 +574,6 @@ query GetDetailedBalances {
     }
   }
 }
-}
 ```
 
 **Response Example:**
