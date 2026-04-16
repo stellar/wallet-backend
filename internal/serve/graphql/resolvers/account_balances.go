@@ -400,7 +400,11 @@ func (r *Resolver) getBalanceNodesForSource(
 
 	switch source {
 	case balanceSourceNative:
-		return r.getNativeBalanceNodes(ctx, address, cursor, networkPassphrase)
+		// Native has at most one row — a cursor means it was already emitted.
+		if cursor != nil {
+			return nil, nil
+		}
+		return r.getNativeBalanceNodes(ctx, address, networkPassphrase)
 	case balanceSourceClassic:
 		return r.getTrustlineBalanceNodes(ctx, address, cursor, sortOrder, limit, networkPassphrase)
 	case balanceSourceSAC:
@@ -412,15 +416,8 @@ func (r *Resolver) getBalanceNodesForSource(
 	}
 }
 
-// Native balances are a special case: there is at most one row, so pagination
-// only needs to know whether the global page boundary has already advanced past
-// the native source. Any non-nil cursor means the window is no longer at the
-// native position, so there is nothing left to emit from this source.
-func (r *Resolver) getNativeBalanceNodes(ctx context.Context, address string, cursor *balanceCursor, networkPassphrase string) ([]*balanceNode, error) {
-	if cursor != nil {
-		return nil, nil
-	}
-
+// getNativeBalanceNodes fetches the single native XLM balance for the account.
+func (r *Resolver) getNativeBalanceNodes(ctx context.Context, address string, networkPassphrase string) ([]*balanceNode, error) {
 	nativeBalance, err := r.balanceReader.GetNativeBalance(ctx, address)
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get native balance for %s: %v", address, err)
