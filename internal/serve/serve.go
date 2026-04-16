@@ -326,11 +326,12 @@ func addComplexityCalculation(config *generated.Config) {
 		It is used to determine the performance of a query and to prevent
 		queries that are too complex from being executed.
 
-		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
-		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
-		to calculate the final complexity.
+		By default, graphql assigns a complexity of 1 to each field.
+		For paginated connections, the child complexity is multiplied by the
+		page size: the explicit first/last argument, or DefaultPageLimit (50)
+		when omitted.
 
-		For example, for the following query, the complexity is calculated as follows:
+		Example — explicit pagination arguments:
 		--------------------------------
 		transactions(first: 10) {
 				edges {
@@ -356,6 +357,12 @@ func addComplexityCalculation(config *generated.Config) {
 			}
 		--------------------------------
 		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
+
+		Without explicit args the same shape uses DefaultPageLimit (50):
+		Complexity = 50*(1+1+1+50*(1+1+1+50*(1+1+1+1))) = 507,650
+
+		Clients should provide explicit first/last arguments to keep
+		query complexity within the configured limit (default 5000).
 		--------------------------------
 	*/
 	calculatePaginatedComplexity := func(childComplexity int, first *int32, last *int32) int {
