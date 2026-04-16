@@ -20,10 +20,10 @@ import (
 type AccountContractTokensModelInterface interface {
 	// Read operations (for API/balances queries)
 	GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error)
-	// GetSEP41ByAccountPaginated returns only SEP-41 contracts ordered by the
+	// GetSEP41ByAccount returns only SEP-41 contracts ordered by the
 	// junction-table contract UUID so the GraphQL balances connection can page
 	// without loading every contract membership first.
-	GetSEP41ByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error)
+	GetSEP41ByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error)
 
 	// Write operations (for initial population and live ingestion)
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contractsByAccount map[string][]uuid.UUID) error
@@ -62,9 +62,9 @@ func (m *AccountContractTokensModel) GetByAccount(ctx context.Context, accountAd
 	return contracts, nil
 }
 
-// GetSEP41ByAccountPaginated retrieves SEP-41 contracts for an account ordered
+// GetSEP41ByAccount retrieves SEP-41 contracts for an account ordered
 // by contract UUID. The cursor is the last seen contract UUID from the previous page.
-func (m *AccountContractTokensModel) GetSEP41ByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
+func (m *AccountContractTokensModel) GetSEP41ByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
@@ -104,10 +104,10 @@ func (m *AccountContractTokensModel) GetSEP41ByAccountPaginated(ctx context.Cont
 	start := time.Now()
 	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetSEP41ByAccountPaginated", "account_contract_tokens").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetSEP41ByAccountPaginated", "account_contract_tokens").Inc()
+	m.Metrics.QueryDuration.WithLabelValues("GetSEP41ByAccount", "account_contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetSEP41ByAccount", "account_contract_tokens").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetSEP41ByAccountPaginated", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
+		m.Metrics.QueryErrors.WithLabelValues("GetSEP41ByAccount", "account_contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying paginated SEP-41 contracts for %s: %w", accountAddress, err)
 	}
 	return contracts, nil

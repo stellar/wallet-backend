@@ -98,7 +98,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).Return(nil, nil)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{}, nil)
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testAccountAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
@@ -143,7 +143,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 				Flags:        uint32(xdr.TrustLineFlagsAuthorizedFlag),
 				LedgerNumber: 12345,
 			}}, nil)
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(49), (*uuid.UUID)(nil), data.ASC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testAccountAddress, limitMatcher(49), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{sep41Contract}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
@@ -204,7 +204,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 				Issuer:            testUSDCIssuer,
 				Decimals:          7,
 			}}, nil)
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testContractAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testContractAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{sep41Contract}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
@@ -254,14 +254,14 @@ func TestAccountResolver_Balances(t *testing.T) {
 				LedgerNumber: 12345,
 			}}, nil).
 			Once()
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(1), (*uuid.UUID)(nil), data.ASC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testAccountAddress, limitMatcher(1), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{sep41Contract1}, nil).
 			Once()
 
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(3), cursorUUIDMatcher(trustlineID), data.ASC).
 			Return([]data.TrustlineBalance{}, nil).
 			Once()
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.ASC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.ASC).
 			Return([]*data.Contract{sep41Contract1, sep41Contract2}, nil).
 			Once()
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
@@ -313,7 +313,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		trustlineID := data.DeterministicAssetID("USDC", testUSDCIssuer)
 		sep41Contract := createSEP41Contract(testSEP41ContractAddress, "Token", "TKN", 7)
 
-		mockAccountContractTokens.On("GetSEP41ByAccountPaginated", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.DESC).
+		mockAccountContractTokens.On("GetSEP41ByAccount", ctx, testAccountAddress, limitMatcher(3), (*uuid.UUID)(nil), data.DESC).
 			Return([]*data.Contract{sep41Contract}, nil)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.DESC).
 			Return([]data.TrustlineBalance{{

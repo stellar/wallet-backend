@@ -190,7 +190,7 @@ func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accou
 	return args.Get(0).([]*Contract), args.Error(1)
 }
 
-func (m *AccountContractTokensModelMock) GetSEP41ByAccountPaginated(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
+func (m *AccountContractTokensModelMock) GetSEP41ByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
 	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

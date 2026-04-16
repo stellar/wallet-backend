@@ -530,7 +530,7 @@ func (r *Resolver) getSEP41BalanceNodes(
 		return nil, balanceBadUserInputError("invalid balance cursor id")
 	}
 
-	contracts, err := r.accountContractTokensModel.GetSEP41ByAccountPaginated(ctx, address, &limit, cursorID, sortOrder)
+	contracts, err := r.accountContractTokensModel.GetSEP41ByAccount(ctx, address, &limit, cursorID, sortOrder)
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get paginated SEP-41 contracts for %s: %v", address, err)
 		return nil, balanceInternalError()

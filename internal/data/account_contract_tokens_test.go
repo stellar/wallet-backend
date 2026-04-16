@@ -13,7 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-func TestAccountContractTokensModel_GetSEP41ByAccountPaginated(t *testing.T) {
+func TestAccountContractTokensModel_GetSEP41ByAccount(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -61,19 +61,19 @@ func TestAccountContractTokensModel_GetSEP41ByAccountPaginated(t *testing.T) {
 	slices.Sort(expectedOrder)
 
 	limit := int32(2)
-	page, err := m.GetSEP41ByAccountPaginated(ctx, "GACCOUNT1", &limit, nil, ASC)
+	page, err := m.GetSEP41ByAccount(ctx, "GACCOUNT1", &limit, nil, ASC)
 	require.NoError(t, err)
 	require.Len(t, page, 2)
 	require.Equal(t, expectedOrder[0], page[0].ID.String())
 	require.Equal(t, expectedOrder[1], page[1].ID.String())
 
 	cursor := page[1].ID
-	nextPage, err := m.GetSEP41ByAccountPaginated(ctx, "GACCOUNT1", &limit, &cursor, ASC)
+	nextPage, err := m.GetSEP41ByAccount(ctx, "GACCOUNT1", &limit, &cursor, ASC)
 	require.NoError(t, err)
 	require.Len(t, nextPage, 1)
 	require.Equal(t, expectedOrder[2], nextPage[0].ID.String())
 
-	descPage, err := m.GetSEP41ByAccountPaginated(ctx, "GACCOUNT1", &limit, nil, DESC)
+	descPage, err := m.GetSEP41ByAccount(ctx, "GACCOUNT1", &limit, nil, DESC)
 	require.NoError(t, err)
 	require.Len(t, descPage, 2)
 	require.Equal(t, expectedOrder[2], descPage[0].ID.String())

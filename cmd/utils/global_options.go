@@ -235,7 +235,7 @@ func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 		Usage:       "The maximum complexity limit for GraphQL queries. Complexity is calculated based on fields and pagination parameters.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 1000,
+		FlagDefault: 5000,
 		Required:    false,
 	}
 }
