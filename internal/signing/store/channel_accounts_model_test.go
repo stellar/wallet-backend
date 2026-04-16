@@ -456,6 +456,7 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 			PublicKey:           first.Address(),
 			EncryptedPrivateKey: first.Seed(),
 		})
+		time.Sleep(1 * time.Second) // to prevent fast inserts and same created_at timestamp
 		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
 			PublicKey:           second.Address(),
 			EncryptedPrivateKey: second.Seed(),
