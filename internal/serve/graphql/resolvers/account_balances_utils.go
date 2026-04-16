@@ -1,15 +1,11 @@
 // Package resolvers provides utility functions for parsing Stellar ledger entries into GraphQL balance types.
-// These functions support both single-account and multi-account balance queries.
 package resolvers
 
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"sync"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -18,18 +14,6 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
-
-// accountKeyInfo tracks ledger key information for a single account during multi-account balance fetch
-type accountKeyInfo struct {
-	address          string
-	isContract       bool
-	nativeBalance    *data.NativeBalance     // Native XLM balance from DB
-	trustlines       []data.TrustlineBalance // Full trustline balance data from DB
-	sacBalances      []data.SACBalance       // SAC balances from DB (for contract addresses)
-	contractsByID    map[string]*data.Contract
-	sep41ContractIDs []string
-	collectionErr    error // error during data collection phase
-}
 
 // buildNativeBalanceFromDB constructs a NativeBalance from database native balance data.
 func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphrase string) (*graphql1.NativeBalance, error) {
@@ -203,92 +187,28 @@ func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contr
 	}, nil
 }
 
-// getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
-// The accountAddress parameter is the address of the account whose balance we're querying.
-func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract, pool pond.Pool) ([]graphql1.Balance, error) {
-	results := make([]graphql1.Balance, len(contractIDs))
-	group := pool.NewGroupContext(ctx)
-	var errs []error
-	mu := sync.Mutex{}
-
-	appendError := func(err error) {
-		mu.Lock()
-		errs = append(errs, err)
-		mu.Unlock()
+// getSep41Balance fetches and parses a single SEP-41 balance. The paginated
+// balances resolver uses this one-at-a-time form so it can avoid RPC calls for
+// rows that are fetched only to determine PageInfo.
+func getSep41Balance(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contract *data.Contract) (*graphql1.SEP41Balance, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
 	}
 
-	for i, contractID := range contractIDs {
-		group.Submit(func() {
-			// Convert the account address to an xdr.ScVal for passing to the balance function
-			addressArg, err := addressToScVal(accountAddress)
-			if err != nil {
-				appendError(fmt.Errorf("converting account address to ScVal: %w", err))
-				return
-			}
-
-			balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
-			if err != nil {
-				appendError(fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
-				return
-			}
-			balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
-			if err != nil {
-				appendError(fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
-				return
-			}
-			results[i] = balance
-		})
+	addressArg, err := addressToScVal(accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address to ScVal: %w", err)
 	}
 
-	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for SEP41 balance fetch group: %w", err)
+	balanceResult, err := contractMetadataService.FetchSingleField(ctx, contract.ContractID, "balance", addressArg)
+	if err != nil {
+		return nil, fmt.Errorf("getting SEP41 balance: %w", err)
 	}
 
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("getting SEP41 balances: %w", errors.Join(errs...))
+	balance, err := parseSEP41Balance(balanceResult, contract.ContractID, contract)
+	if err != nil {
+		return nil, fmt.Errorf("parsing SEP41 balance: %w", err)
 	}
 
-	return results, nil
-}
-
-// parseAccountBalances parses ledger entries and DB data for a single account and returns balances.
-// Native XLM and trustlines come from DB, while SAC contracts use RPC.
-// This is used by the multi-account balance resolver.
-func parseAccountBalances(ctx context.Context, info *accountKeyInfo, contractMetadataService services.ContractMetadataService, networkPassphrase string, pool pond.Pool) ([]graphql1.Balance, error) {
-	var balances []graphql1.Balance
-
-	// Add native balance from DB
-	if info.nativeBalance != nil {
-		nativeBalance, err := buildNativeBalanceFromDB(info.nativeBalance, networkPassphrase)
-		if err != nil {
-			return nil, fmt.Errorf("building native balance: %w", err)
-		}
-		balances = append(balances, nativeBalance)
-	}
-
-	// Add trustline balances from DB
-	for _, trustline := range info.trustlines {
-		trustlineBalance, err := buildTrustlineBalanceFromDB(trustline, networkPassphrase)
-		if err != nil {
-			return nil, fmt.Errorf("building trustline balance: %w", err)
-		}
-		balances = append(balances, trustlineBalance)
-	}
-
-	// Add SAC balances from DB (for C addresses)
-	// Contract metadata is embedded in SACBalance from JOIN with contract_tokens
-	for _, sacBalance := range info.sacBalances {
-		balances = append(balances, buildSACBalanceFromDB(sacBalance))
-	}
-
-	// Add SEP-41 balances from RPC
-	if len(info.sep41ContractIDs) > 0 {
-		sep41Balances, err := getSep41Balances(ctx, info.address, contractMetadataService, info.sep41ContractIDs, info.contractsByID, pool)
-		if err != nil {
-			return nil, fmt.Errorf("getting SEP41 balances: %w", err)
-		}
-		balances = append(balances, sep41Balances...)
-	}
-
-	return balances, nil
+	return balance, nil
 }

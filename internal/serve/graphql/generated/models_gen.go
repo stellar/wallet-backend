@@ -31,16 +31,6 @@ type BaseStateChange interface {
 	GetTransaction() *types.Transaction
 }
 
-// AccountBalances represents balances for a single account in multi-account queries
-type AccountBalances struct {
-	// The Stellar account or contract address
-	Address string `json:"address"`
-	// List of balances for this account, empty if not found
-	Balances []Balance `json:"balances"`
-	// Error message if balance fetch failed for this account
-	Error *string `json:"error,omitempty"`
-}
-
 // Input type for filtering account state changes by transaction and/or operation
 type AccountStateChangeFilterInput struct {
 	// Filter by transaction hash - returns only state changes from this transaction
@@ -51,6 +41,16 @@ type AccountStateChangeFilterInput struct {
 	Category *string `json:"category,omitempty"`
 	// Filter by state change reason - returns only state changes with this reason
 	Reason *string `json:"reason,omitempty"`
+}
+
+type BalanceConnection struct {
+	Edges    []*BalanceEdge `json:"edges"`
+	PageInfo *PageInfo      `json:"pageInfo"`
+}
+
+type BalanceEdge struct {
+	Node   Balance `json:"node"`
+	Cursor string  `json:"cursor"`
 }
 
 type BuildTransactionInput struct {

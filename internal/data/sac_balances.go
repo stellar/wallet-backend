@@ -35,8 +35,10 @@ type SACBalance struct {
 
 // SACBalanceModelInterface defines the interface for SAC balance operations.
 type SACBalanceModelInterface interface {
-	// Read operations (for API/balances queries)
-	GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error)
+	// GetByAccount returns SAC balances for a contract holder ordered by
+	// contract_id. Pass nil limit/cursor to fetch all rows, or provide them for
+	// keyset pagination so GraphQL can page with stable cursors.
+	GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error)
 
 	// Write operations (for live ingestion)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error
@@ -53,29 +55,55 @@ type SACBalanceModel struct {
 
 var _ SACBalanceModelInterface = (*SACBalanceModel)(nil)
 
-// GetByAccount retrieves all SAC balances for a contract address with contract metadata.
-// JOINs with contract_tokens to get code, issuer, and decimals for API responses.
-func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
+// GetByAccount retrieves SAC balances for a contract holder ordered by
+// contract_id, JOINed with contract_tokens for code/issuer/decimals. Pass nil
+// limit/cursor to fetch all rows; provide them for keyset pagination (the
+// cursor is the last seen contract UUID from the previous page).
+func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	const query = `
+	query := `
 		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
 		       asb.is_clawback_enabled, asb.last_modified_ledger,
 		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
 		FROM sac_balances asb
 		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
 		WHERE asb.account_address = $1`
+	args := []interface{}{accountAddress}
+	argIndex := 2
+
+	if cursor != nil {
+		// Cursor comparisons implement keyset pagination over the primary key.
+		op := ">"
+		if sortOrder == DESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" AND asb.contract_id %s $%d", op, argIndex)
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == DESC {
+		query += " ORDER BY asb.contract_id DESC"
+	} else {
+		query += " ORDER BY asb.contract_id ASC"
+	}
+
+	if limit != nil {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, *limit)
+	}
 
 	start := time.Now()
-	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, accountAddress)
+	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("querying SAC balances for %s: %w", accountAddress, err)
+		return nil, fmt.Errorf("querying paginated SAC balances for %s: %w", accountAddress, err)
 	}
 	return balances, nil
 }

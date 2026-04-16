@@ -3,6 +3,7 @@ package data
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,13 +26,16 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 	// Insert test contract tokens for foreign key references
 	contractAddr1 := "CCONTRACT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	contractAddr2 := "CCONTRACT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	contractAddr3 := "CCONTRACT3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	contractID1 := DeterministicContractID(contractAddr1)
 	contractID2 := DeterministicContractID(contractAddr2)
+	contractID3 := DeterministicContractID(contractAddr3)
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals) VALUES
 		($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
-		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
-	`, contractID1, contractAddr1, contractID2, contractAddr2)
+		($3, $4, 'SAC', 'EURC', 'GISSUER2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7),
+		($5, $6, 'SAC', 'BTC', 'GISSUER3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)
+	`, contractID1, contractAddr1, contractID2, contractAddr2, contractID3, contractAddr3)
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
@@ -48,7 +52,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "")
+		balances, err := m.GetByAccount(ctx, "", nil, nil, ASC)
 		require.Error(t, err)
 		require.Nil(t, balances)
 		require.Contains(t, err.Error(), "empty account address")
@@ -62,7 +66,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "CNOTEXISTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+		balances, err := m.GetByAccount(ctx, "CNOTEXISTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", nil, nil, ASC)
 		require.NoError(t, err)
 		require.Empty(t, balances)
 	})
@@ -83,7 +87,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		`, accountAddr, contractID1)
 		require.NoError(t, err)
 
-		balances, err := m.GetByAccount(ctx, accountAddr)
+		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 
@@ -119,7 +123,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		`, accountAddr, contractID1, contractID2)
 		require.NoError(t, err)
 
-		balances, err := m.GetByAccount(ctx, accountAddr)
+		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 2)
 
@@ -127,6 +131,48 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		for _, b := range balances {
 			require.Equal(t, accountAddr, b.AccountAddress)
 		}
+	})
+
+	t.Run("paginates with limit and cursor in ASC and DESC order", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &SACBalanceModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		accountAddr := "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO sac_balances
+			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+			VALUES
+			($1, $2, '1000', true, false, 100),
+			($1, $3, '2000', true, false, 101),
+			($1, $4, '3000', true, false, 102)
+		`, accountAddr, contractID1, contractID2, contractID3)
+		require.NoError(t, err)
+
+		expectedOrder := []string{contractID1.String(), contractID2.String(), contractID3.String()}
+		slices.Sort(expectedOrder)
+
+		limit := int32(2)
+		page, err := m.GetByAccount(ctx, accountAddr, &limit, nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, page, 2)
+		require.Equal(t, expectedOrder[0], page[0].ContractID.String())
+		require.Equal(t, expectedOrder[1], page[1].ContractID.String())
+
+		cursor := page[1].ContractID
+		nextPage, err := m.GetByAccount(ctx, accountAddr, &limit, &cursor, ASC)
+		require.NoError(t, err)
+		require.Len(t, nextPage, 1)
+		require.Equal(t, expectedOrder[2], nextPage[0].ContractID.String())
+
+		descPage, err := m.GetByAccount(ctx, accountAddr, &limit, nil, DESC)
+		require.NoError(t, err)
+		require.Len(t, descPage, 2)
+		require.Equal(t, expectedOrder[2], descPage[0].ContractID.String())
+		require.Equal(t, expectedOrder[1], descPage[1].ContractID.String())
 	})
 }
 
