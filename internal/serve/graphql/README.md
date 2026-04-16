@@ -608,7 +608,7 @@ query GetDetailedBalances {
           }
         ],
         "pageInfo": {
-          "endCursor": "djE6Y2xhc3NpYzphc3NldC1jdXJzb3I=",
+          "endCursor": "djE6Y2xhc3NpYzoxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDA=",
           "hasNextPage": true
         }
       }
