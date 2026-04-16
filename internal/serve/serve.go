@@ -125,6 +125,10 @@ type handlerDeps struct {
 	AppTracker apptracker.AppTracker
 }
 
+type channelAccountStartupValidator interface {
+	ValidateChannelAccounts(ctx context.Context, minimum int64) error
+}
+
 func Serve(cfg Configs) error {
 	ctx := context.Background()
 	deps, err := initHandlerDeps(ctx, cfg)
@@ -211,14 +215,16 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
+		ChannelAccountStore:                channelAccountStore,
 		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
-	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
+	if err = validateChannelAccountsForStartup(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts)); err != nil {
+		return handlerDeps{}, err
+	}
 
 	return handlerDeps{
 		Models:                      models,
@@ -258,14 +264,11 @@ func validateDistributionAccount(ctx context.Context, distributionAccountSignatu
 	return nil
 }
 
-func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
-	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
-	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
-	if err != nil {
-		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
-		return
+func validateChannelAccountsForStartup(ctx context.Context, channelAccountService channelAccountStartupValidator, numberOfChannelAccounts int64) error {
+	if err := channelAccountService.ValidateChannelAccounts(ctx, numberOfChannelAccounts); err != nil {
+		return fmt.Errorf("validating channel accounts: %w", err)
 	}
-	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
+	return nil
 }
 
 func handler(deps handlerDeps) http.Handler {

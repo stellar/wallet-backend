@@ -81,3 +81,35 @@ func TestValidateDistributionAccount(t *testing.T) {
 		require.EqualError(t, err, "validating distribution account GABC123: rpc unavailable")
 	})
 }
+
+func TestValidateChannelAccountsForStartup(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("startup fails when channel account validation fails", func(t *testing.T) {
+		validator := &channelAccountStartupValidatorStub{
+			err: errors.New("stored channel account count 0 is below required minimum 2"),
+		}
+
+		err := validateChannelAccountsForStartup(ctx, validator, 2)
+		require.EqualError(t, err, "validating channel accounts: stored channel account count 0 is below required minimum 2")
+		assert.Equal(t, int64(2), validator.minimum)
+	})
+
+	t.Run("startup succeeds with extra valid channel accounts", func(t *testing.T) {
+		validator := &channelAccountStartupValidatorStub{}
+
+		err := validateChannelAccountsForStartup(ctx, validator, 1)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), validator.minimum)
+	})
+}
+
+type channelAccountStartupValidatorStub struct {
+	minimum int64
+	err     error
+}
+
+func (s *channelAccountStartupValidatorStub) ValidateChannelAccounts(_ context.Context, minimum int64) error {
+	s.minimum = minimum
+	return s.err
+}
