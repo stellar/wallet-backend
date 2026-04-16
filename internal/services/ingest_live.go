@@ -383,12 +383,9 @@ func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID str
 
 	if stale {
 		m.metricsService.IncProtocolContractCacheAccess(protocolID, "miss")
+		m.refreshProtocolContractCache(ctx, currentLedger)
 	} else {
 		m.metricsService.IncProtocolContractCacheAccess(protocolID, "hit")
-	}
-
-	if stale {
-		m.refreshProtocolContractCache(ctx, currentLedger)
 	}
 
 	return m.protocolContractCache.contractsByProtocol[protocolID]
