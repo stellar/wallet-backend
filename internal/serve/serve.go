@@ -223,7 +223,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
 	if err = validateChannelAccountsForStartup(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts)); err != nil {
-		return handlerDeps{}, err
+		return handlerDeps{}, fmt.Errorf("validating channel accounts for startup: %w", err)
 	}
 
 	return handlerDeps{

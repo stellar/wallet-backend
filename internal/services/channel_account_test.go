@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
@@ -408,40 +410,31 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 
 	channelAccount1 := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
 	channelAccount2 := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+	channelAccount3 := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
 
 	testCases := []testCase{
-		{
-			name:    "count query fails",
-			minimum: 2,
-			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(0, fmt.Errorf("db unavailable")).Once()
-			},
-			expectedError: "getting the number of channel accounts already stored: db unavailable",
-		},
-		{
-			name:    "count below minimum",
-			minimum: 2,
-			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
-			},
-			expectedError: "stored channel account count 1 is below required minimum 2",
-		},
 		{
 			name:    "list all fails",
 			minimum: 2,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
 				channelAccountStore.On("GetAll", mock.Anything).Return(nil, fmt.Errorf("read failed")).Once()
 			},
 			expectedError: "listing stored channel accounts: read failed",
 		},
 		{
+			name:    "stored count below minimum",
+			minimum: 2,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+			},
+			expectedError: "stored channel account count 1 is below required minimum 2",
+		},
+		{
 			name:    "stored account missing on network",
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
 				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), ErrAccountNotFound).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{}, nil).Once()
 			},
 			expectedError: fmt.Sprintf("channel account %s does not exist on the configured Stellar network", channelAccount1.PublicKey),
 		},
@@ -449,30 +442,100 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			name:    "rpc failure during validation",
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
 				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), fmt.Errorf("rpc unavailable")).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("rpc unavailable")).Once()
 			},
-			expectedError: fmt.Sprintf("validating channel account %s: rpc unavailable", channelAccount1.PublicKey),
+			expectedError: "getting ledger entries for channel accounts: rpc unavailable",
+		},
+		{
+			name:    "invalid returned xdr",
+			minimum: 1,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: []entities.LedgerEntryResult{
+						makeRPCAccountLedgerEntryResultWithData(t, channelAccount1.PublicKey, "not-base64"),
+					},
+				}, nil).Once()
+			},
+			expectedError: fmt.Sprintf("decoding account entry for channel account %s", channelAccount1.PublicKey),
+		},
+		{
+			name:    "wrong returned ledger entry type",
+			minimum: 1,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: []entities.LedgerEntryResult{
+						makeRPCTrustlineLedgerEntryResult(t, channelAccount1.PublicKey),
+					},
+				}, nil).Once()
+			},
+			expectedError: fmt.Sprintf("channel account %s returned non-account ledger entry type", channelAccount1.PublicKey),
 		},
 		{
 			name:    "success with exact configured count",
 			minimum: 2,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
 				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: []entities.LedgerEntryResult{
+						makeRPCAccountLedgerEntryResult(t, channelAccount1.PublicKey),
+						makeRPCAccountLedgerEntryResult(t, channelAccount2.PublicKey),
+					},
+				}, nil).Once()
 			},
 		},
 		{
 			name:    "success with extra valid accounts",
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
-				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
 				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
-				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: []entities.LedgerEntryResult{
+						makeRPCAccountLedgerEntryResult(t, channelAccount1.PublicKey),
+						makeRPCAccountLedgerEntryResult(t, channelAccount2.PublicKey),
+					},
+				}, nil).Once()
+			},
+		},
+		{
+			name:    "missing account is reported in stored order",
+			minimum: 3,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2, channelAccount3}, nil).Once()
+				rpcService.On("GetLedgerEntries", mock.AnythingOfType("[]string")).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: []entities.LedgerEntryResult{
+						makeRPCAccountLedgerEntryResult(t, channelAccount2.PublicKey),
+						makeRPCAccountLedgerEntryResult(t, channelAccount3.PublicKey),
+					},
+				}, nil).Once()
+			},
+			expectedError: fmt.Sprintf("channel account %s does not exist on the configured Stellar network", channelAccount1.PublicKey),
+		},
+		{
+			name:    "batches getLedgerEntries requests",
+			minimum: 201,
+			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
+				channelAccounts := make([]*store.ChannelAccount, 0, 201)
+				ledgerKeys := make([]string, 0, 201)
+				entries := make([]entities.LedgerEntryResult, 0, 201)
+				for range 201 {
+					channelAccount := &store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+					channelAccounts = append(channelAccounts, channelAccount)
+					ledgerKey, err := utils.GetAccountLedgerKey(channelAccount.PublicKey)
+					require.NoError(t, err)
+					ledgerKeys = append(ledgerKeys, ledgerKey)
+					entries = append(entries, makeRPCAccountLedgerEntryResult(t, channelAccount.PublicKey))
+				}
+
+				channelAccountStore.On("GetAll", mock.Anything).Return(channelAccounts, nil).Once()
+				rpcService.On("GetLedgerEntries", ledgerKeys[:200]).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: entries[:200],
+				}, nil).Once()
+				rpcService.On("GetLedgerEntries", ledgerKeys[200:]).Return(entities.RPCGetLedgerEntriesResult{
+					Entries: entries[200:],
+				}, nil).Once()
 			},
 		},
 	}
@@ -504,6 +567,58 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
+	}
+}
+
+func makeRPCAccountLedgerEntryResult(t *testing.T, address string) entities.LedgerEntryResult {
+	t.Helper()
+
+	aid := xdr.MustAddress(address)
+	dataXDR, err := xdr.MarshalBase64(xdr.LedgerEntryData{
+		Type: xdr.LedgerEntryTypeAccount,
+		Account: &xdr.AccountEntry{
+			AccountId:  aid,
+			Balance:    1000000000,
+			SeqNum:     xdr.SequenceNumber(1),
+			Thresholds: xdr.NewThreshold(1, 1, 1, 1),
+			Flags:      0,
+			Ext:        xdr.AccountEntryExt{V: 0},
+		},
+	})
+	require.NoError(t, err)
+
+	return makeRPCAccountLedgerEntryResultWithData(t, address, dataXDR)
+}
+
+func makeRPCTrustlineLedgerEntryResult(t *testing.T, address string) entities.LedgerEntryResult {
+	t.Helper()
+
+	aid := xdr.MustAddress(address)
+	dataXDR, err := xdr.MarshalBase64(xdr.LedgerEntryData{
+		Type: xdr.LedgerEntryTypeTrustline,
+		TrustLine: &xdr.TrustLineEntry{
+			AccountId: aid,
+			Asset:     xdr.MustNewCreditAsset("TEST", keypair.MustRandom().Address()).ToTrustLineAsset(),
+			Balance:   xdr.Int64(100),
+			Limit:     xdr.Int64(1000),
+			Flags:     0,
+			Ext:       xdr.TrustLineEntryExt{V: 0},
+		},
+	})
+	require.NoError(t, err)
+
+	return makeRPCAccountLedgerEntryResultWithData(t, address, dataXDR)
+}
+
+func makeRPCAccountLedgerEntryResultWithData(t *testing.T, address, dataXDR string) entities.LedgerEntryResult {
+	t.Helper()
+
+	keyXDR, err := utils.GetAccountLedgerKey(address)
+	require.NoError(t, err)
+
+	return entities.LedgerEntryResult{
+		KeyXDR:  keyXDR,
+		DataXDR: dataXDR,
 	}
 }
 
