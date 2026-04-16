@@ -151,7 +151,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					On("Count", mock.Anything).
 					Return(8, nil). // will delete 3 channel accounts
 					Once().
-					On("GetAll", mock.Anything, mock.Anything, 3).
+					On("GetAllForUpdate", mock.Anything, mock.Anything, 3).
 					Return([]*store.ChannelAccount{&chAcc1, &chAcc2, &chAcc3}, nil).
 					Once()
 
@@ -431,7 +431,7 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			minimum: 2,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, _ *RPCServiceMock) {
 				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
-				channelAccountStore.On("ListAll", mock.Anything).Return(nil, fmt.Errorf("read failed")).Once()
+				channelAccountStore.On("GetAll", mock.Anything).Return(nil, fmt.Errorf("read failed")).Once()
 			},
 			expectedError: "listing stored channel accounts: read failed",
 		},
@@ -440,7 +440,7 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
 				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
-				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), ErrAccountNotFound).Once()
 			},
 			expectedError: fmt.Sprintf("channel account %s does not exist on the configured Stellar network", channelAccount1.PublicKey),
@@ -450,7 +450,7 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
 				channelAccountStore.On("Count", mock.Anything).Return(1, nil).Once()
-				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1}, nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(0), fmt.Errorf("rpc unavailable")).Once()
 			},
 			expectedError: fmt.Sprintf("validating channel account %s: rpc unavailable", channelAccount1.PublicKey),
@@ -460,7 +460,7 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			minimum: 2,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
 				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
-				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
 			},
@@ -470,7 +470,7 @@ func Test_ChannelAccountService_ValidateChannelAccounts(t *testing.T) {
 			minimum: 1,
 			setupMocks: func(channelAccountStore *store.ChannelAccountStoreMock, rpcService *RPCServiceMock) {
 				channelAccountStore.On("Count", mock.Anything).Return(2, nil).Once()
-				channelAccountStore.On("ListAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
+				channelAccountStore.On("GetAll", mock.Anything).Return([]*store.ChannelAccount{channelAccount1, channelAccount2}, nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount1.PublicKey).Return(int64(123), nil).Once()
 				rpcService.On("GetAccountLedgerSequence", channelAccount2.PublicKey).Return(int64(456), nil).Once()
 			},

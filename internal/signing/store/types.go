@@ -21,8 +21,8 @@ type ChannelAccount struct {
 type ChannelAccountStore interface {
 	GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error)
 	Get(ctx context.Context, publicKey string) (*ChannelAccount, error)
-	GetAll(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error)
-	ListAll(ctx context.Context) ([]*ChannelAccount, error)
+	GetAll(ctx context.Context) ([]*ChannelAccount, error)
+	GetAllForUpdate(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error)
 	GetAllByPublicKey(ctx context.Context, publicKeys ...string) ([]*ChannelAccount, error)
 	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error
 	UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error)

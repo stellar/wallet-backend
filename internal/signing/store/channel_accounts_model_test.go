@@ -363,7 +363,7 @@ func TestChannelAccountModelCount(t *testing.T) {
 	assert.Equal(t, int64(1), n)
 }
 
-func TestChannelAccountModelGetAll(t *testing.T) {
+func TestChannelAccountModelGetAllForUpdate(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -425,7 +425,7 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 			pgxTx, err := dbConnectionPool.Begin(ctx)
 			require.NoError(t, err)
 			defer pgxTx.Rollback(ctx) //nolint:errcheck
-			accounts, err := m.GetAll(ctx, pgxTx, tc.limit)
+			accounts, err := m.GetAllForUpdate(ctx, pgxTx, tc.limit)
 			require.NoError(t, err)
 			require.NoError(t, pgxTx.Commit(ctx))
 			assert.Len(t, accounts, tc.expectedCount)
@@ -433,7 +433,7 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 	}
 }
 
-func TestChannelAccountModelListAll(t *testing.T) {
+func TestChannelAccountModelGetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -461,7 +461,7 @@ func TestChannelAccountModelListAll(t *testing.T) {
 			EncryptedPrivateKey: second.Seed(),
 		})
 
-		accounts, err := m.ListAll(ctx)
+		accounts, err := m.GetAll(ctx)
 		require.NoError(t, err)
 		require.Len(t, accounts, 2)
 		assert.Equal(t, first.Address(), accounts[0].PublicKey)

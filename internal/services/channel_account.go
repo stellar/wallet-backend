@@ -56,7 +56,7 @@ func (s *channelAccountService) ValidateChannelAccounts(ctx context.Context, min
 		return fmt.Errorf("stored channel account count %d is below required minimum %d", currentChannelAccountNumber, minimum)
 	}
 
-	channelAccounts, err := s.ChannelAccountStore.ListAll(ctx)
+	channelAccounts, err := s.ChannelAccountStore.GetAll(ctx)
 	if err != nil {
 		return fmt.Errorf("listing stored channel accounts: %w", err)
 	}
@@ -199,7 +199,7 @@ func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Conte
 func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAccountsToDelete int) error {
 	dbTxErr := db.RunInTransaction(ctx, s.DB, func(pgxTx pgx.Tx) error {
 		// Get a channel account to delete
-		chAccounts, err := s.ChannelAccountStore.GetAll(ctx, pgxTx, numAccountsToDelete)
+		chAccounts, err := s.ChannelAccountStore.GetAllForUpdate(ctx, pgxTx, numAccountsToDelete)
 		if err != nil {
 			return fmt.Errorf("retrieving channel account to delete: %w", err)
 		}

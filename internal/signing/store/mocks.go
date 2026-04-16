@@ -57,16 +57,16 @@ func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, channelAccoun
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) GetAll(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
-	args := s.Called(ctx, pgxTx, limit)
+func (s *ChannelAccountStoreMock) GetAll(ctx context.Context) ([]*ChannelAccount, error) {
+	args := s.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) ListAll(ctx context.Context) ([]*ChannelAccount, error) {
-	args := s.Called(ctx)
+func (s *ChannelAccountStoreMock) GetAllForUpdate(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
+	args := s.Called(ctx, pgxTx, limit)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
