@@ -164,6 +164,10 @@ func (p *testRecordingProcessor) PersistCurrentState(ctx context.Context, dbTx p
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_%d", p.id, p.lastProcessed), p.lastProcessed)
 }
 
+func (p *testRecordingProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) error {
+	return nil
+}
+
 // testCursorAdvancingProcessor embeds testRecordingProcessor and simulates
 // live ingestion taking over by advancing its own cursor in the DB during
 // ProcessLedger at a specific sequence, causing the subsequent CAS to fail.

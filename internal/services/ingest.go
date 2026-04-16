@@ -123,10 +123,18 @@ type ingestService struct {
 	knownContractIDs          set.Set[string]
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolContractCache     *protocolContractCache
-	// eligibleProtocolProcessors is set by ingestLiveLedgers before each call
-	// to PersistLedgerData, scoping the CAS loop to only processors that had
-	// ProcessLedger called. Only accessed from the single-threaded live ingestion loop.
+	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
+	// sequence, scoping protocol processing and the CAS loop to processors that
+	// may persist the current ledger. Only accessed from the single-threaded live
+	// ingestion loop.
 	eligibleProtocolProcessors map[string]ProtocolProcessor
+	// protocolCurrentStateLoaded tracks which protocols have had their current
+	// state loaded into processor memory via LoadCurrentState. On the first
+	// successful CAS advance of the current_state_cursor (handoff from migration),
+	// LoadCurrentState reads state from DB; subsequent ledgers use the in-memory
+	// state maintained by PersistCurrentState. Reset on transaction failure to
+	// force a reload. Only accessed from the single-threaded live ingestion loop.
+	protocolCurrentStateLoaded map[string]bool
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -164,29 +172,30 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		chAccStore:                cfg.ChannelAccountStore,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		checkpointService:         cfg.CheckpointService,
-		metricsService:            cfg.MetricsService,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:          uint32(cfg.CatchupThreshold),
-		knownContractIDs:          set.NewSet[string](),
-		protocolProcessors:        ppMap,
-		protocolContractCache:     ppCache,
+		ingestionMode:              cfg.IngestionMode,
+		models:                     cfg.Models,
+		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
+		appTracker:                 cfg.AppTracker,
+		rpcService:                 cfg.RPCService,
+		ledgerBackend:              cfg.LedgerBackend,
+		ledgerBackendFactory:       cfg.LedgerBackendFactory,
+		chAccStore:                 cfg.ChannelAccountStore,
+		tokenIngestionService:      cfg.TokenIngestionService,
+		checkpointService:          cfg.CheckpointService,
+		metricsService:             cfg.MetricsService,
+		networkPassphrase:          cfg.NetworkPassphrase,
+		getLedgersLimit:            cfg.GetLedgersLimit,
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta, cfg.SkipTxEnvelope),
+		archive:                    cfg.Archive,
+		backfillPool:               backfillPool,
+		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:           uint32(cfg.CatchupThreshold),
+		knownContractIDs:           set.NewSet[string](),
+		protocolProcessors:         ppMap,
+		protocolContractCache:      ppCache,
+		protocolCurrentStateLoaded: make(map[string]bool),
 	}, nil
 }
 

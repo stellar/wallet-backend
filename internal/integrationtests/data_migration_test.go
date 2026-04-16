@@ -253,6 +253,10 @@ func (p *integrationTestProcessor) PersistCurrentState(ctx context.Context, dbTx
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_written", p.id), p.processedLedger)
 }
 
+func (p *integrationTestProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) error {
+	return nil
+}
+
 func (s *DataMigrationTestSuite) mustLedgerCloseMeta() xdr.LedgerCloseMeta {
 	var ledgerMeta xdr.LedgerCloseMeta
 	err := xdr.SafeUnmarshalBase64(protocolStateProductionLedgerMetaWith0Tx, &ledgerMeta)

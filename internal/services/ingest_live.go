@@ -81,6 +81,9 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 // token changes, and cursor update. Channel unlock is a no-op when chAccStore is nil.
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
 	var numTxs, numOps int
+	// Track protocols that persisted current state in this transaction attempt
+	// so we can reset their cache-loaded flag on rollback.
+	var currentStatePersistedProtocols []string
 
 	err := db.RunInPgxTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
@@ -178,6 +181,24 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 					return fmt.Errorf("CAS current state cursor for %s: %w", protocolID, casErr)
 				}
 				if swapped {
+					// On first CAS success (handoff from migration), load current state
+					// from DB into processor memory. Subsequent ledgers use the in-memory
+					// state maintained by PersistCurrentState (write-through cache).
+					if !m.protocolCurrentStateLoaded[protocolID] {
+						loadStart := time.Now()
+						if loadErr := processor.LoadCurrentState(ctx, dbTx); loadErr != nil {
+							return fmt.Errorf("loading current state for %s at ledger %d: %w", protocolID, ledgerSeq, loadErr)
+						}
+						m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "load_current_state", time.Since(loadStart).Seconds())
+						m.protocolCurrentStateLoaded[protocolID] = true
+					}
+
+					// Any rollback after a successful current-state CAS can leave the
+					// processor's in-memory cache ahead of committed DB state, either
+					// because we just loaded it for handoff or because PersistCurrentState
+					// mutates the write-through cache before a later transactional failure.
+					currentStatePersistedProtocols = append(currentStatePersistedProtocols, protocolID)
+
 					start := time.Now()
 					persistErr := processor.PersistCurrentState(ctx, dbTx)
 					m.metricsService.ObserveProtocolStateProcessingDuration(protocolID, "persist_current_state", time.Since(start).Seconds())
@@ -196,6 +217,12 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 		return nil
 	})
 	if err != nil {
+		// Transaction rolled back — processor in-memory state loaded inside the
+		// rolled-back transaction may not match the committed DB state. Reset
+		// loaded flags to force a DB reload on the next successful CAS attempt.
+		for _, pid := range currentStatePersistedProtocols {
+			m.protocolCurrentStateLoaded[pid] = false
+		}
 		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
 	}
 
@@ -348,9 +375,6 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// produceProtocolStateForProcessors runs the given protocol processors against
-// a ledger. Callers pass either `m.protocolProcessors` (all registered) or a
-// filtered subset (e.g., live ingestion scopes to `eligibleProtocolProcessors`).
 func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32, processors map[string]ProtocolProcessor) error {
 	if len(processors) == 0 {
 		return nil
@@ -427,6 +451,9 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 			return numTxs, numOps, nil
 		}
 		lastErr = err
+		if attempt == maxIngestProcessedDataRetries-1 {
+			break
+		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {

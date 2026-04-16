@@ -476,6 +476,9 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			return nil
 		}
 		lastErr = err
+		if attempt == maxIngestProcessedDataRetries-1 {
+			break
+		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {
