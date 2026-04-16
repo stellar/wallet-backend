@@ -448,48 +448,56 @@ query ListStateChanges {
 
 ### 7. Get Account Balances
 
-Retrieve all token balances for an account, including native XLM, classic trustlines, and contract tokens.
+Retrieve account balances through a Relay-style connection, including native XLM, classic trustlines, and contract tokens.
 
 ```graphql
 query GetAccountBalances {
   accountByAddress(address: "GABC...") {
-    balances {
-      __typename
-      tokenId
-      tokenType
-      balance
+    balances(first: 50) {
+      edges {
+        node {
+          __typename
+          tokenId
+          tokenType
+          balance
 
-      ... on NativeBalance {
-        minimumBalance
-        buyingLiabilities
-        sellingLiabilities
-        lastModifiedLedger
+          ... on NativeBalance {
+            minimumBalance
+            buyingLiabilities
+            sellingLiabilities
+            lastModifiedLedger
+          }
+
+          ... on TrustlineBalance {
+            code
+            issuer
+            type
+            limit
+            buyingLiabilities
+            sellingLiabilities
+            lastModifiedLedger
+            isAuthorized
+            isAuthorizedToMaintainLiabilities
+          }
+
+          ... on SACBalance {
+            code
+            issuer
+            decimals
+            isAuthorized
+            isClawbackEnabled
+          }
+
+          ... on SEP41Balance {
+            name
+            symbol
+            decimals
+          }
+        }
       }
-
-      ... on TrustlineBalance {
-        code
-        issuer
-        type
-        limit
-        buyingLiabilities
-        sellingLiabilities
-        lastModifiedLedger
-        isAuthorized
-        isAuthorizedToMaintainLiabilities
-      }
-
-      ... on SACBalance {
-        code
-        issuer
-        decimals
-        isAuthorized
-        isClawbackEnabled
-      }
-
-      ... on SEP41Balance {
-        name
-        symbol
-        decimals
+      pageInfo {
+        endCursor
+        hasNextPage
       }
     }
   }
@@ -529,35 +537,39 @@ The query returns different balance types based on the token:
 ```graphql
 query GetDetailedBalances {
   accountByAddress(address: "GABC...") {
-    balances {
-      tokenId
-      balance
-      tokenType
+    balances(first: 25) {
+      edges {
+        node {
+          tokenId
+          balance
+          tokenType
 
-      ... on NativeBalance {
-        minimumBalance
-        buyingLiabilities
-        sellingLiabilities
-        lastModifiedLedger
-      }
+          ... on NativeBalance {
+            minimumBalance
+            buyingLiabilities
+            sellingLiabilities
+            lastModifiedLedger
+          }
 
-      ... on TrustlineBalance {
-        code
-        issuer
-        limit
-        isAuthorized
-      }
+          ... on TrustlineBalance {
+            code
+            issuer
+            limit
+            isAuthorized
+          }
 
-      ... on SACBalance {
-        code
-        issuer
-        decimals
-      }
+          ... on SACBalance {
+            code
+            issuer
+            decimals
+          }
 
-      ... on SEP41Balance {
-        name
-        symbol
-        decimals
+          ... on SEP41Balance {
+            name
+            symbol
+            decimals
+          }
+        }
       }
     }
   }
@@ -570,34 +582,36 @@ query GetDetailedBalances {
 {
   "data": {
     "accountByAddress": {
-      "balances": [
-        {
-          "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-          "balance": "100.0000000",
-          "tokenType": "NATIVE",
-          "minimumBalance": "1.0000000",
-          "buyingLiabilities": "0.0000000",
-          "sellingLiabilities": "0.0000000",
-          "lastModifiedLedger": 12345678
-        },
-        {
-          "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
-          "balance": "500.0000000",
-          "tokenType": "CLASSIC",
-          "code": "USDC",
-          "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-          "limit": "922337203685.4775807",
-          "isAuthorized": true
-        },
-        {
-          "tokenId": "CCVLZ3SQWV4R5OYTXM7FYNVJLUBXZ3FXOVQXMKIFXFPJT3YNG3HLKXPS",
-          "balance": "1000.0000000",
-          "tokenType": "SEP41",
-          "name": "Example Token",
-          "symbol": "EXT",
-          "decimals": 7
+      "balances": {
+        "edges": [
+          {
+            "node": {
+              "tokenId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+              "balance": "100.0000000",
+              "tokenType": "NATIVE",
+              "minimumBalance": "1.0000000",
+              "buyingLiabilities": "0.0000000",
+              "sellingLiabilities": "0.0000000",
+              "lastModifiedLedger": 12345678
+            }
+          },
+          {
+            "node": {
+              "tokenId": "CAQCMV4JFG4EZXQEAV7TUV2E52DMSO2LQKBOSA7UM3B4NIP4DQJ3JHQJ",
+              "balance": "500.0000000",
+              "tokenType": "CLASSIC",
+              "code": "USDC",
+              "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+              "limit": "922337203685.4775807",
+              "isAuthorized": true
+            }
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "djE6Y2xhc3NpYzoxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDA=",
+          "hasNextPage": true
         }
-      ]
+      }
     }
   }
 }
@@ -605,12 +619,12 @@ query GetDetailedBalances {
 
 **How It Works:**
 
-This query leverages the Account Token Cache (see [Account Token Cache](../../../README.md#account-token-cache) in the main README) to efficiently retrieve balances:
+This query uses keyset pagination over the balance backing tables:
 
-1. Fetches token identifiers from Redis cache (trustlines and contracts)
-2. Retrieves contract metadata from PostgreSQL (for SAC/SEP-41 tokens)
-3. Builds ledger keys and queries Stellar RPC for current balances
-4. Parses XDR entries and returns typed balance responses
+1. Reads native, trustline, and SAC balances from PostgreSQL in a stable source order
+2. Reads SEP-41 contract memberships from PostgreSQL using the same cursor order
+3. Fetches SEP-41 `balance(address)` values only for contracts in the returned page
+4. Builds Relay `edges` and `pageInfo` so clients can continue paging with opaque cursors
 
 **Supported Address Types:**
 - **G-addresses**: Returns native XLM, trustlines, SAC, and SEP-41 balances

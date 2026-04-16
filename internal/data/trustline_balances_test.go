@@ -3,6 +3,7 @@ package data
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,11 +26,13 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 	// Insert test assets for foreign key references
 	assetID1 := DeterministicAssetID("USDC", "ISSUER1")
 	assetID2 := DeterministicAssetID("EURC", "ISSUER2")
+	assetID3 := DeterministicAssetID("BTC", "ISSUER3")
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO trustline_assets (id, code, issuer) VALUES
 		($1, 'USDC', 'ISSUER1'),
-		($2, 'EURC', 'ISSUER2')
-	`, assetID1, assetID2)
+		($2, 'EURC', 'ISSUER2'),
+		($3, 'BTC', 'ISSUER3')
+	`, assetID1, assetID2, assetID3)
 	require.NoError(t, err)
 
 	cleanUpDB := func() {
@@ -46,7 +49,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "")
+		balances, err := m.GetByAccount(ctx, "", nil, nil, ASC)
 		require.Error(t, err)
 		require.Nil(t, balances)
 		require.Contains(t, err.Error(), "empty account address")
@@ -60,7 +63,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "GNOTEXIST")
+		balances, err := m.GetByAccount(ctx, "GNOTEXIST", nil, nil, ASC)
 		require.NoError(t, err)
 		require.Empty(t, balances)
 	})
@@ -81,7 +84,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		`, accountAddr, assetID1)
 		require.NoError(t, err)
 
-		balances, err := m.GetByAccount(ctx, accountAddr)
+		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 
@@ -116,7 +119,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		`, accountAddr, assetID1, assetID2)
 		require.NoError(t, err)
 
-		balances, err := m.GetByAccount(ctx, accountAddr)
+		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 2)
 
@@ -124,6 +127,47 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		for _, b := range balances {
 			require.Equal(t, accountAddr, b.AccountAddress)
 		}
+	})
+
+	t.Run("paginates with limit and cursor in ASC and DESC order", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &TrustlineBalanceModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO trustline_balances
+			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
+			VALUES
+			('GACCOUNT1', $1, 1000, 10000, 0, 0, 0, 100),
+			('GACCOUNT1', $2, 2000, 20000, 0, 0, 0, 101),
+			('GACCOUNT1', $3, 3000, 30000, 0, 0, 0, 102)
+		`, assetID1, assetID2, assetID3)
+		require.NoError(t, err)
+
+		expectedOrder := []string{assetID1.String(), assetID2.String(), assetID3.String()}
+		slices.Sort(expectedOrder)
+
+		limit := int32(2)
+		page, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, page, 2)
+		require.Equal(t, expectedOrder[0], page[0].AssetID.String())
+		require.Equal(t, expectedOrder[1], page[1].AssetID.String())
+
+		cursor := page[1].AssetID
+		nextPage, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, &cursor, ASC)
+		require.NoError(t, err)
+		require.Len(t, nextPage, 1)
+		require.Equal(t, expectedOrder[2], nextPage[0].AssetID.String())
+
+		descPage, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, nil, DESC)
+		require.NoError(t, err)
+		require.Len(t, descPage, 2)
+		require.Equal(t, expectedOrder[2], descPage[0].AssetID.String())
+		require.Equal(t, expectedOrder[1], descPage[1].AssetID.String())
 	})
 }
 

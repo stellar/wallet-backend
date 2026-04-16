@@ -65,8 +65,8 @@ func NewTrustlineBalanceModelMock(t interface {
 	return mockModel
 }
 
-func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]TrustlineBalance, error) {
-	args := m.Called(ctx, accountAddress)
+func (m *TrustlineBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]TrustlineBalance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -143,8 +143,8 @@ func NewSACBalanceModelMock(t interface {
 	return mockModel
 }
 
-func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]SACBalance, error) {
-	args := m.Called(ctx, accountAddress)
+func (m *SACBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]SACBalance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -184,6 +184,14 @@ func NewAccountContractTokensModelMock(t interface {
 
 func (m *AccountContractTokensModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]*Contract, error) {
 	args := m.Called(ctx, accountAddress)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*Contract), args.Error(1)
+}
+
+func (m *AccountContractTokensModelMock) GetSEP41ByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]*Contract, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

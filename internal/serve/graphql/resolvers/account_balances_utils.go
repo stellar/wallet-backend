@@ -4,7 +4,6 @@ package resolvers
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/amount"
@@ -188,40 +187,28 @@ func parseSEP41Balance(val xdr.ScVal, contractIDStr string, contract *data.Contr
 	}, nil
 }
 
-// getSep41Balances simulates an RPC call to the `balance(id)` function of each SEP-41 contract.
-// The accountAddress parameter is the address of the account whose balance we're querying.
-func getSep41Balances(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contractIDs []string, contractsByContractID map[string]*data.Contract) ([]graphql1.Balance, error) {
-	results := make([]graphql1.Balance, 0, len(contractIDs))
-	var errs []error
-
-	for _, contractID := range contractIDs {
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
-		}
-
-		// Convert the account address to an xdr.ScVal for passing to the balance function
-		addressArg, err := addressToScVal(accountAddress)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("converting account address to ScVal: %w", err))
-			continue
-		}
-
-		balanceResult, err := contractMetadataService.FetchSingleField(ctx, contractID, "balance", addressArg)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("getting SEP41 balance for contract %s: %w", contractID, err))
-			continue
-		}
-		balance, err := parseSEP41Balance(balanceResult, contractID, contractsByContractID[contractID])
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parsing SEP41 balance for contract %s: %w", contractID, err))
-			continue
-		}
-		results = append(results, balance)
+// getSep41Balance fetches and parses a single SEP-41 balance. The paginated
+// balances resolver uses this one-at-a-time form so it can avoid RPC calls for
+// rows that are fetched only to determine PageInfo.
+func getSep41Balance(ctx context.Context, accountAddress string, contractMetadataService services.ContractMetadataService, contract *data.Contract) (*graphql1.SEP41Balance, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context cancelled while fetching SEP41 balances: %w", err)
 	}
 
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("getting SEP41 balances: %w", errors.Join(errs...))
+	addressArg, err := addressToScVal(accountAddress)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address to ScVal: %w", err)
 	}
 
-	return results, nil
+	balanceResult, err := contractMetadataService.FetchSingleField(ctx, contract.ContractID, "balance", addressArg)
+	if err != nil {
+		return nil, fmt.Errorf("getting SEP41 balance: %w", err)
+	}
+
+	balance, err := parseSEP41Balance(balanceResult, contract.ContractID, contract)
+	if err != nil {
+		return nil, fmt.Errorf("parsing SEP41 balance: %w", err)
+	}
+
+	return balance, nil
 }
