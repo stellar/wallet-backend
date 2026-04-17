@@ -145,7 +145,7 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, channelAccounts 
 	return nil
 }
 
-func (ca *ChannelAccountModel) GetAll(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
+func (ca *ChannelAccountModel) GetAllForUpdate(ctx context.Context, pgxTx pgx.Tx, limit int) ([]*ChannelAccount, error) {
 	query := `
 		SELECT * FROM channel_accounts
 		ORDER BY created_at ASC
@@ -156,6 +156,19 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, pgxTx pgx.Tx, limit i
 	cas, err := db.QueryManyPtrs[ChannelAccount](ctx, pgxTx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("getting all channel accounts: %w", err)
+	}
+	return cas, nil
+}
+
+func (ca *ChannelAccountModel) GetAll(ctx context.Context) ([]*ChannelAccount, error) {
+	const query = `
+		SELECT * FROM channel_accounts
+		ORDER BY created_at ASC
+	`
+
+	cas, err := db.QueryManyPtrs[ChannelAccount](ctx, ca.DB, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing all channel accounts: %w", err)
 	}
 	return cas, nil
 }

@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -120,6 +121,10 @@ type handlerDeps struct {
 	AppTracker apptracker.AppTracker
 }
 
+type channelAccountStartupValidator interface {
+	ValidateChannelAccounts(ctx context.Context, minimum int64) error
+}
+
 func Serve(cfg Configs) error {
 	ctx := context.Background()
 	deps, err := initHandlerDeps(ctx, cfg)
@@ -165,6 +170,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+	if err = validateDistributionAccount(ctx, cfg.DistributionAccountSignatureClient, rpcService); err != nil {
+		return handlerDeps{}, fmt.Errorf("validating distribution account: %w", err)
+	}
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
@@ -203,14 +211,16 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
+		ChannelAccountStore:                channelAccountStore,
 		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
-	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
+	if err = validateChannelAccountsForStartup(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts)); err != nil {
+		return handlerDeps{}, fmt.Errorf("validating channel accounts for startup: %w", err)
+	}
 
 	return handlerDeps{
 		Models:                     models,
@@ -231,14 +241,28 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}, nil
 }
 
-func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
-	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
-	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
+func validateDistributionAccount(ctx context.Context, distributionAccountSignatureClient signing.SignatureClient, rpcService services.RPCService) error {
+	distributionAccountPublicKey, err := distributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
-		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
-		return
+		return fmt.Errorf("getting distribution account public key: %w", err)
 	}
-	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
+
+	_, err = rpcService.GetAccountLedgerSequence(distributionAccountPublicKey)
+	if err != nil {
+		if errors.Is(err, services.ErrAccountNotFound) {
+			return fmt.Errorf("distribution account %s does not exist on the configured Stellar network: %w", distributionAccountPublicKey, err)
+		}
+		return fmt.Errorf("validating distribution account %s: %w", distributionAccountPublicKey, err)
+	}
+
+	return nil
+}
+
+func validateChannelAccountsForStartup(ctx context.Context, channelAccountService channelAccountStartupValidator, numberOfChannelAccounts int64) error {
+	if err := channelAccountService.ValidateChannelAccounts(ctx, numberOfChannelAccounts); err != nil {
+		return fmt.Errorf("validating channel accounts: %w", err)
+	}
+	return nil
 }
 
 func handler(deps handlerDeps) http.Handler {

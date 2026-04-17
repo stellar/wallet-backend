@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	// transaction due to the signature limit.
 	MaximumCreateAccountOperationsPerStellarTx = 19
 	maxRetriesForChannelAccountCreation        = 50
+	maxLedgerEntriesPerRPCRequest              = 200
 	sleepDelayForChannelAccountCreation        = 10 * time.Second
 	rpcHealthCheckTimeout                      = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
@@ -45,6 +47,65 @@ type channelAccountService struct {
 }
 
 var _ ChannelAccountService = (*channelAccountService)(nil)
+
+func (s *channelAccountService) ValidateChannelAccounts(ctx context.Context, minimum int64) error {
+	channelAccounts, err := s.ChannelAccountStore.GetAll(ctx)
+	if err != nil {
+		return fmt.Errorf("listing stored channel accounts: %w", err)
+	}
+
+	// The fetched rows are the source of truth for both the minimum check and RPC validation.
+	currentChannelAccountNumber := int64(len(channelAccounts))
+	if currentChannelAccountNumber < minimum {
+		return fmt.Errorf("stored channel account count %d is below required minimum %d", currentChannelAccountNumber, minimum)
+	}
+
+	// Precompute ledger keys once so the same ordered set can be used for batched RPC lookups
+	// and for mapping responses back to channel accounts.
+	ledgerKeysByChannelAccount := make(map[string]string, len(channelAccounts))
+	ledgerKeys := make([]string, 0, len(channelAccounts))
+	for _, channelAccount := range channelAccounts {
+		ledgerKey, innerErr := utils.GetAccountLedgerKey(channelAccount.PublicKey)
+		if innerErr != nil {
+			return fmt.Errorf("building ledger key for channel account %s: %w", channelAccount.PublicKey, innerErr)
+		}
+
+		ledgerKeysByChannelAccount[channelAccount.PublicKey] = ledgerKey
+		ledgerKeys = append(ledgerKeys, ledgerKey)
+	}
+
+	// Stellar RPC accepts up to 200 keys per getLedgerEntries request.
+	ledgerEntriesByKey := make(map[string]entities.LedgerEntryResult, len(channelAccounts))
+	for start := 0; start < len(ledgerKeys); start += maxLedgerEntriesPerRPCRequest {
+		end := min(start+maxLedgerEntriesPerRPCRequest, len(ledgerKeys))
+		result, innerErr := s.RPCService.GetLedgerEntries(ledgerKeys[start:end])
+		if innerErr != nil {
+			return fmt.Errorf("getting ledger entries for channel accounts: %w", innerErr)
+		}
+
+		for _, entry := range result.Entries {
+			ledgerEntriesByKey[entry.KeyXDR] = entry
+		}
+	}
+
+	// Iterate in stored-account order so the first missing or malformed account is reported deterministically.
+	for _, channelAccount := range channelAccounts {
+		ledgerEntry, ok := ledgerEntriesByKey[ledgerKeysByChannelAccount[channelAccount.PublicKey]]
+		if !ok {
+			return fmt.Errorf("channel account %s does not exist on the configured Stellar network: %w", channelAccount.PublicKey, ErrAccountNotFound)
+		}
+
+		var ledgerEntryData xdr.LedgerEntryData
+		if err = xdr.SafeUnmarshalBase64(ledgerEntry.DataXDR, &ledgerEntryData); err != nil {
+			return fmt.Errorf("decoding account entry for channel account %s: %w", channelAccount.PublicKey, err)
+		}
+		if ledgerEntryData.Type != xdr.LedgerEntryTypeAccount {
+			return fmt.Errorf("channel account %s returned non-account ledger entry type %s", channelAccount.PublicKey, ledgerEntryData.Type)
+		}
+	}
+
+	return nil
+}
 
 func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, number int64) error {
 	currentChannelAccountNumber, err := s.ChannelAccountStore.Count(ctx)
@@ -171,7 +232,7 @@ func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Conte
 func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAccountsToDelete int) error {
 	dbTxErr := db.RunInTransaction(ctx, s.DB, func(pgxTx pgx.Tx) error {
 		// Get a channel account to delete
-		chAccounts, err := s.ChannelAccountStore.GetAll(ctx, pgxTx, numAccountsToDelete)
+		chAccounts, err := s.ChannelAccountStore.GetAllForUpdate(ctx, pgxTx, numAccountsToDelete)
 		if err != nil {
 			return fmt.Errorf("retrieving channel account to delete: %w", err)
 		}
@@ -238,9 +299,7 @@ func (s *channelAccountService) submitChannelAccountsTxOnChain(
 	ops []txnbuild.Operation,
 	chAccSigner ChannelAccSigner,
 ) error {
-	// Wait for RPC service to become healthy by polling GetHealth directly.
-	// This lets the API server startup so that users can start interacting with the API
-	// which does not depend on RPC, instead of waiting till it becomes healthy.
+	// Wait for RPC service to become healthy before submitting channel-account management transactions.
 	log.Ctx(ctx).Infof("⏳ Waiting for RPC service to become healthy")
 
 	healthCheckCtx, cancel := context.WithTimeout(ctx, rpcHealthCheckTimeout)
