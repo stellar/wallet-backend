@@ -49,7 +49,6 @@ type StorageBackendConfig struct {
 
 type Configs struct {
 	IngestionMode          string
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 	DatabaseURL            string
 	ServerPort             int
@@ -224,7 +223,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
 		Models:                    models,
-		LatestLedgerCursorName:    cfg.LatestLedgerCursorName,
 		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		AppTracker:                cfg.AppTracker,
 		RPCService:                rpcService,

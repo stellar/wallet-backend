@@ -110,7 +110,7 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 }
 
 // BatchGetByProtocolIDs returns all contracts for the given protocol IDs in a single query,
-// grouped by protocol ID.
+// grouped by protocol ID. This avoids N+1 queries when refreshing the contract cache.
 func (m *ProtocolContractsModel) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
 	if len(protocolIDs) == 0 {
 		return nil, nil
