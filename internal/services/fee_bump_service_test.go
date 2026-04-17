@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -201,5 +202,65 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		assert.Equal(t, distributionAccount.Address(), feeBumpTx.FeeAccount())
 		assert.Len(t, feeBumpTx.InnerTransaction().Operations(), 1)
 		assert.Len(t, feeBumpTx.Signatures(), 1)
+	})
+
+	t.Run("🚨soroban_inner_with_inflated_resource_fee_is_rejected", func(t *testing.T) {
+		accountToSponsor := keypair.MustRandom()
+
+		// Insert into channel_accounts to make account fee-bump eligible
+		_, err := dbConnectionPool.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", accountToSponsor.Address())
+		require.NoError(t, err)
+
+		// Build a Soroban InvokeHostFunction op whose transaction-level Ext declares a ResourceFee of 500 — well above
+		// s.BaseFee (MinBaseFee = 100) times the inner op count. The network would reject the fee-bump envelope for
+		// insufficient fee at submit time; the wallet-backend must reject it earlier so the sponsor never signs.
+		nativeAssetContractIDBytes, err := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+		require.NoError(t, err)
+		nativeAssetContractID := xdr.ContractId(nativeAssetContractIDBytes)
+		invokeOp := &txnbuild.InvokeHostFunction{
+			HostFunction: xdr.HostFunction{
+				Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+				InvokeContract: &xdr.InvokeContractArgs{
+					ContractAddress: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &nativeAssetContractID,
+					},
+					FunctionName: "noop",
+					Args:         xdr.ScVec{},
+				},
+			},
+			SourceAccount: accountToSponsor.Address(),
+		}
+		sorobanData := xdr.SorobanTransactionData{
+			Resources: xdr.SorobanResources{
+				Footprint: xdr.LedgerFootprint{},
+			},
+			ResourceFee: 500,
+		}
+		invokeOp.Ext, err = xdr.NewTransactionExt(1, sorobanData)
+		require.NoError(t, err)
+
+		// Inner base fee set to MinBaseFee (100). After adjustParamsForSoroban would normally subtract ResourceFee,
+		// but here we construct the tx directly — simulating a raw client submission that bypasses the backend's
+		// build path.
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations:           []txnbuild.Operation{invokeOp},
+			BaseFee:              txnbuild.MinBaseFee,
+			Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		tx, err = tx.Sign(network.TestNetworkPassphrase, accountToSponsor)
+		require.NoError(t, err)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
+		assert.ErrorIs(t, err, ErrFeeExceedsMaximumBaseFee)
+		assert.Empty(t, feeBumpTxe)
+		assert.Empty(t, networkPassphrase)
 	})
 }
