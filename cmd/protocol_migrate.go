@@ -9,6 +9,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -36,25 +37,33 @@ func (c *protocolMigrateCmd) Command() *cobra.Command {
 	}
 
 	cmd.AddCommand(c.historyCommand())
+	cmd.AddCommand(c.currentStateCommand())
 
 	return cmd
 }
 
-// historyCmdOpts holds the resolved flag values for `protocol-migrate history`.
-type historyCmdOpts struct {
-	databaseURL            string
-	rpcURL                 string
-	networkPassphrase      string
-	protocolIDs            []string
-	logLevel               string
-	oldestLedgerCursorName string
-	ledgerBackendType      string
-	datastoreConfigPath    string
-	getLedgersLimit        int
+// migrationCommandOpts captures the shared flags for migration subcommands.
+type migrationCommandOpts struct {
+	databaseURL         string
+	rpcURL              string
+	networkPassphrase   string
+	protocolIDs         []string
+	logLevel            string
+	ledgerBackendType   string
+	datastoreConfigPath string
+	getLedgersLimit     int
 }
 
-func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
-	var opts historyCmdOpts
+// buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
+// addFlags adds strategy-specific flags. extraValidate runs strategy-specific validation.
+// runE receives the shared opts and executes the strategy-specific logic.
+func buildMigrationCommand(
+	use, short, long string,
+	addFlags func(cmd *cobra.Command, opts *migrationCommandOpts),
+	extraValidate func() error,
+	runE func(opts *migrationCommandOpts) error,
+) *cobra.Command {
+	var opts migrationCommandOpts
 
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&opts.databaseURL),
@@ -95,9 +104,9 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "history",
-		Short: "Backfill protocol history state from oldest to latest ingested ledger",
-		Long:  "Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors.",
+		Use:   use,
+		Short: short,
+		Long:  long,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)
@@ -131,10 +140,14 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}
+
+			if extraValidate != nil {
+				return extraValidate()
+			}
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return c.RunHistory(opts)
+			return runE(&opts)
 		},
 	}
 
@@ -144,12 +157,32 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
 	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
-	cmd.Flags().StringVar(&opts.oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+	var deprecatedLatestLedgerCursorName string
+	cmd.Flags().StringVar(&deprecatedLatestLedgerCursorName, "latest-ledger-cursor-name", "", "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded.")
+	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
+		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
+	}
+
+	if addFlags != nil {
+		addFlags(cmd, &opts)
+	}
 
 	return cmd
 }
 
-func (c *protocolMigrateCmd) RunHistory(opts historyCmdOpts) error {
+// runMigration handles the shared setup (processors, DB, models, ledger backend) and
+// delegates to createAndRun for strategy-specific service creation and execution.
+func runMigration(
+	label string,
+	opts *migrationCommandOpts,
+	createAndRun func(
+		ctx context.Context,
+		dbPool db.ConnectionPool,
+		ledgerBackend ledgerbackend.LedgerBackend,
+		models *data.Models,
+		processors []services.ProtocolProcessor,
+	) error,
+) error {
 	ctx := context.Background()
 
 	// Build processors from protocol IDs using the dynamic registry
@@ -171,7 +204,7 @@ func (c *protocolMigrateCmd) RunHistory(opts historyCmdOpts) error {
 	if err != nil {
 		return fmt.Errorf("opening database connection: %w", err)
 	}
-	defer internalutils.DeferredClose(ctx, dbPool, "closing dbPool in protocol migrate history")
+	defer internalutils.DeferredClose(ctx, dbPool, fmt.Sprintf("closing dbPool in protocol migrate %s", label))
 
 	// Create models
 	sqlxDB, err := dbPool.SqlxDB(ctx)
@@ -205,23 +238,80 @@ func (c *protocolMigrateCmd) RunHistory(opts historyCmdOpts) error {
 		}
 	}()
 
-	service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
-		DB:                     dbPool,
-		LedgerBackend:          ledgerBackend,
-		ProtocolsModel:         models.Protocols,
-		ProtocolContractsModel: models.ProtocolContracts,
-		IngestStore:            models.IngestStore,
-		NetworkPassphrase:      opts.networkPassphrase,
-		Processors:             processors,
-		OldestLedgerCursorName: opts.oldestLedgerCursorName,
-	})
-	if err != nil {
-		return fmt.Errorf("creating protocol migrate history service: %w", err)
-	}
+	return createAndRun(ctx, dbPool, ledgerBackend, models, processors)
+}
 
-	if err := service.Run(ctx, opts.protocolIDs); err != nil {
-		return fmt.Errorf("running protocol migrate history: %w", err)
-	}
+func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
+	var oldestLedgerCursorName string
 
-	return nil
+	return buildMigrationCommand(
+		"history",
+		"Backfill protocol history state from oldest to latest ingested ledger",
+		"Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors.",
+		func(cmd *cobra.Command, opts *migrationCommandOpts) {
+			cmd.Flags().StringVar(&oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+		},
+		nil,
+		func(opts *migrationCommandOpts) error {
+			return runMigration("history", opts, func(ctx context.Context, dbPool db.ConnectionPool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+				service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
+					DB:                     dbPool,
+					LedgerBackend:          ledgerBackend,
+					ProtocolsModel:         models.Protocols,
+					ProtocolContractsModel: models.ProtocolContracts,
+					IngestStore:            models.IngestStore,
+					NetworkPassphrase:      opts.networkPassphrase,
+					Processors:             processors,
+					OldestLedgerCursorName: oldestLedgerCursorName,
+				})
+				if err != nil {
+					return fmt.Errorf("creating protocol migrate history service: %w", err)
+				}
+				if err := service.Run(ctx, opts.protocolIDs); err != nil {
+					return fmt.Errorf("running protocol migrate history: %w", err)
+				}
+				return nil
+			})
+		},
+	)
+}
+
+func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
+	var startLedger uint32
+
+	return buildMigrationCommand(
+		"current-state",
+		"Build protocol current state from a start ledger forward",
+		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors.",
+		func(cmd *cobra.Command, opts *migrationCommandOpts) {
+			cmd.Flags().Uint32Var(&startLedger, "start-ledger", 0, "Ledger sequence to begin current-state migration from (required)")
+		},
+		func() error {
+			if startLedger == 0 {
+				return fmt.Errorf("--start-ledger is required and must be > 0")
+			}
+			return nil
+		},
+		func(opts *migrationCommandOpts) error {
+			return runMigration("current-state", opts, func(ctx context.Context, dbPool db.ConnectionPool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+				service, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
+					DB:                     dbPool,
+					LedgerBackend:          ledgerBackend,
+					ProtocolsModel:         models.Protocols,
+					ProtocolContractsModel: models.ProtocolContracts,
+					IngestStore:            models.IngestStore,
+					NetworkPassphrase:      opts.networkPassphrase,
+					Processors:             processors,
+					StartLedger:            startLedger,
+				})
+				if err != nil {
+					return fmt.Errorf("creating protocol migrate current-state service: %w", err)
+				}
+				if err := service.Run(ctx, opts.protocolIDs); err != nil {
+					return fmt.Errorf("running protocol migrate current-state: %w", err)
+				}
+				return nil
+			})
+		},
+	)
 }

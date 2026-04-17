@@ -72,6 +72,107 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 	}
 }
 
+func Test_IngestStoreModel_GetMany(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name     string
+		keys     []string
+		setupDB  func(t *testing.T)
+		expected map[string]uint32
+	}{
+		{
+			name:     "nil_keys_returns_nil",
+			keys:     nil,
+			expected: nil,
+		},
+		{
+			name:     "empty_keys_returns_nil",
+			keys:     []string{},
+			expected: nil,
+		},
+		{
+			name:     "no_matching_keys",
+			keys:     []string{"missing_a", "missing_b"},
+			expected: map[string]uint32{},
+		},
+		{
+			name: "all_keys_present",
+			keys: []string{"key_a", "key_b", "key_c"},
+			setupDB: func(t *testing.T) {
+				for _, kv := range []struct {
+					k string
+					v int
+				}{{"key_a", 10}, {"key_b", 20}, {"key_c", 30}} {
+					_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
+					require.NoError(t, err)
+				}
+			},
+			expected: map[string]uint32{"key_a": 10, "key_b": 20, "key_c": 30},
+		},
+		{
+			name: "partial_match",
+			keys: []string{"key_a", "missing", "key_c"},
+			setupDB: func(t *testing.T) {
+				for _, kv := range []struct {
+					k string
+					v int
+				}{{"key_a", 10}, {"key_c", 30}} {
+					_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
+					require.NoError(t, err)
+				}
+			},
+			expected: map[string]uint32{"key_a": 10, "key_c": 30},
+		},
+		{
+			name: "single_key",
+			keys: []string{"key_a"},
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", 42)
+				require.NoError(t, err)
+			},
+			expected: map[string]uint32{"key_a": 42},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			mockMetricsService := metrics.NewMockMetricsService()
+			if len(tc.keys) > 0 {
+				mockMetricsService.
+					On("ObserveDBQueryDuration", "GetMany", "ingest_store", mock.Anything).Return().
+					On("IncDBQuery", "GetMany", "ingest_store").Return()
+			}
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &IngestStoreModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			result, err := m.GetMany(ctx, tc.keys)
+			require.NoError(t, err)
+			if tc.expected == nil {
+				assert.Nil(t, result)
+			} else {
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
 func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
