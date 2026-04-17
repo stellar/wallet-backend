@@ -125,10 +125,12 @@ func setIngestStoreValue(t *testing.T, ctx context.Context, dbPool *pgxpool.Pool
 
 func getIngestStoreValue(t *testing.T, ctx context.Context, dbPool *pgxpool.Pool, key string) uint32 {
 	t.Helper()
-	var val uint32
-	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, key).Scan(&val)
+	var s string
+	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, key).Scan(&s)
 	require.NoError(t, err)
-	return val
+	val, err := strconv.ParseUint(s, 10, 32)
+	require.NoError(t, err)
+	return uint32(val)
 }
 
 // testRecordingProcessor is a unified test double that implements ProtocolProcessor.
@@ -204,22 +206,30 @@ func (p *testErrorAtSeqProcessor) ProcessLedger(ctx context.Context, input Proto
 
 func getHistorySentinel(t *testing.T, ctx context.Context, dbPool *pgxpool.Pool, protocolID string, seq uint32) (uint32, bool) {
 	t.Helper()
-	var val uint32
-	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, fmt.Sprintf("test_%s_history_%d", protocolID, seq)).Scan(&val)
+	var s string
+	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, fmt.Sprintf("test_%s_history_%d", protocolID, seq)).Scan(&s)
 	if err != nil {
 		return 0, false
 	}
-	return val, true
+	val, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(val), true
 }
 
 func getCurrentStateSentinel(t *testing.T, ctx context.Context, dbPool *pgxpool.Pool, protocolID string, seq uint32) (uint32, bool) {
 	t.Helper()
-	var val uint32
-	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, fmt.Sprintf("test_%s_current_state_%d", protocolID, seq)).Scan(&val)
+	var s string
+	err := dbPool.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, fmt.Sprintf("test_%s_current_state_%d", protocolID, seq)).Scan(&s)
 	if err != nil {
 		return 0, false
 	}
-	return val, true
+	val, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(val), true
 }
 
 // TestProtocolMigrateEngine exercises the shared protocolMigrateEngine logic

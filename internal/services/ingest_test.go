@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -357,14 +358,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 }
 
 func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
-	m := metrics.NewMetrics(prometheus.NewRegistry())
-
-	baseCfg := IngestServiceConfig{
-		Metrics: m,
-	}
-
 	t.Run("nil processor returns error", func(t *testing.T) {
-		cfg := baseCfg
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
 		cfg.ProtocolProcessors = []ProtocolProcessor{nil}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
@@ -377,7 +372,7 @@ func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
 		p2 := NewProtocolProcessorMock(t)
 		p2.On("ProtocolID").Return("dup-id")
 
-		cfg := baseCfg
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
 		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
@@ -2514,15 +2509,16 @@ func (p *testProtocolProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) er
 
 // setupProtocolCursors inserts protocol cursors into ingest_store.
 // Call AFTER setupDBCursors (which wipes the table).
-func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID string, historyCursor, currentStateCursor uint32) {
+func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, historyCursor, currentStateCursor uint32) {
 	t.Helper()
+	const protocolID = "testproto"
 	_, err := pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		utils.ProtocolHistoryCursorName(protocolID), historyCursor)
+		utils.ProtocolHistoryCursorName(protocolID), strconv.FormatUint(uint64(historyCursor), 10))
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		utils.ProtocolCurrentStateCursorName(protocolID), currentStateCursor)
+		utils.ProtocolCurrentStateCursorName(protocolID), strconv.FormatUint(uint64(currentStateCursor), 10))
 	require.NoError(t, err)
 }
 
@@ -2577,7 +2573,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2610,7 +2606,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 100, 100)
+		setupProtocolCursors(t, ctx, pool, 100, 100)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2643,7 +2639,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 98, 98)
+		setupProtocolCursors(t, ctx, pool, 98, 98)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2724,7 +2720,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2743,7 +2739,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		// First ledger — triggers LoadCurrentState
 		processor.processedLedger = 100
@@ -2769,7 +2765,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		// Current state cursor already at 100 — CAS will fail
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 100)
+		setupProtocolCursors(t, ctx, pool, 99, 100)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2787,7 +2783,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		// First ledger succeeds and establishes the in-memory cache handoff.
 		processor.processedLedger = 100

@@ -149,7 +149,6 @@ func (b *SACBalance) GetTokenID() string      { return b.TokenID }
 func (b *SACBalance) GetTokenType() TokenType { return b.TokenType }
 func (b *SACBalance) isBalance()              {}
 
-
 // UnmarshalBalance unmarshals a JSON balance into the appropriate concrete type
 // based on the __typename field
 func UnmarshalBalance(data []byte) (Balance, error) {

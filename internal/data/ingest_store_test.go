@@ -105,8 +105,8 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				for _, kv := range []struct {
 					k string
-					v int
-				}{{"key_a", 10}, {"key_b", 20}, {"key_c", 30}} {
+					v string
+				}{{"key_a", "10"}, {"key_b", "20"}, {"key_c", "30"}} {
 					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
 					require.NoError(t, err)
 				}
@@ -119,8 +119,8 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				for _, kv := range []struct {
 					k string
-					v int
-				}{{"key_a", 10}, {"key_c", 30}} {
+					v string
+				}{{"key_a", "10"}, {"key_c", "30"}} {
 					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
 					require.NoError(t, err)
 				}
@@ -131,7 +131,7 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			name: "single_key",
 			keys: []string{"key_a"},
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", 42)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", "42")
 				require.NoError(t, err)
 			},
 			expected: map[string]uint32{"key_a": 42},

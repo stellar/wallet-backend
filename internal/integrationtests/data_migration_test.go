@@ -81,7 +81,7 @@ func (s *DataMigrationTestSuite) upsertIngestStoreValue(ctx context.Context, poo
 	_, err := pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)
  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-		key, value)
+		key, strconv.FormatUint(uint64(value), 10))
 	s.Require().NoError(err)
 }
 
