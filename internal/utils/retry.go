@@ -18,6 +18,12 @@ func RetryWithBackoff[T any](
 	onRetry func(attempt int, err error, backoff time.Duration),
 ) (T, error) {
 	var zero T
+	if maxRetries <= 0 {
+		return zero, fmt.Errorf("RetryWithBackoff: maxRetries must be > 0, got %d", maxRetries)
+	}
+	if maxBackoff <= 0 {
+		return zero, fmt.Errorf("RetryWithBackoff: maxBackoff must be > 0, got %s", maxBackoff)
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		select {

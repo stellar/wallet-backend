@@ -337,7 +337,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &mockAppTracker,
 				RPCService:             &mockRPCService,
@@ -449,8 +448,8 @@ func Test_BackfillMode_Validation(t *testing.T) {
 
 			// Set up latest ingested ledger cursor
 			_, err = dbConnectionPool.Exec(ctx,
-				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
-				fmt.Sprintf("%d", tc.latestIngested))
+				`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
+				data.LatestLedgerCursorName, fmt.Sprintf("%d", tc.latestIngested))
 			require.NoError(t, err)
 			_, err = dbConnectionPool.Exec(ctx,
 				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
@@ -477,7 +476,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &mockAppTracker,
 				RPCService:             &mockRPCService,
@@ -523,7 +521,7 @@ func setupDBCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, lates
 	_, err := pool.Exec(ctx, `DELETE FROM ingest_store`)
 	require.NoError(t, err)
 	if latestLedger > 0 {
-		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`, fmt.Sprintf("%d", latestLedger))
+		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, data.LatestLedgerCursorName, fmt.Sprintf("%d", latestLedger))
 		require.NoError(t, err)
 	}
 	if oldestLedger > 0 {
@@ -721,7 +719,6 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -799,7 +796,6 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -868,7 +864,6 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeLive,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -887,7 +882,7 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify both cursors are set to the same value
-			latestCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+			latestCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 			require.NoError(t, err)
 			assert.Equal(t, tc.startLedger, latestCursor)
 
@@ -931,7 +926,6 @@ func Test_ingestService_Run(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          tc.mode,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1071,7 +1065,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1229,7 +1222,6 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1367,7 +1359,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1465,7 +1456,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
-		LatestLedgerCursorName:    "latest_ledger_cursor",
 		OldestLedgerCursorName:    "oldest_ledger_cursor",
 		AppTracker:                &apptracker.MockAppTracker{},
 		RPCService:                mockRPCService,
@@ -1564,7 +1554,6 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:          IngestionModeBackfill,
 		Models:                 models,
-		LatestLedgerCursorName: "latest_ledger_cursor",
 		OldestLedgerCursorName: "oldest_ledger_cursor",
 		AppTracker:             &apptracker.MockAppTracker{},
 		RPCService:             mockRPCService,
@@ -1588,7 +1577,7 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	assert.Contains(t, backfillErr.Error(), "batches failed")
 
 	// Verify latest cursor was NOT updated
-	finalLatest, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+	finalLatest, getErr := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	require.NoError(t, getErr)
 	assert.Equal(t, uint32(99), finalLatest, "latest cursor should NOT be updated when catchup fails")
 }
@@ -1628,7 +1617,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:          IngestionModeBackfill,
 		Models:                 models,
-		LatestLedgerCursorName: "latest_ledger_cursor",
 		OldestLedgerCursorName: "oldest_ledger_cursor",
 		AppTracker:             &apptracker.MockAppTracker{},
 		RPCService:             mockRPCService,
@@ -1655,7 +1643,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	assert.Equal(t, initialOldest, finalOldest,
 		"oldest cursor should remain unchanged when all batches fail")
 
-	finalLatest, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+	finalLatest, getErr := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	require.NoError(t, getErr)
 	assert.Equal(t, initialLatest, finalLatest,
 		"latest cursor should remain unchanged when all batches fail")
@@ -1704,7 +1692,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1737,7 +1724,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Equal(t, 0, numOps)
 
 		// Verify DB cursor was updated
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated to 100")
 
@@ -1785,7 +1772,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1818,7 +1804,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Contains(t, err.Error(), "db connection failed")
 
 		// Verify DB cursor was NOT updated (transaction rolled back)
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when DB fails")
 
@@ -1874,7 +1860,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1907,7 +1892,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Equal(t, 0, numOps)
 
 		// Verify DB cursor was updated
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated after successful retry")
 
@@ -2018,7 +2003,6 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2153,7 +2137,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2234,7 +2217,6 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2371,7 +2353,6 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2399,7 +2380,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			}
 
 			// Verify cursor state
-			cursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+			cursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantLatestCursor, cursor, "latest ledger cursor mismatch")
 		})
@@ -2461,7 +2442,6 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2554,7 +2534,6 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             &RPCServiceMock{},
@@ -2745,7 +2724,7 @@ func Test_protocolStateCursorReady(t *testing.T) {
 	}
 }
 
-func Test_ingestService_produceProtocolStateForProcessors_ProcessesOnlyProvidedProcessors(t *testing.T) {
+func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

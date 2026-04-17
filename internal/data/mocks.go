@@ -259,6 +259,11 @@ func (m *ProtocolsModelMock) UpdateHistoryMigrationStatus(ctx context.Context, d
 	return args.Error(0)
 }
 
+func (m *ProtocolsModelMock) UpdateCurrentStateMigrationStatus(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error {
+	args := m.Called(ctx, dbTx, protocolIDs, status)
+	return args.Error(0)
+}
+
 func (m *ProtocolsModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error) {
 	args := m.Called(ctx, protocolIDs)
 	if args.Get(0) == nil {

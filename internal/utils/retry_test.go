@@ -94,3 +94,21 @@ func TestRetryWithBackoff_CapsBackoff(t *testing.T) {
 		assert.LessOrEqual(t, b, maxBackoff)
 	}
 }
+
+func TestRetryWithBackoff_RejectsZeroMaxRetries(t *testing.T) {
+	_, err := RetryWithBackoff(context.Background(), 0, 5*time.Second,
+		func(ctx context.Context) (string, error) {
+			return "", errors.New("should not be called")
+		}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "maxRetries must be > 0")
+}
+
+func TestRetryWithBackoff_RejectsZeroMaxBackoff(t *testing.T) {
+	_, err := RetryWithBackoff(context.Background(), 3, 0,
+		func(ctx context.Context) (string, error) {
+			return "", errors.New("should not be called")
+		}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "maxBackoff must be > 0")
+}

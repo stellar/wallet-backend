@@ -58,7 +58,6 @@ type IngestServiceConfig struct {
 	LedgerBackendFactory LedgerBackendFactory
 
 	// === Cursors ===
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
@@ -99,7 +98,6 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	ingestionMode             string
 	models                    *data.Models
-	latestLedgerCursorName    string
 	oldestLedgerCursorName    string
 	advisoryLockID            int
 	appTracker                apptracker.AppTracker
@@ -163,7 +161,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
-		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
 		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
 		appTracker:                cfg.AppTracker,

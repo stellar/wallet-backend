@@ -50,19 +50,21 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 		return nil, nil
 	}
 
+	keys := make([]string, 0, len(m.protocolProcessors)*2)
+	for protocolID := range m.protocolProcessors {
+		keys = append(keys, utils.ProtocolHistoryCursorName(protocolID))
+		keys = append(keys, utils.ProtocolCurrentStateCursorName(protocolID))
+	}
+
+	cursorValues, err := m.models.IngestStore.GetMany(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("reading protocol cursors: %w", err)
+	}
+
 	eligible := make(map[string]ProtocolProcessor, len(m.protocolProcessors))
 	for protocolID, processor := range m.protocolProcessors {
-		historyCursor := utils.ProtocolHistoryCursorName(protocolID)
-		historyVal, err := m.models.IngestStore.Get(ctx, historyCursor)
-		if err != nil {
-			return nil, fmt.Errorf("reading history cursor for %s: %w", protocolID, err)
-		}
-
-		currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
-		currentStateVal, err := m.models.IngestStore.Get(ctx, currentStateCursor)
-		if err != nil {
-			return nil, fmt.Errorf("reading current state cursor for %s: %w", protocolID, err)
-		}
+		historyVal := cursorValues[utils.ProtocolHistoryCursorName(protocolID)]
+		currentStateVal := cursorValues[utils.ProtocolCurrentStateCursorName(protocolID)]
 
 		if protocolStateCursorReady(historyVal, ledgerSeq) || protocolStateCursorReady(currentStateVal, ledgerSeq) {
 			eligible[protocolID] = processor
@@ -217,7 +219,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	}()
 
 	// Get latest ingested ledger to determine DB state
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
@@ -278,7 +280,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
 func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledger uint32) error {
-	if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
+	if err := m.models.IngestStore.Update(ctx, dbTx, data.LatestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing latest cursor: %w", err)
 	}
 	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
@@ -435,7 +437,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		default:
 		}
 
-		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, m.latestLedgerCursorName)
+		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}

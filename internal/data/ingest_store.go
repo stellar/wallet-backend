@@ -52,6 +52,45 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	return uint32(v), nil
 }
 
+func (m *IngestStoreModel) GetMany(ctx context.Context, keys []string) (map[string]uint32, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	const query = `SELECT key, value FROM ingest_store WHERE key = ANY($1)`
+
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, query, keys)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetMany", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetMany", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting values for keys: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]uint32, len(keys))
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("scanning ingest_store row: %w", err)
+		}
+		parsed, err := strconv.ParseUint(value, 10, 32)
+		if err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("parsing value for key %s: %w", key, err)
+		}
+		result[key] = uint32(parsed)
+	}
+	if err := rows.Err(); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating ingest_store rows: %w", err)
+	}
+	return result, nil
+}
+
 func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
