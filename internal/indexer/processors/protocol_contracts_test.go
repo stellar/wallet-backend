@@ -61,6 +61,27 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 		}
 	}
 
+	// Helper for a malformed entry: Key claims ContractInstance, but Val is a
+	// different ScVal arm (e.g. a scalar). The XDR unions are independent, so
+	// this is reachable from ledger data — the processor must not panic.
+	malformedInstanceKeyEntry := func(contractID [32]byte) *xdr.LedgerEntry {
+		contractIDVal := xdr.ContractId(contractID)
+		u32 := xdr.Uint32(0)
+		return &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &contractIDVal,
+					},
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+					Val: xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: &u32},
+				},
+			},
+		}
+	}
+
 	// Helper for SAC instance (non-WASM executable)
 	sacInstanceEntry := func(contractID [32]byte) *xdr.LedgerEntry {
 		contractIDVal := xdr.ContractId(contractID)
@@ -146,6 +167,16 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 				{
 					Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
 					Created: wasmInstanceEntry(testContractIDBytes, nil),
+				},
+			},
+			expectedCount: 0,
+		},
+		{
+			name: "malformed entry: instance Key with non-instance Val does not panic",
+			changes: xdr.LedgerEntryChanges{
+				{
+					Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+					Created: malformedInstanceKeyEntry(testContractIDBytes),
 				},
 			},
 			expectedCount: 0,

@@ -395,7 +395,10 @@ func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, l
 		return nil
 	}
 	for protocolID, processor := range processors {
-		contracts := m.getProtocolContracts(ctx, protocolID, ledgerSeq)
+		contracts, err := m.getProtocolContracts(ctx, protocolID, ledgerSeq)
+		if err != nil {
+			return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, err)
+		}
 		input := ProtocolProcessorInput{
 			LedgerSequence:    ledgerSeq,
 			LedgerCloseMeta:   ledgerMeta,
@@ -413,42 +416,51 @@ func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, l
 }
 
 // getProtocolContracts returns cached contracts for a protocol, refreshing if stale.
-func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID string, currentLedger uint32) []data.ProtocolContracts {
+func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID string, currentLedger uint32) ([]data.ProtocolContracts, error) {
 	if m.protocolContractCache == nil {
-		return nil
+		return nil, nil
 	}
 	stale := m.protocolContractCache.lastRefreshLedger == 0 ||
 		(currentLedger-m.protocolContractCache.lastRefreshLedger) >= protocolContractRefreshInterval
 
 	if stale {
 		m.appMetrics.Ingestion.ProtocolContractCacheAccess.WithLabelValues(protocolID, "miss").Inc()
-		m.refreshProtocolContractCache(ctx, currentLedger)
+		if err := m.refreshProtocolContractCache(ctx, currentLedger); err != nil {
+			return nil, err
+		}
 	} else {
 		m.appMetrics.Ingestion.ProtocolContractCacheAccess.WithLabelValues(protocolID, "hit").Inc()
 	}
 
-	return m.protocolContractCache.contractsByProtocol[protocolID]
+	return m.protocolContractCache.contractsByProtocol[protocolID], nil
 }
 
 // refreshProtocolContractCache reloads all protocol contracts from the DB in a
-// single batch query. On failure, the existing cache is left untouched — a
-// single SELECT has the same failure domain as N per-protocol SELECTs, so
-// there's no partial-failure path to handle.
-func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) {
+// single batch query. On failure, the existing cache and lastRefreshLedger are
+// left untouched so the next ledger retries. If the cache has never been
+// populated (first-refresh failure), the error is returned so the caller can
+// fail the ledger loudly rather than letting processors run with empty state
+// while the CAS gating still advances per-protocol cursors.
+func (m *ingestService) refreshProtocolContractCache(ctx context.Context, currentLedger uint32) error {
 	start := time.Now()
 	protocolIDs := make([]string, 0, len(m.protocolProcessors))
 	for protocolID := range m.protocolProcessors {
 		protocolIDs = append(protocolIDs, protocolID)
 	}
 	newMap, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, protocolIDs)
-	m.protocolContractCache.lastRefreshLedger = currentLedger
 	m.appMetrics.Ingestion.ProtocolContractCacheRefresh.Observe(time.Since(start).Seconds())
 	if err != nil {
-		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; preserving previous entries, will retry at next interval: %v", currentLedger, err)
-		return
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("protocol_contract_cache_refresh").Inc()
+		log.Ctx(ctx).Warnf("Protocol contract cache refresh failed at ledger %d; preserving previous entries, will retry on next ledger: %v", currentLedger, err)
+		if len(m.protocolContractCache.contractsByProtocol) == 0 {
+			return fmt.Errorf("refreshing protocol contract cache at ledger %d (cache never loaded): %w", currentLedger, err)
+		}
+		return nil
 	}
 	m.protocolContractCache.contractsByProtocol = newMap
+	m.protocolContractCache.lastRefreshLedger = currentLedger
 	log.Ctx(ctx).Infof("Refreshed protocol contract cache at ledger %d", currentLedger)
+	return nil
 }
 
 // ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.

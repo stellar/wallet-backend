@@ -200,6 +200,8 @@ func runMigration(
 		processors = append(processors, p)
 	}
 
+	log.Ctx(ctx).Infof("Starting protocol-migrate %s for protocols: %v", label, opts.protocolIDs)
+
 	// Open DB connection
 	dbPool, err := db.OpenDBConnectionPool(ctx, opts.databaseURL)
 	if err != nil {
