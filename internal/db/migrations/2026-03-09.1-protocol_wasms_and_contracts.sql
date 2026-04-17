@@ -12,6 +12,10 @@ CREATE TABLE protocol_contracts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_protocol_wasms_protocol_id ON protocol_wasms (protocol_id);
+CREATE INDEX idx_protocol_contracts_wasm_hash ON protocol_contracts (wasm_hash);
+
+
 -- +migrate Down
 DROP TABLE IF EXISTS protocol_contracts;
 DROP TABLE IF EXISTS protocol_wasms;

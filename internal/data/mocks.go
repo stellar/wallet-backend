@@ -326,3 +326,4 @@ func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, 
 	}
 	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
 }
+

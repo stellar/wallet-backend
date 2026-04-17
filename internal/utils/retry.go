@@ -37,6 +37,9 @@ func RetryWithBackoff[T any](
 			return result, nil
 		}
 		lastErr = err
+		if attempt == maxRetries-1 {
+			break
+		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxBackoff {

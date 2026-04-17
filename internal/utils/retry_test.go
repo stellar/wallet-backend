@@ -74,7 +74,7 @@ func TestRetryWithBackoff_CallsOnRetry(t *testing.T) {
 			assert.Greater(t, backoff, time.Duration(0))
 		})
 	require.Error(t, err)
-	assert.Equal(t, []int{0, 1, 2}, retryAttempts)
+	assert.Equal(t, []int{0, 1}, retryAttempts)
 }
 
 func TestRetryWithBackoff_CapsBackoff(t *testing.T) {
@@ -89,10 +89,7 @@ func TestRetryWithBackoff_CapsBackoff(t *testing.T) {
 			observedBackoffs = append(observedBackoffs, backoff)
 		})
 	require.Error(t, err)
-
-	for _, b := range observedBackoffs {
-		assert.LessOrEqual(t, b, maxBackoff)
-	}
+	assert.Equal(t, []time.Duration{time.Second, maxBackoff, maxBackoff, maxBackoff}, observedBackoffs)
 }
 
 func TestRetryWithBackoff_RejectsZeroMaxRetries(t *testing.T) {
