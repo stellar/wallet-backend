@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // ensure validator/processor init()
 )
 
 type protocolSetupCmd struct{}

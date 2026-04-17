@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/sep41"
 )
 
 type protocolMigrateCmd struct{}
@@ -186,7 +187,31 @@ func runMigration(
 ) error {
 	ctx := context.Background()
 
-	// Build processors from protocol IDs using the dynamic registry
+	log.Ctx(ctx).Infof("Starting protocol-migrate %s for protocols: %v", label, opts.protocolIDs)
+
+	// Open DB connection
+	dbPool, err := db.OpenDBConnectionPool(ctx, opts.databaseURL)
+	if err != nil {
+		return fmt.Errorf("opening database connection: %w", err)
+	}
+	defer dbPool.Close()
+
+	// Create models first so processor factories (which capture dependencies via SetDependencies)
+	// have the data-layer objects they need when invoked.
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(dbPool, m.DB)
+	if err != nil {
+		return fmt.Errorf("creating models: %w", err)
+	}
+
+	sep41.SetDependencies(sep41.Dependencies{
+		NetworkPassphrase: opts.networkPassphrase,
+		Balances:          models.SEP41.Balances,
+		Allowances:        models.SEP41.Allowances,
+		ContractTokens:    models.Contract,
+	})
+
+	// Build processors from protocol IDs using the dynamic registry.
 	var processors []services.ProtocolProcessor
 	for _, pid := range opts.protocolIDs {
 		factory, ok := services.GetProcessor(pid)
@@ -198,22 +223,6 @@ func runMigration(
 			return fmt.Errorf("processor factory for protocol %q returned nil", pid)
 		}
 		processors = append(processors, p)
-	}
-
-	log.Ctx(ctx).Infof("Starting protocol-migrate %s for protocols: %v", label, opts.protocolIDs)
-
-	// Open DB connection
-	dbPool, err := db.OpenDBConnectionPool(ctx, opts.databaseURL)
-	if err != nil {
-		return fmt.Errorf("opening database connection: %w", err)
-	}
-	defer dbPool.Close()
-
-	// Create models
-	m := metrics.NewMetrics(prometheus.NewRegistry())
-	models, err := data.NewModels(dbPool, m.DB)
-	if err != nil {
-		return fmt.Errorf("creating models: %w", err)
 	}
 
 	// Build a ledger backend using the same selector the ingest service uses,

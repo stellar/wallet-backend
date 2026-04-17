@@ -1,11 +1,13 @@
-package services
+package sep41
 
 import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
-// Map of XDR ScSpecType to human-readable type names
+const ProtocolID = "SEP41"
+
+// scSpecTypeNames maps XDR ScSpecType values to human-readable type names used during validation.
 var scSpecTypeNames = map[xdr.ScSpecType]string{
 	xdr.ScSpecTypeScSpecTypeBool:         "bool",
 	xdr.ScSpecTypeScSpecTypeU32:          "u32",
@@ -31,8 +33,8 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 	xdr.ScSpecTypeScSpecTypeVoid:         "void",
 }
 
-// sep41FunctionSpec defines the expected signature for a SEP-41 token function.
-type sep41FunctionSpec struct {
+// functionSpec defines the expected signature for a SEP-41 token function.
+type functionSpec struct {
 	name            string
 	expectedInputs  []contractFunctionInputSpec
 	expectedOutputs []string
@@ -45,7 +47,7 @@ type contractFunctionInputSpec struct {
 
 // sep41RequiredFunctions defines all required functions for SEP-41 token standard compliance.
 // A contract must implement all of these functions with the exact signatures specified.
-var sep41RequiredFunctions = []sep41FunctionSpec{
+var requiredFunctions = []functionSpec{
 	{
 		name:            "balance",
 		expectedInputs:  []contractFunctionInputSpec{{name: "id", typeName: "Address"}},
@@ -89,7 +91,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 			{name: "amount", typeName: "i128"},
 		},
 	},
-	// transfer: (from: Address, to_muxed: MuxedAddress, amount: i128) -> () -> CAP-67
+	// CAP-67 variant: (from: Address, to_muxed: MuxedAddress, amount: i128) -> ()
 	{
 		name: "transfer",
 		expectedInputs: []contractFunctionInputSpec{
@@ -127,12 +129,13 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 }
 
-// SEP41ProtocolValidator validates whether a WASM implements the SEP-41 token standard.
-type SEP41ProtocolValidator struct{}
+// Validator validates whether a WASM implements the SEP-41 token standard.
+type Validator struct{}
 
-func NewSEP41ProtocolValidator() *SEP41ProtocolValidator { return &SEP41ProtocolValidator{} }
+// NewValidator constructs a SEP-41 ProtocolValidator.
+func NewValidator() *Validator { return &Validator{} }
 
-func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
+func (v *Validator) ProtocolID() string { return ProtocolID }
 
 // Validate checks whether a contract spec implements the SEP-41 token standard.
 // For a contract to be SEP-41 compliant, it must implement all required functions with exact signatures:
@@ -146,17 +149,14 @@ func (v *SEP41ProtocolValidator) ProtocolID() string { return "SEP41" }
 //   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 //   - burn: (from: Address, amount: i128) -> ()
 //   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
-func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
-	// Build a map of required function names to their specs for quick lookup
-	requiredSpecs := make(map[string][]sep41FunctionSpec, len(sep41RequiredFunctions))
-	for _, spec := range sep41RequiredFunctions {
+func (v *Validator) Validate(contractSpec []xdr.ScSpecEntry) bool {
+	requiredSpecs := make(map[string][]functionSpec, len(requiredFunctions))
+	for _, spec := range requiredFunctions {
 		requiredSpecs[spec.name] = append(requiredSpecs[spec.name], spec)
 	}
 
-	// Track which required functions we've found and validated
 	foundFunctions := set.NewSet[string]()
 
-	// Iterate through the contract spec to find and validate SEP-41 functions
 	for _, spec := range contractSpec {
 		if spec.Kind != xdr.ScSpecEntryKindScSpecEntryFunctionV0 || spec.FunctionV0 == nil {
 			continue
@@ -165,7 +165,6 @@ func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
 		function := spec.FunctionV0
 		funcName := string(function.Name)
 
-		// Check if this is a SEP-41 required function
 		expectedSpecs, isRequired := requiredSpecs[funcName]
 		if !isRequired {
 			continue
@@ -195,7 +194,6 @@ func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
 		}
 	}
 
-	// All required functions must be present
 	return foundFunctions.Cardinality() == len(requiredSpecs)
 }
 
@@ -230,7 +228,6 @@ func validateFunctionInputsAndOutputs(
 }
 
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.
-// Returns "unknown" for unmapped types.
 func getTypeName(scType xdr.ScSpecType) string {
 	if name, ok := scSpecTypeNames[scType]; ok {
 		return name

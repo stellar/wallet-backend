@@ -25,6 +25,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/sep41"
 )
 
 const (
@@ -155,6 +156,14 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
+
+	// Inject dependencies into registered protocol processor factories before they are resolved.
+	sep41.SetDependencies(sep41.Dependencies{
+		NetworkPassphrase: cfg.NetworkPassphrase,
+		Balances:          models.SEP41.Balances,
+		Allowances:        models.SEP41.Allowances,
+		ContractTokens:    models.Contract,
+	})
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, m.RPC)
 	if err != nil {

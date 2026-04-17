@@ -25,6 +25,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/sep41"
 )
 
 const sep41ProtocolID = "SEP41"
@@ -99,7 +100,7 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 	s.Require().NoError(err)
 
 	specExtractor := services.NewWasmSpecExtractor()
-	validator := services.NewSEP41ProtocolValidator()
+	validator := sep41.NewValidator()
 
 	svc := services.NewProtocolSetupService(
 		pool,
