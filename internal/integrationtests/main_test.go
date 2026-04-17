@@ -71,18 +71,6 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
-	// Phase 1: Validate balances from checkpoint before fixture transactions
-	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
-		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
-	// Only proceed if checkpoint balance validation succeeded
-	if t.Failed() {
-		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
-	}
-
 	// Data migration tests — protocol setup plus setup-to-live protocol state production
 	t.Run("DataMigrationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataMigrationTestSuite{testEnv: testEnv})

@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -105,8 +106,8 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				for _, kv := range []struct {
 					k string
-					v int
-				}{{"key_a", 10}, {"key_b", 20}, {"key_c", 30}} {
+					v string
+				}{{"key_a", "10"}, {"key_b", "20"}, {"key_c", "30"}} {
 					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
 					require.NoError(t, err)
 				}
@@ -119,8 +120,8 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			setupDB: func(t *testing.T) {
 				for _, kv := range []struct {
 					k string
-					v int
-				}{{"key_a", 10}, {"key_c", 30}} {
+					v string
+				}{{"key_a", "10"}, {"key_c", "30"}} {
 					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
 					require.NoError(t, err)
 				}
@@ -131,7 +132,7 @@ func Test_IngestStoreModel_GetMany(t *testing.T) {
 			name: "single_key",
 			keys: []string{"key_a"},
 			setupDB: func(t *testing.T) {
-				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", 42)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", "42")
 				require.NoError(t, err)
 			},
 			expected: map[string]uint32{"key_a": 42},
@@ -235,12 +236,13 @@ func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	testCases := []struct {
-		name          string
-		setupDB       func(t *testing.T)
-		expectedValue string
-		newValue      string
-		expectedSwap  bool
-		expectedDB    string // expected value in DB after CAS; empty means key should not exist
+		name            string
+		setupDB         func(t *testing.T)
+		expectedValue   string
+		newValue        string
+		expectedSwap    bool
+		expectedErr     error  // sentinel error expected (nil means no error)
+		expectedDB      string // expected value in DB after CAS; empty means key should not exist
 	}{
 		{
 			name: "succeeds_when_value_matches",
@@ -265,10 +267,11 @@ func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
 			expectedDB:    "100",
 		},
 		{
-			name:          "fails_when_key_not_found",
+			name:          "errors_when_key_not_found",
 			expectedValue: "100",
 			newValue:      "200",
 			expectedSwap:  false,
+			expectedErr:   ErrCASCursorMissing,
 			expectedDB:    "",
 		},
 	}
@@ -290,13 +293,21 @@ func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
 			}
 
 			var swapped bool
+			var casErr error
 			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
-				var casErr error
 				swapped, casErr = m.CompareAndSwap(ctx, dbTx, "cas_cursor", tc.expectedValue, tc.newValue)
-				return casErr
+				// Return nil so the transaction commits and we can assert on
+				// the post-CAS DB state below. casErr is asserted separately.
+				return nil
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedSwap, swapped)
+			if tc.expectedErr != nil {
+				require.Error(t, casErr)
+				assert.True(t, errors.Is(casErr, tc.expectedErr), "expected error %v, got %v", tc.expectedErr, casErr)
+			} else {
+				require.NoError(t, casErr)
+			}
 
 			if tc.expectedDB != "" {
 				var dbValue string

@@ -63,7 +63,14 @@ func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWra
 			continue
 		}
 
-		instance := contractData.Val.MustInstance()
+		// Key.Type and Val.Type are independent XDR unions — a malformed
+		// entry with a contract-instance Key but a non-instance Val must
+		// not panic the ingest goroutine. Use GetInstance + ok rather than
+		// MustInstance.
+		instance, ok := contractData.Val.GetInstance()
+		if !ok {
+			continue
+		}
 		if instance.Executable.Type != xdr.ContractExecutableTypeContractExecutableWasm {
 			continue
 		}

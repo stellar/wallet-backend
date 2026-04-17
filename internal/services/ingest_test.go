@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -357,14 +359,8 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 }
 
 func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
-	m := metrics.NewMetrics(prometheus.NewRegistry())
-
-	baseCfg := IngestServiceConfig{
-		Metrics: m,
-	}
-
 	t.Run("nil processor returns error", func(t *testing.T) {
-		cfg := baseCfg
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
 		cfg.ProtocolProcessors = []ProtocolProcessor{nil}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
@@ -377,7 +373,7 @@ func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
 		p2 := NewProtocolProcessorMock(t)
 		p2.On("ProtocolID").Return("dup-id")
 
-		cfg := baseCfg
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
 		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
 		_, err := NewIngestService(cfg)
 		require.Error(t, err)
@@ -2514,15 +2510,16 @@ func (p *testProtocolProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) er
 
 // setupProtocolCursors inserts protocol cursors into ingest_store.
 // Call AFTER setupDBCursors (which wipes the table).
-func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID string, historyCursor, currentStateCursor uint32) {
+func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, historyCursor, currentStateCursor uint32) {
 	t.Helper()
+	const protocolID = "testproto"
 	_, err := pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		utils.ProtocolHistoryCursorName(protocolID), historyCursor)
+		utils.ProtocolHistoryCursorName(protocolID), strconv.FormatUint(uint64(historyCursor), 10))
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-		utils.ProtocolCurrentStateCursorName(protocolID), currentStateCursor)
+		utils.ProtocolCurrentStateCursorName(protocolID), strconv.FormatUint(uint64(currentStateCursor), 10))
 	require.NoError(t, err)
 }
 
@@ -2577,7 +2574,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2610,7 +2607,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 100, 100)
+		setupProtocolCursors(t, ctx, pool, 100, 100)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2643,7 +2640,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 98, 98)
+		setupProtocolCursors(t, ctx, pool, 98, 98)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2668,7 +2665,13 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		assert.Equal(t, uint32(0), csSentinel)
 	})
 
-	t.Run("D: no cursor row — first run before migration", func(t *testing.T) {
+	t.Run("D: missing cursor row — CAS fails loudly", func(t *testing.T) {
+		// Invariant: by the time a protocol reaches the CAS block,
+		// protocolProcessorsEligibleForProduction has already observed a cursor
+		// row (row absent ⇒ Get returns 0 ⇒ not eligible). A missing row at
+		// CAS time therefore indicates an operational incident (DBA delete,
+		// bad restore). The model must surface that as an error rather than
+		// swallowing it as a lost-race "handoff".
 		processor := &testProtocolProcessor{id: "testproto"}
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
@@ -2676,22 +2679,18 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		// No protocol cursors inserted — simulates first run
+		// No protocol cursors inserted — simulates an incident-deleted row.
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, data.ErrCASCursorMissing)
 
-		// Get returns 0 for missing rows; 0 < 99 so the block is skipped entirely
+		// Transaction rolled back — no sentinels written, no cursor rows created.
 		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(0), histCursor)
 
-		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
-		require.NoError(t, err)
-		assert.Equal(t, uint32(0), csCursor)
-
-		// No sentinels
 		histSentinel, err := models.IngestStore.Get(ctx, "test_testproto_history_written")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(0), histSentinel)
@@ -2724,7 +2723,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2743,7 +2742,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		// First ledger — triggers LoadCurrentState
 		processor.processedLedger = 100
@@ -2769,7 +2768,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		setupDBCursors(t, ctx, pool, 99, 99)
 		// Current state cursor already at 100 — CAS will fail
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 100)
+		setupProtocolCursors(t, ctx, pool, 99, 100)
 
 		buffer := indexer.NewIndexerBuffer()
 		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
@@ -2787,7 +2786,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, "testproto", 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		// First ledger succeeds and establishes the in-memory cache handoff.
 		processor.processedLedger = 100
@@ -2927,11 +2926,12 @@ func Test_ingestService_getProtocolContracts_RefreshesAndRecordsMetrics(t *testi
 		},
 	}
 
-	contracts := svc.getProtocolContracts(ctx, "testproto", 100)
+	contracts, err := svc.getProtocolContracts(ctx, "testproto", 100)
+	require.NoError(t, err)
 	assert.Equal(t, expectedContracts, contracts)
 }
 
-func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(t *testing.T) {
+func Test_ingestService_refreshProtocolContractCache_Failure_EmptyCache_ReturnsError(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -2954,12 +2954,14 @@ func Test_ingestService_refreshProtocolContractCache_Failure_StillUpdatesLedger(
 		},
 	}
 
-	svc.refreshProtocolContractCache(ctx, 200)
+	err := svc.refreshProtocolContractCache(ctx, 200)
 
-	// lastRefreshLedger must advance despite batch failure so we don't
-	// hammer the DB on every subsequent ledger (staleness is gated by
-	// getProtocolContracts against this value).
-	assert.Equal(t, uint32(200), svc.protocolContractCache.lastRefreshLedger)
+	// Empty cache + DB failure must fail loudly so the caller can surface a
+	// ledger error instead of letting processors run with empty state while
+	// CAS still advances per-protocol cursors.
+	require.Error(t, err)
+	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.Ingestion.ErrorsTotal.WithLabelValues("protocol_contract_cache_refresh")))
 }
 
 func Test_ingestService_refreshProtocolContractCache_Failure_PreservesPreviousEntries(t *testing.T) {
@@ -2987,13 +2989,49 @@ func Test_ingestService_refreshProtocolContractCache_Failure_PreservesPreviousEn
 				"proto_ok":   previousContracts,
 				"proto_fail": previousContracts,
 			},
-			lastRefreshLedger: 0, // force refresh
+			lastRefreshLedger: 150, // force refresh at ledger 300
 		},
 	}
 
-	svc.refreshProtocolContractCache(ctx, 300)
+	err := svc.refreshProtocolContractCache(ctx, 300)
 
-	// Batch failure → both protocols' previous entries are preserved wholesale.
+	// With prior cache entries, a batch failure returns nil (stale data is
+	// usable). Previous entries are preserved and lastRefreshLedger is NOT
+	// advanced, so the next ledger will retry.
+	require.NoError(t, err)
+	assert.Equal(t, uint32(150), svc.protocolContractCache.lastRefreshLedger)
 	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_ok"])
 	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_fail"])
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.Ingestion.ErrorsTotal.WithLabelValues("protocol_contract_cache_refresh")))
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_FirstRefreshFailure_FailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.Anything).
+		Return(nil, fmt.Errorf("db error")).Once()
+
+	// Processor must NOT be called: the refresh error should short-circuit the
+	// loop before any ProcessLedger invocation.
+	processor := NewProtocolProcessorMock(t)
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		models:            &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": processor,
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 200, svc.protocolProcessors)
+	require.Error(t, err)
+	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
 }
