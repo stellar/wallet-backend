@@ -8,8 +8,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func Test_AuthSigner_AuthorizeEntry(t *testing.T) {
@@ -130,22 +128,18 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name                      string
-		simulationResponseResults []entities.RPCSimulateHostFunctionResult
-		opSourceAccount           string
-		forbiddenSigners          []string
-		wantErrContains           string
+		name             string
+		authEntries      []xdr.SorobanAuthorizationEntry
+		opSourceAccount  string
+		forbiddenSigners []string
+		wantErrContains  string
 	}{
 		{
 			name: "🔴CredentialsSourceAccount/opSourceAccount_cannot_be_empty",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
 					},
 				},
 			},
@@ -155,14 +149,10 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🟢CredentialsSourceAccount/opSourceAccount_allowedSigner1",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
 					},
 				},
 			},
@@ -171,14 +161,10 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🔴CredentialsAddress/empty_address",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
 					},
 				},
 			},
@@ -188,18 +174,14 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🔴CredentialsAddress/opSourceAccount_forbiddenSigner1",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-								Address: &xdr.SorobanAddressCredentials{
-									Address: xdr.ScAddress{
-										Type:      xdr.ScAddressTypeScAddressTypeAccount,
-										AccountId: &forbiddenSigner1AccountID,
-									},
-								},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: &xdr.SorobanAddressCredentials{
+							Address: xdr.ScAddress{
+								Type:      xdr.ScAddressTypeScAddressTypeAccount,
+								AccountId: &forbiddenSigner1AccountID,
 							},
 						},
 					},
@@ -211,18 +193,14 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🟢CredentialsAddress/opSourceAccount_allowedSigner2",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-								Address: &xdr.SorobanAddressCredentials{
-									Address: xdr.ScAddress{
-										Type:      xdr.ScAddressTypeScAddressTypeAccount,
-										AccountId: &allowedSigner2AccountID,
-									},
-								},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: &xdr.SorobanAddressCredentials{
+							Address: xdr.ScAddress{
+								Type:      xdr.ScAddressTypeScAddressTypeAccount,
+								AccountId: &allowedSigner2AccountID,
 							},
 						},
 					},
@@ -233,14 +211,10 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🔴CredentialsSourceAccount/opSourceAccount_muxed_forbidden_signer",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
 					},
 				},
 			},
@@ -254,14 +228,10 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🟢CredentialsSourceAccount/opSourceAccount_muxed_allowed_signer",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
 					},
 				},
 			},
@@ -274,14 +244,10 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 		},
 		{
 			name: "🔴CredentialsUnsupported",
-			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+			authEntries: []xdr.SorobanAuthorizationEntry{
 				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: 3,
-							},
-						},
+					Credentials: xdr.SorobanCredentials{
+						Type: 3,
 					},
 				},
 			},
@@ -291,7 +257,7 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := CheckForForbiddenSigners(tc.simulationResponseResults, tc.opSourceAccount, tc.forbiddenSigners...)
+			err := CheckForForbiddenSigners(tc.authEntries, tc.opSourceAccount, tc.forbiddenSigners...)
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)

@@ -82,9 +82,7 @@ func buildPaymentOp(t *testing.T) *txnbuild.Payment {
 	}
 }
 
-// buildSimulationResponse is a helper function that returns a simulation response with one auth entry with the specified credential type.
 // buildTransactionForTest creates a transaction with the given operations and parameters
-// This helper function converts from the old test signature to the new implementation signature
 func buildTransactionForTest(t *testing.T, operations []txnbuild.Operation, preconditions txnbuild.Preconditions) *txnbuild.Transaction {
 	t.Helper()
 
@@ -103,13 +101,13 @@ func buildTransactionForTest(t *testing.T, operations []txnbuild.Operation, prec
 	return tx
 }
 
-func buildSimulationResponse(
+// buildAuthEntry builds a SorobanAuthorizationEntry with the given credential type and signer.
+func buildAuthEntry(
 	t *testing.T,
-	sorobanTxData xdr.SorobanTransactionData,
 	credentialsType xdr.SorobanCredentialsType,
 	signerType xdr.ScAddressType,
 	signerID string,
-) entities.RPCSimulateTransactionResult {
+) xdr.SorobanAuthorizationEntry {
 	t.Helper()
 
 	var sorobanCredentials xdr.SorobanCredentials
@@ -125,6 +123,7 @@ func buildSimulationResponse(
 					Type:      signerType,
 					AccountId: &authEntryAccountID,
 				},
+				Signature: xdr.ScVal{Type: xdr.ScValTypeScvVoid},
 			},
 		}
 
@@ -139,6 +138,7 @@ func buildSimulationResponse(
 					Type:       signerType,
 					ContractId: &authEntryContractID,
 				},
+				Signature: xdr.ScVal{Type: xdr.ScValTypeScvVoid},
 			},
 		}
 
@@ -149,12 +149,44 @@ func buildSimulationResponse(
 		require.Failf(t, "unsupported credentials or signer type", "credentialsType: %s, signerType: %s", credentialsType, signerType)
 	}
 
-	return entities.RPCSimulateTransactionResult{
-		TransactionData: sorobanTxData,
-		Results: []entities.RPCSimulateHostFunctionResult{
-			{Auth: []xdr.SorobanAuthorizationEntry{{Credentials: sorobanCredentials}}},
+	// Build a valid contract address for the auth entry's RootInvocation.
+	nativeAssetContractID, err := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+	contractID := xdr.ContractId(nativeAssetContractID)
+
+	return xdr.SorobanAuthorizationEntry{
+		Credentials: sorobanCredentials,
+		RootInvocation: xdr.SorobanAuthorizedInvocation{
+			Function: xdr.SorobanAuthorizedFunction{
+				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+				ContractFn: &xdr.InvokeContractArgs{
+					ContractAddress: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &contractID,
+					},
+					FunctionName: "transfer",
+				},
+			},
 		},
 	}
+}
+
+// buildInvokeContractOpWithSimulation creates an InvokeHostFunction op with Auth and Ext already set,
+// simulating the state of an operation after the client has incorporated the simulation response.
+func buildInvokeContractOpWithSimulation(
+	t *testing.T,
+	sorobanTxData xdr.SorobanTransactionData,
+	credentialsType xdr.SorobanCredentialsType,
+	signerID string,
+) *txnbuild.InvokeHostFunction {
+	t.Helper()
+
+	op := buildInvokeContractOp(t)
+	ext, err := xdr.NewTransactionExt(1, sorobanTxData)
+	require.NoError(t, err)
+	op.Ext = ext
+	op.Auth = []xdr.SorobanAuthorizationEntry{buildAuthEntry(t, credentialsType, xdr.ScAddressTypeScAddressTypeAccount, signerID)}
+	return op
 }
 
 func TestValidateOptions(t *testing.T) {
@@ -275,7 +307,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -296,7 +328,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -321,7 +353,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -341,7 +373,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -363,7 +395,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
@@ -395,7 +427,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -438,7 +470,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -448,8 +480,14 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	})
 
 	t.Run("🟢build_and_sign_soroban_tx_with_channel_account", func(t *testing.T) {
-		operations := []txnbuild.Operation{buildInvokeContractOp(t)}
-		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
+
+		op := buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address())
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(30),
 		})
 		channelAccount := keypair.MustRandom()
@@ -477,19 +515,154 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
 			Once()
 
-		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
-		var sorobanTxData xdr.SorobanTransactionData
-		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
-		require.NoError(t, err)
-		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
-
-		simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), &simulationResponse)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
 		assert.Equal(t, signedTx, tx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("🚨reject_soroban_tx_with_channel_account_as_auth_signer", func(t *testing.T) {
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+
+		channelAccount := keypair.MustRandom()
+
+		// Build a Soroban tx where the channel account is a signer in the auth entries — this should be rejected.
+		op := buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, channelAccount.Address())
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.Empty(t, tx)
+		assert.ErrorContains(t, err, sorobanauth.ErrForbiddenSigner.Error())
+	})
+
+	t.Run("🟢build_and_sign_ExtendFootprintTtl_from_xdr", func(t *testing.T) {
+		// This test verifies that ExtendFootprintTtl works through the real XDR deserialization
+		// path, which the SDK does NOT propagate Ext to (unlike InvokeHostFunction).
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+
+		sorobanExt, err := xdr.NewTransactionExt(1, sorobanTxData)
+		require.NoError(t, err)
+
+		// Build a transaction with ExtendFootprintTtl, serialize to XDR, then parse it back.
+		// This exercises the real deserialization path where the SDK drops Ext.
+		op := &txnbuild.ExtendFootprintTtl{ExtendTo: 1000, Ext: sorobanExt}
+		originalTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		txXDR, err := originalTx.Base64()
+		require.NoError(t, err)
+
+		// Parse from XDR (this is what the resolver does)
+		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		require.NoError(t, err)
+
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(originalTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once().
+			On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.NotNil(t, tx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("🟢build_and_sign_RestoreFootprint_from_xdr", func(t *testing.T) {
+		// Same as above but for RestoreFootprint.
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+
+		sorobanExt, err := xdr.NewTransactionExt(1, sorobanTxData)
+		require.NoError(t, err)
+
+		op := &txnbuild.RestoreFootprint{Ext: sorobanExt}
+		originalTx := buildTransactionForTest(t, []txnbuild.Operation{op}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		txXDR, err := originalTx.Base64()
+		require.NoError(t, err)
+
+		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		require.NoError(t, err)
+
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(originalTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once().
+			On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.NotNil(t, tx)
 		assert.NoError(t, err)
 	})
 
@@ -533,7 +706,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(1), nil).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction())
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -553,11 +726,13 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 	require.NoError(t, outerErr)
 	require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
+	sorobanExt, outerErr := xdr.NewTransactionExt(1, sorobanTxData)
+	require.NoError(t, outerErr)
+
 	testCases := []struct {
 		name                string
 		baseFee             int64
 		incomingOps         []txnbuild.Operation
-		simulationResponse  entities.RPCSimulateTransactionResult
 		setupRPCMock        func(t *testing.T, m *RPCServiceMock)
 		wantBuildTxParamsFn func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams
 		wantErrContains     string
@@ -591,64 +766,43 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			wantErrContains: "invalid Soroban transaction: must have exactly one operation (2 provided)",
 		},
 		{
-			name:    "🔴handle_simulateTransaction_err",
+			name:    "🔴missing_soroban_transaction_data",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOp(t), // no Ext set
 			},
-			simulationResponse: entities.RPCSimulateTransactionResult{},
-			wantErrContains:    "invalid Soroban transaction: simulation response cannot be empty",
-		},
-		{
-			name:    "🔴handle_simulateTransaction_error_in_payload",
-			baseFee: txnbuild.MinBaseFee,
-			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
-			},
-			simulationResponse: entities.RPCSimulateTransactionResult{
-				Error: "simulate transaction failed because fooBar",
-			},
-			wantErrContains: "invalid Soroban transaction: simulation failed: simulate transaction failed because fooBar",
+			wantErrContains: "missing SorobanTransactionData in operation Ext field",
 		},
 		{
 			name:    "🚨catch_txSource=channelAccount(AuthEntry)",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, chAccPublicKey),
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, chAccPublicKey),
-			wantErrContains:    sorobanauth.ErrForbiddenSigner.Error(),
+			wantErrContains: sorobanauth.ErrForbiddenSigner.Error(),
 		},
 		{
 			name:    "🚨catch_txSource=channelAccount(SourceAccount)",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount, ""),
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount, 0, ""),
-			wantErrContains:    sorobanauth.ErrForbiddenSigner.Error(),
+			wantErrContains: sorobanauth.ErrForbiddenSigner.Error(),
 		},
 		{
 			name:    "🟢successful_InvokeHostFunction_largeBaseFee",
 			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address()),
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				newInvokeContractOp := buildInvokeContractOp(t)
-				require.Empty(t, newInvokeContractOp.Ext)
-				var err error
-				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
-				require.NoError(t, err)
-
 				return txnbuild.TransactionParams{
-					Operations: []txnbuild.Operation{newInvokeContractOp},
-					BaseFee:    1000000 - 133301, // original base fee - soroban fee
+					Operations: initialBuildTxParams.Operations, // op already has Ext set
+					BaseFee:    1000000 - 133301,                // original base fee - soroban fee
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
 						Sequence:  1,
@@ -663,21 +817,15 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🟢successful_ExtendFootprintTtl_largeBaseFee",
 			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
-				&txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937},
+				&txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937, Ext: sorobanExt},
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				newExtendFootprintTTLOp := &txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937}
-				var err error
-				newExtendFootprintTTLOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
-				require.NoError(t, err)
-
 				return txnbuild.TransactionParams{
-					Operations: []txnbuild.Operation{newExtendFootprintTTLOp},
+					Operations: initialBuildTxParams.Operations, // op already has Ext set
 					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
@@ -693,21 +841,15 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🟢successful_RestoreFootprint_largeBaseFee",
 			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
-				&txnbuild.RestoreFootprint{},
+				&txnbuild.RestoreFootprint{Ext: sorobanExt},
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
-				var err error
-				newRestoreFootprintOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
-				require.NoError(t, err)
-
 				return txnbuild.TransactionParams{
-					Operations: []txnbuild.Operation{newRestoreFootprintOp},
+					Operations: initialBuildTxParams.Operations, // op already has Ext set
 					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
@@ -723,21 +865,15 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🟢successful_RestoreFootprint_largeBaseFee_signedByContractAuthEntry",
 			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
-				&txnbuild.RestoreFootprint{},
+				&txnbuild.RestoreFootprint{Ext: sorobanExt},
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
-				var err error
-				newRestoreFootprintOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
-				require.NoError(t, err)
-
 				return txnbuild.TransactionParams{
-					Operations: []txnbuild.Operation{newRestoreFootprintOp},
+					Operations: initialBuildTxParams.Operations, // op already has Ext set
 					BaseFee:    1000000 - 133301,
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
@@ -753,11 +889,10 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🚨rejects_inflated_ResourceFee_above_server_resim_bound",
 			baseFee: 10_000_000,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address()),
 			},
 			// Client-declared ResourceFee is 133301 (inside sorobanTxData), but server re-sim reports a MinResourceFee
 			// of "50000". With safety_factor=2, maxAllowed = min(100000, 10_000_000) = 100000. 133301 > 100000 → reject.
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "50000"}, nil).Once()
@@ -768,11 +903,10 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🚨rejects_ResourceFee_above_base_fee_cap",
 			baseFee: 100_000,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address()),
 			},
 			// Client-declared ResourceFee = 133301. baseFee cap = 100000. Server returns high MinResourceFee that
 			// would *allow* it via safety factor, but hard cap at t.BaseFee should still reject.
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{MinResourceFee: "133301"}, nil).Once()
@@ -783,9 +917,8 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🚨rejects_when_server_resim_returns_payload_error",
 			baseFee: 1_000_000,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address()),
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{Error: "server said no"}, nil).Once()
@@ -796,9 +929,8 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			name:    "🚨rejects_when_server_resim_rpc_error",
 			baseFee: 1_000_000,
 			incomingOps: []txnbuild.Operation{
-				buildInvokeContractOp(t),
+				buildInvokeContractOpWithSimulation(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, keypair.MustRandom().Address()),
 			},
-			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address()),
 			setupRPCMock: func(t *testing.T, m *RPCServiceMock) {
 				m.On("SimulateTransaction", mock.AnythingOfType("string"), entities.RPCResourceConfig{}).
 					Return(entities.RPCSimulateTransactionResult{}, errors.New("rpc down")).Once()
@@ -832,7 +964,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				},
 			}
 
-			buildTxParams, err := txService.adjustParamsForSoroban(context.Background(), chAccPublicKey, incomingBuildTxParams, tc.simulationResponse)
+			buildTxParams, err := txService.adjustParamsForSoroban(context.Background(), chAccPublicKey, incomingBuildTxParams)
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)

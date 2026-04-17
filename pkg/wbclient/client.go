@@ -10,9 +10,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/stellar/go-stellar-sdk/xdr"
-
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -152,59 +149,10 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	}
 }
 
-func buildSimulationResultMap(simResult entities.RPCSimulateTransactionResult) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
-
-	if !utils.IsEmpty(simResult.TransactionData) {
-		if txDataStr, err := xdr.MarshalBase64(simResult.TransactionData); err != nil {
-			return nil, fmt.Errorf("marshaling transaction data: %w", err)
-		} else {
-			result["transactionData"] = txDataStr
-		}
-	}
-
-	if len(simResult.Events) > 0 {
-		result["events"] = simResult.Events
-	}
-
-	if simResult.MinResourceFee != "" {
-		result["minResourceFee"] = simResult.MinResourceFee
-	}
-
-	if len(simResult.Results) > 0 {
-		// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
-		results := make([]string, len(simResult.Results))
-		for i, result := range simResult.Results {
-			if resultJSON, err := json.Marshal(result); err != nil {
-				return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
-			} else {
-				results[i] = string(resultJSON)
-			}
-		}
-		result["results"] = results
-	}
-
-	if simResult.LatestLedger != 0 {
-		result["latestLedger"] = simResult.LatestLedger
-	}
-
-	if simResult.Error != "" {
-		result["error"] = simResult.Error
-	}
-
-	return result, nil
-}
-
 func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
-	simulationResult, err := buildSimulationResultMap(transaction.SimulationResult)
-	if err != nil {
-		return nil, err
-	}
-
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
-			"transactionXdr":   transaction.TransactionXdr,
-			"simulationResult": simulationResult,
+			"transactionXdr": transaction.TransactionXdr,
 		},
 	}
 

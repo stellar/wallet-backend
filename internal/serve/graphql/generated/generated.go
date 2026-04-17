@@ -1852,7 +1852,6 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputAccountStateChangeFilterInput,
 		ec.unmarshalInputBuildTransactionInput,
 		ec.unmarshalInputCreateFeeBumpTransactionInput,
-		ec.unmarshalInputSimulationResultInput,
 	)
 	first := true
 
@@ -2174,17 +2173,6 @@ input CreateFeeBumpTransactionInput {
 # Input types for transaction mutations
 input BuildTransactionInput {
     transactionXdr: String!
-    simulationResult: SimulationResultInput
-}
-
-# Optional simulation result input for Soroban transactions
-input SimulationResultInput {
-    transactionData: String
-    events: [String!]
-    minResourceFee: String
-    results: [String!]
-    latestLedger: Int
-    error: String
 }
 
 
@@ -14690,7 +14678,7 @@ func (ec *executionContext) unmarshalInputBuildTransactionInput(ctx context.Cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"transactionXdr", "simulationResult"}
+	fieldsInOrder := [...]string{"transactionXdr"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -14704,13 +14692,6 @@ func (ec *executionContext) unmarshalInputBuildTransactionInput(ctx context.Cont
 				return it, err
 			}
 			it.TransactionXdr = data
-		case "simulationResult":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("simulationResult"))
-			data, err := ec.unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.SimulationResult = data
 		}
 	}
 
@@ -14738,68 +14719,6 @@ func (ec *executionContext) unmarshalInputCreateFeeBumpTransactionInput(ctx cont
 				return it, err
 			}
 			it.TransactionXdr = data
-		}
-	}
-
-	return it, nil
-}
-
-func (ec *executionContext) unmarshalInputSimulationResultInput(ctx context.Context, obj any) (SimulationResultInput, error) {
-	var it SimulationResultInput
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	fieldsInOrder := [...]string{"transactionData", "events", "minResourceFee", "results", "latestLedger", "error"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "transactionData":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("transactionData"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.TransactionData = data
-		case "events":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("events"))
-			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Events = data
-		case "minResourceFee":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minResourceFee"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.MinResourceFee = data
-		case "results":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("results"))
-			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Results = data
-		case "latestLedger":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("latestLedger"))
-			data, err := ec.unmarshalOInt2ᚖint32(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.LatestLedger = data
-		case "error":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("error"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Error = data
 		}
 	}
 
@@ -20400,14 +20319,6 @@ func (ec *executionContext) marshalOOperationEdge2ᚕᚖgithubᚗcomᚋstellar�
 	return ret
 }
 
-func (ec *executionContext) unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx context.Context, v any) (*SimulationResultInput, error) {
-	if v == nil {
-		return nil, nil
-	}
-	res, err := ec.unmarshalInputSimulationResultInput(ctx, v)
-	return &res, graphql.ErrorOnPath(ctx, err)
-}
-
 func (ec *executionContext) marshalOStateChangeConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeConnection(ctx context.Context, sel ast.SelectionSet, v *StateChangeConnection) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -20452,42 +20363,6 @@ func (ec *executionContext) marshalOStateChangeEdge2ᚕᚖgithubᚗcomᚋstellar
 
 	}
 	wg.Wait()
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) unmarshalOString2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
-	if v == nil {
-		return nil, nil
-	}
-	var vSlice []any
-	vSlice = graphql.CoerceList(v)
-	var err error
-	res := make([]string, len(vSlice))
-	for i := range vSlice {
-		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNString2string(ctx, vSlice[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-	return res, nil
-}
-
-func (ec *executionContext) marshalOString2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	ret := make(graphql.Array, len(v))
-	for i := range v {
-		ret[i] = ec.marshalNString2string(ctx, sel, v[i])
-	}
 
 	for _, e := range ret {
 		if e == graphql.Null {

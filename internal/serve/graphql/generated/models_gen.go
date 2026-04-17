@@ -54,8 +54,7 @@ type BalanceEdge struct {
 }
 
 type BuildTransactionInput struct {
-	TransactionXdr   string                 `json:"transactionXdr"`
-	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
+	TransactionXdr string `json:"transactionXdr"`
 }
 
 type BuildTransactionPayload struct {
@@ -140,15 +139,6 @@ func (SEP41Balance) IsBalance()                   {}
 func (this SEP41Balance) GetBalance() string      { return this.Balance }
 func (this SEP41Balance) GetTokenID() string      { return this.TokenID }
 func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
-
-type SimulationResultInput struct {
-	TransactionData *string  `json:"transactionData,omitempty"`
-	Events          []string `json:"events,omitempty"`
-	MinResourceFee  *string  `json:"minResourceFee,omitempty"`
-	Results         []string `json:"results,omitempty"`
-	LatestLedger    *int32   `json:"latestLedger,omitempty"`
-	Error           *string  `json:"error,omitempty"`
-}
 
 type StateChangeConnection struct {
 	Edges    []*StateChangeEdge `json:"edges,omitempty"`

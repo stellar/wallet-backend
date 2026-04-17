@@ -17,7 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	pkgUtils "github.com/stellar/wallet-backend/pkg/utils"
 )
@@ -37,15 +36,14 @@ var (
 	ErrInvalidOperationChannelAccount = errors.New("invalid operation: operation source account cannot be the channel account")
 	ErrInvalidOperationMissingSource  = errors.New("invalid operation: operation source account cannot be empty for non-Soroban operations")
 	ErrInvalidSorobanOperationCount   = errors.New("invalid Soroban transaction: must have exactly one operation")
-	ErrInvalidSorobanSimulationEmpty  = errors.New("invalid Soroban transaction: simulation response cannot be empty")
-	ErrInvalidSorobanSimulationFailed = errors.New("invalid Soroban transaction: simulation failed")
+	ErrMissingSorobanTransactionData  = errors.New("invalid Soroban transaction: missing SorobanTransactionData in operation Ext field")
 	ErrInvalidSorobanOperationType    = errors.New("invalid Soroban transaction: operation type not supported")
 	ErrSorobanResourceFeeExceedsBound = errors.New("invalid Soroban transaction: client-declared resource fee exceeds the allowed bound")
 )
 
 type TransactionService interface {
 	NetworkPassphrase() string
-	BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResult *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
+	BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction) (*txnbuild.Transaction, error)
 }
 
 type transactionService struct {
@@ -113,7 +111,7 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResponse *entities.RPCSimulateTransactionResult) (signedTx *txnbuild.Transaction, retErr error) {
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction) (signedTx *txnbuild.Transaction, retErr error) {
 	timeoutInSecs := DefaultTimeoutInSeconds
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, timeoutInSecs)
 	if err != nil {
@@ -130,8 +128,27 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("invalid transaction type in XDR")
 	}
 
-	// Validate operations
+	// Extract operations and propagate the transaction-level Ext (SorobanTransactionData) to
+	// Soroban operations. The SDK's TransactionFromXDR only copies Ext to InvokeHostFunction;
+	// ExtendFootprintTtl and RestoreFootprint need it too but their FromXDR doesn't set it.
 	operations := clientTx.Operations()
+	if txEnv := clientTx.ToXDR(); txEnv.V1 != nil && txEnv.V1.Tx.Ext.V != 0 {
+		txExt := txEnv.V1.Tx.Ext
+		for _, op := range operations {
+			switch sorobanOp := op.(type) {
+			case *txnbuild.ExtendFootprintTtl:
+				if sorobanOp.Ext.V == 0 {
+					sorobanOp.Ext = txExt
+				}
+			case *txnbuild.RestoreFootprint:
+				if sorobanOp.Ext.V == 0 {
+					sorobanOp.Ext = txExt
+				}
+			}
+		}
+	}
+
+	// Validate operations
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
 		// Resolve the operation source to a G-address to handle muxed accounts (M-addresses)
@@ -181,12 +198,11 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		IncrementSequenceNum: true,
 	}
 
-	// Adjust the transaction params with the soroban-related information (the `Ext` field):
-	if simulationResponse != nil {
-		buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams, *simulationResponse)
-		if err != nil {
-			return nil, fmt.Errorf("handling soroban flows: %w", err)
-		}
+	// Adjust the transaction params for Soroban operations (validates auth entries, adjusts fees).
+	// This is a no-op for non-Soroban transactions.
+	buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams)
+	if err != nil {
+		return nil, fmt.Errorf("handling soroban flows: %w", err)
 	}
 
 	tx, err := txnbuild.NewTransaction(buildTxParams)
@@ -240,14 +256,15 @@ func (t *transactionService) releaseChannelAccountLock(ctx context.Context, txHa
 	}
 }
 
-// adjustParamsForSoroban will use the `simulationResponse` to set the `Ext` field in the sorobanOp, in case the transaction
-// is a soroban transaction. The resulting `buildTxParams` will be later used by `txnbuild.NewTransaction` to:
+// adjustParamsForSoroban extracts SorobanTransactionData and auth entries from the Soroban operation
+// (already set by the client after simulation) and adjusts the transaction params accordingly.
+// The resulting `buildTxParams` will be later used by `txnbuild.NewTransaction` to:
 // - Calculate the total fee.
 // - Include the `Ext` information to the transaction envelope.
 //
 // Before the fee is accepted, this method re-simulates the transaction server-side and rejects any client-declared
 // `ResourceFee` that exceeds `min(serverMinResourceFee * sorobanResourceFeeSafetyFactor, t.BaseFee)`.
-func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams, simulationResponse entities.RPCSimulateTransactionResult) (txnbuild.TransactionParams, error) {
+func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams) (txnbuild.TransactionParams, error) {
 	// Ensure this is a soroban transaction.
 	operations := buildTxParams.Operations
 	isSoroban := slices.ContainsFunc(operations, func(op txnbuild.Operation) bool {
@@ -262,39 +279,44 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w (%d provided)", ErrInvalidSorobanOperationCount, len(operations))
 	}
 
-	if utils.IsEmpty(simulationResponse) {
-		return txnbuild.TransactionParams{}, ErrInvalidSorobanSimulationEmpty
-	} else if simulationResponse.Error != "" {
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %s", ErrInvalidSorobanSimulationFailed, simulationResponse.Error)
-	}
-
-	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
-	err := sorobanauth.CheckForForbiddenSigners(simulationResponse.Results, operations[0].GetSourceAccount(), channelAccountPublicKey)
-	if err != nil {
-		return txnbuild.TransactionParams{}, fmt.Errorf("ensuring the channel account is not being misused: %w", err)
-	}
-
-	// 👋 This is the main goal of this method: setting the `Ext` field in the sorobanOp.
-	transactionExt, err := xdr.NewTransactionExt(1, simulationResponse.TransactionData)
-	if err != nil {
-		return txnbuild.TransactionParams{}, fmt.Errorf("unable to create transaction ext: %w", err)
-	}
+	// Extract SorobanTransactionData and auth entries from the operation itself.
+	// The client is expected to have already incorporated the simulation response into the transaction.
+	var sorobanData xdr.SorobanTransactionData
+	var authEntries []xdr.SorobanAuthorizationEntry
 
 	switch sorobanOp := operations[0].(type) {
 	case *txnbuild.InvokeHostFunction:
-		sorobanOp.Ext = transactionExt
+		sd, ok := sorobanOp.Ext.GetSorobanData()
+		if !ok {
+			return txnbuild.TransactionParams{}, ErrMissingSorobanTransactionData
+		}
+		sorobanData = sd
+		authEntries = sorobanOp.Auth
 	case *txnbuild.ExtendFootprintTtl:
-		sorobanOp.Ext = transactionExt
+		sd, ok := sorobanOp.Ext.GetSorobanData()
+		if !ok {
+			return txnbuild.TransactionParams{}, ErrMissingSorobanTransactionData
+		}
+		sorobanData = sd
 	case *txnbuild.RestoreFootprint:
-		sorobanOp.Ext = transactionExt
+		sd, ok := sorobanOp.Ext.GetSorobanData()
+		if !ok {
+			return txnbuild.TransactionParams{}, ErrMissingSorobanTransactionData
+		}
+		sorobanData = sd
 	default:
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %T", ErrInvalidSorobanOperationType, operations[0])
 	}
 
+	// Check if the channel account public key is used as a signer in any auth entry.
+	if err := sorobanauth.CheckForForbiddenSigners(authEntries, operations[0].GetSourceAccount(), channelAccountPublicKey); err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("ensuring the channel account is not being misused: %w", err)
+	}
+
 	// Bound the client-declared ResourceFee against a server-side re-simulation. Without this the caller can inflate
-	// `simulationResponse.TransactionData.ResourceFee` arbitrarily — the floor below would silently absorb it, but
-	// the fee-bump wrapper would still commit distribution-account funds up to the fee-bump ceiling.
-	clientResourceFee := int64(transactionExt.SorobanData.ResourceFee)
+	// `sorobanData.ResourceFee` arbitrarily — the floor below would silently absorb it, but the fee-bump wrapper
+	// would still commit distribution-account funds up to the fee-bump ceiling.
+	clientResourceFee := int64(sorobanData.ResourceFee)
 	if err := t.validateSorobanResourceFee(buildTxParams, clientResourceFee); err != nil {
 		return txnbuild.TransactionParams{}, err
 	}
