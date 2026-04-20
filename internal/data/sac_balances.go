@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -20,7 +21,7 @@ import (
 // Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
 // Includes contract metadata from JOIN with contract_tokens table for API responses.
 type SACBalance struct {
-	AccountAddress    string    `db:"account_address"` // Contract address (C...) of the holder
+	AccountID         types.AddressBytea `db:"account_id"` // Contract address (C...) of the holder
 	ContractID        uuid.UUID `db:"contract_id"`     // Deterministic UUID for the SAC contract
 	Balance           string    `db:"balance"`         // Balance as string (handles i128 values)
 	IsAuthorized      bool      `db:"is_authorized"`
@@ -65,13 +66,13 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	}
 
 	query := `
-		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
+		SELECT asb.account_id, asb.contract_id, asb.balance, asb.is_authorized,
 		       asb.is_clawback_enabled, asb.last_modified_ledger,
 		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
 		FROM sac_balances asb
 		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
-		WHERE asb.account_address = $1`
-	args := []interface{}{accountAddress}
+		WHERE asb.account_id = $1`
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	if cursor != nil {
@@ -122,9 +123,9 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	// Upsert query: insert or update all fields
 	const upsertQuery = `
 		INSERT INTO sac_balances (
-			account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+			account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
 		) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_address, contract_id) DO UPDATE SET
+		ON CONFLICT (account_id, contract_id) DO UPDATE SET
 			balance = EXCLUDED.balance,
 			is_authorized = EXCLUDED.is_authorized,
 			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
@@ -132,7 +133,7 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 
 	for _, bal := range upserts {
 		batch.Queue(upsertQuery,
-			bal.AccountAddress,
+			bal.AccountID,
 			bal.ContractID,
 			bal.Balance,
 			bal.IsAuthorized,
@@ -142,10 +143,10 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	}
 
 	// Delete query
-	const deleteQuery = `DELETE FROM sac_balances WHERE account_address = $1 AND contract_id = $2`
+	const deleteQuery = `DELETE FROM sac_balances WHERE account_id = $1 AND contract_id = $2`
 
 	for _, bal := range deletes {
-		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
+		batch.Queue(deleteQuery, bal.AccountID, bal.ContractID)
 	}
 
 	if batch.Len() == 0 {
@@ -186,7 +187,7 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		ctx,
 		pgx.Identifier{"sac_balances"},
 		[]string{
-			"account_address",
+			"account_id",
 			"contract_id",
 			"balance",
 			"is_authorized",
@@ -195,8 +196,12 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		},
 		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
 			bal := balances[i]
+			accountIDBytes, err := bal.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account address to bytes: %w", err)
+			}
 			return []any{
-				bal.AccountAddress,
+				accountIDBytes,
 				bal.ContractID,
 				bal.Balance,
 				bal.IsAuthorized,

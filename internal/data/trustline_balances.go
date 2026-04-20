@@ -12,13 +12,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
 type TrustlineBalance struct {
-	AccountAddress     string    `db:"account_address"`
+	AccountID          types.AddressBytea `db:"account_id"`
 	AssetID            uuid.UUID `db:"asset_id"`
 	Code               string    `db:"code"`   // Asset code from trustline_assets table
 	Issuer             string    `db:"issuer"` // Asset issuer from trustline_assets table
@@ -61,13 +62,13 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	}
 
 	query := `
-		SELECT atb.account_address, atb.asset_id, ta.code, ta.issuer,
+		SELECT atb.account_id, atb.asset_id, ta.code, ta.issuer,
 		       atb.balance, atb.trust_limit, atb.buying_liabilities,
 		       atb.selling_liabilities, atb.flags, atb.last_modified_ledger
 		FROM trustline_balances atb
 		INNER JOIN trustline_assets ta ON ta.id = atb.asset_id
-		WHERE atb.account_address = $1`
-	args := []interface{}{accountAddress}
+		WHERE atb.account_id = $1`
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	if cursor != nil {
@@ -120,10 +121,10 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	// Upsert query: insert or update all fields
 	const upsertQuery = `
 		INSERT INTO trustline_balances (
-			account_address, asset_id, balance, trust_limit,
+			account_id, asset_id, balance, trust_limit,
 			buying_liabilities, selling_liabilities, flags, last_modified_ledger
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (account_address, asset_id) DO UPDATE SET
+		ON CONFLICT (account_id, asset_id) DO UPDATE SET
 			balance = EXCLUDED.balance,
 			trust_limit = EXCLUDED.trust_limit,
 			buying_liabilities = EXCLUDED.buying_liabilities,
@@ -133,7 +134,7 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 
 	for _, tl := range upserts {
 		batch.Queue(upsertQuery,
-			tl.AccountAddress,
+			tl.AccountID,
 			tl.AssetID,
 			tl.Balance,
 			tl.Limit,
@@ -145,10 +146,10 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	}
 
 	// Delete query
-	const deleteQuery = `DELETE FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`
+	const deleteQuery = `DELETE FROM trustline_balances WHERE account_id = $1 AND asset_id = $2`
 
 	for _, tl := range deletes {
-		batch.Queue(deleteQuery, tl.AccountAddress, tl.AssetID)
+		batch.Queue(deleteQuery, tl.AccountID, tl.AssetID)
 	}
 
 	if batch.Len() == 0 {
@@ -189,7 +190,7 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		ctx,
 		pgx.Identifier{"trustline_balances"},
 		[]string{
-			"account_address",
+			"account_id",
 			"asset_id",
 			"balance",
 			"trust_limit",
@@ -200,8 +201,12 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		},
 		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
 			tl := balances[i]
+			accountIDBytes, err := tl.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account address to bytes: %w", err)
+			}
 			return []any{
-				tl.AccountAddress,
+				accountIDBytes,
 				tl.AssetID,
 				tl.Balance,
 				tl.Limit,

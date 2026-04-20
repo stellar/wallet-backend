@@ -12,13 +12,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // NativeBalance contains native XLM balance data for an account.
 type NativeBalance struct {
-	AccountAddress     string `db:"account_address"`
+	AccountID          types.AddressBytea `db:"account_id"`
 	Balance            int64  `db:"balance"`
 	MinimumBalance     int64  `db:"minimum_balance"`
 	BuyingLiabilities  int64  `db:"buying_liabilities"`
@@ -32,7 +33,7 @@ type NativeBalanceModelInterface interface {
 	GetByAccount(ctx context.Context, accountAddress string) (*NativeBalance, error)
 
 	// Write operations (for live ingestion)
-	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error
+	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []types.AddressBytea) error
 
 	// Batch operations (for initial population)
 	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []NativeBalance) error
@@ -53,12 +54,12 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 	}
 
 	const query = `
-		SELECT account_address, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger
+		SELECT account_id, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger
 		FROM native_balances
-		WHERE account_address = $1`
+		WHERE account_id = $1`
 
 	start := time.Now()
-	nb, err := db.QueryOne[NativeBalance](ctx, m.DB, query, accountAddress)
+	nb, err := db.QueryOne[NativeBalance](ctx, m.DB, query, types.AddressBytea(accountAddress))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "native_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "native_balances").Inc()
@@ -73,7 +74,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 }
 
 // BatchUpsert upserts and deletes native balances in batch.
-func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error {
+func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []types.AddressBytea) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
@@ -82,9 +83,9 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	batch := &pgx.Batch{}
 
 	const upsertQuery = `
-		INSERT INTO native_balances (account_address, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger)
+		INSERT INTO native_balances (account_id, balance, minimum_balance, buying_liabilities, selling_liabilities, last_modified_ledger)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_address) DO UPDATE SET
+		ON CONFLICT (account_id) DO UPDATE SET
 			balance = EXCLUDED.balance,
 			minimum_balance = EXCLUDED.minimum_balance,
 			buying_liabilities = EXCLUDED.buying_liabilities,
@@ -92,10 +93,10 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
 
 	for _, nb := range upserts {
-		batch.Queue(upsertQuery, nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber)
+		batch.Queue(upsertQuery, nb.AccountID, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber)
 	}
 
-	const deleteQuery = `DELETE FROM native_balances WHERE account_address = $1`
+	const deleteQuery = `DELETE FROM native_balances WHERE account_id = $1`
 	for _, addr := range deletes {
 		batch.Queue(deleteQuery, addr)
 	}
@@ -137,10 +138,14 @@ func (m *NativeBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balance
 	copyCount, err := dbTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"native_balances"},
-		[]string{"account_address", "balance", "minimum_balance", "buying_liabilities", "selling_liabilities", "last_modified_ledger"},
+		[]string{"account_id", "balance", "minimum_balance", "buying_liabilities", "selling_liabilities", "last_modified_ledger"},
 		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
 			nb := balances[i]
-			return []any{nb.AccountAddress, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}, nil
+			accountIDBytes, err := nb.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account address to bytes: %w", err)
+			}
+			return []any{accountIDBytes, nb.Balance, nb.MinimumBalance, nb.BuyingLiabilities, nb.SellingLiabilities, nb.LedgerNumber}, nil
 		}),
 	)
 	if err != nil {
