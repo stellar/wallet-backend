@@ -61,6 +61,12 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
 	}
 
+	// Submit fixture transactions directly to RPC for ingestion
+	err = infrastructure.SubmitUseCases(ctx, testEnv)
+	if err != nil {
+		t.Fatalf("Failed to submit use case transactions: %v", err)
+	}
+
 	// Wait for ingest service to process all transactions
 	log.Ctx(ctx).Info("Waiting for ingest service to process transactions...")
 	time.Sleep(5 * time.Second)

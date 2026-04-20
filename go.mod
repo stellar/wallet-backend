@@ -34,7 +34,6 @@ require (
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/vektah/gqlparser/v2 v2.5.30
 	github.com/vikstrous/dataloadgen v0.0.9
-	golang.org/x/term v0.33.0
 	golang.org/x/text v0.27.0
 )
 
