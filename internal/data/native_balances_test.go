@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -50,7 +52,7 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balance, err := m.GetByAccount(ctx, "GNOTEXIST")
+		balance, err := m.GetByAccount(ctx, keypair.MustRandom().Address())
 		require.NoError(t, err)
 		require.Nil(t, balance)
 	})
@@ -63,19 +65,19 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "GACCOUNT1"
+		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO native_balances
-			(account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger)
+			(account_id, balance, buying_liabilities, selling_liabilities, last_modified_ledger)
 			VALUES ($1, 1000000000, 100, 200, 12345)
-		`, accountAddr)
+		`, types.AddressBytea(accountAddr))
 		require.NoError(t, err)
 
 		balance, err := m.GetByAccount(ctx, accountAddr)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
 
-		require.Equal(t, accountAddr, balance.AccountAddress)
+		require.Equal(t, types.AddressBytea(accountAddr), balance.AccountID)
 		require.Equal(t, int64(1000000000), balance.Balance)
 		require.Equal(t, int64(100), balance.BuyingLiabilities)
 		require.Equal(t, int64(200), balance.SellingLiabilities)
@@ -122,12 +124,13 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []NativeBalance{
 			{
-				AccountAddress:     "GACCOUNT1",
+				AccountID:          types.AddressBytea(accountAddr),
 				Balance:            1000000000,
 				BuyingLiabilities:  100,
 				SellingLiabilities: 200,
@@ -141,7 +144,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify insert
 		var count int
-		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_id = $1`, types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
 	})
@@ -154,14 +157,16 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
 			{
-				AccountAddress: "GACCOUNT1",
-				Balance:        1000,
-				LedgerNumber:   100,
+				AccountID:    types.AddressBytea(accountAddr),
+				Balance:      1000,
+				LedgerNumber: 100,
 			},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
@@ -181,8 +186,8 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		var balance int64
 		var ledger uint32
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance, last_modified_ledger FROM native_balances WHERE account_address = $1`,
-			"GACCOUNT1").Scan(&balance, &ledger)
+			`SELECT balance, last_modified_ledger FROM native_balances WHERE account_id = $1`,
+			types.AddressBytea(accountAddr)).Scan(&balance, &ledger)
 		require.NoError(t, err)
 		require.Equal(t, int64(2000), balance)
 		require.Equal(t, uint32(200), ledger)
@@ -196,11 +201,13 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
-			{AccountAddress: "GACCOUNT1", Balance: 1000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr), Balance: 1000, LedgerNumber: 100},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
 		require.NoError(t, err)
@@ -209,14 +216,14 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		// Delete
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
-		deletes := []string{"GACCOUNT1"}
+		deletes := []types.AddressBytea{types.AddressBytea(accountAddr)}
 		err = m.BatchUpsert(ctx, pgxTx2, nil, deletes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx2.Commit(ctx))
 
 		// Verify delete
 		var count int
-		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_id = $1`, types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 	})
@@ -229,12 +236,16 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := keypair.MustRandom().Address()
+		accountAddr2 := keypair.MustRandom().Address()
+		accountAddr3 := keypair.MustRandom().Address()
+
 		// Insert two balances
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []NativeBalance{
-			{AccountAddress: "GACCOUNT1", Balance: 1000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT2", Balance: 2000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), Balance: 1000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr2), Balance: 2000, LedgerNumber: 100},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
 		require.NoError(t, err)
@@ -244,10 +255,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []NativeBalance{
-			{AccountAddress: "GACCOUNT1", Balance: 1500, LedgerNumber: 200}, // update
-			{AccountAddress: "GACCOUNT3", Balance: 3000, LedgerNumber: 200}, // new
+			{AccountID: types.AddressBytea(accountAddr1), Balance: 1500, LedgerNumber: 200}, // update
+			{AccountID: types.AddressBytea(accountAddr3), Balance: 3000, LedgerNumber: 200}, // new
 		}
-		deletes := []string{"GACCOUNT2"} // delete
+		deletes := []types.AddressBytea{types.AddressBytea(accountAddr2)} // delete
 		err = m.BatchUpsert(ctx, pgxTx2, newUpserts, deletes)
 		require.NoError(t, err)
 		require.NoError(t, pgxTx2.Commit(ctx))
@@ -256,12 +267,12 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		var count int
 		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances`).Scan(&count)
 		require.NoError(t, err)
-		require.Equal(t, 2, count) // GACCOUNT1 (updated) + GACCOUNT3 (new)
+		require.Equal(t, 2, count)
 
 		var balance int64
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance FROM native_balances WHERE account_address = $1`,
-			"GACCOUNT1").Scan(&balance)
+			`SELECT balance FROM native_balances WHERE account_id = $1`,
+			types.AddressBytea(accountAddr1)).Scan(&balance)
 		require.NoError(t, err)
 		require.Equal(t, int64(1500), balance)
 	})
@@ -306,12 +317,13 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []NativeBalance{
 			{
-				AccountAddress:     "GACCOUNT1",
+				AccountID:          types.AddressBytea(accountAddr),
 				Balance:            1000000000,
 				BuyingLiabilities:  100,
 				SellingLiabilities: 200,
@@ -326,11 +338,11 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 		// Verify all fields
 		var b NativeBalance
 		err = dbConnectionPool.QueryRow(ctx, `
-			SELECT account_address, balance, buying_liabilities, selling_liabilities, last_modified_ledger
-			FROM native_balances WHERE account_address = $1
-		`, "GACCOUNT1").Scan(&b.AccountAddress, &b.Balance, &b.BuyingLiabilities, &b.SellingLiabilities, &b.LedgerNumber)
+			SELECT account_id, balance, buying_liabilities, selling_liabilities, last_modified_ledger
+			FROM native_balances WHERE account_id = $1
+		`, types.AddressBytea(accountAddr)).Scan(&b.AccountID, &b.Balance, &b.BuyingLiabilities, &b.SellingLiabilities, &b.LedgerNumber)
 		require.NoError(t, err)
-		require.Equal(t, balances[0].AccountAddress, b.AccountAddress)
+		require.Equal(t, balances[0].AccountID, b.AccountID)
 		require.Equal(t, balances[0].Balance, b.Balance)
 		require.Equal(t, balances[0].BuyingLiabilities, b.BuyingLiabilities)
 		require.Equal(t, balances[0].SellingLiabilities, b.SellingLiabilities)
@@ -345,13 +357,16 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := keypair.MustRandom().Address()
+		accountAddr2 := keypair.MustRandom().Address()
+		accountAddr3 := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []NativeBalance{
-			{AccountAddress: "GACCOUNT1", Balance: 1000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT2", Balance: 2000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT3", Balance: 3000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), Balance: 1000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr2), Balance: 2000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr3), Balance: 3000, LedgerNumber: 100},
 		}
 
 		err = m.BatchCopy(ctx, pgxTx, balances)

@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -63,7 +65,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "GNOTEXIST", nil, nil, ASC)
+		balances, err := m.GetByAccount(ctx, keypair.MustRandom().Address(), nil, nil, ASC)
 		require.NoError(t, err)
 		require.Empty(t, balances)
 	})
@@ -76,12 +78,12 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "GACCOUNT1"
+		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO trustline_balances
-			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
+			(account_id, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
 			VALUES ($1, $2, 1000, 10000, 100, 50, 1, 12345)
-		`, accountAddr, assetID1)
+		`, types.AddressBytea(accountAddr), assetID1)
 		require.NoError(t, err)
 
 		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
@@ -89,7 +91,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 		require.Len(t, balances, 1)
 
 		// Verify all fields including JOIN data
-		require.Equal(t, accountAddr, balances[0].AccountAddress)
+		require.Equal(t, types.AddressBytea(accountAddr), balances[0].AccountID)
 		require.Equal(t, assetID1, balances[0].AssetID)
 		require.Equal(t, "USDC", balances[0].Code)
 		require.Equal(t, "ISSUER1", balances[0].Issuer)
@@ -109,14 +111,14 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "GACCOUNT2"
+		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO trustline_balances
-			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
+			(account_id, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
 			VALUES
 			($1, $2, 1000, 10000, 0, 0, 0, 100),
 			($1, $3, 2000, 20000, 0, 0, 0, 101)
-		`, accountAddr, assetID1, assetID2)
+		`, types.AddressBytea(accountAddr), assetID1, assetID2)
 		require.NoError(t, err)
 
 		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
@@ -125,7 +127,7 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 
 		// Verify both trustlines belong to the correct account
 		for _, b := range balances {
-			require.Equal(t, accountAddr, b.AccountAddress)
+			require.Equal(t, types.AddressBytea(accountAddr), b.AccountID)
 		}
 	})
 
@@ -137,33 +139,34 @@ func TestTrustlineBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO trustline_balances
-			(account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
+			(account_id, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger)
 			VALUES
-			('GACCOUNT1', $1, 1000, 10000, 0, 0, 0, 100),
-			('GACCOUNT1', $2, 2000, 20000, 0, 0, 0, 101),
-			('GACCOUNT1', $3, 3000, 30000, 0, 0, 0, 102)
-		`, assetID1, assetID2, assetID3)
+			($1, $2, 1000, 10000, 0, 0, 0, 100),
+			($1, $3, 2000, 20000, 0, 0, 0, 101),
+			($1, $4, 3000, 30000, 0, 0, 0, 102)
+		`, types.AddressBytea(accountAddr), assetID1, assetID2, assetID3)
 		require.NoError(t, err)
 
 		expectedOrder := []string{assetID1.String(), assetID2.String(), assetID3.String()}
 		slices.Sort(expectedOrder)
 
 		limit := int32(2)
-		page, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, nil, ASC)
+		page, err := m.GetByAccount(ctx, accountAddr, &limit, nil, ASC)
 		require.NoError(t, err)
 		require.Len(t, page, 2)
 		require.Equal(t, expectedOrder[0], page[0].AssetID.String())
 		require.Equal(t, expectedOrder[1], page[1].AssetID.String())
 
 		cursor := page[1].AssetID
-		nextPage, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, &cursor, ASC)
+		nextPage, err := m.GetByAccount(ctx, accountAddr, &limit, &cursor, ASC)
 		require.NoError(t, err)
 		require.Len(t, nextPage, 1)
 		require.Equal(t, expectedOrder[2], nextPage[0].AssetID.String())
 
-		descPage, err := m.GetByAccount(ctx, "GACCOUNT1", &limit, nil, DESC)
+		descPage, err := m.GetByAccount(ctx, accountAddr, &limit, nil, DESC)
 		require.NoError(t, err)
 		require.Len(t, descPage, 2)
 		require.Equal(t, expectedOrder[2], descPage[0].AssetID.String())
@@ -220,12 +223,13 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []TrustlineBalance{
 			{
-				AccountAddress:     "GACCOUNT1",
+				AccountID:          types.AddressBytea(accountAddr),
 				AssetID:            assetID1,
 				Balance:            1000,
 				Limit:              10000,
@@ -242,7 +246,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify insert
 		var count int
-		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_id = $1`, types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
 	})
@@ -255,16 +259,18 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
 			{
-				AccountAddress: "GACCOUNT1",
-				AssetID:        assetID1,
-				Balance:        1000,
-				Limit:          10000,
-				LedgerNumber:   100,
+				AccountID:    types.AddressBytea(accountAddr),
+				AssetID:      assetID1,
+				Balance:      1000,
+				Limit:        10000,
+				LedgerNumber: 100,
 			},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
@@ -284,8 +290,8 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		var balance int64
 		var ledger uint32
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance, last_modified_ledger FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`,
-			"GACCOUNT1", assetID1).Scan(&balance, &ledger)
+			`SELECT balance, last_modified_ledger FROM trustline_balances WHERE account_id = $1 AND asset_id = $2`,
+			types.AddressBytea(accountAddr), assetID1).Scan(&balance, &ledger)
 		require.NoError(t, err)
 		require.Equal(t, int64(2000), balance)
 		require.Equal(t, uint32(200), ledger)
@@ -299,11 +305,13 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr), AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
 		require.NoError(t, err)
@@ -313,7 +321,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		deletes := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID1},
+			{AccountID: types.AddressBytea(accountAddr), AssetID: assetID1},
 		}
 		err = m.BatchUpsert(ctx, pgxTx2, nil, deletes)
 		require.NoError(t, err)
@@ -321,7 +329,7 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 
 		// Verify delete
 		var count int
-		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_address = $1`, "GACCOUNT1").Scan(&count)
+		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances WHERE account_id = $1`, types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 	})
@@ -334,12 +342,15 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := keypair.MustRandom().Address()
+		accountAddr2 := keypair.MustRandom().Address()
+
 		// Insert two trustlines
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT1", AssetID: assetID2, Balance: 2000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID1, Balance: 1000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID2, Balance: 2000, LedgerNumber: 100},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
 		require.NoError(t, err)
@@ -349,11 +360,11 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1500, LedgerNumber: 200}, // update
-			{AccountAddress: "GACCOUNT2", AssetID: assetID1, Balance: 3000, LedgerNumber: 200}, // new
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID1, Balance: 1500, LedgerNumber: 200}, // update
+			{AccountID: types.AddressBytea(accountAddr2), AssetID: assetID1, Balance: 3000, LedgerNumber: 200}, // new
 		}
 		deletes := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID2}, // delete
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID2}, // delete
 		}
 		err = m.BatchUpsert(ctx, pgxTx2, newUpserts, deletes)
 		require.NoError(t, err)
@@ -363,12 +374,12 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		var count int
 		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM trustline_balances`).Scan(&count)
 		require.NoError(t, err)
-		require.Equal(t, 2, count) // GACCOUNT1:assetID1 (updated) + GACCOUNT2:assetID1 (new)
+		require.Equal(t, 2, count)
 
 		var balance int64
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`,
-			"GACCOUNT1", assetID1).Scan(&balance)
+			`SELECT balance FROM trustline_balances WHERE account_id = $1 AND asset_id = $2`,
+			types.AddressBytea(accountAddr1), assetID1).Scan(&balance)
 		require.NoError(t, err)
 		require.Equal(t, int64(1500), balance)
 	})
@@ -423,12 +434,13 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []TrustlineBalance{
 			{
-				AccountAddress:     "GACCOUNT1",
+				AccountID:          types.AddressBytea(accountAddr),
 				AssetID:            assetID1,
 				Balance:            1000,
 				Limit:              10000,
@@ -446,11 +458,11 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 		// Verify all fields
 		var b TrustlineBalance
 		err = dbConnectionPool.QueryRow(ctx, `
-			SELECT account_address, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger
-			FROM trustline_balances WHERE account_address = $1
-		`, "GACCOUNT1").Scan(&b.AccountAddress, &b.AssetID, &b.Balance, &b.Limit, &b.BuyingLiabilities, &b.SellingLiabilities, &b.Flags, &b.LedgerNumber)
+			SELECT account_id, asset_id, balance, trust_limit, buying_liabilities, selling_liabilities, flags, last_modified_ledger
+			FROM trustline_balances WHERE account_id = $1
+		`, types.AddressBytea(accountAddr)).Scan(&b.AccountID, &b.AssetID, &b.Balance, &b.Limit, &b.BuyingLiabilities, &b.SellingLiabilities, &b.Flags, &b.LedgerNumber)
 		require.NoError(t, err)
-		require.Equal(t, balances[0].AccountAddress, b.AccountAddress)
+		require.Equal(t, balances[0].AccountID, b.AccountID)
 		require.Equal(t, balances[0].AssetID, b.AssetID)
 		require.Equal(t, balances[0].Balance, b.Balance)
 		require.Equal(t, balances[0].Limit, b.Limit)
@@ -468,13 +480,15 @@ func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := keypair.MustRandom().Address()
+		accountAddr2 := keypair.MustRandom().Address()
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []TrustlineBalance{
-			{AccountAddress: "GACCOUNT1", AssetID: assetID1, Balance: 1000, Limit: 10000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT1", AssetID: assetID2, Balance: 2000, Limit: 20000, LedgerNumber: 100},
-			{AccountAddress: "GACCOUNT2", AssetID: assetID1, Balance: 3000, Limit: 30000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID1, Balance: 1000, Limit: 10000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), AssetID: assetID2, Balance: 2000, Limit: 20000, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr2), AssetID: assetID1, Balance: 3000, Limit: 30000, LedgerNumber: 100},
 		}
 
 		err = m.BatchCopy(ctx, pgxTx, balances)

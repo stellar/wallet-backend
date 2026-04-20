@@ -289,7 +289,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 		// Insert account trustline balances
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return trustlineBalanceModel.BatchCopy(ctx, dbTx, []wbdata.TrustlineBalance{
-				{AccountAddress: accountAddress, AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
+				{AccountID: types.AddressBytea(accountAddress), AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
 			})
 		})
 		require.NoError(t, err)
