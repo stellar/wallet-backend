@@ -21,7 +21,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 const (
@@ -62,7 +61,6 @@ type IngestServiceConfig struct {
 	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
-	ChannelAccountStore     store.ChannelAccountStore
 	TokenIngestionService   TokenIngestionService
 	ContractMetadataService ContractMetadataService
 
@@ -104,7 +102,6 @@ type ingestService struct {
 	rpcService                RPCService
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
-	chAccStore                store.ChannelAccountStore
 	tokenIngestionService     TokenIngestionService
 	contractMetadataService   ContractMetadataService
 	appMetrics                *metrics.Metrics
@@ -143,7 +140,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		chAccStore:                cfg.ChannelAccountStore,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		contractMetadataService:   cfg.ContractMetadataService,
 		appMetrics:                cfg.Metrics,

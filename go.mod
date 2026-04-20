@@ -8,7 +8,6 @@ require (
 	github.com/99designs/gqlgen v0.17.76
 	github.com/alitto/pond/v2 v2.5.0
 	github.com/avast/retry-go/v4 v4.6.1
-	github.com/aws/aws-sdk-go v1.55.7
 	github.com/basemachina/gqlgen-complexity-reporter v0.1.2
 	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/docker/go-connections v0.5.0
@@ -58,6 +57,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
+	github.com/aws/aws-sdk-go v1.55.7 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.36.5 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.11 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.29.17 // indirect

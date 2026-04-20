@@ -452,10 +452,6 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
 			}
-			// Unlock channel accounts using all transactions (not filtered)
-			if err := m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); err != nil {
-				return fmt.Errorf("unlocking channel accounts: %w", err)
-			}
 			// Update cursor atomically with data insertion if requested
 			if updateCursorTo != nil {
 				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {

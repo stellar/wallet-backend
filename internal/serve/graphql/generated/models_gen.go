@@ -53,28 +53,6 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
-type BuildTransactionInput struct {
-	TransactionXdr string `json:"transactionXdr"`
-}
-
-type BuildTransactionPayload struct {
-	Success        bool   `json:"success"`
-	TransactionXdr string `json:"transactionXdr"`
-}
-
-type CreateFeeBumpTransactionInput struct {
-	TransactionXdr string `json:"transactionXDR"`
-}
-
-type CreateFeeBumpTransactionPayload struct {
-	Success           bool   `json:"success"`
-	Transaction       string `json:"transaction"`
-	NetworkPassphrase string `json:"networkPassphrase"`
-}
-
-type Mutation struct {
-}
-
 type NativeBalance struct {
 	Balance            string    `json:"balance"`
 	TokenID            string    `json:"tokenId"`

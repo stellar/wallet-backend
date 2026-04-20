@@ -25,8 +25,8 @@ const (
 
 // PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
 // This is the shared core used by both live ingestion and loadtest.
-// It handles: trustline assets, contract tokens, filtered data insertion, channel account unlocking,
-// token changes, and cursor update. Channel unlock is a no-op when chAccStore is nil.
+// It handles: trustline assets, contract tokens, filtered data insertion,
+// token changes, and cursor update.
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
 	var numTxs, numOps int
 
@@ -57,12 +57,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		// 4. Unlock channel accounts (no-op when chAccStore is nil, e.g., in loadtest)
-		if txErr = m.unlockChannelAccounts(ctx, dbTx, buffer.GetTransactions()); txErr != nil {
-			return fmt.Errorf("unlocking channel accounts for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 5. Process token changes (trustline add/remove/update, contract token add, native balance, SAC balance)
+		// 4. Process token changes (trustline add/remove/update, contract token add, native balance, SAC balance)
 		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
 			buffer.GetTrustlineChanges(),
 			buffer.GetContractChanges(),
@@ -266,26 +261,6 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
 	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
-}
-
-// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx pgx.Tx, txs []*types.Transaction) error {
-	if len(txs) == 0 || m.chAccStore == nil {
-		return nil
-	}
-
-	innerTxHashes := make([]string, 0, len(txs))
-	for _, tx := range txs {
-		innerTxHashes = append(innerTxHashes, tx.InnerTransactionHash)
-	}
-
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, dbTx, innerTxHashes...); err != nil {
-		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
-	} else if affectedRows > 0 {
-		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
-	}
-
-	return nil
 }
 
 // prepareNewContractTokens filters out existing contracts and prepares metadata for new contracts.

@@ -2,7 +2,6 @@ package serve
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -28,9 +27,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/store"
-	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -49,15 +45,8 @@ type Configs struct {
 	ClientAuthMaxTimeoutSeconds int
 	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
-	EncryptionPassphrase        string
-	NumberOfChannelAccounts     int
-	// Horizon
-	SupportedAssets                    []entities.Asset
-	NetworkPassphrase                  string
-	MaxSponsoredBaseReserves           int
-	BaseFee                            int
-	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountSignatureClient      signing.SignatureClient
+	SupportedAssets             []entities.Asset
+	NetworkPassphrase           string
 
 	// RPC
 	RPCURL string
@@ -104,9 +93,7 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	FeeBumpService             services.FeeBumpService
 	Metrics                    *metrics.Metrics
-	TransactionService         services.TransactionService
 	RPCService                 services.RPCService
 	TrustlineBalanceModel      data.TrustlineBalanceModelInterface
 	NativeBalanceModel         data.NativeBalanceModelInterface
@@ -119,10 +106,6 @@ type handlerDeps struct {
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
-}
-
-type channelAccountStartupValidator interface {
-	ValidateChannelAccounts(ctx context.Context, minimum int64) error
 }
 
 func Serve(cfg Configs) error {
@@ -170,63 +153,16 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
-	if err = validateDistributionAccount(ctx, cfg.DistributionAccountSignatureClient, rpcService); err != nil {
-		return handlerDeps{}, fmt.Errorf("validating distribution account: %w", err)
-	}
-
-	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
-
-	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
-		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		BaseFee:                            int64(cfg.BaseFee),
-		Models:                             models,
-	})
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
-	}
-
-	// AccountTokens model used directly for reading trustlines and contracts
 
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
-		DB:                                 dbConnectionPool,
-		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		ChannelAccountStore:                channelAccountStore,
-		RPCService:                         rpcService,
-		BaseFee:                            int64(cfg.BaseFee),
-	})
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating transaction service: %w", err)
-	}
-
-	httpClient = http.Client{Timeout: 30 * time.Second}
-	channelAccountService, err := services.NewChannelAccountService(ctx, services.ChannelAccountServiceOptions{
-		DB:                                 dbConnectionPool,
-		RPCService:                         rpcService,
-		BaseFee:                            int64(cfg.BaseFee),
-		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		ChannelAccountStore:                channelAccountStore,
-		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
-		EncryptionPassphrase:               cfg.EncryptionPassphrase,
-	})
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
-	}
-	if err = validateChannelAccountsForStartup(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts)); err != nil {
-		return handlerDeps{}, fmt.Errorf("validating channel accounts for startup: %w", err)
-	}
-
 	return handlerDeps{
 		Models:                     models,
 		RequestAuthVerifier:        requestAuthVerifier,
 		SupportedAssets:            cfg.SupportedAssets,
-		FeeBumpService:             feeBumpService,
 		Metrics:                    m,
 		RPCService:                 rpcService,
 		TrustlineBalanceModel:      models.TrustlineBalance,
@@ -236,33 +172,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		ContractMetadataService:    contractMetadataService,
 		AppTracker:                 cfg.AppTracker,
 		NetworkPassphrase:          cfg.NetworkPassphrase,
-		TransactionService:         txService,
 		GraphQLComplexityLimit:     cfg.GraphQLComplexityLimit,
 	}, nil
-}
-
-func validateDistributionAccount(ctx context.Context, distributionAccountSignatureClient signing.SignatureClient, rpcService services.RPCService) error {
-	distributionAccountPublicKey, err := distributionAccountSignatureClient.GetAccountPublicKey(ctx)
-	if err != nil {
-		return fmt.Errorf("getting distribution account public key: %w", err)
-	}
-
-	_, err = rpcService.GetAccountLedgerSequence(distributionAccountPublicKey)
-	if err != nil {
-		if errors.Is(err, services.ErrAccountNotFound) {
-			return fmt.Errorf("distribution account %s does not exist on the configured Stellar network: %w", distributionAccountPublicKey, err)
-		}
-		return fmt.Errorf("validating distribution account %s: %w", distributionAccountPublicKey, err)
-	}
-
-	return nil
-}
-
-func validateChannelAccountsForStartup(ctx context.Context, channelAccountService channelAccountStartupValidator, numberOfChannelAccounts int64) error {
-	if err := channelAccountService.ValidateChannelAccounts(ctx, numberOfChannelAccounts); err != nil {
-		return fmt.Errorf("validating channel accounts: %w", err)
-	}
-	return nil
 }
 
 func handler(deps handlerDeps) http.Handler {
@@ -293,8 +204,6 @@ func handler(deps handlerDeps) http.Handler {
 
 			resolver := resolvers.NewResolver(
 				deps.Models,
-				deps.TransactionService,
-				deps.FeeBumpService,
 				deps.RPCService,
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
 				deps.AccountContractTokensModel,

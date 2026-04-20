@@ -25,7 +25,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 const (
@@ -168,8 +167,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
-	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-
 	contractValidator := services.NewContractValidator()
 
 	// Create pond pool for contract metadata fetching
@@ -210,7 +207,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		RPCService:                rpcService,
 		LedgerBackend:             ledgerBackend,
 		LedgerBackendFactory:      ledgerBackendFactory,
-		ChannelAccountStore:       chAccStore,
 		TokenIngestionService:     tokenIngestionService,
 		ContractMetadataService:   contractMetadataService,
 		Metrics:                   m,

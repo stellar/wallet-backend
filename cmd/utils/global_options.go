@@ -9,7 +9,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/config"
 
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func IngestServerPortOption(configKey *int) *config.ConfigOption {
@@ -79,17 +78,6 @@ func NetworkPassphraseOption(configKey *string) *config.ConfigOption {
 	}
 }
 
-func BaseFeeOption(configKey *int) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "base-fee",
-		Usage:       "The maximum base fee (in stroops) the host is willing to pay for submitting a Stellar transaction",
-		OptType:     types.Int,
-		ConfigKey:   configKey,
-		FlagDefault: 1_000_000, // 0.1 XLM. Contract invocations require a higher base fees than Stellar classic transactions.
-		Required:    true,
-	}
-}
-
 func RPCURLOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "rpc-url",
@@ -98,16 +86,6 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 		ConfigKey:   configKey,
 		FlagDefault: "http://localhost:8000",
 		Required:    true,
-	}
-}
-
-func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:      "channel-account-encryption-passphrase",
-		Usage:     "The encryption passphrase used to encrypt/decrypt the channel accounts private keys. A strong passphrase is recommended.",
-		OptType:   types.String,
-		ConfigKey: configKey,
-		Required:  true,
 	}
 }
 
@@ -128,40 +106,6 @@ func StellarEnvironmentOption(configKey *string) *config.ConfigOption {
 		OptType:   types.String,
 		ConfigKey: configKey,
 		Required:  true,
-	}
-}
-
-func DistributionAccountPublicKeyOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:           "distribution-account-public-key",
-		Usage:          "The Distribution Account public key.",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionStellarPublicKey,
-		ConfigKey:      configKey,
-		Required:       true,
-	}
-}
-
-func DistributionAccountPrivateKeyOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:           "distribution-account-private-key",
-		Usage:          `The Distribution Account private key. It's required if the configured signature client is "ENV"`,
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionStellarPrivateKey,
-		ConfigKey:      configKey,
-		Required:       false,
-	}
-}
-
-func DistributionAccountSignatureClientProviderOption(configKey *signing.SignatureClientType) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:           "distribution-account-signature-provider",
-		Usage:          "The Distribution Account Signature Client Provider. Options: ENV, KMS",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionSignatureClientProvider,
-		ConfigKey:      configKey,
-		FlagDefault:    string(signing.EnvSignatureClientType),
-		Required:       true,
 	}
 }
 
@@ -197,27 +141,6 @@ func GetLedgersLimitOption(configKey *int) *config.ConfigOption {
 	}
 }
 
-func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
-	awsOpts := config.ConfigOptions{
-		{
-			Name:        "aws-region",
-			Usage:       `The AWS region. It's required if the configured signature client is "KMS"`,
-			OptType:     types.String,
-			ConfigKey:   awsRegionConfigKey,
-			FlagDefault: "us-east-2",
-			Required:    required,
-		},
-		{
-			Name:      "kms-key-arn",
-			Usage:     `The KMS Key ARN. It's required if the configured signature client is "KMS"`,
-			OptType:   types.String,
-			ConfigKey: kmsKeyARN,
-			Required:  required,
-		},
-	}
-	return awsOpts
-}
-
 func NetworkOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "network",
@@ -240,17 +163,7 @@ func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	}
 }
 
-func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
-	opts := config.ConfigOptions{}
-	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))
-	opts = append(opts, DistributionAccountSignatureClientProviderOption(&scOpts.Type))
-	opts = append(opts, DistributionAccountPrivateKeyOption(&scOpts.DistributionAccountSecretKey))
-	opts = append(opts, AWSOptions(&scOpts.AWSRegion, &scOpts.KMSKeyARN, false)...)
-	return opts
-}
-
 // DBPoolOptions returns config options for tuning the pgxpool connection pool.
-// maxConns and minConns accept *int (cobra/viper stores ints); convert to int32 in buildPoolConfig.
 func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration, maxConnIdleTime *time.Duration) config.ConfigOptions {
 	return config.ConfigOptions{
 		{
