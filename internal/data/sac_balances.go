@@ -109,7 +109,7 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	return balances, nil
 }
 
-// BatchUpsert performs upserts and deletes for SAC balances.
+// BatchUpsert performs upserts and deletes for SAC balances using UNNEST for efficiency.
 // For upserts (ADD/UPDATE): inserts or updates balance with authorization flags.
 // For deletes (REMOVE): removes the balance row.
 func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
@@ -118,56 +118,72 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	// Upsert query: insert or update all fields
-	const upsertQuery = `
-		INSERT INTO sac_balances (
-			account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_id, contract_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			is_authorized = EXCLUDED.is_authorized,
-			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountIDs := make([][]byte, len(upserts))
+		contractIDs := make([]uuid.UUID, len(upserts))
+		balances := make([]string, len(upserts))
+		isAuthorized := make([]bool, len(upserts))
+		isClawbackEnabled := make([]bool, len(upserts))
+		ledgerNumbers := make([]int32, len(upserts))
 
-	for _, bal := range upserts {
-		batch.Queue(upsertQuery,
-			bal.AccountID,
-			bal.ContractID,
-			bal.Balance,
-			bal.IsAuthorized,
-			bal.IsClawbackEnabled,
-			bal.LedgerNumber,
-		)
-	}
+		for i, bal := range upserts {
+			raw, err := bal.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for upsert: %w", err)
+			}
+			accountIDs[i] = raw.([]byte)
+			contractIDs[i] = bal.ContractID
+			balances[i] = bal.Balance
+			isAuthorized[i] = bal.IsAuthorized
+			isClawbackEnabled[i] = bal.IsClawbackEnabled
+			ledgerNumbers[i] = int32(bal.LedgerNumber)
+		}
 
-	// Delete query
-	const deleteQuery = `DELETE FROM sac_balances WHERE account_id = $1 AND contract_id = $2`
+		const upsertQuery = `
+			INSERT INTO sac_balances (
+				account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+			)
+			SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::boolean[], $5::boolean[], $6::int[])
+			ON CONFLICT (account_id, contract_id) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				is_authorized = EXCLUDED.is_authorized,
+				is_clawback_enabled = EXCLUDED.is_clawback_enabled,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, bal := range deletes {
-		batch.Queue(deleteQuery, bal.AccountID, bal.ContractID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, isAuthorized, isClawbackEnabled, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing SAC balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		deleteAccountIDs := make([][]byte, len(deletes))
+		deleteContractIDs := make([]uuid.UUID, len(deletes))
+
+		for i, bal := range deletes {
+			raw, err := bal.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for delete: %w", err)
+			}
+			deleteAccountIDs[i] = raw.([]byte)
+			deleteContractIDs[i] = bal.ContractID
+		}
+
+		const deleteQuery = `
+			DELETE FROM sac_balances
+			WHERE (account_id, contract_id) IN (
+				SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
+			)`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, deleteAccountIDs, deleteContractIDs); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting SAC balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
