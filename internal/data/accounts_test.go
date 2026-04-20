@@ -112,34 +112,3 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, operationID1, addressSet[address1])
 	assert.Equal(t, operationID2, addressSet[address2])
 }
-
-func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &AccountModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	address := keypair.MustRandom().Address()
-
-	isFeeBumpEligible, err := m.IsAccountFeeBumpEligible(ctx, address)
-	require.NoError(t, err)
-	assert.False(t, isFeeBumpEligible)
-
-	// Insert into channel_accounts since IsAccountFeeBumpEligible only checks that table
-	_, err = m.DB.Exec(ctx, "INSERT INTO channel_accounts (public_key, encrypted_private_key) VALUES ($1, 'encrypted')", address)
-	require.NoError(t, err)
-
-	isFeeBumpEligible, err = m.IsAccountFeeBumpEligible(ctx, address)
-	require.NoError(t, err)
-	assert.True(t, isFeeBumpEligible)
-}

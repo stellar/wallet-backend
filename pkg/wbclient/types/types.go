@@ -214,7 +214,7 @@ type Account struct {
 	CreatedAt time.Time `json:"createdAt,omitempty"`
 }
 
-// Transaction represents a Stellar transaction
+// Transaction represents a Stellar transaction XDR for submission.
 type Transaction struct {
 	TransactionXdr string `json:"transactionXdr" validate:"required"`
 }
@@ -316,25 +316,4 @@ func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 type StateChangeConnection struct {
 	Edges    []*StateChangeEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`
-}
-
-type BuildTransactionsRequest struct {
-	Transactions []Transaction `json:"transactions" validate:"required,gt=0"`
-}
-
-type BuildTransactionsResponse struct {
-	TransactionXDRs []string `json:"transactionXdrs"`
-}
-
-type BuildTransactionResponse struct {
-	TransactionXDR string `json:"transactionXdr"`
-}
-
-type CreateFeeBumpTransactionRequest struct {
-	Transaction string `json:"transaction" validate:"required"`
-}
-
-type TransactionEnvelopeResponse struct {
-	Transaction       string `json:"transaction"`
-	NetworkPassphrase string `json:"networkPassphrase"`
 }

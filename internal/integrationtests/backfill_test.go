@@ -93,7 +93,6 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 		containers.GetClientAuthKeyPair(ctx).Address(),
 		containers.GetPrimarySourceAccountKeyPair(ctx).Address(),
 		containers.GetSecondarySourceAccountKeyPair(ctx).Address(),
-		containers.GetDistributionAccountKeyPair(ctx).Address(),
 		containers.GetBalanceTestAccount1KeyPair(ctx).Address(),
 		containers.GetBalanceTestAccount2KeyPair(ctx).Address(),
 	}

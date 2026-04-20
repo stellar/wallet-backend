@@ -353,7 +353,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 
 // createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
 func createWalletBackendIngestContainer(ctx context.Context, name string, imageName string,
-	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full,
 	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
@@ -382,12 +382,9 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"LEDGER_BACKEND_TYPE":              "rpc",
 			"START_LEDGER":                     "0",
 			"END_LEDGER":                       "0",
-			"NETWORK_PASSPHRASE":               networkPassphrase,
-			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
-			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
-			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"NETWORK_PASSPHRASE":      networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS": clientAuthKeyPair.Address(),
+			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks: []string{testNetwork.Name},
 	}
@@ -423,7 +420,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
 func createWalletBackendAPIContainer(ctx context.Context, name string, imageName string,
-	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -434,24 +431,19 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend channel-account ensure 15 && ./wallet-backend serve",
+			"./wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
-			"RPC_URL":                          "http://stellar-rpc:8000",
-			"DATABASE_URL":                     "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                             walletBackendContainerAPIPort,
-			"GRAPHQL_COMPLEXITY_LIMIT":         "5000",
-			"LOG_LEVEL":                        "DEBUG",
-			"NETWORK":                          "standalone",
-			"NETWORK_PASSPHRASE":               networkPassphrase,
-			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
-			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
-			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
-			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
-			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"RPC_URL":                  "http://stellar-rpc:8000",
+			"DATABASE_URL":             "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
+			"PORT":                     walletBackendContainerAPIPort,
+			"GRAPHQL_COMPLEXITY_LIMIT": "5000",
+			"LOG_LEVEL":                "DEBUG",
+			"NETWORK":                  "standalone",
+			"NETWORK_PASSPHRASE":       networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS":  clientAuthKeyPair.Address(),
+			"STELLAR_ENVIRONMENT":      "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
@@ -516,16 +508,13 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			"SKIP_TX_META":         "false",
 			"SKIP_TX_ENVELOPE":     "false",
 			"LEDGER_BACKEND_TYPE":  "rpc",
-			"NETWORK_PASSPHRASE":   networkPassphrase,
+			"NETWORK_PASSPHRASE": networkPassphrase,
 			// Backfill-specific configuration
-			"INGESTION_MODE":                          "backfill",
-			"START_LEDGER":                            fmt.Sprintf("%d", startLedger),
-			"END_LEDGER":                              fmt.Sprintf("%d", endLedger),
-			"CLIENT_AUTH_PUBLIC_KEYS":                 s.clientAuthKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":         s.distributionAccountKeyPair.Address(),
-			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY":        s.distributionAccountKeyPair.Seed(),
-			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
-			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"INGESTION_MODE":          "backfill",
+			"START_LEDGER":            fmt.Sprintf("%d", startLedger),
+			"END_LEDGER":              fmt.Sprintf("%d", endLedger),
+			"CLIENT_AUTH_PUBLIC_KEYS": s.clientAuthKeyPair.Address(),
+			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks: []string{s.TestNetwork.Name},
 	}

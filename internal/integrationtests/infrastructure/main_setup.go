@@ -45,7 +45,6 @@ type SharedContainers struct {
 	clientAuthKeyPair             *keypair.Full
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
-	distributionAccountKeyPair    *keypair.Full
 	sponsoredNewAccountKeyPair    *keypair.Full
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
@@ -119,7 +118,6 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 	s.clientAuthKeyPair = keypair.MustRandom()
 	s.primarySourceAccountKeyPair = keypair.MustRandom()
 	s.secondarySourceAccountKeyPair = keypair.MustRandom()
-	s.distributionAccountKeyPair = keypair.MustRandom()
 	s.balanceTestAccount1KeyPair = keypair.MustRandom()
 	s.balanceTestAccount2KeyPair = keypair.MustRandom()
 
@@ -131,7 +129,6 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 		s.clientAuthKeyPair,
 		s.primarySourceAccountKeyPair,
 		s.secondarySourceAccountKeyPair,
-		s.distributionAccountKeyPair,
 		s.balanceTestAccount1KeyPair,
 		s.balanceTestAccount2KeyPair,
 	})
@@ -276,7 +273,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 	// Start wallet-backend ingest
 	s.WalletBackendContainer = &WalletBackendContainer{}
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, nil)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
@@ -288,7 +285,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
@@ -443,11 +440,6 @@ func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *k
 // GetMasterKeyPair returns the master account keypair
 func (s *SharedContainers) GetMasterKeyPair(ctx context.Context) *keypair.Full {
 	return s.masterKeyPair
-}
-
-// GetDistributionAccountKeyPair returns the distribution account keypair
-func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
-	return s.distributionAccountKeyPair
 }
 
 // GetWalletDBConnectionString returns the connection string for the wallet backend database

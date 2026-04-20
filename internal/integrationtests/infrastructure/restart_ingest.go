@@ -36,7 +36,7 @@ func (s *SharedContainers) RestartIngestContainer(ctx context.Context, extraEnv 
 
 	// Start new ingest container
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, containerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, extraEnv)
+		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, extraEnv)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
