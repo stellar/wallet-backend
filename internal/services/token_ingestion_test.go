@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -263,7 +264,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-		got, err := trustlineBalanceModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", nil, nil, wbdata.ASC)
+		got, err := trustlineBalanceModel.GetByAccount(ctx, keypair.MustRandom().Address(), nil, nil, wbdata.ASC)
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -289,7 +290,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 		// Insert account trustline balances
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 			return trustlineBalanceModel.BatchCopy(ctx, dbTx, []wbdata.TrustlineBalance{
-				{AccountAddress: accountAddress, AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
+				{AccountID: types.AddressBytea(accountAddress), AssetID: assetID, Balance: 0, Limit: 0, BuyingLiabilities: 0, SellingLiabilities: 0, Flags: 0, LedgerNumber: 100},
 			})
 		})
 		require.NoError(t, err)

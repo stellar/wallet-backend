@@ -5,9 +5,9 @@
 
 -- Storage parameters tuned for heavy UPSERT/DELETE during ledger ingestion.
 -- UPSERTs only modify non-indexed columns (balance, trust_limit, liabilities, flags,
--- last_modified_ledger) while PK columns (account_address, asset_id) are never changed.
+-- last_modified_ledger) while PK columns (account_id, asset_id) are never changed.
 CREATE TABLE trustline_balances (
-    account_address TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     asset_id UUID NOT NULL,
     balance BIGINT NOT NULL DEFAULT 0,
     trust_limit BIGINT NOT NULL DEFAULT 0,
@@ -15,7 +15,7 @@ CREATE TABLE trustline_balances (
     selling_liabilities BIGINT NOT NULL DEFAULT 0,
     flags INTEGER NOT NULL DEFAULT 0,
     last_modified_ledger BIGINT NOT NULL DEFAULT 0,
-    PRIMARY KEY (account_address, asset_id),
+    PRIMARY KEY (account_id, asset_id),
     CONSTRAINT fk_trustline_asset
         FOREIGN KEY (asset_id) REFERENCES trustline_assets(id)
         DEFERRABLE INITIALLY DEFERRED

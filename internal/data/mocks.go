@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // ContractModelMock is a mock implementation of ContractModelInterface.
@@ -112,7 +114,7 @@ func (m *NativeBalanceModelMock) GetByAccount(ctx context.Context, accountAddres
 	return args.Get(0).(*NativeBalance), args.Error(1)
 }
 
-func (m *NativeBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []string) error {
+func (m *NativeBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []NativeBalance, deletes []types.AddressBytea) error {
 	args := m.Called(ctx, dbTx, upserts, deletes)
 	return args.Error(0)
 }

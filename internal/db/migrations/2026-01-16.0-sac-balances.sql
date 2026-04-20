@@ -5,15 +5,15 @@
 -- Classic Stellar accounts (G...) have SAC balances in their trustlines, so only contract holders are stored here.
 -- Storage parameters tuned for heavy UPSERT/DELETE during ledger ingestion.
 -- UPSERTs only modify non-indexed columns (balance, is_authorized, is_clawback_enabled,
--- last_modified_ledger) while PK columns (account_address, contract_id) are never changed.
+-- last_modified_ledger) while PK columns (account_id, contract_id) are never changed.
 CREATE TABLE sac_balances (
-    account_address TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
     balance TEXT NOT NULL DEFAULT '0',
     is_authorized BOOLEAN NOT NULL DEFAULT true,
     is_clawback_enabled BOOLEAN NOT NULL DEFAULT false,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (account_address, contract_id),
+    PRIMARY KEY (account_id, contract_id),
     CONSTRAINT fk_contract_token
         FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
         DEFERRABLE INITIALLY DEFERRED

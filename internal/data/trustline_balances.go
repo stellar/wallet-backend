@@ -12,22 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
 type TrustlineBalance struct {
-	AccountAddress     string    `db:"account_address"`
-	AssetID            uuid.UUID `db:"asset_id"`
-	Code               string    `db:"code"`   // Asset code from trustline_assets table
-	Issuer             string    `db:"issuer"` // Asset issuer from trustline_assets table
-	Balance            int64     `db:"balance"`
-	Limit              int64     `db:"trust_limit"`
-	BuyingLiabilities  int64     `db:"buying_liabilities"`
-	SellingLiabilities int64     `db:"selling_liabilities"`
-	Flags              uint32    `db:"flags"`
-	LedgerNumber       uint32    `db:"last_modified_ledger"`
+	AccountID          types.AddressBytea `db:"account_id"`
+	AssetID            uuid.UUID          `db:"asset_id"`
+	Code               string             `db:"code"`   // Asset code from trustline_assets table
+	Issuer             string             `db:"issuer"` // Asset issuer from trustline_assets table
+	Balance            int64              `db:"balance"`
+	Limit              int64              `db:"trust_limit"`
+	BuyingLiabilities  int64              `db:"buying_liabilities"`
+	SellingLiabilities int64              `db:"selling_liabilities"`
+	Flags              uint32             `db:"flags"`
+	LedgerNumber       uint32             `db:"last_modified_ledger"`
 }
 
 // TrustlineBalanceModelInterface defines the interface for trustline balance operations.
@@ -61,13 +62,13 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	}
 
 	query := `
-		SELECT atb.account_address, atb.asset_id, ta.code, ta.issuer,
+		SELECT atb.account_id, atb.asset_id, ta.code, ta.issuer,
 		       atb.balance, atb.trust_limit, atb.buying_liabilities,
 		       atb.selling_liabilities, atb.flags, atb.last_modified_ledger
 		FROM trustline_balances atb
 		INNER JOIN trustline_assets ta ON ta.id = atb.asset_id
-		WHERE atb.account_address = $1`
-	args := []interface{}{accountAddress}
+		WHERE atb.account_id = $1`
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	if cursor != nil {
@@ -106,7 +107,7 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	return balances, nil
 }
 
-// BatchUpsert performs upserts and deletes with full XDR fields.
+// BatchUpsert performs upserts and deletes using UNNEST for efficiency.
 // For upserts (ADD/UPDATE): inserts or updates all trustline fields.
 // For deletes (REMOVE): removes the trustline row.
 func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []TrustlineBalance, deletes []TrustlineBalance) error {
@@ -115,61 +116,87 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	// Upsert query: insert or update all fields
-	const upsertQuery = `
-		INSERT INTO trustline_balances (
-			account_address, asset_id, balance, trust_limit,
-			buying_liabilities, selling_liabilities, flags, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (account_address, asset_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			trust_limit = EXCLUDED.trust_limit,
-			buying_liabilities = EXCLUDED.buying_liabilities,
-			selling_liabilities = EXCLUDED.selling_liabilities,
-			flags = EXCLUDED.flags,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountIDs := make([][]byte, len(upserts))
+		assetIDs := make([]uuid.UUID, len(upserts))
+		balances := make([]int64, len(upserts))
+		limits := make([]int64, len(upserts))
+		buyingLiabilities := make([]int64, len(upserts))
+		sellingLiabilities := make([]int64, len(upserts))
+		flags := make([]int32, len(upserts))
+		ledgerNumbers := make([]int64, len(upserts))
 
-	for _, tl := range upserts {
-		batch.Queue(upsertQuery,
-			tl.AccountAddress,
-			tl.AssetID,
-			tl.Balance,
-			tl.Limit,
-			tl.BuyingLiabilities,
-			tl.SellingLiabilities,
-			tl.Flags,
-			tl.LedgerNumber,
-		)
-	}
+		for i, tl := range upserts {
+			raw, err := tl.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for upsert: %w", err)
+			}
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
+			}
+			accountIDs[i] = rawBytes
+			assetIDs[i] = tl.AssetID
+			balances[i] = tl.Balance
+			limits[i] = tl.Limit
+			buyingLiabilities[i] = tl.BuyingLiabilities
+			sellingLiabilities[i] = tl.SellingLiabilities
+			flags[i] = int32(tl.Flags)
+			ledgerNumbers[i] = int64(tl.LedgerNumber)
+		}
 
-	// Delete query
-	const deleteQuery = `DELETE FROM trustline_balances WHERE account_address = $1 AND asset_id = $2`
+		const upsertQuery = `
+			INSERT INTO trustline_balances (
+				account_id, asset_id, balance, trust_limit,
+				buying_liabilities, selling_liabilities, flags, last_modified_ledger
+			)
+			SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::int[], $8::bigint[])
+			ON CONFLICT (account_id, asset_id) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				trust_limit = EXCLUDED.trust_limit,
+				buying_liabilities = EXCLUDED.buying_liabilities,
+				selling_liabilities = EXCLUDED.selling_liabilities,
+				flags = EXCLUDED.flags,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, tl := range deletes {
-		batch.Queue(deleteQuery, tl.AccountAddress, tl.AssetID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, assetIDs, balances, limits, buyingLiabilities, sellingLiabilities, flags, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing trustline balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		deleteAccountIDs := make([][]byte, len(deletes))
+		deleteAssetIDs := make([]uuid.UUID, len(deletes))
+
+		for i, tl := range deletes {
+			raw, err := tl.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for delete: %w", err)
+			}
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for delete: expected []byte, got %T", raw)
+			}
+			deleteAccountIDs[i] = rawBytes
+			deleteAssetIDs[i] = tl.AssetID
+		}
+
+		const deleteQuery = `
+			DELETE FROM trustline_balances
+			WHERE (account_id, asset_id) IN (
+				SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
+			)`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, deleteAccountIDs, deleteAssetIDs); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "trustline_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "trustline_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting trustline balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
@@ -189,7 +216,7 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		ctx,
 		pgx.Identifier{"trustline_balances"},
 		[]string{
-			"account_address",
+			"account_id",
 			"asset_id",
 			"balance",
 			"trust_limit",
@@ -200,8 +227,12 @@ func (m *TrustlineBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, bala
 		},
 		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
 			tl := balances[i]
+			accountIDBytes, err := tl.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account address to bytes: %w", err)
+			}
 			return []any{
-				tl.AccountAddress,
+				accountIDBytes,
 				tl.AssetID,
 				tl.Balance,
 				tl.Limit,

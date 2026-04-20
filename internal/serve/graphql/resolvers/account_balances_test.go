@@ -132,7 +132,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		sep41Contract := createSEP41Contract(testSEP41ContractAddress, "CustomToken", "CTK", 6)
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
-			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 2000000000}, nil)
+			Return(&data.NativeBalance{AccountID: types.AddressBytea(testAccountAddress), Balance: 2000000000}, nil)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{{
 				AssetID:      trustlineID,
@@ -193,7 +193,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 
 		mockSACBalanceModel.On("GetByAccount", ctx, testContractAddress, limitMatcher(51), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.SACBalance{{
-				AccountAddress:    testContractAddress,
+				AccountID:         types.AddressBytea(testContractAddress),
 				ContractID:        sacContractID,
 				TokenID:           testSACContractAddress,
 				Balance:           "2500.0000000",
@@ -241,7 +241,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		sep41Contract2 := createSEP41Contract(testSEP41ContractAddress2, "TokenTwo", "TWO", 7)
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
-			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil).
+			Return(&data.NativeBalance{AccountID: types.AddressBytea(testAccountAddress), Balance: 1000000000}, nil).
 			Once()
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(2), (*uuid.UUID)(nil), data.ASC).
 			Return([]data.TrustlineBalance{{
@@ -326,7 +326,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 				LedgerNumber: 12345,
 			}}, nil)
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
-			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil)
+			Return(&data.NativeBalance{AccountID: types.AddressBytea(testAccountAddress), Balance: 1000000000}, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 		mockContractMetadataService.On("FetchSingleField", ctx, testSEP41ContractAddress, "balance", mock.Anything).
 			Return(createI128ScVal(10000000000), nil)
@@ -372,7 +372,7 @@ func TestAccountResolver_Balances(t *testing.T) {
 		mockRPCService := services.NewRPCServiceMock(t)
 
 		mockNativeBalanceModel.On("GetByAccount", ctx, testAccountAddress).
-			Return(&data.NativeBalance{AccountAddress: testAccountAddress, Balance: 1000000000}, nil)
+			Return(&data.NativeBalance{AccountID: types.AddressBytea(testAccountAddress), Balance: 1000000000}, nil)
 		mockTrustlineBalanceModel.On("GetByAccount", ctx, testAccountAddress, limitMatcher(50), (*uuid.UUID)(nil), data.ASC).
 			Return(nil, errors.New("database query failed"))
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)

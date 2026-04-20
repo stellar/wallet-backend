@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -20,12 +21,12 @@ import (
 // Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
 // Includes contract metadata from JOIN with contract_tokens table for API responses.
 type SACBalance struct {
-	AccountAddress    string    `db:"account_address"` // Contract address (C...) of the holder
-	ContractID        uuid.UUID `db:"contract_id"`     // Deterministic UUID for the SAC contract
-	Balance           string    `db:"balance"`         // Balance as string (handles i128 values)
-	IsAuthorized      bool      `db:"is_authorized"`
-	IsClawbackEnabled bool      `db:"is_clawback_enabled"`
-	LedgerNumber      uint32    `db:"last_modified_ledger"`
+	AccountID         types.AddressBytea `db:"account_id"`  // Contract address (C...) of the holder
+	ContractID        uuid.UUID          `db:"contract_id"` // Deterministic UUID for the SAC contract
+	Balance           string             `db:"balance"`     // Balance as string (handles i128 values)
+	IsAuthorized      bool               `db:"is_authorized"`
+	IsClawbackEnabled bool               `db:"is_clawback_enabled"`
+	LedgerNumber      uint32             `db:"last_modified_ledger"`
 	// Contract metadata from JOIN with contract_tokens
 	TokenID  string `db:"token_id"` // SAC contract address (C...) used as token identifier in API; aliased from ct.contract_id
 	Code     string `db:"code"`     // Asset code (e.g., "USDC")
@@ -65,13 +66,13 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	}
 
 	query := `
-		SELECT asb.account_address, asb.contract_id, asb.balance, asb.is_authorized,
+		SELECT asb.account_id, asb.contract_id, asb.balance, asb.is_authorized,
 		       asb.is_clawback_enabled, asb.last_modified_ledger,
 		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
 		FROM sac_balances asb
 		INNER JOIN contract_tokens ct ON ct.id = asb.contract_id
-		WHERE asb.account_address = $1`
-	args := []interface{}{accountAddress}
+		WHERE asb.account_id = $1`
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	if cursor != nil {
@@ -108,7 +109,7 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	return balances, nil
 }
 
-// BatchUpsert performs upserts and deletes for SAC balances.
+// BatchUpsert performs upserts and deletes for SAC balances using UNNEST for efficiency.
 // For upserts (ADD/UPDATE): inserts or updates balance with authorization flags.
 // For deletes (REMOVE): removes the balance row.
 func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
@@ -117,56 +118,80 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	// Upsert query: insert or update all fields
-	const upsertQuery = `
-		INSERT INTO sac_balances (
-			account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_address, contract_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
-			is_authorized = EXCLUDED.is_authorized,
-			is_clawback_enabled = EXCLUDED.is_clawback_enabled,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		accountIDs := make([][]byte, len(upserts))
+		contractIDs := make([]uuid.UUID, len(upserts))
+		balances := make([]string, len(upserts))
+		isAuthorized := make([]bool, len(upserts))
+		isClawbackEnabled := make([]bool, len(upserts))
+		ledgerNumbers := make([]int32, len(upserts))
 
-	for _, bal := range upserts {
-		batch.Queue(upsertQuery,
-			bal.AccountAddress,
-			bal.ContractID,
-			bal.Balance,
-			bal.IsAuthorized,
-			bal.IsClawbackEnabled,
-			bal.LedgerNumber,
-		)
-	}
+		for i, bal := range upserts {
+			raw, err := bal.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for upsert: %w", err)
+			}
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
+			}
+			accountIDs[i] = rawBytes
+			contractIDs[i] = bal.ContractID
+			balances[i] = bal.Balance
+			isAuthorized[i] = bal.IsAuthorized
+			isClawbackEnabled[i] = bal.IsClawbackEnabled
+			ledgerNumbers[i] = int32(bal.LedgerNumber)
+		}
 
-	// Delete query
-	const deleteQuery = `DELETE FROM sac_balances WHERE account_address = $1 AND contract_id = $2`
+		const upsertQuery = `
+			INSERT INTO sac_balances (
+				account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+			)
+			SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::boolean[], $5::boolean[], $6::int[])
+			ON CONFLICT (account_id, contract_id) DO UPDATE SET
+				balance = EXCLUDED.balance,
+				is_authorized = EXCLUDED.is_authorized,
+				is_clawback_enabled = EXCLUDED.is_clawback_enabled,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, bal := range deletes {
-		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, isAuthorized, isClawbackEnabled, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
-		m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
-		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("closing SAC balance batch: %w", err)
+
+	if len(deletes) > 0 {
+		deleteAccountIDs := make([][]byte, len(deletes))
+		deleteContractIDs := make([]uuid.UUID, len(deletes))
+
+		for i, bal := range deletes {
+			raw, err := bal.AccountID.Value()
+			if err != nil {
+				return fmt.Errorf("converting account address to bytes for delete: %w", err)
+			}
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for delete: expected []byte, got %T", raw)
+			}
+			deleteAccountIDs[i] = rawBytes
+			deleteContractIDs[i] = bal.ContractID
+		}
+
+		const deleteQuery = `
+			DELETE FROM sac_balances
+			WHERE (account_id, contract_id) IN (
+				SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
+			)`
+
+		if _, err := dbTx.Exec(ctx, deleteQuery, deleteAccountIDs, deleteContractIDs); err != nil {
+			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting SAC balances: %w", err)
+		}
 	}
 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
@@ -186,7 +211,7 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		ctx,
 		pgx.Identifier{"sac_balances"},
 		[]string{
-			"account_address",
+			"account_id",
 			"contract_id",
 			"balance",
 			"is_authorized",
@@ -195,8 +220,12 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 		},
 		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
 			bal := balances[i]
+			accountIDBytes, err := bal.AccountID.Value()
+			if err != nil {
+				return nil, fmt.Errorf("converting account address to bytes: %w", err)
+			}
 			return []any{
-				bal.AccountAddress,
+				accountIDBytes,
 				bal.ContractID,
 				bal.Balance,
 				bal.IsAuthorized,

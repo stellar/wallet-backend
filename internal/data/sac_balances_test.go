@@ -3,16 +3,31 @@ package data
 
 import (
 	"context"
+	"crypto/rand"
 	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// randomContractAddress generates a random valid C-address for testing.
+// SAC balances store contract holder addresses which are C-addresses (not G-addresses).
+func randomContractAddress(t *testing.T) string {
+	t.Helper()
+	var raw [32]byte
+	_, err := rand.Read(raw[:])
+	require.NoError(t, err)
+	addr, err := strkey.Encode(strkey.VersionByteContract, raw[:])
+	require.NoError(t, err)
+	return addr
+}
 
 func TestSACBalanceModel_GetByAccount(t *testing.T) {
 	ctx := context.Background()
@@ -66,7 +81,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, "CNOTEXISTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", nil, nil, ASC)
+		balances, err := m.GetByAccount(ctx, randomContractAddress(t), nil, nil, ASC)
 		require.NoError(t, err)
 		require.Empty(t, balances)
 	})
@@ -79,12 +94,12 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
-			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			VALUES ($1, $2, '1000000000', true, false, 12345)
-		`, accountAddr, contractID1)
+		`, types.AddressBytea(accountAddr), contractID1)
 		require.NoError(t, err)
 
 		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
@@ -92,7 +107,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 		require.Len(t, balances, 1)
 
 		// Verify all fields including JOIN data
-		require.Equal(t, accountAddr, balances[0].AccountAddress)
+		require.Equal(t, types.AddressBytea(accountAddr), balances[0].AccountID)
 		require.Equal(t, contractID1, balances[0].ContractID)
 		require.Equal(t, "1000000000", balances[0].Balance)
 		require.True(t, balances[0].IsAuthorized)
@@ -113,14 +128,14 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "CACCOUNT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
-			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			VALUES
 			($1, $2, '1000', true, false, 100),
 			($1, $3, '2000', true, true, 101)
-		`, accountAddr, contractID1, contractID2)
+		`, types.AddressBytea(accountAddr), contractID1, contractID2)
 		require.NoError(t, err)
 
 		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
@@ -129,7 +144,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 
 		// Verify both balances belong to the correct account
 		for _, b := range balances {
-			require.Equal(t, accountAddr, b.AccountAddress)
+			require.Equal(t, types.AddressBytea(accountAddr), b.AccountID)
 		}
 	})
 
@@ -141,15 +156,15 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
-			(account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			VALUES
 			($1, $2, '1000', true, false, 100),
 			($1, $3, '2000', true, false, 101),
 			($1, $4, '3000', true, false, 102)
-		`, accountAddr, contractID1, contractID2, contractID3)
+		`, types.AddressBytea(accountAddr), contractID1, contractID2, contractID3)
 		require.NoError(t, err)
 
 		expectedOrder := []string{contractID1.String(), contractID2.String(), contractID3.String()}
@@ -227,12 +242,13 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		upserts := []SACBalance{
 			{
-				AccountAddress:    "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+				AccountID:         types.AddressBytea(accountAddr),
 				ContractID:        contractID1,
 				Balance:           "1000000000",
 				IsAuthorized:      true,
@@ -248,8 +264,8 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		// Verify insert
 		var count int
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM sac_balances WHERE account_address = $1`,
-			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(&count)
+			`SELECT COUNT(*) FROM sac_balances WHERE account_id = $1`,
+			types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
 	})
@@ -262,12 +278,14 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := randomContractAddress(t)
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
 			{
-				AccountAddress:    "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+				AccountID:         types.AddressBytea(accountAddr),
 				ContractID:        contractID1,
 				Balance:           "1000",
 				IsAuthorized:      true,
@@ -294,8 +312,8 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		var isAuthorized bool
 		var ledger uint32
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance, is_authorized, last_modified_ledger FROM sac_balances WHERE account_address = $1 AND contract_id = $2`,
-			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", contractID1).Scan(&balance, &isAuthorized, &ledger)
+			`SELECT balance, is_authorized, last_modified_ledger FROM sac_balances WHERE account_id = $1 AND contract_id = $2`,
+			types.AddressBytea(accountAddr), contractID1).Scan(&balance, &isAuthorized, &ledger)
 		require.NoError(t, err)
 		require.Equal(t, "2000", balance)
 		require.False(t, isAuthorized)
@@ -310,15 +328,17 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := randomContractAddress(t)
+
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
 			{
-				AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-				ContractID:     contractID1,
-				Balance:        "1000",
-				LedgerNumber:   100,
+				AccountID:    types.AddressBytea(accountAddr),
+				ContractID:   contractID1,
+				Balance:      "1000",
+				LedgerNumber: 100,
 			},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
@@ -329,7 +349,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		deletes := []SACBalance{
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1},
+			{AccountID: types.AddressBytea(accountAddr), ContractID: contractID1},
 		}
 		err = m.BatchUpsert(ctx, pgxTx2, nil, deletes)
 		require.NoError(t, err)
@@ -338,8 +358,8 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		// Verify delete
 		var count int
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM sac_balances WHERE account_address = $1`,
-			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(&count)
+			`SELECT COUNT(*) FROM sac_balances WHERE account_id = $1`,
+			types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 	})
@@ -352,12 +372,15 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := randomContractAddress(t)
+		accountAddr2 := randomContractAddress(t)
+
 		// Insert two balances
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts := []SACBalance{
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "1000", LedgerNumber: 100},
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID2, Balance: "2000", LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID1, Balance: "1000", LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID2, Balance: "2000", LedgerNumber: 100},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
 		require.NoError(t, err)
@@ -367,11 +390,11 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		newUpserts := []SACBalance{
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "1500", LedgerNumber: 200}, // update
-			{AccountAddress: "CACCOUNT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "3000", LedgerNumber: 200}, // new
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID1, Balance: "1500", LedgerNumber: 200}, // update
+			{AccountID: types.AddressBytea(accountAddr2), ContractID: contractID1, Balance: "3000", LedgerNumber: 200}, // new
 		}
 		deletes := []SACBalance{
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID2}, // delete
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID2}, // delete
 		}
 		err = m.BatchUpsert(ctx, pgxTx2, newUpserts, deletes)
 		require.NoError(t, err)
@@ -381,12 +404,12 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		var count int
 		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM sac_balances`).Scan(&count)
 		require.NoError(t, err)
-		require.Equal(t, 2, count) // CACCOUNT1:contractID1 (updated) + CACCOUNT2:contractID1 (new)
+		require.Equal(t, 2, count)
 
 		var balance string
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance FROM sac_balances WHERE account_address = $1 AND contract_id = $2`,
-			"CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", contractID1).Scan(&balance)
+			`SELECT balance FROM sac_balances WHERE account_id = $1 AND contract_id = $2`,
+			types.AddressBytea(accountAddr1), contractID1).Scan(&balance)
 		require.NoError(t, err)
 		require.Equal(t, "1500", balance)
 	})
@@ -443,12 +466,13 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []SACBalance{
 			{
-				AccountAddress:    "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+				AccountID:         types.AddressBytea(accountAddr),
 				ContractID:        contractID1,
 				Balance:           "1000000000",
 				IsAuthorized:      true,
@@ -464,12 +488,12 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 		// Verify all fields
 		var b SACBalance
 		err = dbConnectionPool.QueryRow(ctx, `
-			SELECT account_address, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
-			FROM sac_balances WHERE account_address = $1
-		`, "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").Scan(
-			&b.AccountAddress, &b.ContractID, &b.Balance, &b.IsAuthorized, &b.IsClawbackEnabled, &b.LedgerNumber)
+			SELECT account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
+			FROM sac_balances WHERE account_id = $1
+		`, types.AddressBytea(accountAddr)).Scan(
+			&b.AccountID, &b.ContractID, &b.Balance, &b.IsAuthorized, &b.IsClawbackEnabled, &b.LedgerNumber)
 		require.NoError(t, err)
-		require.Equal(t, balances[0].AccountAddress, b.AccountAddress)
+		require.Equal(t, balances[0].AccountID, b.AccountID)
 		require.Equal(t, balances[0].ContractID, b.ContractID)
 		require.Equal(t, balances[0].Balance, b.Balance)
 		require.Equal(t, balances[0].IsAuthorized, b.IsAuthorized)
@@ -485,13 +509,15 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
+		accountAddr1 := randomContractAddress(t)
+		accountAddr2 := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
 		balances := []SACBalance{
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "1000", LedgerNumber: 100},
-			{AccountAddress: "CACCOUNT1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID2, Balance: "2000", LedgerNumber: 100},
-			{AccountAddress: "CACCOUNT2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ContractID: contractID1, Balance: "3000", LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID1, Balance: "1000", LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr1), ContractID: contractID2, Balance: "2000", LedgerNumber: 100},
+			{AccountID: types.AddressBytea(accountAddr2), ContractID: contractID1, Balance: "3000", LedgerNumber: 100},
 		}
 
 		err = m.BatchCopy(ctx, pgxTx, balances)
