@@ -35,20 +35,6 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
 
-	// Phase 2: Test parallel live + backfill ingestion
-	t.Run("BackfillTestSuite", func(t *testing.T) {
-		suite.Run(t, &BackfillTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
-	// Test catchup backfilling during live ingestion
-	t.Run("CatchupTestSuite", func(t *testing.T) {
-		suite.Run(t, &CatchupTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
 	// Phase 1: Validate balances from checkpoint before fixture transactions
 	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
@@ -70,6 +56,20 @@ func TestIntegrationTests(t *testing.T) {
 	// Wait for ingest service to process all transactions
 	log.Ctx(ctx).Info("Waiting for ingest service to process transactions...")
 	time.Sleep(5 * time.Second)
+
+	// Test parallel live + backfill ingestion (after use case txns so transactions table has data)
+	t.Run("BackfillTestSuite", func(t *testing.T) {
+		suite.Run(t, &BackfillTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Test catchup backfilling during live ingestion
+	t.Run("CatchupTestSuite", func(t *testing.T) {
+		suite.Run(t, &CatchupTestSuite{
+			testEnv: testEnv,
+		})
+	})
 
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
