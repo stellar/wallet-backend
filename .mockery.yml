@@ -11,9 +11,6 @@ require-template-schema-exists: true
 template: testify
 template-schema: "{{.Template}}.schema.json"
 packages:
-  github.com/stellar/wallet-backend/cmd:
-    interfaces:
-      ChAccCmdServiceInterface:
   github.com/stellar/wallet-backend/internal/apptracker:
     interfaces:
       AppTracker:
