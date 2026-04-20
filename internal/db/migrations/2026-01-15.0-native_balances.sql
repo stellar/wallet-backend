@@ -4,9 +4,9 @@
 -- Stores native XLM balance data for accounts during ingestion.
 -- Storage parameters tuned for heavy UPSERT/DELETE during ledger ingestion.
 -- UPSERTs only modify non-indexed columns (balance, minimum_balance, liabilities,
--- last_modified_ledger) while the PK column (account_address) is never changed.
+-- last_modified_ledger) while the PK column (account_id) is never changed.
 CREATE TABLE native_balances (
-    account_address TEXT PRIMARY KEY,
+    account_id BYTEA PRIMARY KEY,
     balance BIGINT NOT NULL DEFAULT 0,
     minimum_balance BIGINT NOT NULL DEFAULT 0,
     buying_liabilities BIGINT NOT NULL DEFAULT 0,
