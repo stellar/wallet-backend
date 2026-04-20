@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -263,7 +264,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 
 		trustlineBalanceModel := &wbdata.TrustlineBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-		got, err := trustlineBalanceModel.GetByAccount(ctx, "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", nil, nil, wbdata.ASC)
+		got, err := trustlineBalanceModel.GetByAccount(ctx, keypair.MustRandom().Address(), nil, nil, wbdata.ASC)
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
