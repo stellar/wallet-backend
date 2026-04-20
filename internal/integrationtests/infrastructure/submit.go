@@ -106,6 +106,11 @@ func buildSignAndSubmit(
 	rpcService services.RPCService,
 	sourceKP *keypair.Full,
 ) error {
+	if uc.DelayTime > 0 {
+		log.Ctx(ctx).Infof("%s delaying for %s", uc.Name(), uc.DelayTime)
+		time.Sleep(uc.DelayTime)
+	}
+	
 	// Parse the requested transaction to extract operations
 	requestedTx, err := parseTxXDR(uc.RequestedTransaction.TransactionXdr)
 	if err != nil {
