@@ -42,35 +42,22 @@ type ResolverConfig struct{}
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
-// Resolver is the main resolver struct for gqlgen
-// It holds dependencies needed by all resolver functions
-// gqlgen will embed this struct in generated resolver interfaces
+// Resolver is the main resolver struct for gqlgen.
+// It holds dependencies needed by all resolver functions.
 type Resolver struct {
-	// models provides access to data layer for database operations
-	// This follows dependency injection pattern - resolvers don't create their own DB connections
-	models *data.Models
-	// transactionService provides transaction building and signing operations
-	transactionService services.TransactionService
-	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService             services.FeeBumpService
+	models                     *data.Models
 	rpcService                 services.RPCService
 	balanceReader              BalanceReader
 	accountContractTokensModel data.AccountContractTokensModelInterface
 	contractMetadataService    services.ContractMetadataService
-	// metrics provides metrics collection capabilities
-	metrics *metrics.Metrics
-	// config holds resolver-specific configuration values
-	config ResolverConfig
+	metrics                    *metrics.Metrics
+	config                     ResolverConfig
 }
 
-// NewResolver creates a new resolver instance with required dependencies
-// This constructor is called during server startup to initialize the resolver
-// Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, m *metrics.Metrics, config ResolverConfig) *Resolver {
+// NewResolver creates a new resolver instance with required dependencies.
+func NewResolver(models *data.Models, rpcService services.RPCService, balanceReader BalanceReader, accountContractTokensModel data.AccountContractTokensModelInterface, contractMetadataService services.ContractMetadataService, m *metrics.Metrics, config ResolverConfig) *Resolver {
 	return &Resolver{
 		models:                     models,
-		transactionService:         transactionService,
-		feeBumpService:             feeBumpService,
 		rpcService:                 rpcService,
 		balanceReader:              balanceReader,
 		accountContractTokensModel: accountContractTokensModel,

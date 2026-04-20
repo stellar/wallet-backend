@@ -10,12 +10,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stellar/go-stellar-sdk/keypair"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
@@ -37,28 +35,11 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 
 	// Log for debugging
 	if config.IsExplicitlySet(co) {
-		log.Debugf("⚙️ Setting log level to: %s", logLevel)
+		log.Debugf("Setting log level to: %s", logLevel)
 		log.DefaultLogger.SetLevel(*key)
 	} else {
-		log.Debugf("⚙️ Using default log level: %s", logLevel)
+		log.Debugf("Using default log level: %s", logLevel)
 	}
-
-	return nil
-}
-
-func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
-	publicKey := viper.GetString(co.Name)
-
-	kp, err := keypair.ParseAddress(publicKey)
-	if err != nil {
-		return fmt.Errorf("validating public key in %s: %w", co.Name, err)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = kp.Address()
 
 	return nil
 }
@@ -105,27 +86,6 @@ func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
 	return nil
 }
 
-func SetConfigOptionStellarPrivateKey(co *config.ConfigOption) error {
-	privateKey := viper.GetString(co.Name)
-
-	if privateKey == "" && !co.Required {
-		return nil
-	}
-
-	isValid := strkey.IsValidEd25519SecretSeed(privateKey)
-	if !isValid {
-		return fmt.Errorf("invalid private key provided in %s", co.Name)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = privateKey
-
-	return nil
-}
-
 func SetConfigOptionAssets(co *config.ConfigOption) error {
 	assetsJSON := viper.GetString(co.Name)
 
@@ -144,28 +104,6 @@ func SetConfigOptionAssets(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = assets
-
-	return nil
-}
-
-func SetConfigOptionSignatureClientProvider(co *config.ConfigOption) error {
-	scType := viper.GetString(co.Name)
-
-	scType = strings.TrimSpace(scType)
-	if scType == "" {
-		return fmt.Errorf("%s cannot be empty", co.Name)
-	}
-
-	t := signing.SignatureClientType(scType)
-	if !t.IsValid() {
-		return fmt.Errorf("invalid %s value provided. expected: ENV or KMS", co.Name)
-	}
-
-	key, ok := co.ConfigKey.(*signing.SignatureClientType)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = t
 
 	return nil
 }

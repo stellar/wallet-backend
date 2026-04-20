@@ -45,7 +45,10 @@ type rpcService struct {
 	networkPassphrase          string
 }
 
-var PageLimit = 200
+var (
+	PageLimit          = 200
+	ErrAccountNotFound = errors.New("account not found")
+)
 
 var _ RPCService = (*rpcService)(nil)
 

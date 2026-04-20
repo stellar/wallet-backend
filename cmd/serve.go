@@ -10,10 +10,7 @@ import (
 
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
-	"github.com/stellar/wallet-backend/internal/signing"
-	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type serveCmd struct{}
@@ -27,9 +24,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
-		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.RPCURLOption(&cfg.RPCURL),
-		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
@@ -75,27 +70,8 @@ func (c *serveCmd) Command() *cobra.Command {
 			FlagDefault:    `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`,
 			Required:       true,
 		},
-		{
-			Name:        "max-sponsored-base-reservers",
-			Usage:       "The maximum reserves will be sponsored by the distribution account.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.MaxSponsoredBaseReserves,
-			FlagDefault: 15,
-			Required:    true,
-		},
-		{
-			Name:        "number-channel-accounts",
-			Usage:       "The minimum number of Channel Accounts that must exist in the database.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.NumberOfChannelAccounts,
-			FlagDefault: 15,
-			Required:    true,
-		},
 	}
 
-	// Distribution Account Signature Client options
-	signatureClientOpts := utils.SignatureClientOptions{}
-	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
 	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
 
 	cmd := &cobra.Command{
@@ -109,29 +85,11 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cmd.Context(), cfg.DatabaseURL, cfg.BuildPoolConfig())
-			if err != nil {
-				return fmt.Errorf("opening connection pool: %w", err)
-			}
-
-			signatureClientOpts.DBConnectionPool = dbConnectionPool
-			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
-			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
-			if err != nil {
-				return fmt.Errorf("resolving distribution account signature client: %w", err)
-			}
-			cfg.DistributionAccountSignatureClient = signatureClient
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
 			if err != nil {
 				return fmt.Errorf("initializing App Tracker: %w", err)
 			}
 			cfg.AppTracker = appTracker
-
-			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &signingutils.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
-			if err != nil {
-				return fmt.Errorf("instantiating channel account db signature client: %w", err)
-			}
-			cfg.ChannelAccountSignatureClient = channelAccountSignatureClient
 
 			return nil
 		},

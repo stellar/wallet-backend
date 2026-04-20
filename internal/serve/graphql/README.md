@@ -1,73 +1,6 @@
 # API Reference
 
-The wallet-backend provides two core API services that simplify Stellar transaction management for wallet applications.
-
-**In this document:**
-- [Transaction Building and Fee Bump](#transaction-building-and-fee-bump)
-- [GraphQL API](#graphql-api)
-
-## Transaction Building and Fee Bump
-
-1. **Transaction Building** (`POST /transactions/build`):
-   - Uses pre-funded channel accounts to handle sequence numbers automatically
-   - Provides high throughput by eliminating client-side sequence number management
-   - Returns signed transaction XDRs ready for client signature
-
-2. **Fee Bump Transactions** (`POST /tx/create-fee-bump`):
-   - Automatically creates and signs fee bump transactions
-   - Uses a distribution account to cover transaction fees
-   - Returns a complete fee bump transaction ready for submission
-
-### Complete Transaction Flow
-
-The following diagram illustrates the complete transaction lifecycle:
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant WB as Wallet Backend Server
-    participant RPC as Stellar RPC
-
-    Note over Client,RPC: Complete Transaction Flow
-
-    %% Step 1: Build Transaction
-    Client->>WB: POST /transactions/build
-    Note right of Client: JWT authenticated request<br/>with operations array
-
-    WB->>RPC: GetAccountLedgerSequence(channelAccount)
-    RPC-->>WB: Current sequence number
-
-    WB->>WB: Get idle channel account<br/>Build transaction<br/>Sign with channel account
-    WB-->>Client: { transactionXdrs: ["..."] }
-
-    %% Step 2: Client Signs Transaction
-    Note over Client: Parse transaction XDR<br/>Sign with user keypairs<br/>Encode back to XDR
-
-    %% Step 3: Fee Bump Transaction
-    Client->>WB: POST /tx/create-fee-bump
-    Note right of Client: { transaction: "signedTxXDR" }
-
-    WB->>WB: Parse and validate transaction<br/>Create fee bump transaction<br/>Sign with distribution account
-    WB-->>Client: { transaction: "feeBumpTxXDR",<br/>networkPassphrase: "..." }
-
-    %% Step 4: Submit to RPC
-    Client->>RPC: sendTransaction(feeBumpTxXDR)
-    RPC-->>Client: { status: "PENDING", hash: "..." }
-
-    %% Step 5: Poll for Result
-    loop Poll for confirmation
-        Client->>RPC: getTransaction(hash)
-        RPC-->>Client: { status: "NOT_FOUND" }
-        Note over Client: Wait ~6 seconds for the transaction to be confirmed
-    end
-
-    Client->>RPC: getTransaction(hash)
-    RPC-->>Client: { status: "SUCCESS", ... }
-```
-
-## GraphQL API
-
-The wallet-backend provides a powerful GraphQL API that enables flexible querying of blockchain data including transactions, operations, accounts, and state changes. The GraphQL API is designed for applications that need efficient, customizable data retrieval with strong typing and introspection capabilities.
+The wallet-backend provides a GraphQL API that enables flexible querying of blockchain data including transactions, operations, accounts, and state changes. The API is designed for applications that need efficient, customizable data retrieval with strong typing and introspection capabilities.
 
 **Key Benefits:**
 - **Flexible Queries**: Request exactly the data you need, nothing more
@@ -79,7 +12,6 @@ The wallet-backend provides a powerful GraphQL API that enables flexible queryin
 **In this section:**
 - [Getting Started](#getting-started)
 - [Queries](#queries)
-- [Mutations](#mutations)
 - [Pagination](#pagination)
 - [State Changes](#state-changes)
 - [Error Handling](#error-handling)
@@ -660,112 +592,6 @@ This query returns structured GraphQL errors with error codes in the `extensions
 }
 ```
 
-## Mutations
-
-The GraphQL API provides four mutations for managing accounts and transactions:
-
-### 1. Register Account
-
-Register an account to start tracking its state changes.
-
-```graphql
-mutation RegisterAccount {
-  registerAccount(input: { address: "GABC..." }) {
-    success
-    account {
-      address
-    }
-  }
-}
-```
-
-**Error Codes:**
-- `ACCOUNT_ALREADY_EXISTS` - Account is already registered
-- `INVALID_ADDRESS` - Invalid Stellar address format
-- `ACCOUNT_REGISTRATION_FAILED` - Registration failed
-
-### 2. Deregister Account
-
-Remove an account from tracking.
-
-```graphql
-mutation DeregisterAccount {
-  deregisterAccount(input: { address: "GABC..." }) {
-    success
-    message
-  }
-}
-```
-
-**Error Codes:**
-- `ACCOUNT_NOT_FOUND` - Account does not exist
-- `ACCOUNT_DEREGISTRATION_FAILED` - Deregistration failed
-
-### 3. Build Transaction
-
-Build and sign a transaction using channel accounts.
-
-```graphql
-mutation BuildTransaction {
-  buildTransaction(
-    input: {
-      transactionXdr: "AAAAA..."
-      simulationResult: {
-        transactionData: "AAA..."
-        minResourceFee: "100"
-        latestLedger: 12345
-        events: ["event1", "event2"]
-        results: ["result1"]
-      }
-    }
-  ) {
-    success
-    transactionXdr
-  }
-}
-```
-
-**Input Fields:**
-- `transactionXdr` (required): Base64-encoded transaction envelope XDR
-- `simulationResult` (optional): For Soroban transactions, include simulation results
-  - `transactionData`: Base64-encoded Soroban transaction data
-  - `minResourceFee`: Minimum resource fee as string
-  - `latestLedger`: Latest ledger number from simulation
-  - `events`: Array of event XDRs
-  - `results`: Array of result XDRs
-  - `error`: Error message if simulation failed
-
-**Error Codes:**
-- `INVALID_TRANSACTION_XDR` - Cannot parse transaction XDR
-- `INVALID_OPERATION_STRUCTURE` - Invalid operation structure (timeout, missing source, etc.)
-- `INVALID_SOROBAN_TRANSACTION` - Invalid Soroban transaction (operation count, simulation issues)
-- `CHANNEL_ACCOUNT_UNAVAILABLE` - No idle channel accounts available
-- `FORBIDDEN_SIGNER` - Unauthorized signer for transaction
-- `TRANSACTION_BUILD_FAILED` - General build failure
-
-### 4. Create Fee Bump Transaction
-
-Wrap a signed transaction in a fee bump transaction and sign it using the wallet backend's distribution account.
-
-```graphql
-mutation CreateFeeBump {
-  createFeeBumpTransaction(input: { transactionXDR: "AAAAA..." }) {
-    success
-    transaction
-    networkPassphrase
-  }
-}
-```
-
-**Error Codes:**
-- `INVALID_TRANSACTION_XDR` - Cannot parse transaction XDR
-- `FEE_BUMP_TX_NOT_ALLOWED` - Cannot wrap an existing fee bump transaction
-- `INVALID_TRANSACTION` - Invalid transaction structure
-- `FEE_EXCEEDS_MAXIMUM` - Fee exceeds maximum allowed (includes `maximumBaseFee` in extensions)
-- `NO_SIGNATURES_PROVIDED` - Transaction has no signatures
-- `ACCOUNT_NOT_ELIGIBLE_FOR_BEING_SPONSORED` - Account cannot be sponsored
-- `FEE_BUMP_CREATION_FAILED` - General creation failure
-
 ## Pagination
 
 The API uses **Relay-style cursor-based pagination** for all list queries. This provides stable pagination even when data changes.
@@ -1006,18 +832,18 @@ The GraphQL API returns structured errors with detailed information:
 
 **Error with Additional Context (Extensions):**
 
-Some errors include additional context in the `extensions` field. For example, when a fee exceeds the maximum:
+Some errors include additional context in the `extensions` field. For example, when an invalid address is provided:
 
 ```json
 {
   "errors": [
     {
-      "message": "Transaction fee exceeds maximum allowed",
+      "message": "invalid address format: must be a valid Stellar account (G...) or contract (C...) address",
       "extensions": {
-        "code": "FEE_EXCEEDS_MAXIMUM",
-        "maximumBaseFee": "10000"
+        "code": "INVALID_ADDRESS",
+        "address": "invalid-address"
       },
-      "path": ["createFeeBumpTransaction"]
+      "path": ["accountByAddress"]
     }
   ],
   "data": null

@@ -26,7 +26,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 var (
@@ -329,7 +328,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockArchive := &HistoryArchiveMock{}
 
@@ -341,7 +339,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				AppTracker:             &mockAppTracker,
 				RPCService:             &mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
-				ChannelAccountStore:    mockChAccStore,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -436,7 +433,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockArchive := &HistoryArchiveMock{}
 
@@ -455,7 +451,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 				RPCService:             &mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
 				LedgerBackendFactory:   mockBackendFactory,
-				ChannelAccountStore:    mockChAccStore,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -1149,12 +1144,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			mockRPCService := &RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
 			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
@@ -1164,7 +1154,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
-				ChannelAccountStore:    mockChAccStore,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -1779,8 +1768,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-		mockChAccStore := &store.ChannelAccountStoreMock{}
-
 		// Mock AccountTokenService to succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
@@ -1800,7 +1787,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
 			LedgerBackend:          &LedgerBackendMock{},
-			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
 			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
@@ -1863,8 +1849,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-		mockChAccStore := &store.ChannelAccountStoreMock{}
-
 		// Mock AccountTokenService to return error (simulating DB failure)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
@@ -1884,7 +1868,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
 			LedgerBackend:          &LedgerBackendMock{},
-			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
 			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
@@ -1947,8 +1930,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
-		mockChAccStore := &store.ChannelAccountStoreMock{}
-
 		// Mock AccountTokenService to fail once then succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
@@ -1976,7 +1957,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
 			LedgerBackend:          &LedgerBackendMock{},
-			ChannelAccountStore:    mockChAccStore,
 			TokenIngestionService:  mockTokenIngestionService,
 			Metrics:                m,
 			GetLedgersLimit:        defaultGetLedgersLimit,
@@ -2458,9 +2438,7 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockLedgerBackend.On("GetLedger", mock.Anything, uint32(4599)).Return(ledgerMeta, nil)
 
-			mockChAccStore := &store.ChannelAccountStoreMock{}
 			// Use variadic mock.Anything for any number of tx hashes
-			mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
@@ -2470,7 +2448,6 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
 				LedgerBackend:          mockLedgerBackend,
-				ChannelAccountStore:    mockChAccStore,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,
 				Network:                network.TestNetworkPassphrase,
@@ -2609,7 +2586,6 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 				RPCService:             mockRPCService,
 				LedgerBackend:          &LedgerBackendMock{},
 				LedgerBackendFactory:   backendFactory,
-				ChannelAccountStore:    &store.ChannelAccountStoreMock{},
 				TokenIngestionService:  mockTokenIngestionService,
 				Metrics:                m,
 				GetLedgersLimit:        defaultGetLedgersLimit,

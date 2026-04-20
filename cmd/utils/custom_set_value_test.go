@@ -83,52 +83,6 @@ func ClearTestEnvironment(t *testing.T) {
 	}
 }
 
-func TestSetConfigOptionStellarPublicKey(t *testing.T) {
-	opts := struct{ sep10SigningPublicKey string }{}
-
-	co := config.ConfigOption{
-		Name:           "wallet-signing-key",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionStellarPublicKey,
-		ConfigKey:      &opts.sep10SigningPublicKey,
-	}
-	expectedPublicKey := "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"
-
-	testCases := []customSetterTestCase[string]{
-		{
-			name:            "returns an error if the public key is empty",
-			wantErrContains: "validating public key in wallet-signing-key: strkey is 0 bytes long; minimum valid length is 5",
-		},
-		{
-			name:            "returns an error if the public key is invalid",
-			args:            []string{"--wallet-signing-key", "invalid_public_key"},
-			wantErrContains: "validating public key in wallet-signing-key: base32 decode failed: illegal base32 data at input byte 18",
-		},
-		{
-			name:            "returns an error if the public key is invalid (private key instead)",
-			args:            []string{"--wallet-signing-key", "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276"},
-			wantErrContains: "validating public key in wallet-signing-key: invalid version byte",
-		},
-		{
-			name:       "handles Stellar public key through the CLI flag",
-			args:       []string{"--wallet-signing-key", "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"},
-			wantResult: expectedPublicKey,
-		},
-		{
-			name:       "handles Stellar public key through the ENV vars",
-			envValue:   "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S",
-			wantResult: expectedPublicKey,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts.sep10SigningPublicKey = ""
-			customSetterTester(t, tc, co)
-		})
-	}
-}
-
 func TestSetConfigOptionStellarPublicKeyList(t *testing.T) {
 	opts := struct{ publicKeyList []string }{}
 
@@ -192,48 +146,6 @@ func TestSetConfigOptionStellarPublicKeyList(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.publicKeyList = nil
-			customSetterTester(t, tc, co)
-		})
-	}
-}
-
-func TestSetConfigOptionStellarPrivateKey(t *testing.T) {
-	opts := struct{ distributionPrivateKey string }{}
-
-	co := config.ConfigOption{
-		Name:           "distribution-private-key",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionStellarPrivateKey,
-		ConfigKey:      &opts.distributionPrivateKey,
-	}
-	expectedPrivateKey := "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5"
-
-	testCases := []customSetterTestCase[string]{
-		{
-			name:            "returns an error if the private key is invalid",
-			args:            []string{"--distribution-private-key", "invalid_private_key"},
-			wantErrContains: `invalid private key provided in distribution-private-key`,
-		},
-		{
-			name:            "returns an error if the private key is invalid (public key instead)",
-			args:            []string{"--distribution-private-key", "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"},
-			wantErrContains: `invalid private key provided in distribution-private-key`,
-		},
-		{
-			name:       "handles Stellar private key through the CLI flag",
-			args:       []string{"--distribution-private-key", "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5"},
-			wantResult: expectedPrivateKey,
-		},
-		{
-			name:       "handles Stellar private key through the ENV flag",
-			envValue:   "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5",
-			wantResult: expectedPrivateKey,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts.distributionPrivateKey = ""
 			customSetterTester(t, tc, co)
 		})
 	}

@@ -45,7 +45,7 @@ type SharedContainers struct {
 	clientAuthKeyPair             *keypair.Full
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
-	distributionAccountKeyPair    *keypair.Full
+	txSourceAccountKeyPair        *keypair.Full // Dedicated fee-paying source account for transaction submission
 	sponsoredNewAccountKeyPair    *keypair.Full
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
@@ -119,7 +119,7 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 	s.clientAuthKeyPair = keypair.MustRandom()
 	s.primarySourceAccountKeyPair = keypair.MustRandom()
 	s.secondarySourceAccountKeyPair = keypair.MustRandom()
-	s.distributionAccountKeyPair = keypair.MustRandom()
+	s.txSourceAccountKeyPair = keypair.MustRandom()
 	s.balanceTestAccount1KeyPair = keypair.MustRandom()
 	s.balanceTestAccount2KeyPair = keypair.MustRandom()
 
@@ -131,7 +131,7 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 		s.clientAuthKeyPair,
 		s.primarySourceAccountKeyPair,
 		s.secondarySourceAccountKeyPair,
-		s.distributionAccountKeyPair,
+		s.txSourceAccountKeyPair,
 		s.balanceTestAccount1KeyPair,
 		s.balanceTestAccount2KeyPair,
 	})
@@ -276,7 +276,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 	// Start wallet-backend ingest
 	s.WalletBackendContainer = &WalletBackendContainer{}
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair, nil)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
@@ -288,7 +288,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
@@ -425,6 +425,11 @@ func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context)
 	return s.secondarySourceAccountKeyPair
 }
 
+// GetTxSourceAccountKeyPair returns the dedicated fee-paying source account keypair
+func (s *SharedContainers) GetTxSourceAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.txSourceAccountKeyPair
+}
+
 // GetSponsoredNewAccountKeyPair returns the sponsored new account keypair
 func (s *SharedContainers) GetSponsoredNewAccountKeyPair(ctx context.Context) *keypair.Full {
 	return s.sponsoredNewAccountKeyPair
@@ -443,11 +448,6 @@ func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *k
 // GetMasterKeyPair returns the master account keypair
 func (s *SharedContainers) GetMasterKeyPair(ctx context.Context) *keypair.Full {
 	return s.masterKeyPair
-}
-
-// GetDistributionAccountKeyPair returns the distribution account keypair
-func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
-	return s.distributionAccountKeyPair
 }
 
 // GetWalletDBConnectionString returns the connection string for the wallet backend database
@@ -495,6 +495,7 @@ type TestEnvironment struct {
 	RPCService            services.RPCService
 	PrimaryAccountKP      *keypair.Full
 	SecondaryAccountKP    *keypair.Full
+	TxSourceAccountKP     *keypair.Full // Dedicated fee-paying source account, separate from test accounts
 	SponsoredNewAccountKP *keypair.Full
 	BalanceTestAccount1KP *keypair.Full
 	BalanceTestAccount2KP *keypair.Full
@@ -573,6 +574,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 	// Get keypairs
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
+	txSourceAccountKP := containers.GetTxSourceAccountKeyPair(ctx)
 	sponsoredNewAccountKP := containers.GetSponsoredNewAccountKeyPair(ctx)
 	balanceTestAccount1KP := containers.GetBalanceTestAccount1KeyPair(ctx)
 	balanceTestAccount2KP := containers.GetBalanceTestAccount2KeyPair(ctx)
@@ -610,6 +612,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		RPCService:            rpcService,
 		PrimaryAccountKP:      primaryAccountKP,
 		SecondaryAccountKP:    secondaryAccountKP,
+		TxSourceAccountKP:     txSourceAccountKP,
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,

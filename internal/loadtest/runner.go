@@ -22,7 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 const (
@@ -98,7 +97,6 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		Metrics:               m,
 		NetworkPassphrase:     cfg.NetworkPassphrase,
 		TokenIngestionService: tokenIngestionService,
-		ChannelAccountStore:   store.NewChannelAccountModel(dbPool),
 	})
 	if err != nil {
 		return fmt.Errorf("creating ingest service: %w", err)

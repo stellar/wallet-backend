@@ -85,31 +85,6 @@ const (
 	`
 )
 
-// buildTransactionQuery builds the GraphQL mutation for building a transaction
-func buildTransactionQuery() string {
-	return `
-		mutation BuildTransaction($input: BuildTransactionInput!) {
-			buildTransaction(input: $input) {
-				success
-				transactionXdr
-			}
-		}
-	`
-}
-
-// createFeeBumpTransactionQuery builds the GraphQL mutation for creating a fee bump transaction
-func createFeeBumpTransactionQuery() string {
-	return `
-		mutation CreateFeeBumpTransaction($input: CreateFeeBumpTransactionInput!) {
-			createFeeBumpTransaction(input: $input) {
-				success
-				transaction
-				networkPassphrase
-			}
-		}
-	`
-}
-
 // buildTransactionByHashQuery builds the GraphQL query for fetching a transaction by hash
 func buildTransactionByHashQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultTransactionFields)

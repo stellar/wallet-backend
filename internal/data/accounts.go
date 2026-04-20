@@ -20,22 +20,6 @@ type AccountModel struct {
 	Metrics *metrics.DBMetrics
 }
 
-// IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
-// eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
-func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
-	const query = `SELECT EXISTS(SELECT 1 FROM channel_accounts WHERE public_key = $1)`
-	start := time.Now()
-	exists, err := db.QueryOne[bool](ctx, m.DB, query, address)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("IsAccountFeeBumpEligible", "channel_accounts", utils.GetDBErrorType(err)).Inc()
-		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
-	}
-	return exists, nil
-}
-
 // BatchGetByToIDs gets the accounts that are associated with the given transaction ToIDs.
 func (m *AccountModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string) ([]*types.AccountWithToID, error) {
 	query := `

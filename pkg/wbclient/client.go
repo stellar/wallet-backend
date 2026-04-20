@@ -30,25 +30,6 @@ type GraphQLError struct {
 	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
-type BuildTransactionPayload struct {
-	Success        bool   `json:"success"`
-	TransactionXdr string `json:"transactionXdr"`
-}
-
-type BuildTransactionData struct {
-	BuildTransaction BuildTransactionPayload `json:"buildTransaction"`
-}
-
-type CreateFeeBumpTransactionPayload struct {
-	Success           bool   `json:"success"`
-	Transaction       string `json:"transaction"`
-	NetworkPassphrase string `json:"networkPassphrase"`
-}
-
-type CreateFeeBumpTransactionData struct {
-	CreateFeeBumpTransaction CreateFeeBumpTransactionPayload `json:"createFeeBumpTransaction"`
-}
-
 type TransactionByHashData struct {
 	TransactionByHash *types.GraphQLTransaction `json:"transactionByHash"`
 }
@@ -147,23 +128,6 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 		BaseURL:       baseURL,
 		RequestSigner: requestSigner,
 	}
-}
-
-func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
-	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"transactionXdr": transaction.TransactionXdr,
-		},
-	}
-
-	data, err := executeGraphQL[BuildTransactionData](c, ctx, buildTransactionQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.BuildTransactionResponse{
-		TransactionXDR: data.BuildTransaction.TransactionXdr,
-	}, nil
 }
 
 func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, error) {
@@ -274,24 +238,6 @@ func mergeVariables(maps ...map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return result
-}
-
-func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
-	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"transactionXDR": transactionXDR,
-		},
-	}
-
-	data, err := executeGraphQL[CreateFeeBumpTransactionData](c, ctx, createFeeBumpTransactionQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.TransactionEnvelopeResponse{
-		Transaction:       data.CreateFeeBumpTransaction.Transaction,
-		NetworkPassphrase: data.CreateFeeBumpTransaction.NetworkPassphrase,
-	}, nil
 }
 
 func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...*QueryOptions) (*types.GraphQLTransaction, error) {

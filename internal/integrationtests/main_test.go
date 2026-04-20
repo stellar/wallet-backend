@@ -35,7 +35,29 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
 
-	// Phase 2: Test parallel live + backfill ingestion
+	// Phase 1: Validate balances from checkpoint before fixture transactions
+	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Only proceed if checkpoint balance validation succeeded
+	if t.Failed() {
+		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
+	}
+
+	// Submit fixture transactions directly to RPC for ingestion
+	err = infrastructure.SubmitUseCases(ctx, testEnv)
+	if err != nil {
+		t.Fatalf("Failed to submit use case transactions: %v", err)
+	}
+
+	// Wait for ingest service to process all transactions
+	log.Ctx(ctx).Info("Waiting for ingest service to process transactions...")
+	time.Sleep(5 * time.Second)
+
+	// Test parallel live + backfill ingestion (after use case txns so transactions table has data)
 	t.Run("BackfillTestSuite", func(t *testing.T) {
 		suite.Run(t, &BackfillTestSuite{
 			testEnv: testEnv,
@@ -49,33 +71,6 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
-	// Phase 1: Validate balances from checkpoint before fixture transactions
-	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
-		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
-	// Only proceed if checkpoint balance validation succeeded
-	if t.Failed() {
-		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
-	}
-
-	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
-		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
-	// Only proceed if build and submit succeeded
-	if t.Failed() {
-		t.Fatal("BuildAndSubmitTransactionsTestSuite failed, skipping data validation")
-	}
-
-	// Wait for ingest service to process all transactions
-	log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")
-	time.Sleep(5 * time.Second)
-
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
 			testEnv: testEnv,
@@ -83,7 +78,7 @@ func TestIntegrationTests(t *testing.T) {
 	})
 
 	if t.Failed() {
-		t.Fatal("BuildAndSubmitTransactionsTestSuite failed, skipping remaining tests")
+		t.Fatal("DataValidationTestSuite failed, skipping remaining tests")
 	}
 
 	// Phase 3: Validate balances after live ingestion processes fixture transactions
