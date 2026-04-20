@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -22,6 +23,24 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// validateTokenString enforces the invariants a SEP-41 string field must satisfy
+// before it can be safely persisted to a Postgres TEXT column: bounded length,
+// valid UTF-8, and no NUL bytes. PG TEXT (in a UTF-8 DB) rejects both invalid
+// UTF-8 and 0x00, so letting either through would wedge the whole ledger-persist
+// transaction.
+func validateTokenString(fieldName, value string, maxLen int) error {
+	if len(value) > maxLen {
+		return fmt.Errorf("%s exceeds %d byte cap (got %d)", fieldName, maxLen, len(value))
+	}
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%s is not valid UTF-8", fieldName)
+	}
+	if strings.IndexByte(value, 0) >= 0 {
+		return fmt.Errorf("%s contains NUL byte", fieldName)
+	}
+	return nil
+}
+
 const (
 	// simulateTransactionBatchSize is the number of contracts to process in parallel
 	// when fetching metadata via RPC simulation.
@@ -29,6 +48,16 @@ const (
 
 	// batchSleepDuration is the delay between batches to avoid overwhelming the RPC.
 	batchSleepDuration = 2 * time.Second
+
+	// maxTokenDecimals caps SEP-41 decimals() at a realistic upper bound. Real tokens
+	// use ≤ 18; this also keeps the value inside Postgres INTEGER range, since SEP-41
+	// technically permits a u32 that exceeds INT32_MAX.
+	maxTokenDecimals uint32 = 70
+
+	// maxTokenNameLength / maxTokenSymbolLength bound attacker-controlled strings from
+	// SEP-41 name() and symbol(), measured in bytes. Real tokens are well under these.
+	maxTokenNameLength   = 128
+	maxTokenSymbolLength = 32
 )
 
 // ContractMetadata holds the metadata for a SEP-41 contract token (name, symbol, decimals).
@@ -251,6 +280,10 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 			appendError(fmt.Errorf("name value is not a string"))
 			return
 		}
+		if vErr := validateTokenString("name", string(nameStr), maxTokenNameLength); vErr != nil {
+			appendError(vErr)
+			return
+		}
 		mu.Lock()
 		name = string(nameStr)
 		mu.Unlock()
@@ -268,6 +301,10 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 			appendError(fmt.Errorf("symbol value is not a string"))
 			return
 		}
+		if vErr := validateTokenString("symbol", string(symbolStr), maxTokenSymbolLength); vErr != nil {
+			appendError(vErr)
+			return
+		}
 		mu.Lock()
 		symbol = string(symbolStr)
 		mu.Unlock()
@@ -283,6 +320,10 @@ func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID 
 		decimalsU32, ok := decimalsVal.GetU32()
 		if !ok {
 			appendError(fmt.Errorf("decimals value is not a uint32"))
+			return
+		}
+		if uint32(decimalsU32) > maxTokenDecimals {
+			appendError(fmt.Errorf("decimals exceeds cap of %d (got %d)", maxTokenDecimals, decimalsU32))
 			return
 		}
 		mu.Lock()

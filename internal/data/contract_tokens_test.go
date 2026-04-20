@@ -244,6 +244,44 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		cleanUpDB()
 	})
 
+	t.Run("accepts SEP-41 decimals values above SMALLINT range", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &ContractModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		name := "Wide Decimals"
+		symbol := "WIDE"
+		// 40000 exceeds PostgreSQL SMALLINT max (32767) but is a valid SEP-41 u32.
+		// Before widening contract_tokens.decimals to INTEGER, this insert would
+		// fail with "40000 is greater than maximum value for int2" and roll back
+		// the whole ledger-persistence transaction.
+		const wideDecimals uint32 = 40000
+		contracts := []*Contract{
+			{
+				ID:         DeterministicContractID("wide_contract"),
+				ContractID: "wide_contract",
+				Type:       "sep41",
+				Name:       &name,
+				Symbol:     &symbol,
+				Decimals:   wideDecimals,
+			},
+		}
+
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchInsert(ctx, dbTx, contracts)
+		})
+		require.NoError(t, err)
+
+		stored, err := db.QueryOne[Contract](ctx, dbConnectionPool, `SELECT * FROM contract_tokens WHERE contract_id = $1`, "wide_contract")
+		require.NoError(t, err)
+		require.Equal(t, wideDecimals, stored.Decimals)
+
+		cleanUpDB()
+	})
+
 	t.Run("skips duplicate contracts with ON CONFLICT DO NOTHING", func(t *testing.T) {
 		cleanUpDB()
 

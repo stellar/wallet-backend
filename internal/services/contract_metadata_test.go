@@ -238,6 +238,202 @@ func TestFetchSep41Metadata(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a uint32")
 	})
+
+	t.Run("rejects decimals above cap", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TestName")}
+		symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TST")}
+		// 40000 is the original PoC value; well above our 70 cap and also above SMALLINT.
+		decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(40000)}
+
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "name")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "symbol")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "decimals")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.fetchMetadata(ctx, contractID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "decimals exceeds cap")
+	})
+
+	t.Run("rejects name longer than cap", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		oversizedName := strings.Repeat("A", maxTokenNameLength+1)
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString(oversizedName)}
+		symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TST")}
+		decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(7)}
+
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "name")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "symbol")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "decimals")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.fetchMetadata(ctx, contractID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "name exceeds")
+	})
+
+	t.Run("rejects name containing NUL byte", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// NUL byte is legal UTF-8 (U+0000) but Postgres TEXT rejects it, so our
+		// validator must too — otherwise the whole ledger-persist tx rolls back.
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("evil\x00token")}
+		symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TST")}
+		decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(7)}
+
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "name")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "symbol")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "decimals")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.fetchMetadata(ctx, contractID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "NUL byte")
+	})
+
+	t.Run("rejects symbol with invalid UTF-8", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Lone continuation byte — invalid UTF-8. Postgres UTF-8 DB rejects.
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TestName")}
+		symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("\xc3\x28")}
+		decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(7)}
+
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "name")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "symbol")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "decimals")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.fetchMetadata(ctx, contractID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "valid UTF-8")
+	})
+
+	t.Run("rejects symbol longer than cap", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(5)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		oversizedSymbol := strings.Repeat("S", maxTokenSymbolLength+1)
+		nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TestName")}
+		symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString(oversizedSymbol)}
+		decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(7)}
+
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "name")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "symbol")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+		)
+		mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+			return containsFunction(txXDR, "decimals")
+		}), mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.fetchMetadata(ctx, contractID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "symbol exceeds")
+	})
 }
 
 func TestFetchSingleField(t *testing.T) {
