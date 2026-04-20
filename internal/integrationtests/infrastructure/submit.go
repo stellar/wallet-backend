@@ -19,7 +19,7 @@ import (
 // claimable balance IDs extracted from the first pass.
 func SubmitUseCases(ctx context.Context, env *TestEnvironment) error {
 	rpcService := env.RPCService
-	sourceKP := env.PrimaryAccountKP
+	sourceKP := env.TxSourceAccountKP
 
 	// Wait for RPC health
 	log.Ctx(ctx).Info("Waiting for RPC to become healthy before submitting transactions...")
@@ -106,11 +106,6 @@ func buildSignAndSubmit(
 	rpcService services.RPCService,
 	sourceKP *keypair.Full,
 ) error {
-	if uc.DelayTime > 0 {
-		log.Ctx(ctx).Infof("%s delaying for %s", uc.Name(), uc.DelayTime)
-		time.Sleep(uc.DelayTime)
-	}
-
 	// Parse the requested transaction to extract operations
 	requestedTx, err := parseTxXDR(uc.RequestedTransaction.TransactionXdr)
 	if err != nil {
