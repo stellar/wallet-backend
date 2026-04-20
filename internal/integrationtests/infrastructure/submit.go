@@ -110,7 +110,7 @@ func buildSignAndSubmit(
 		log.Ctx(ctx).Infof("%s delaying for %s", uc.Name(), uc.DelayTime)
 		time.Sleep(uc.DelayTime)
 	}
-	
+
 	// Parse the requested transaction to extract operations
 	requestedTx, err := parseTxXDR(uc.RequestedTransaction.TransactionXdr)
 	if err != nil {
