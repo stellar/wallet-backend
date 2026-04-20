@@ -81,7 +81,7 @@ func newBatch(
 func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset, balance, limit, buyingLiabilities, sellingLiabilities int64, flags uint32, ledger uint32) {
 	// Add trustline balance with all XDR fields
 	b.trustlineBalances = append(b.trustlineBalances, wbdata.TrustlineBalance{
-		AccountAddress:     accountAddress,
+		AccountID:          types.AddressBytea(accountAddress),
 		AssetID:            wbdata.DeterministicAssetID(asset.Code, asset.Issuer),
 		Balance:            balance,
 		Limit:              limit,
@@ -94,7 +94,7 @@ func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset,
 
 func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
 	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
-		AccountAddress:     accountAddress,
+		AccountID:          types.AddressBytea(accountAddress),
 		Balance:            balance,
 		MinimumBalance:     minimumBalance,
 		BuyingLiabilities:  buyingLiabilities,
@@ -378,7 +378,7 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 	var deletes []wbdata.TrustlineBalance
 	for key, change := range changesByKey {
 		fullData := wbdata.TrustlineBalance{
-			AccountAddress:     change.AccountID,
+			AccountID:          types.AddressBytea(change.AccountID),
 			AssetID:            key.TrustlineID,
 			Balance:            change.Balance,
 			Limit:              change.Limit,
@@ -438,13 +438,13 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 	}
 
 	var upserts []wbdata.NativeBalance
-	var deletes []string
+	var deletes []types.AddressBytea
 	for _, change := range changesByAccountID {
 		if change.Operation == types.AccountOpRemove {
-			deletes = append(deletes, change.AccountID)
+			deletes = append(deletes, types.AddressBytea(change.AccountID))
 		} else {
 			upserts = append(upserts, wbdata.NativeBalance{
-				AccountAddress:     change.AccountID,
+				AccountID:          types.AddressBytea(change.AccountID),
 				Balance:            change.Balance,
 				MinimumBalance:     change.MinimumBalance,
 				BuyingLiabilities:  change.BuyingLiabilities,
@@ -474,7 +474,7 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 	for _, change := range changesByKey {
 		contractID := wbdata.DeterministicContractID(change.ContractID)
 		sacBal := wbdata.SACBalance{
-			AccountAddress:    change.AccountID,
+			AccountID:         types.AddressBytea(change.AccountID),
 			ContractID:        contractID,
 			Balance:           change.Balance,
 			IsAuthorized:      change.IsAuthorized,
@@ -725,7 +725,7 @@ func (s *tokenIngestionService) streamCheckpointData(
 					// Extract balance fields and stream to batch
 					balanceStr, authorized, clawback := s.extractSACBalanceFields(contractDataEntry.Val)
 					batch.addSACBalance(wbdata.SACBalance{
-						AccountAddress:    holderAddress,
+						AccountID:         types.AddressBytea(holderAddress),
 						ContractID:        contractUUID,
 						Balance:           balanceStr,
 						IsAuthorized:      authorized,
