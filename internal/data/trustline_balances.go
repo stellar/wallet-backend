@@ -20,15 +20,15 @@ import (
 // TrustlineBalance contains all fields for a trustline including asset metadata from JOIN.
 type TrustlineBalance struct {
 	AccountID          types.AddressBytea `db:"account_id"`
-	AssetID            uuid.UUID `db:"asset_id"`
-	Code               string    `db:"code"`   // Asset code from trustline_assets table
-	Issuer             string    `db:"issuer"` // Asset issuer from trustline_assets table
-	Balance            int64     `db:"balance"`
-	Limit              int64     `db:"trust_limit"`
-	BuyingLiabilities  int64     `db:"buying_liabilities"`
-	SellingLiabilities int64     `db:"selling_liabilities"`
-	Flags              uint32    `db:"flags"`
-	LedgerNumber       uint32    `db:"last_modified_ledger"`
+	AssetID            uuid.UUID          `db:"asset_id"`
+	Code               string             `db:"code"`   // Asset code from trustline_assets table
+	Issuer             string             `db:"issuer"` // Asset issuer from trustline_assets table
+	Balance            int64              `db:"balance"`
+	Limit              int64              `db:"trust_limit"`
+	BuyingLiabilities  int64              `db:"buying_liabilities"`
+	SellingLiabilities int64              `db:"selling_liabilities"`
+	Flags              uint32             `db:"flags"`
+	LedgerNumber       uint32             `db:"last_modified_ledger"`
 }
 
 // TrustlineBalanceModelInterface defines the interface for trustline balance operations.

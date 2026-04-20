@@ -20,11 +20,11 @@ import (
 // NativeBalance contains native XLM balance data for an account.
 type NativeBalance struct {
 	AccountID          types.AddressBytea `db:"account_id"`
-	Balance            int64  `db:"balance"`
-	MinimumBalance     int64  `db:"minimum_balance"`
-	BuyingLiabilities  int64  `db:"buying_liabilities"`
-	SellingLiabilities int64  `db:"selling_liabilities"`
-	LedgerNumber       uint32 `db:"last_modified_ledger"`
+	Balance            int64              `db:"balance"`
+	MinimumBalance     int64              `db:"minimum_balance"`
+	BuyingLiabilities  int64              `db:"buying_liabilities"`
+	SellingLiabilities int64              `db:"selling_liabilities"`
+	LedgerNumber       uint32             `db:"last_modified_ledger"`
 }
 
 // NativeBalanceModelInterface defines the interface for native balance operations.

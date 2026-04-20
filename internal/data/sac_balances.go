@@ -21,12 +21,12 @@ import (
 // Only contract addresses (C...) have SAC balances stored here; G-addresses use trustlines.
 // Includes contract metadata from JOIN with contract_tokens table for API responses.
 type SACBalance struct {
-	AccountID         types.AddressBytea `db:"account_id"` // Contract address (C...) of the holder
-	ContractID        uuid.UUID `db:"contract_id"`     // Deterministic UUID for the SAC contract
-	Balance           string    `db:"balance"`         // Balance as string (handles i128 values)
-	IsAuthorized      bool      `db:"is_authorized"`
-	IsClawbackEnabled bool      `db:"is_clawback_enabled"`
-	LedgerNumber      uint32    `db:"last_modified_ledger"`
+	AccountID         types.AddressBytea `db:"account_id"`  // Contract address (C...) of the holder
+	ContractID        uuid.UUID          `db:"contract_id"` // Deterministic UUID for the SAC contract
+	Balance           string             `db:"balance"`     // Balance as string (handles i128 values)
+	IsAuthorized      bool               `db:"is_authorized"`
+	IsClawbackEnabled bool               `db:"is_clawback_enabled"`
+	LedgerNumber      uint32             `db:"last_modified_ledger"`
 	// Contract metadata from JOIN with contract_tokens
 	TokenID  string `db:"token_id"` // SAC contract address (C...) used as token identifier in API; aliased from ct.contract_id
 	Code     string `db:"code"`     // Asset code (e.g., "USDC")
