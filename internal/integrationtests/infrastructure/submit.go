@@ -140,9 +140,13 @@ func buildSignAndSubmit(
 		return fmt.Errorf("building transaction: %w", err)
 	}
 
-	// Sign with source account + use case signers
+	// Sign with source account + use case signers (deduplicated to avoid txBAD_AUTH_EXTRA)
 	signers := []*keypair.Full{sourceKP}
-	signers = append(signers, uc.TxSigners.Slice()...)
+	for _, s := range uc.TxSigners.Slice() {
+		if s.Address() != sourceKP.Address() {
+			signers = append(signers, s)
+		}
+	}
 	signedTx, err := tx.Sign(networkPassphrase, signers...)
 	if err != nil {
 		return fmt.Errorf("signing transaction: %w", err)
