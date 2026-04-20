@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stellar/go-stellar-sdk/keypair"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -41,23 +40,6 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 	} else {
 		log.Debugf("Using default log level: %s", logLevel)
 	}
-
-	return nil
-}
-
-func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
-	publicKey := viper.GetString(co.Name)
-
-	kp, err := keypair.ParseAddress(publicKey)
-	if err != nil {
-		return fmt.Errorf("validating public key in %s: %w", co.Name, err)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = kp.Address()
 
 	return nil
 }
@@ -100,27 +82,6 @@ func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
 	}
 	sort.Strings(pbks)
 	*key = pbks
-
-	return nil
-}
-
-func SetConfigOptionStellarPrivateKey(co *config.ConfigOption) error {
-	privateKey := viper.GetString(co.Name)
-
-	if privateKey == "" && !co.Required {
-		return nil
-	}
-
-	isValid := strkey.IsValidEd25519SecretSeed(privateKey)
-	if !isValid {
-		return fmt.Errorf("invalid private key provided in %s", co.Name)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = privateKey
 
 	return nil
 }
