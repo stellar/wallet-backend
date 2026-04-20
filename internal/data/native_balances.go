@@ -94,7 +94,11 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			if err != nil {
 				return fmt.Errorf("converting account address to bytes for upsert: %w", err)
 			}
-			accountIDs[i] = raw.([]byte)
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
+			}
+			accountIDs[i] = rawBytes
 			balances[i] = nb.Balance
 			minimumBalances[i] = nb.MinimumBalance
 			buyingLiabilities[i] = nb.BuyingLiabilities
@@ -127,7 +131,11 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			if err != nil {
 				return fmt.Errorf("converting account address to bytes for delete: %w", err)
 			}
-			deleteIDs[i] = raw.([]byte)
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for delete: expected []byte, got %T", raw)
+			}
+			deleteIDs[i] = rawBytes
 		}
 
 		const deleteQuery = `DELETE FROM native_balances WHERE account_id = ANY($1::bytea[])`

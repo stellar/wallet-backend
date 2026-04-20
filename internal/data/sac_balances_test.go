@@ -3,11 +3,12 @@ package data
 
 import (
 	"context"
+	"crypto/rand"
 	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -15,6 +16,18 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// randomContractAddress generates a random valid C-address for testing.
+// SAC balances store contract holder addresses which are C-addresses (not G-addresses).
+func randomContractAddress(t *testing.T) string {
+	t.Helper()
+	var raw [32]byte
+	_, err := rand.Read(raw[:])
+	require.NoError(t, err)
+	addr, err := strkey.Encode(strkey.VersionByteContract, raw[:])
+	require.NoError(t, err)
+	return addr
+}
 
 func TestSACBalanceModel_GetByAccount(t *testing.T) {
 	ctx := context.Background()
@@ -68,7 +81,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		balances, err := m.GetByAccount(ctx, keypair.MustRandom().Address(), nil, nil, ASC)
+		balances, err := m.GetByAccount(ctx, randomContractAddress(t), nil, nil, ASC)
 		require.NoError(t, err)
 		require.Empty(t, balances)
 	})
@@ -81,7 +94,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
 			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
@@ -115,7 +128,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
 			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
@@ -143,7 +156,7 @@ func TestSACBalanceModel_GetByAccount(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO sac_balances
 			(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
@@ -229,7 +242,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
@@ -265,7 +278,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
@@ -315,7 +328,7 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 
 		// First insert
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
@@ -359,8 +372,8 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr1 := keypair.MustRandom().Address()
-		accountAddr2 := keypair.MustRandom().Address()
+		accountAddr1 := randomContractAddress(t)
+		accountAddr2 := randomContractAddress(t)
 
 		// Insert two balances
 		pgxTx1, err := dbConnectionPool.Begin(ctx)
@@ -453,7 +466,7 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr := keypair.MustRandom().Address()
+		accountAddr := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 
@@ -496,8 +509,8 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 			Metrics: dbMetrics,
 		}
 
-		accountAddr1 := keypair.MustRandom().Address()
-		accountAddr2 := keypair.MustRandom().Address()
+		accountAddr1 := randomContractAddress(t)
+		accountAddr2 := randomContractAddress(t)
 		pgxTx, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 

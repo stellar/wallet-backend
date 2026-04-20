@@ -132,7 +132,11 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 			if err != nil {
 				return fmt.Errorf("converting account address to bytes for upsert: %w", err)
 			}
-			accountIDs[i] = raw.([]byte)
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
+			}
+			accountIDs[i] = rawBytes
 			contractIDs[i] = bal.ContractID
 			balances[i] = bal.Balance
 			isAuthorized[i] = bal.IsAuthorized
@@ -168,7 +172,11 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 			if err != nil {
 				return fmt.Errorf("converting account address to bytes for delete: %w", err)
 			}
-			deleteAccountIDs[i] = raw.([]byte)
+			rawBytes, ok := raw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting account address to bytes for delete: expected []byte, got %T", raw)
+			}
+			deleteAccountIDs[i] = rawBytes
 			deleteContractIDs[i] = bal.ContractID
 		}
 
