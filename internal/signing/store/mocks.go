@@ -52,8 +52,8 @@ func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) UnlockChannelAccountByPublicKey(ctx context.Context, pgxTx pgx.Tx, publicKey string) (int64, error) {
-	args := s.Called(ctx, pgxTx, publicKey)
+func (s *ChannelAccountStoreMock) UnlockChannelAccountByLockToken(ctx context.Context, pgxTx pgx.Tx, publicKey string, lockedAt time.Time) (int64, error) {
+	args := s.Called(ctx, pgxTx, publicKey, lockedAt)
 	return args.Get(0).(int64), args.Error(1)
 }
 

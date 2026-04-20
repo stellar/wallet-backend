@@ -57,7 +57,7 @@ type Configs struct {
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int
 	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountSignatureClient      signing.SignatureClient
+	ChannelAccountSignatureClient      signing.ChannelAccountSignatureClient
 
 	// RPC
 	RPCURL string

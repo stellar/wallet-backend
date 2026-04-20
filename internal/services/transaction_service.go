@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,7 +50,7 @@ type TransactionService interface {
 type transactionService struct {
 	DB                                 *pgxpool.Pool
 	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountSignatureClient      signing.SignatureClient
+	ChannelAccountSignatureClient      signing.ChannelAccountSignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	RPCService                         RPCService
 	BaseFee                            int64
@@ -60,7 +61,7 @@ var _ TransactionService = (*transactionService)(nil)
 type TransactionServiceOptions struct {
 	DB                                 *pgxpool.Pool
 	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountSignatureClient      signing.SignatureClient
+	ChannelAccountSignatureClient      signing.ChannelAccountSignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	RPCService                         RPCService
 	BaseFee                            int64
@@ -113,23 +114,27 @@ func (t *transactionService) NetworkPassphrase() string {
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction) (signedTx *txnbuild.Transaction, retErr error) {
 	timeoutInSecs := DefaultTimeoutInSeconds
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, timeoutInSecs)
+	channelAccountPublicKey, lockedAt, err := t.ChannelAccountSignatureClient.AcquireChannelAccount(ctx, timeoutInSecs)
 	if err != nil {
-		return nil, fmt.Errorf("getting channel account public key: %w", err)
+		return nil, fmt.Errorf("acquiring channel account: %w", err)
 	}
 
-	// GetAccountPublicKey already set locked_until in the DB. If anything below fails before the tx is submitted,
-	// the row would otherwise be held hostage for the full locked_until TTL — an authenticated caller who flooded
-	// buildTransaction with requests that fail during Soroban validation (or any later build step) could drain the
-	// pool. Register release-on-error here so every failure path unlocks the account. The unlock matches by
-	// public_key (not locked_tx_hash) because that column may still be NULL — AssignTxToChannelAccount runs later.
+	// AcquireChannelAccount set locked_until in the DB. If anything below fails before the tx is submitted, the row
+	// would otherwise be held hostage for the full locked_until TTL — an authenticated caller who flooded buildTransaction
+	// with requests that fail during Soroban validation (or any later build step) could drain the pool. Register
+	// release-on-error here so every failure path unlocks the account.
+	//
+	// The release matches on (public_key, locked_at) because locked_tx_hash is still NULL in the pre-AssignTx window,
+	// and matching on public_key alone would let a late defer (fired after our locked_until TTL expired and another
+	// request re-acquired the same row) wipe the newer lock. Using locked_at as a lock token makes a stale release
+	// a no-op rather than a silent lock-steal.
 	//
 	// Use a cancel-detached context so cleanup still runs when the caller's request context is cancelled
 	// (client disconnect, request timeout).
 	unlockCtx := context.WithoutCancel(ctx)
 	defer func() {
 		if retErr != nil {
-			t.releaseChannelAccountLockByPublicKey(unlockCtx, channelAccountPublicKey)
+			t.releaseChannelAccountLock(unlockCtx, channelAccountPublicKey, lockedAt)
 		}
 	}()
 
@@ -242,16 +247,17 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	return tx, nil
 }
 
-// releaseChannelAccountLockByPublicKey is a best-effort unlock of the channel account by public key. Failures
-// are logged but not surfaced: the caller is already unwinding with a more meaningful error, and the lock will
-// eventually expire via the channel's locked_until TTL even if this release fails.
+// releaseChannelAccountLock is a best-effort unlock of the channel account identified by (publicKey, lockedAt).
+// Failures are logged but not surfaced: the caller is already unwinding with a more meaningful error, and the
+// lock will eventually expire via the channel's locked_until TTL even if this release fails.
 //
-// Matches by public_key rather than locked_tx_hash because the defer that calls this fires for every failure
-// path after GetAndLockIdleChannelAccount — including those before AssignTxToChannelAccount runs, when
-// locked_tx_hash is still NULL.
-func (t *transactionService) releaseChannelAccountLockByPublicKey(ctx context.Context, publicKey string) {
+// Matches on both public_key and locked_at so a stale release (fired after the lock's TTL expired and another
+// request re-acquired the same row) is a no-op rather than a destructive unlock. locked_tx_hash is deliberately
+// not part of the match — the defer calling this runs for every failure path after lock acquisition, including
+// the pre-AssignTx window where locked_tx_hash is still NULL.
+func (t *transactionService) releaseChannelAccountLock(ctx context.Context, publicKey string, lockedAt time.Time) {
 	releaseErr := db.RunInTransaction(ctx, t.DB, func(pgxTx pgx.Tx) error {
-		if _, err := t.ChannelAccountStore.UnlockChannelAccountByPublicKey(ctx, pgxTx, publicKey); err != nil {
+		if _, err := t.ChannelAccountStore.UnlockChannelAccountByLockToken(ctx, pgxTx, publicKey, lockedAt); err != nil {
 			return fmt.Errorf("unlocking channel account %s: %w", publicKey, err)
 		}
 		return nil

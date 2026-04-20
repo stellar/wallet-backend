@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -298,10 +299,15 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	})
 	require.NoError(t, outerErr)
 
-	t.Run("🔴handle_GetAccountPublicKey_err", func(t *testing.T) {
+	// lockedAt is the lock token returned by AcquireChannelAccount and threaded back into the defer's
+	// UnlockChannelAccountByLockToken call. Subtests reuse the same value to assert the service plumbs
+	// the token through unchanged.
+	lockedAt := time.Now().UTC()
+
+	t.Run("🔴handle_AcquireChannelAccount_err", func(t *testing.T) {
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return("", errors.New("channel accounts unavailable")).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return("", time.Time{}, errors.New("channel accounts unavailable")).
 			Once()
 
 		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
@@ -311,18 +317,18 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.EqualError(t, err, "getting channel account public key: channel accounts unavailable")
+		assert.EqualError(t, err, "acquiring channel account: channel accounts unavailable")
 	})
 
 	t.Run("🚨operation_source_account_cannot_be_channel_account", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -344,12 +350,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🚨operation_source_account_cannot_be_channel_account_via_muxed_address", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -375,12 +381,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🚨operation_source_account_cannot_be_empty", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -401,12 +407,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_GetAccountLedgerSequence_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -431,8 +437,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_AssignTxToChannelAccount_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").
@@ -442,7 +448,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(errors.New("unable to assign channel account to tx")).
 			Once().
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -466,8 +472,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_SignStellarTransaction_err_releases_channel_account", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").
@@ -484,7 +490,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			// bad/incomplete build call. Otherwise an attacker flooding buildTransaction can wedge the pool for
 			// up to the lock TTL (minutes) with a handful of requests. The ctx here is context.WithoutCancel-wrapped
 			// so the unlock still runs when the request ctx is cancelled — mock.Anything matches the wrapped type.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -520,8 +526,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").
@@ -566,12 +572,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		})
 
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -606,12 +612,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		})
 
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once()
 
 		mChannelAccountStore.
-			On("UnlockChannelAccountByPublicKey", mock.Anything, mock.Anything, channelAccount.Address()).
+			On("UnlockChannelAccountByLockToken", mock.Anything, mock.Anything, channelAccount.Address(), lockedAt).
 			Return(int64(1), nil).
 			Once()
 
@@ -659,8 +665,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").
@@ -712,8 +718,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").
@@ -753,8 +759,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		})
 
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
+			On("AcquireChannelAccount", context.Background(), 30).
+			Return(channelAccount.Address(), lockedAt, nil).
 			Once().
 			On("NetworkPassphrase").
 			Return("networkpassphrase").

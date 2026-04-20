@@ -66,6 +66,16 @@ func (sc *channelAccountDBSignatureClient) NetworkPassphrase() string {
 }
 
 func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Context, opts ...int) (string, error) {
+	publicKey, _, err := sc.AcquireChannelAccount(ctx, opts...)
+	return publicKey, err
+}
+
+// AcquireChannelAccount locks an idle channel account and returns its public key along with the locked_at
+// timestamp that uniquely identifies this particular lock acquisition. The lockedAt value is the caller's
+// lock token: passing it back to the store's UnlockChannelAccountByLockToken ensures a stale release can't
+// wipe a newer lock on the same public_key if the original locked_until TTL expired and another request
+// re-acquired the row first.
+func (sc *channelAccountDBSignatureClient) AcquireChannelAccount(ctx context.Context, opts ...int) (string, time.Time, error) {
 	var lockedUntil time.Duration
 	if len(opts) > 0 {
 		lockedUntil = time.Duration(opts[0]) * time.Second
@@ -73,7 +83,6 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 		lockedUntil = time.Minute
 	}
 	for range sc.RetryCount() {
-		// check to see if the variadic parameter for time exists and if so, use it here
 		channelAccount, err := sc.channelAccountStore.GetAndLockIdleChannelAccount(ctx, lockedUntil)
 		if err != nil {
 			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
@@ -82,22 +91,25 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 				continue
 			}
 
-			return "", fmt.Errorf("%w: total time spent waiting for an idle channel account: %v", ErrUnavailableChannelAccounts, time.Duration(sc.RetryCount())*sc.RetryInterval())
+			return "", time.Time{}, fmt.Errorf("%w: total time spent waiting for an idle channel account: %v", ErrUnavailableChannelAccounts, time.Duration(sc.RetryCount())*sc.RetryInterval())
 		}
 
-		return channelAccount.PublicKey, nil
+		if !channelAccount.LockedAt.Valid {
+			return "", time.Time{}, fmt.Errorf("channel account %s has no locked_at after acquisition; cannot form a lock token", channelAccount.PublicKey)
+		}
+		return channelAccount.PublicKey, channelAccount.LockedAt.Time, nil
 	}
 
 	numOfChannelAccounts, err := sc.channelAccountStore.Count(ctx)
 	if err != nil {
-		return "", fmt.Errorf("getting the number of channel accounts: %w", err)
+		return "", time.Time{}, fmt.Errorf("getting the number of channel accounts: %w", err)
 	}
 
 	if numOfChannelAccounts > 0 {
-		return "", store.ErrNoIdleChannelAccountAvailable
+		return "", time.Time{}, store.ErrNoIdleChannelAccountAvailable
 	}
 
-	return "", store.ErrNoChannelAccountConfigured
+	return "", time.Time{}, store.ErrNoChannelAccountConfigured
 }
 
 func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Context, stellarAccounts ...string) ([]*keypair.Full, error) {

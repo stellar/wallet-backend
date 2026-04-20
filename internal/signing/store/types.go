@@ -26,7 +26,7 @@ type ChannelAccountStore interface {
 	GetAllByPublicKey(ctx context.Context, publicKeys ...string) ([]*ChannelAccount, error)
 	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error
 	UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error)
-	UnlockChannelAccountByPublicKey(ctx context.Context, pgxTx pgx.Tx, publicKey string) (int64, error)
+	UnlockChannelAccountByLockToken(ctx context.Context, pgxTx pgx.Tx, publicKey string, lockedAt time.Time) (int64, error)
 	BatchInsert(ctx context.Context, channelAccounts []*ChannelAccount) error
 	Delete(ctx context.Context, pgxTx pgx.Tx, publicKeys ...string) (int64, error)
 	Count(ctx context.Context) (int64, error)

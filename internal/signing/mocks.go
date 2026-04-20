@@ -2,6 +2,7 @@ package signing
 
 import (
 	"context"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stretchr/testify/mock"
@@ -11,7 +12,10 @@ type SignatureClientMock struct {
 	mock.Mock
 }
 
-var _ SignatureClient = (*SignatureClientMock)(nil)
+var (
+	_ SignatureClient               = (*SignatureClientMock)(nil)
+	_ ChannelAccountSignatureClient = (*SignatureClientMock)(nil)
+)
 
 func (s *SignatureClientMock) NetworkPassphrase() string {
 	args := s.Called()
@@ -25,6 +29,15 @@ func (s *SignatureClientMock) GetAccountPublicKey(ctx context.Context, opts ...i
 	}
 	args := s.Called(_ca...)
 	return args.String(0), args.Error(1)
+}
+
+func (s *SignatureClientMock) AcquireChannelAccount(ctx context.Context, opts ...int) (string, time.Time, error) {
+	_ca := []any{ctx}
+	for _, opt := range opts {
+		_ca = append(_ca, opt)
+	}
+	args := s.Called(_ca...)
+	return args.String(0), args.Get(1).(time.Time), args.Error(2)
 }
 
 func (s *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, accounts ...string) (*txnbuild.Transaction, error) {
