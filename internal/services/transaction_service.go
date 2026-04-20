@@ -118,6 +118,21 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
 
+	// GetAccountPublicKey already set locked_until in the DB. If anything below fails before the tx is submitted,
+	// the row would otherwise be held hostage for the full locked_until TTL — an authenticated caller who flooded
+	// buildTransaction with requests that fail during Soroban validation (or any later build step) could drain the
+	// pool. Register release-on-error here so every failure path unlocks the account. The unlock matches by
+	// public_key (not locked_tx_hash) because that column may still be NULL — AssignTxToChannelAccount runs later.
+	//
+	// Use a cancel-detached context so cleanup still runs when the caller's request context is cancelled
+	// (client disconnect, request timeout).
+	unlockCtx := context.WithoutCancel(ctx)
+	defer func() {
+		if retErr != nil {
+			t.releaseChannelAccountLockByPublicKey(unlockCtx, channelAccountPublicKey)
+		}
+	}()
+
 	// Extract the inner transaction (handle both regular and fee-bump transactions)
 	var clientTx *txnbuild.Transaction
 	if feeBumpTx, ok := transaction.FeeBump(); ok {
@@ -219,20 +234,6 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("assigning channel account to tx: %w", err)
 	}
 
-	// After AssignTxToChannelAccount succeeds, the channel row is locked to this tx hash until the ingest path
-	// confirms the tx on ledger (see internal/services/ingest_live.go:unlockChannelAccounts) or the locked_until
-	// TTL expires. If anything below fails, the channel would otherwise be held hostage for the full TTL. Release on error.
-	//
-	// Use a cancel-detached context so the cleanup still runs when the caller's request context is cancelled
-	// (client disconnect, request timeout); otherwise the DB op inside releaseChannelAccountLock would inherit
-	// the cancellation and leave the channel locked until the locked_until TTL expires.
-	unlockCtx := context.WithoutCancel(ctx)
-	defer func() {
-		if retErr != nil {
-			t.releaseChannelAccountLock(unlockCtx, txHash)
-		}
-	}()
-
 	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
@@ -241,18 +242,22 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	return tx, nil
 }
 
-// releaseChannelAccountLock is a best-effort unlock of the channel account previously assigned to txHash. Failures
+// releaseChannelAccountLockByPublicKey is a best-effort unlock of the channel account by public key. Failures
 // are logged but not surfaced: the caller is already unwinding with a more meaningful error, and the lock will
 // eventually expire via the channel's locked_until TTL even if this release fails.
-func (t *transactionService) releaseChannelAccountLock(ctx context.Context, txHash string) {
+//
+// Matches by public_key rather than locked_tx_hash because the defer that calls this fires for every failure
+// path after GetAndLockIdleChannelAccount — including those before AssignTxToChannelAccount runs, when
+// locked_tx_hash is still NULL.
+func (t *transactionService) releaseChannelAccountLockByPublicKey(ctx context.Context, publicKey string) {
 	releaseErr := db.RunInTransaction(ctx, t.DB, func(pgxTx pgx.Tx) error {
-		if _, err := t.ChannelAccountStore.UnassignTxAndUnlockChannelAccounts(ctx, pgxTx, txHash); err != nil {
-			return fmt.Errorf("unassigning channel account for tx %s: %w", txHash, err)
+		if _, err := t.ChannelAccountStore.UnlockChannelAccountByPublicKey(ctx, pgxTx, publicKey); err != nil {
+			return fmt.Errorf("unlocking channel account %s: %w", publicKey, err)
 		}
 		return nil
 	})
 	if releaseErr != nil {
-		log.Ctx(ctx).Errorf("failed to release channel account lock for tx %s: %v", txHash, releaseErr)
+		log.Ctx(ctx).Errorf("failed to release channel account lock for %s: %v", publicKey, releaseErr)
 	}
 }
 

@@ -89,6 +89,32 @@ func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, pub
 	return nil
 }
 
+// UnlockChannelAccountByPublicKey clears locked_tx_hash / locked_at / locked_until for the row matching publicKey.
+// Needed for failure paths that acquire a channel-account lock via GetAndLockIdleChannelAccount but return before
+// AssignTxToChannelAccount runs — in that window locked_tx_hash is still NULL, so UnassignTxAndUnlockChannelAccounts
+// (which matches on locked_tx_hash) can't release the row.
+func (ca *ChannelAccountModel) UnlockChannelAccountByPublicKey(ctx context.Context, pgxTx pgx.Tx, publicKey string) (int64, error) {
+	if publicKey == "" {
+		return 0, errors.New("publicKey cannot be empty")
+	}
+
+	const query = `
+		UPDATE channel_accounts
+		SET
+			locked_tx_hash = NULL,
+			locked_at = NULL,
+			locked_until = NULL
+		WHERE
+			public_key = $1
+	`
+	result, err := pgxTx.Exec(ctx, query, publicKey)
+	if err != nil {
+		return 0, fmt.Errorf("unlocking channel account %s: %w", publicKey, err)
+	}
+
+	return result.RowsAffected(), nil
+}
+
 func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error) {
 	if len(txHashes) == 0 {
 		return 0, errors.New("txHashes cannot be empty")

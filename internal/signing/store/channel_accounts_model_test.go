@@ -284,6 +284,103 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 	}
 }
 
+func Test_ChannelAccountModel_UnlockChannelAccountByPublicKey(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	ctx := context.Background()
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, outerErr)
+	defer dbConnectionPool.Close()
+
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	t.Run("🟢unlocks_locked_channel_account_when_locked_tx_hash_set", func(t *testing.T) {
+		defer func() {
+			_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
+			require.NoError(t, err)
+		}()
+
+		channelAccount := keypair.MustRandom()
+		now := time.Now()
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+			PublicKey:           channelAccount.Address(),
+			EncryptedPrivateKey: channelAccount.Seed(),
+			LockedTxHash:        utils.SQLNullString("txhash_" + channelAccount.Address()),
+			LockedAt:            utils.SQLNullTime(now),
+			LockedUntil:         utils.SQLNullTime(now.Add(time.Minute)),
+		})
+
+		pgxTx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		defer pgxTx.Rollback(ctx) //nolint:errcheck
+
+		rowsAffected, err := m.UnlockChannelAccountByPublicKey(ctx, pgxTx, channelAccount.Address())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+		require.NoError(t, pgxTx.Commit(ctx))
+
+		chAccFromDB, err := m.Get(ctx, channelAccount.Address())
+		require.NoError(t, err)
+		require.False(t, chAccFromDB.LockedTxHash.Valid)
+		require.False(t, chAccFromDB.LockedAt.Valid)
+		require.False(t, chAccFromDB.LockedUntil.Valid)
+	})
+
+	t.Run("🟢unlocks_locked_channel_account_when_locked_tx_hash_null", func(t *testing.T) {
+		// Mirrors the pre-Soroban-validation failure path: GetAndLockIdleChannelAccount sets locked_until
+		// but AssignTxToChannelAccount never runs, so locked_tx_hash stays NULL. UnassignTxAndUnlock
+		// can't match this row — UnlockChannelAccountByPublicKey must.
+		defer func() {
+			_, err := dbConnectionPool.Exec(ctx, `DELETE from channel_accounts`)
+			require.NoError(t, err)
+		}()
+
+		channelAccount := keypair.MustRandom()
+		now := time.Now()
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+			PublicKey:           channelAccount.Address(),
+			EncryptedPrivateKey: channelAccount.Seed(),
+			LockedAt:            utils.SQLNullTime(now),
+			LockedUntil:         utils.SQLNullTime(now.Add(time.Minute)),
+		})
+
+		pgxTx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		defer pgxTx.Rollback(ctx) //nolint:errcheck
+
+		rowsAffected, err := m.UnlockChannelAccountByPublicKey(ctx, pgxTx, channelAccount.Address())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+		require.NoError(t, pgxTx.Commit(ctx))
+
+		chAccFromDB, err := m.Get(ctx, channelAccount.Address())
+		require.NoError(t, err)
+		require.False(t, chAccFromDB.LockedTxHash.Valid)
+		require.False(t, chAccFromDB.LockedAt.Valid)
+		require.False(t, chAccFromDB.LockedUntil.Valid)
+	})
+
+	t.Run("🟡public_key_not_found_returns_zero_rows", func(t *testing.T) {
+		pgxTx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		defer pgxTx.Rollback(ctx) //nolint:errcheck
+
+		rowsAffected, err := m.UnlockChannelAccountByPublicKey(ctx, pgxTx, "GABCDEFG_NOT_A_REAL_KEY")
+		require.NoError(t, err)
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("🔴empty_public_key_returns_error", func(t *testing.T) {
+		pgxTx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		defer pgxTx.Rollback(ctx) //nolint:errcheck
+
+		_, err = m.UnlockChannelAccountByPublicKey(ctx, pgxTx, "")
+		require.ErrorContains(t, err, "publicKey cannot be empty")
+	})
+}
+
 func TestChannelAccountModelBatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
