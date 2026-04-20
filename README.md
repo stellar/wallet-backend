@@ -4,8 +4,8 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stellar/wallet-backend)
 [![Docker Pulls](https://img.shields.io/docker/pulls/stellar/wallet-backend?logo=docker)](https://hub.docker.com/r/stellar/wallet-backend/tags)
 
-The wallet-backend serves as a backend service for Stellar wallet applications, providing transaction submission,
-account management, and payment tracking capabilities.
+The wallet-backend serves as a backend service for Stellar wallet applications, providing ledger data ingestion,
+balance queries, and a GraphQL API for accessing blockchain data.
 
 ## Table of Contents
 
@@ -23,11 +23,10 @@ account management, and payment tracking capabilities.
 
 The wallet-backend service provides several key functionalities:
 
-- **Account Management**: Registration, deregistration, and sponsored account creation
-- **Transaction Submission**: Reliable transaction building, submission, and status tracking
-- **Payment History**: Tracking and querying of payment records
-- **Channel Account Management**: Creation and management of channel accounts for transaction signing
-- **Security**: Request authentication and signature verification
+- **Ledger Ingestion**: Real-time ingestion of Stellar ledger data (transactions, operations, state changes)
+- **Account Balances**: Fast balance queries across native XLM, classic trustlines, and contract tokens
+- **GraphQL API**: Flexible querying of transactions, operations, accounts, and state changes
+- **Security**: Optional JWT-based request authentication
 
 ## Getting Started
 
@@ -65,13 +64,6 @@ Follow these steps to start the wallet-backend server for local development and 
    NETWORK=testnet
    STELLAR_ENVIRONMENT=development
 
-   # The CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE is used to encrypt/decrypt the channel accounts private keys. A strong passphrase is recommended.
-   CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=<your_passphrase>
-
-   # The DISTRIBUTION_ACCOUNT is used to sponsor fees and reserves for the client transactions. It must be an existing account with XLM balance.
-   DISTRIBUTION_ACCOUNT_PRIVATE_KEY=<your_private_key>
-   DISTRIBUTION_ACCOUNT_PUBLIC_KEY=<your_public_key>
-
    # CLIENT_AUTH_PUBLIC_KEYS is a comma-separated list of Stellar public keys whose private key(s) are authorized to sign the authentication header. They must be Stellar addresses.
    CLIENT_AUTH_PUBLIC_KEYS=<your_public_keys>
    ```
@@ -82,13 +74,17 @@ Follow these steps to start the wallet-backend server for local development and 
 
 This is the simplest way to start the wallet-backend server. All services will run in Docker containers as defined in the `docker-compose.yaml` file.
 
-1. Start the containers:
+1. Start the containers for testnet:
 
    ```bash
-   docker compose up
+   docker compose up db stellar-rpc-testnet api-testnet ingest-testnet
    ```
 
-   This will start the `api`, `db`, `ingest`, and `stellar-rpc` services.
+   Or for mainnet:
+
+   ```bash
+   docker compose up db stellar-rpc-mainnet api-mainnet ingest-mainnet
+   ```
 
 #### Local + Docker (Active Development)
 
@@ -97,7 +93,7 @@ This setup is ideal for active development, allowing you to add debug points to 
 1. Start the `db` and `stellar-rpc` containers:
 
    ```bash
-   docker compose up -d db stellar-rpc
+   docker compose up -d db stellar-rpc-testnet
    ```
 
 2. Run `api` and `ingest` locally:
@@ -115,13 +111,7 @@ This setup is ideal for active development, allowing you to add debug points to 
          go run main.go migrate up
          ```
 
-      3. Generate channel accounts:
-
-         ```bash
-         go run main.go channel-account ensure 5
-         ```
-
-      4. Start the API server:
+      3. Start the API server:
 
          ```bash
          go run main.go serve
@@ -1027,7 +1017,7 @@ FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.Co
 
 ### Integration Test Framework
 
-The wallet-backend includes a comprehensive integration test framework that validates the entire system end-to-end, from Docker infrastructure setup through transaction submission and GraphQL data validation. These tests provide confidence that all components work together correctly in a realistic Stellar environment.
+The wallet-backend includes a comprehensive integration test framework that validates the entire system end-to-end, from Docker infrastructure setup through ledger ingestion and GraphQL data validation. These tests provide confidence that all components work together correctly in a realistic Stellar environment.
 
 **In this section:**
 - [Why Integration Tests Exist](#why-integration-tests-exist)
@@ -1044,8 +1034,8 @@ The wallet-backend includes a comprehensive integration test framework that vali
 
 The integration tests serve several critical purposes:
 
-1. **End-to-End Validation**: Tests the complete flow from account registration through transaction building, signing, submission, ingestion, and GraphQL querying
-2. **Infrastructure Testing**: Validates that the wallet-backend correctly integrates with Stellar Core, Stellar RPC, PostgreSQL, and Redis
+1. **End-to-End Validation**: Tests the complete flow from infrastructure setup through ledger ingestion and GraphQL querying
+2. **Infrastructure Testing**: Validates that the wallet-backend correctly integrates with Stellar Core, Stellar RPC, and PostgreSQL
 3. **Contract Interactions**: Tests both Stellar Asset Contracts (SACs) and custom SEP-41 token contracts
 4. **Data Consistency**: Ensures ingested ledger data matches on-chain state and is correctly queryable via GraphQL
 5. **Regression Prevention**: Catches breaking changes across the entire stack, not just individual components
@@ -1057,20 +1047,22 @@ The integration tests use a **phased execution model** where each phase depends 
 
 ```mermaid
 graph TD
-    A[Phase 0: Infrastructure Setup] --> B[Phase 1: Account Registration]
-    B --> C[Phase 2: Balance Validation After Checkpoint]
-    C --> D[Phase 3: Build & Submit Transactions]
-    D --> E[Wait 5 seconds for ingestion]
-    E --> F[Phase 4: Data Validation via GraphQL]
-    F --> G[Phase 5: Balance Validation After Live Ingestion]
+    A[Phase 0: Infrastructure Setup] --> B[Phase 1: Balance Validation After Checkpoint]
+    B --> C[Submit Fixture Transactions to RPC]
+    C --> D[Wait 5 seconds for ingestion]
+    D --> E[Phase 2: Backfill Testing]
+    E --> F[Phase 3: Catchup Testing]
+    F --> G[Phase 4: Data Validation via GraphQL]
+    G --> H[Phase 5: Balance Validation After Live Ingestion]
 
     style A fill:#e1f5ff
-    style B fill:#fff4e1
-    style C fill:#f0e1ff
-    style D fill:#e1ffe1
-    style E fill:#ffe1e1
-    style F fill:#f0e1ff
+    style B fill:#f0e1ff
+    style C fill:#e1ffe1
+    style D fill:#ffe1e1
+    style E fill:#fff4e1
+    style F fill:#fff4e1
     style G fill:#f0e1ff
+    style H fill:#f0e1ff
 ```
 
 **Execution Flow:**
@@ -1078,10 +1070,11 @@ graph TD
 | Phase | Suite Name | Purpose | Dependency |
 |-------|-----------|---------|------------|
 | 0 | Infrastructure Setup | Start containers, deploy contracts, create accounts | None |
-| 1 | AccountRegisterTestSuite | Register test accounts with wallet-backend | Phase 0 |
-| 2 | AccountBalancesAfterCheckpointTestSuite | Validate balances from checkpoint state | Phase 1 |
-| 3 | BuildAndSubmitTransactionsTestSuite | Build, sign, and submit 20+ test transactions | Phase 2 |
-| 4 | DataValidationTestSuite | Query and validate all transaction data via GraphQL | Phase 3 + 5s wait |
+| 1 | AccountBalancesAfterCheckpointTestSuite | Validate balances from checkpoint state | Phase 0 |
+| — | Submit Fixture Transactions | Submit test transactions directly to Stellar RPC | Phase 1 |
+| 2 | BackfillTestSuite | Test parallel live + backfill ingestion | Fixture txns + 5s wait |
+| 3 | CatchupTestSuite | Test catchup backfilling during live ingestion | Phase 2 |
+| 4 | DataValidationTestSuite | Query and validate all transaction data via GraphQL | Phase 3 |
 | 5 | AccountBalancesAfterLiveIngestionTestSuite | Validate balances after live ingestion | Phase 4 |
 
 If any phase fails, all subsequent phases are skipped to prevent cascading failures and confusing error messages.
@@ -1092,13 +1085,12 @@ The integration tests spin up a complete Stellar environment using Docker contai
 
 | Container | Image | Purpose | Exposed Port |
 |-----------|-------|---------|--------------|
-| **Redis** | `redis:7-alpine` | Account token cache and distributed locking | 6379 |
 | **Core DB** | `postgres:9.6.17-alpine` | Stellar Core database | 5432 |
 | **Stellar Core** | `stellar/stellar-core:24` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
 | **Stellar RPC** | `stellar/stellar-rpc:24.0.0` | RPC server with captive core | 8000 |
 | **Wallet DB** | `postgres:14-alpine` | Wallet-backend database | 5432 |
-| **Wallet Ingest** | `wallet-backend:integration-test-<commit>` | Ingest service processing ledgers | 8003 |
-| **Wallet API** | `wallet-backend:integration-test-<commit>` | API service with 15 channel accounts | 8002 |
+| **Wallet Ingest** | `wallet-backend:integration-test` | Ingest service processing ledgers | 8003 |
+| **Wallet API** | `wallet-backend:integration-test` | API service serving GraphQL queries | 8002 |
 
 **Network Configuration:**
 - Network: Standalone (`Standalone Network ; February 2017`)
@@ -1114,7 +1106,7 @@ The integration tests spin up a complete Stellar environment using Docker contai
 
 #### Test Accounts
 
-The framework creates 7 distinct test accounts, each serving a specific purpose:
+The framework creates several distinct test accounts, each serving a specific purpose:
 
 | Account | Purpose | Funding | Trustlines |
 |---------|---------|---------|------------|
@@ -1122,8 +1114,8 @@ The framework creates 7 distinct test accounts, each serving a specific purpose:
 | **Client Auth** | JWT authentication keypair for API requests | 10,000 XLM | None |
 | **Primary Source** | Main transaction source account | 10,000 XLM | None |
 | **Secondary Source** | Secondary transaction source account | 10,000 XLM | None |
-| **Distribution** | Fee sponsor and distribution account | 10,000 XLM | None |
-| **Sponsored New** | Created via sponsored reserves (later merged) | 5 XLM (sponsored) | None |
+| **Tx Source** | Dedicated source account for fixture transaction submission | 10,000 XLM | None |
+| **Sponsored New** | Created via sponsored reserves (later merged) | Not pre-funded (sponsored) | None |
 | **Balance Test 1** | Balance validation (isolated from tx tests) | 10,000 XLM | USDC, EURC |
 | **Balance Test 2** | Balance validation (isolated from tx tests) | 10,000 XLM | USDC |
 
@@ -1163,15 +1155,7 @@ All contracts are deployed and initialized during Phase 0, with a checkpoint wai
 
 Each test suite focuses on a specific aspect of the wallet-backend functionality:
 
-**1. AccountRegisterTestSuite** (`accounts_test.go`)
-- **Purpose**: Validates account registration and deregistration flows
-- **Tests**:
-  - Successful registration of multiple accounts
-  - Duplicate registration returns appropriate error
-  - Registered accounts are fetchable via `GetAccountByAddress`
-- **Coverage**: Account management API endpoints
-
-**2. AccountBalancesAfterCheckpointTestSuite** (`account_balances_test.go`)
+**1. AccountBalancesAfterCheckpointTestSuite** (`account_balances_test.go`)
 - **Purpose**: Validates balance calculations from checkpoint ledger state
 - **Tests**:
   - Native XLM balances are correct
@@ -1181,15 +1165,13 @@ Each test suite focuses on a specific aspect of the wallet-backend functionality
   - SEP-41 token balances for C-addresses
 - **Coverage**: Balance ingestion from checkpoint, token type classification, contract metadata
 
-**3. BuildAndSubmitTransactionsTestSuite** (`transaction_test.go`)
-- **Purpose**: Tests transaction building, signing, fee bumping, and submission
-- **Tests**:
-  - Build 20+ transactions in parallel using channel accounts
-  - Local signing with test keypairs
-  - Fee bump transaction creation with distribution account
-  - Parallel submission to Stellar RPC
-  - Transaction hash validation
-- **Coverage**: Transaction building API, channel account management, fee sponsorship, RPC integration
+**2. BackfillTestSuite** (`backfill_test.go`)
+- **Purpose**: Tests parallel live and backfill ingestion
+- **Coverage**: Backfill ingestion pipeline, concurrent ingestion correctness
+
+**3. CatchupTestSuite** (`catchup_test.go`)
+- **Purpose**: Tests catchup backfilling during live ingestion
+- **Coverage**: Catchup logic, ingestion gap recovery
 
 **4. DataValidationTestSuite** (`data_validation_test.go`)
 - **Purpose**: Validates all ingested transaction data via GraphQL queries
@@ -1211,7 +1193,7 @@ Each test suite focuses on a specific aspect of the wallet-backend functionality
 
 #### Test Fixtures
 
-The framework includes **20+ pre-built test scenarios** covering all Stellar operation types and common contract interactions:
+The framework includes **20+ pre-built test scenarios** (submitted directly to Stellar RPC) covering all Stellar operation types and common contract interactions:
 
 **Classic Operations:**
 - Payment
@@ -1293,9 +1275,7 @@ The integration test framework employs several sophisticated design patterns:
 
 **3. Parallel Execution**
 - Uses [`pond`](https://github.com/alitto/pond) worker pools for parallelism
-- Transaction building, signing, and submission run concurrently
 - GraphQL queries execute in parallel using `pond.NewGroupContext`
-- Reduces test execution time from ~10 minutes to ~2-3 minutes
 
 **4. Container Reusability**
 - Containers are tagged with session IDs and reused across test runs
@@ -1314,12 +1294,11 @@ The integration test framework employs several sophisticated design patterns:
 - Validates both checkpoint ingestion and live ingestion paths
 
 **7. Progressive Complexity**
-- Simple tests run first (account registration)
+- Simple tests run first (balance validation from checkpoint)
 - Complex tests run last (data validation with 20+ transactions)
 - Builds confidence incrementally
 
 **Performance Considerations:**
-- **Parallel transaction submission**: 20+ transactions submitted concurrently
 - **Parallel GraphQL queries**: State change queries run in worker pools
 - **Container reuse**: Subsequent test runs skip container creation
 - **Image caching**: Docker layers and wallet-backend image cached between runs
