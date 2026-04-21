@@ -239,3 +239,27 @@ func TestStreamingLoadtestBackend_GetLedgerEOF(t *testing.T) {
 	assert.Contains(t, err.Error(), "meta stream ended")
 	require.NoError(t, <-writerDone)
 }
+
+func TestNewLedgerBackend_StreamingLoadtest(t *testing.T) {
+	pipePath := mkFIFO(t)
+
+	go func() {
+		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err == nil {
+			t.Cleanup(func() { _ = f.Close() })
+		}
+	}()
+
+	cfg := Configs{
+		LedgerBackendType:   LedgerBackendTypeStreamingLoadtest,
+		MetaPipePath:        pipePath,
+		LedgerCloseDuration: 500 * time.Millisecond,
+		NetworkPassphrase:   "Apply Load",
+	}
+	backend, err := NewLedgerBackend(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NotNil(t, backend)
+	_, ok := backend.(*StreamingLoadtestLedgerBackend)
+	assert.True(t, ok, "NewLedgerBackend should return a StreamingLoadtestLedgerBackend")
+	assert.NoError(t, backend.Close())
+}

@@ -18,6 +18,12 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 		return newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
 	case LedgerBackendTypeRPC:
 		return newRPCLedgerBackend(cfg)
+	case LedgerBackendTypeStreamingLoadtest:
+		return NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+			MetaPipePath:        cfg.MetaPipePath,
+			LedgerCloseDuration: cfg.LedgerCloseDuration,
+			NetworkPassphrase:   cfg.NetworkPassphrase,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported ledger backend type: %s", cfg.LedgerBackendType)
 	}
