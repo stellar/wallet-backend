@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -334,6 +336,8 @@ func TestProtocolSetupService_Run(t *testing.T) {
 	})
 
 	t.Run("panic extracting one WASM does not halt classification of others", func(t *testing.T) {
+		getLogEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+
 		rpcServiceMock := NewRPCServiceMock(t)
 		protocolModelMock := data.NewProtocolsModelMock(t)
 		protocolWasmModelMock := data.NewProtocolWasmsModelMock(t)
@@ -403,6 +407,22 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		err = svc.Run(ctx, []string{testProtocolID})
 		require.NoError(t, err)
 		assert.True(t, panickyExtractor.panicTriggered, "expected panicking branch to be exercised")
+
+		// The recover handler must log both the panic value and a stack trace
+		// so operators can diagnose wazero/XDR panics in production.
+		var panicEntry string
+		for _, entry := range getLogEntries() {
+			if entry.Level == log.ErrorLevel &&
+				strings.Contains(entry.Message, "panic classifying WASM") {
+				panicEntry = entry.Message
+				break
+			}
+		}
+		require.NotEmpty(t, panicEntry, "expected a panic-classifying log line")
+		assert.Contains(t, panicEntry, "simulated wazero panic", "log should include the panic value")
+		assert.Contains(t, panicEntry, "stack:", "log should include a stack trace")
+		assert.Contains(t, panicEntry, "goroutine ", "stack trace should be a runtime debug.Stack dump")
+		assert.Contains(t, panicEntry, "protocol_setup.go", "stack trace should point at the recovering frame")
 	})
 }
 

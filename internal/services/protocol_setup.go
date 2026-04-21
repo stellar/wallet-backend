@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -211,7 +212,7 @@ func (s *protocolSetupService) classifyOne(
 ) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Ctx(ctx).Errorf("panic classifying WASM %s, skipping: %v", wasmHash, r)
+			log.Ctx(ctx).Errorf("panic classifying WASM %s, skipping: %v\nstack:\n%s", wasmHash, r, debug.Stack())
 		}
 	}()
 
