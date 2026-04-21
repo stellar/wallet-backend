@@ -93,9 +93,49 @@ func (b *StreamingLoadtestLedgerBackend) PrepareRange(ctx context.Context, ledge
 	return nil
 }
 
-// GetLedger, GetLatestLedgerSequence, IsPrepared implemented in later tasks.
 func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
-	return xdr.LedgerCloseMeta{}, fmt.Errorf("not implemented")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.prepared {
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("GetLedger called before PrepareRange")
+	}
+	if b.done {
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("backend closed")
+	}
+
+	// Pace: sleep until closeDuration has elapsed since last emit.
+	if b.config.LedgerCloseDuration > 0 && !b.lastEmitTime.IsZero() {
+		nextEmit := b.lastEmitTime.Add(b.config.LedgerCloseDuration)
+		wait := time.Until(nextEmit)
+		if wait > 0 {
+			timer := time.NewTimer(wait)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return xdr.LedgerCloseMeta{}, ctx.Err()
+			}
+		}
+	}
+
+	var lcm xdr.LedgerCloseMeta
+	if err := b.xdrStream.ReadOne(&lcm); err != nil {
+		if err == io.EOF {
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("meta stream ended: %w", io.EOF)
+		}
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("reading meta frame: %w", err)
+	}
+
+	gotSeq := uint32(lcm.LedgerSequence())
+	if gotSeq != sequence {
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("stream sequence mismatch: expected %d, got %d", sequence, gotSeq)
+	}
+	if gotSeq > b.latestSeqSeen {
+		b.latestSeqSeen = gotSeq
+	}
+	b.lastEmitTime = time.Now()
+	return lcm, nil
 }
 
 func (b *StreamingLoadtestLedgerBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
@@ -119,5 +159,3 @@ func (b *StreamingLoadtestLedgerBackend) Close() error {
 	return nil
 }
 
-// Silence unused import complaints until GetLedger uses io.EOF.
-var _ = io.EOF
