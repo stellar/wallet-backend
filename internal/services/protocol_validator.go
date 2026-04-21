@@ -63,6 +63,13 @@ func NewWasmSpecExtractor() WasmSpecExtractor {
 // ExtractSpec additionally applies wasmCompileTimeout as an upper bound so a single
 // hostile blob cannot stall the pipeline.
 func (e *wasmSpecExtractor) ExtractSpec(ctx context.Context, wasmCode []byte) ([]xdr.ScSpecEntry, error) {
+	// Short-circuit on caller cancellation. wazero.CompileModule may return
+	// before observing ctx on small, well-formed inputs, so we check here to
+	// guarantee the caller's cancellation is honored regardless.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("extracting wasm spec: %w", err)
+	}
+
 	if len(wasmCode) > maxWasmBytes {
 		return nil, fmt.Errorf("wasm module too large: %d bytes (max %d)", len(wasmCode), maxWasmBytes)
 	}

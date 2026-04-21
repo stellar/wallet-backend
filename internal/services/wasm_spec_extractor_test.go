@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -81,14 +82,19 @@ func TestWasmSpecExtractor_HonorsCallerContextCancellation(t *testing.T) {
 	extractor := NewWasmSpecExtractor()
 	defer func() { require.NoError(t, extractor.Close(context.Background())) }()
 
+	// Use a real, well-formed WASM so the failure mode can only be caller-ctx
+	// cancellation propagating through to wazero — not an invalid-module error
+	// that would succeed whether or not the caller's ctx was honored.
+	wasmBytes := loadTestWasm(t, "soroban_token_contract.wasm")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Any input under the size cap is fine; the extractor should short-circuit
-	// because the caller's context is already done once we derive a child.
-	specs, err := extractor.ExtractSpec(ctx, []byte("not a valid wasm"))
+	specs, err := extractor.ExtractSpec(ctx, wasmBytes)
 	require.Error(t, err)
 	assert.Nil(t, specs)
+	assert.True(t, errors.Is(err, context.Canceled),
+		"expected wrapped context.Canceled, got %v", err)
 }
 
 func TestWasmSpecExtractor_RespectsWasmCompileTimeoutConstant(t *testing.T) {
