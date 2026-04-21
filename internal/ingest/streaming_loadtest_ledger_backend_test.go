@@ -165,3 +165,43 @@ func TestStreamingLoadtestBackend_GetLedgerPaces(t *testing.T) {
 
 	require.NoError(t, <-writerDone)
 }
+
+func TestStreamingLoadtestBackend_GetLatestLedgerSequence(t *testing.T) {
+	pipePath := mkFIFO(t)
+
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePath: pipePath,
+	})
+	require.NoError(t, err)
+	defer backend.Close()
+
+	writerDone := make(chan error, 1)
+	go func() {
+		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			writerDone <- err
+			return
+		}
+		defer f.Close()
+		writeLedgerCloseMeta(t, f, 100)
+		writeLedgerCloseMeta(t, f, 101)
+		writerDone <- nil
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+
+	_, err = backend.GetLedger(ctx, 100)
+	require.NoError(t, err)
+	seq, err := backend.GetLatestLedgerSequence(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(100), seq)
+
+	_, err = backend.GetLedger(ctx, 101)
+	require.NoError(t, err)
+	seq, err = backend.GetLatestLedgerSequence(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(101), seq)
+	require.NoError(t, <-writerDone)
+}

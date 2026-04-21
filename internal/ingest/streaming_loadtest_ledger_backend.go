@@ -139,7 +139,12 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 }
 
 func (b *StreamingLoadtestLedgerBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
-	return 0, fmt.Errorf("not implemented")
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if !b.prepared {
+		return 0, fmt.Errorf("GetLatestLedgerSequence called before PrepareRange")
+	}
+	return b.latestSeqSeen, nil
 }
 
 func (b *StreamingLoadtestLedgerBackend) IsPrepared(ctx context.Context, ledgerRange ledgerbackend.Range) (bool, error) {
