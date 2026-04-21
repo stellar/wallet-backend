@@ -2,6 +2,7 @@ package signing
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -84,15 +85,36 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 
 	t.Run("gets_an_idle_channel_account", func(t *testing.T) {
 		channelAccountPublicKey := keypair.MustRandom().Address()
+		lockedAt := time.Now().UTC()
 		channelAccountStore.
 			On("GetAndLockIdleChannelAccount", ctx, time.Minute).
-			Return(&store.ChannelAccount{PublicKey: channelAccountPublicKey}, nil).
+			Return(&store.ChannelAccount{
+				PublicKey: channelAccountPublicKey,
+				LockedAt:  sql.NullTime{Time: lockedAt, Valid: true},
+			}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
 		publicKey, err := sc.GetAccountPublicKey(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, channelAccountPublicKey, publicKey)
+	})
+
+	t.Run("returns_error_when_locked_at_missing_after_lock_acquisition", func(t *testing.T) {
+		// Defensive guard: GetAndLockIdleChannelAccount sets locked_at = NOW(), so a valid locked_at is
+		// invariant. If the store somehow returned a row without it (schema drift, test fixture bug),
+		// we can't form a safe unlock token and must fail closed rather than attempt a racy public-key unlock.
+		channelAccountPublicKey := keypair.MustRandom().Address()
+		channelAccountStore.
+			On("GetAndLockIdleChannelAccount", ctx, time.Minute).
+			Return(&store.ChannelAccount{PublicKey: channelAccountPublicKey}, nil).
+			Once()
+		defer channelAccountStore.AssertExpectations(t)
+
+		publicKey, lockedAt, err := sc.AcquireChannelAccount(ctx)
+		require.ErrorContains(t, err, "has no locked_at after acquisition")
+		assert.Empty(t, publicKey)
+		assert.True(t, lockedAt.IsZero())
 	})
 }
 

@@ -89,6 +89,43 @@ func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, pub
 	return nil
 }
 
+// UnlockChannelAccountByLockToken clears locked_tx_hash / locked_at / locked_until for the row matching
+// (publicKey, lockedAt). Needed for failure paths that acquire a channel-account lock via
+// GetAndLockIdleChannelAccount but return before AssignTxToChannelAccount runs — in that window
+// locked_tx_hash is still NULL, so UnassignTxAndUnlockChannelAccounts (which matches on locked_tx_hash)
+// can't release the row.
+//
+// The lockedAt parameter is the lock token: the value of locked_at at the moment this caller acquired
+// the lock. Matching on it prevents a stale defer from wiping a newly-acquired lock on the same public_key
+// if the original lock's locked_until TTL expired and another request re-acquired the row in the meantime.
+// A zero rows-affected return means the lock had already been replaced (or never existed) and no unlock
+// was needed — this is the race-safe no-op case.
+func (ca *ChannelAccountModel) UnlockChannelAccountByLockToken(ctx context.Context, pgxTx pgx.Tx, publicKey string, lockedAt time.Time) (int64, error) {
+	if publicKey == "" {
+		return 0, errors.New("publicKey cannot be empty")
+	}
+	if lockedAt.IsZero() {
+		return 0, errors.New("lockedAt cannot be zero")
+	}
+
+	const query = `
+		UPDATE channel_accounts
+		SET
+			locked_tx_hash = NULL,
+			locked_at = NULL,
+			locked_until = NULL
+		WHERE
+			public_key = $1
+			AND locked_at = $2
+	`
+	result, err := pgxTx.Exec(ctx, query, publicKey, lockedAt)
+	if err != nil {
+		return 0, fmt.Errorf("unlocking channel account %s: %w", publicKey, err)
+	}
+
+	return result.RowsAffected(), nil
+}
+
 func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, pgxTx pgx.Tx, txHashes ...string) (int64, error) {
 	if len(txHashes) == 0 {
 		return 0, errors.New("txHashes cannot be empty")
