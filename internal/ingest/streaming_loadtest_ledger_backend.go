@@ -148,7 +148,7 @@ func (b *StreamingLoadtestLedgerBackend) GetLatestLedgerSequence(ctx context.Con
 }
 
 func (b *StreamingLoadtestLedgerBackend) IsPrepared(ctx context.Context, ledgerRange ledgerbackend.Range) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	return b.prepared, nil
 }
 
 func (b *StreamingLoadtestLedgerBackend) Close() error {
