@@ -107,7 +107,7 @@ func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts 
 
 	const query = `
 		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, name, symbol, decimals)
-		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::smallint[])
+		SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::integer[])
 		ON CONFLICT (contract_id) DO NOTHING
 	`
 

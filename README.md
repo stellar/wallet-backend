@@ -798,7 +798,7 @@ CREATE TABLE contract_tokens (
     issuer TEXT NULL,              -- Asset issuer (for SAC tokens)
     name TEXT NULL,                -- Token name from contract
     symbol TEXT NULL,              -- Token symbol from contract
-    decimals SMALLINT NOT NULL,    -- Token decimals
+    decimals INTEGER NOT NULL,     -- Token decimals (SEP-41 u32)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
