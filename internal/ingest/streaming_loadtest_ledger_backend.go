@@ -2,13 +2,18 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
@@ -23,6 +28,18 @@ type StreamingLoadtestBackendConfig struct {
 	// NetworkPassphrase is recorded but not validated by this backend; apply-load
 	// writes meta that is passphrase-independent at the framing layer.
 	NetworkPassphrase string
+	// ArchiveURL, when non-empty, makes the constructor open the FIFO and
+	// drain frames until the history archive publishes its first checkpoint.
+	// Required when co-located with stellar-core apply-load: apply-load
+	// blocks on FIFO writes (buffered write + flush per ledger close) once
+	// the 64KB pipe buffer fills, and can't publish a checkpoint to the
+	// archive until someone drains the pipe. wallet-backend's startLiveIngestion
+	// path requires a valid checkpoint from the archive before it reaches
+	// PrepareRange, so the drain must happen here.
+	ArchiveURL string
+	// DrainTimeout is the hard cap on how long the constructor's drain waits
+	// for the archive to publish. 0 = default (5 minutes).
+	DrainTimeout time.Duration
 }
 
 // StreamingLoadtestLedgerBackend reads stream-framed XDR LedgerCloseMeta from a
@@ -45,11 +62,158 @@ type StreamingLoadtestLedgerBackend struct {
 // Verify interface implementation at compile time.
 var _ ledgerbackend.LedgerBackend = (*StreamingLoadtestLedgerBackend)(nil)
 
+const defaultDrainTimeout = 5 * time.Minute
+
 func NewStreamingLoadtestLedgerBackend(cfg StreamingLoadtestBackendConfig) (*StreamingLoadtestLedgerBackend, error) {
 	if cfg.MetaPipePath == "" {
 		return nil, fmt.Errorf("MetaPipePath is required")
 	}
-	return &StreamingLoadtestLedgerBackend{config: cfg}, nil
+	b := &StreamingLoadtestLedgerBackend{config: cfg}
+
+	if cfg.ArchiveURL != "" {
+		timeout := cfg.DrainTimeout
+		if timeout == 0 {
+			timeout = defaultDrainTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := b.openPipe(ctx); err != nil {
+			return nil, fmt.Errorf("opening meta pipe: %w", err)
+		}
+		if err := b.drainUntilArchiveReady(ctx); err != nil {
+			if closeErr := b.pipeFile.Close(); closeErr != nil {
+				log.Ctx(ctx).Warnf("closing pipe after drain failure: %v", closeErr)
+			}
+			return nil, fmt.Errorf("waiting for archive checkpoint: %w", err)
+		}
+		b.prepared = true
+	}
+	return b, nil
+}
+
+// openPipe opens the FIFO read-side. Blocks until apply-load opens the write side.
+// Respects ctx cancellation.
+func (b *StreamingLoadtestLedgerBackend) openPipe(ctx context.Context) error {
+	openResult := make(chan struct {
+		f   *os.File
+		err error
+	}, 1)
+	go func() {
+		f, err := os.OpenFile(b.config.MetaPipePath, os.O_RDONLY, 0)
+		openResult <- struct {
+			f   *os.File
+			err error
+		}{f, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled waiting for pipe writer: %w", ctx.Err())
+	case res := <-openResult:
+		if res.err != nil {
+			return fmt.Errorf("opening meta pipe %s: %w", b.config.MetaPipePath, res.err)
+		}
+		b.pipeFile = res.f
+		b.xdrStream = xdr.NewStream(b.pipeFile)
+		return nil
+	}
+}
+
+// drainUntilArchiveReady reads and discards frames from the pipe until the
+// history archive at cfg.ArchiveURL reports a non-zero currentLedger AND the
+// drain has consumed a frame with seq >= that currentLedger. Blocks until done
+// or until ctx expires.
+//
+// This unsticks apply-load (which blocks on FIFO writes after ~64KB of meta)
+// long enough for it to close ledgers through the first checkpoint boundary
+// and publish the history archive, which wallet-backend's
+// PopulateAccountTokens path requires.
+func (b *StreamingLoadtestLedgerBackend) drainUntilArchiveReady(ctx context.Context) error {
+	archivePollInterval := 500 * time.Millisecond
+
+	archiveReady := make(chan uint32, 1)
+
+	pollCtx, cancelPoll := context.WithCancel(ctx)
+	defer cancelPoll()
+	go func() {
+		for {
+			curLedger, err := b.fetchArchiveCurrentLedger(pollCtx)
+			if err == nil && curLedger > 0 {
+				select {
+				case archiveReady <- curLedger:
+				case <-pollCtx.Done():
+				}
+				return
+			}
+			select {
+			case <-pollCtx.Done():
+				return
+			case <-time.After(archivePollInterval):
+			}
+		}
+	}()
+
+	var archiveCheckpointLedger uint32
+	for {
+		if archiveCheckpointLedger == 0 {
+			select {
+			case v := <-archiveReady:
+				archiveCheckpointLedger = v
+				log.Ctx(ctx).Infof("streaming-loadtest: archive published checkpoint %d; draining until we consume that ledger from the pipe", v)
+			default:
+			}
+		}
+
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("drain cancelled: %w", err)
+		}
+
+		var lcm xdr.LedgerCloseMeta
+		if err := b.xdrStream.ReadOne(&lcm); err != nil {
+			if errors.Is(err, io.EOF) {
+				return fmt.Errorf("meta stream ended during drain: %w", io.EOF)
+			}
+			return fmt.Errorf("reading meta frame during drain: %w", err)
+		}
+		seq := lcm.LedgerSequence()
+		b.mu.Lock()
+		if seq > b.latestSeqSeen {
+			b.latestSeqSeen = seq
+		}
+		b.mu.Unlock()
+
+		if archiveCheckpointLedger > 0 && seq >= archiveCheckpointLedger {
+			log.Ctx(ctx).Infof("streaming-loadtest: drain complete at ledger %d; handing off to GetLedger", seq)
+			return nil
+		}
+	}
+}
+
+func (b *StreamingLoadtestLedgerBackend) fetchArchiveCurrentLedger(ctx context.Context) (uint32, error) {
+	url := strings.TrimRight(b.config.ArchiveURL, "/") + "/.well-known/stellar-history.json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("building archive request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("fetching archive HAS: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("closing archive response body: %v", closeErr)
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("archive returned %s", resp.Status)
+	}
+	var has struct {
+		CurrentLedger uint32 `json:"currentLedger"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&has); err != nil {
+		return 0, fmt.Errorf("decoding archive HAS: %w", err)
+	}
+	return has.CurrentLedger, nil
 }
 
 func (b *StreamingLoadtestLedgerBackend) PrepareRange(ctx context.Context, ledgerRange ledgerbackend.Range) error {
@@ -63,8 +227,8 @@ func (b *StreamingLoadtestLedgerBackend) PrepareRange(ctx context.Context, ledge
 		return fmt.Errorf("streaming-loadtest backend only supports unbounded ranges")
 	}
 
-	// Open the read-side. This blocks until a writer opens the FIFO on the other end.
-	// Honour context cancellation by running the open in a goroutine.
+	// Fallback path for when the backend was constructed without ArchiveURL
+	// (unit tests that bypass the drain). Open the pipe here.
 	openResult := make(chan struct {
 		f   *os.File
 		err error
@@ -114,20 +278,20 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 			case <-timer.C:
 			case <-ctx.Done():
 				timer.Stop()
-				return xdr.LedgerCloseMeta{}, ctx.Err()
+				return xdr.LedgerCloseMeta{}, fmt.Errorf("paced GetLedger cancelled: %w", ctx.Err())
 			}
 		}
 	}
 
 	var lcm xdr.LedgerCloseMeta
 	if err := b.xdrStream.ReadOne(&lcm); err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("meta stream ended: %w", io.EOF)
 		}
 		return xdr.LedgerCloseMeta{}, fmt.Errorf("reading meta frame: %w", err)
 	}
 
-	gotSeq := uint32(lcm.LedgerSequence())
+	gotSeq := lcm.LedgerSequence()
 	if gotSeq != sequence {
 		return xdr.LedgerCloseMeta{}, fmt.Errorf("stream sequence mismatch: expected %d, got %d", sequence, gotSeq)
 	}
@@ -159,8 +323,9 @@ func (b *StreamingLoadtestLedgerBackend) Close() error {
 	}
 	b.done = true
 	if b.pipeFile != nil {
-		return b.pipeFile.Close()
+		if err := b.pipeFile.Close(); err != nil {
+			return fmt.Errorf("closing meta pipe: %w", err)
+		}
 	}
 	return nil
 }
-

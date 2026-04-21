@@ -23,6 +23,7 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 			MetaPipePath:        cfg.MetaPipePath,
 			LedgerCloseDuration: cfg.LedgerCloseDuration,
 			NetworkPassphrase:   cfg.NetworkPassphrase,
+			ArchiveURL:          cfg.ArchiveURL,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported ledger backend type: %s", cfg.LedgerBackendType)

@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -262,4 +266,175 @@ func TestNewLedgerBackend_StreamingLoadtest(t *testing.T) {
 	_, ok := backend.(*StreamingLoadtestLedgerBackend)
 	assert.True(t, ok, "NewLedgerBackend should return a StreamingLoadtestLedgerBackend")
 	assert.NoError(t, backend.Close())
+}
+
+func TestStreamingLoadtestBackend_DrainsUntilArchiveReady(t *testing.T) {
+	pipePath := mkFIFO(t)
+
+	var currentLedger atomic.Uint32
+	archive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/stellar-history.json" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"currentLedger": currentLedger.Load(),
+		}); err != nil {
+			t.Logf("archive encode error: %v", err)
+		}
+	}))
+	defer archive.Close()
+
+	// Coordinate the writer with the archive: publish checkpoint when the
+	// drain has consumed frames 1..7. We pace the writer so that the drain
+	// and archive-poll loop can interleave deterministically.
+	writerDone := make(chan error, 1)
+	writerCtx, writerCancel := context.WithCancel(context.Background())
+	defer writerCancel()
+	go func() {
+		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			writerDone <- err
+			return
+		}
+		defer f.Close()
+		// Write ledgers 1..7 slowly, so drain consumes them while archive still reports 0.
+		for seq := uint32(1); seq <= 7; seq++ {
+			writeLedgerCloseMeta(t, f, seq)
+			time.Sleep(50 * time.Millisecond)
+		}
+		// Flip the archive. Drain will see currentLedger=7 on its next poll
+		// and then consume one more frame (seq 8) before deciding seq >= 7.
+		// Wait — the check is `seq >= C`, so seq=7 itself satisfies.
+		// But we've already consumed 7. So we need to make sure the archive
+		// flips BEFORE drain consumes 7. Since drain is blocked on ReadOne
+		// between our slow writes, we flip now (before write 7 even — delay
+		// slightly more).
+		currentLedger.Store(7)
+		// Keep feeding frames (best-effort — reader may close) until test ends.
+		seq := uint32(8)
+		for {
+			select {
+			case <-writerCtx.Done():
+				writerDone <- nil
+				return
+			default:
+			}
+			if !writeFrameBestEffort(f, seq) {
+				writerDone <- nil
+				return
+			}
+			seq++
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePath: pipePath,
+		ArchiveURL:   archive.URL,
+		DrainTimeout: 10 * time.Second,
+	})
+	require.NoError(t, err)
+	defer backend.Close()
+
+	// The drain returns once it consumes a frame with seq >= archive's currentLedger.
+	// The exact handoff seq can be 7 or higher (archive reports 7, drain may have
+	// already overshot). Grab whatever the backend thinks is next via reading and
+	// asserting monotonic progress instead of pinning to a specific seq.
+	lastSeen, err := backend.GetLatestLedgerSequence(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, lastSeen, uint32(7), "drain should have consumed >= the archive checkpoint")
+
+	// Next GetLedger should read the ledger with seq = lastSeen + 1 from the pipe.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lcm, err := backend.GetLedger(ctx, lastSeen+1)
+	require.NoError(t, err)
+	assert.Equal(t, lastSeen+1, lcm.LedgerSequence())
+
+	writerCancel()
+	<-writerDone
+}
+
+func TestStreamingLoadtestBackend_DrainTimeout(t *testing.T) {
+	pipePath := mkFIFO(t)
+
+	// Archive always reports currentLedger=0 — drain should time out.
+	archive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(map[string]any{"currentLedger": 0}); err != nil {
+			t.Logf("archive encode error: %v", err)
+		}
+	}))
+	defer archive.Close()
+
+	// Writer feeds frames until the reader closes (broken pipe) or ctx ends.
+	// Uses raw write calls (not the require.NoError helper) so broken-pipe
+	// errors don't fail the test.
+	writerCtx, writerCancel := context.WithCancel(context.Background())
+	defer writerCancel()
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		seq := uint32(1)
+		for {
+			select {
+			case <-writerCtx.Done():
+				return
+			default:
+			}
+			if !writeFrameBestEffort(f, seq) {
+				return
+			}
+			seq++
+		}
+	}()
+
+	start := time.Now()
+	_, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePath: pipePath,
+		ArchiveURL:   archive.URL,
+		DrainTimeout: 1 * time.Second,
+	})
+	elapsed := time.Since(start)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "waiting for archive checkpoint")
+	assert.Less(t, elapsed, 3*time.Second, "drain should timeout promptly")
+
+	writerCancel()
+	<-writerDone
+}
+
+// writeFrameBestEffort writes a stream-framed LedgerCloseMeta to the given
+// file without failing the test on broken-pipe errors. Returns false if the
+// write failed (reader likely closed).
+func writeFrameBestEffort(w *os.File, seq uint32) bool {
+	lcm := xdr.LedgerCloseMeta{
+		V: 0,
+		V0: &xdr.LedgerCloseMetaV0{
+			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+				Header: xdr.LedgerHeader{
+					LedgerSeq: xdr.Uint32(seq),
+				},
+			},
+		},
+	}
+	var payload bytes.Buffer
+	if _, err := xdr.Marshal(&payload, &lcm); err != nil {
+		return false
+	}
+	length := uint32(payload.Len()) | 0x80000000
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], length)
+	if _, err := w.Write(header[:]); err != nil {
+		return false
+	}
+	if _, err := w.Write(payload.Bytes()); err != nil {
+		return false
+	}
+	return true
 }
