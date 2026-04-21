@@ -31,6 +31,12 @@ const (
 	// single contractspecv0 section. Well-behaved contracts have far fewer;
 	// the cap bounds the cost of the Unmarshal loop on malformed sections.
 	maxSpecEntries = 10_000
+
+	// wasmCloseTimeout bounds the time wazero may spend releasing a compiled
+	// module. It is applied to a background-derived ctx so caller
+	// cancellation during spec decoding cannot abort resource release mid-
+	// flight and leak the underlying compiler state.
+	wasmCloseTimeout = 5 * time.Second
 )
 
 // ProtocolValidator is the contract between protocol-setup and individual protocol validators.
@@ -82,7 +88,12 @@ func (e *wasmSpecExtractor) ExtractSpec(ctx context.Context, wasmCode []byte) ([
 		return nil, fmt.Errorf("compiling WASM module: %w", err)
 	}
 	defer func() {
-		if closeErr := compiledModule.Close(ctx); closeErr != nil {
+		// Detach from the caller's ctx: if the caller cancels while we are
+		// decoding spec entries, Close should still run to release wazero's
+		// compiled state rather than returning early with a ctx error.
+		closeCtx, cancelClose := context.WithTimeout(context.Background(), wasmCloseTimeout)
+		defer cancelClose()
+		if closeErr := compiledModule.Close(closeCtx); closeErr != nil {
 			log.Warnf("Failed to close compiled module: %v", closeErr)
 		}
 	}()
