@@ -17,6 +17,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // Helper functions for creating test XDR values
@@ -875,4 +876,60 @@ func TestFetchBatch(t *testing.T) {
 		assert.Equal(t, "", result[contractID1].Symbol)
 		assert.Equal(t, uint32(0), result[contractID1].Decimals)
 	})
+}
+
+// TestFetchSep41Metadata_ReturnsSentinelsForMaliciousContract exercises the public
+// FetchSep41Metadata entry point with a contract whose decimals response is above
+// the cap. The batch must swallow the validation error, log a warning, and still
+// return a *data.Contract for the offending ID with sentinel fields — otherwise a
+// single malicious token could wedge the whole ledger-persist transaction.
+func TestFetchSep41Metadata_ReturnsSentinelsForMaliciousContract(t *testing.T) {
+	ctx := context.Background()
+
+	mockRPCService := NewRPCServiceMock(t)
+	mockContractModel := data.NewContractModelMock(t)
+	pool := pond.NewPool(5)
+	defer pool.Stop()
+
+	contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+	nameScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("Legit")}
+	symbolScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("LGT")}
+	// 40000 exceeds the 70 cap — mirrors the PoC used in "rejects decimals above cap".
+	decimalsScVal := xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: ptrToXdrUint32(40000)}
+
+	mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+		return containsFunction(txXDR, "name")
+	}), mock.Anything).Return(
+		entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}}}, nil,
+	)
+	mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+		return containsFunction(txXDR, "symbol")
+	}), mock.Anything).Return(
+		entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: symbolScVal}}}, nil,
+	)
+	mockRPCService.On("SimulateTransaction", mock.MatchedBy(func(txXDR string) bool {
+		return containsFunction(txXDR, "decimals")
+	}), mock.Anything).Return(
+		entities.RPCSimulateTransactionResult{Results: []entities.RPCSimulateHostFunctionResult{{XDR: decimalsScVal}}}, nil,
+	)
+
+	service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+	require.NoError(t, err)
+
+	contracts, err := service.FetchSep41Metadata(ctx, []string{contractID})
+
+	require.NoError(t, err)
+	require.Len(t, contracts, 1)
+
+	got := contracts[0]
+	assert.Equal(t, contractID, got.ContractID)
+	assert.Equal(t, data.DeterministicContractID(contractID), got.ID)
+	assert.Equal(t, string(types.ContractTypeSEP41), got.Type)
+
+	require.NotNil(t, got.Name)
+	require.NotNil(t, got.Symbol)
+	assert.Equal(t, "", *got.Name)
+	assert.Equal(t, "", *got.Symbol)
+	assert.Equal(t, uint32(0), got.Decimals)
 }
