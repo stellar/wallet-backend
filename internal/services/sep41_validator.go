@@ -34,8 +34,13 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 // sep41FunctionSpec defines the expected signature for a SEP-41 token function.
 type sep41FunctionSpec struct {
 	name            string
-	expectedInputs  map[string]string
+	expectedInputs  []sep41FunctionInputSpec
 	expectedOutputs []string
+}
+
+type sep41FunctionInputSpec struct {
+	name     string
+	typeName string
 }
 
 // sep41RequiredFunctions defines all required functions for SEP-41 token standard compliance.
@@ -43,80 +48,80 @@ type sep41FunctionSpec struct {
 var sep41RequiredFunctions = []sep41FunctionSpec{
 	{
 		name:            "balance",
-		expectedInputs:  map[string]string{"id": "Address"},
+		expectedInputs:  []sep41FunctionInputSpec{{name: "id", typeName: "Address"}},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "allowance",
-		expectedInputs:  map[string]string{"from": "Address", "spender": "Address"},
+		expectedInputs:  []sep41FunctionInputSpec{{name: "from", typeName: "Address"}, {name: "spender", typeName: "Address"}},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "decimals",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  []sep41FunctionInputSpec{},
 		expectedOutputs: []string{"u32"},
 	},
 	{
 		name:            "name",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  []sep41FunctionInputSpec{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name:            "symbol",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  []sep41FunctionInputSpec{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name: "approve",
-		expectedInputs: map[string]string{
-			"from":              "Address",
-			"spender":           "Address",
-			"amount":            "i128",
-			"expiration_ledger": "u32",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "spender", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
+			{name: "expiration_ledger", typeName: "u32"},
 		},
 		expectedOutputs: []string{},
 	},
 	{
 		name: "transfer",
-		expectedInputs: map[string]string{
-			"from":   "Address",
-			"to":     "Address",
-			"amount": "i128",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
 		},
 	},
 	// transfer: (from: Address, to_muxed: MuxedAddress, amount: i128) -> () -> CAP-67
 	{
 		name: "transfer",
-		expectedInputs: map[string]string{
-			"from":     "Address",
-			"to_muxed": "MuxedAddress",
-			"amount":   "i128",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to_muxed", typeName: "MuxedAddress"},
+			{name: "amount", typeName: "i128"},
 		},
 	},
 	{
 		name: "transfer_from",
-		expectedInputs: map[string]string{
-			"spender": "Address",
-			"from":    "Address",
-			"to":      "Address",
-			"amount":  "i128",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "spender", typeName: "Address"},
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
 		},
 		expectedOutputs: []string{},
 	},
 	{
 		name: "burn",
-		expectedInputs: map[string]string{
-			"from":   "Address",
-			"amount": "i128",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
 		},
 		expectedOutputs: []string{},
 	},
 	{
 		name: "burn_from",
-		expectedInputs: map[string]string{
-			"spender": "Address",
-			"from":    "Address",
-			"amount":  "i128",
+		expectedInputs: []sep41FunctionInputSpec{
+			{name: "spender", typeName: "Address"},
+			{name: "from", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
 		},
 		expectedOutputs: []string{},
 	},
@@ -166,24 +171,24 @@ func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
 			continue
 		}
 
-		// Extract actual inputs from the contract function
-		actualInputs := make(map[string]any, len(function.Inputs))
+		// Extract actual inputs from the contract function, preserving order.
+		actualInputs := make([]sep41FunctionInputSpec, 0, len(function.Inputs))
 		for _, input := range function.Inputs {
-			actualInputs[input.Name] = getTypeName(input.Type.Type)
+			actualInputs = append(actualInputs, sep41FunctionInputSpec{
+				name:     input.Name,
+				typeName: getTypeName(input.Type.Type),
+			})
 		}
 
-		// Extract actual outputs from the contract function
-		actualOutputs := set.NewSet[string]()
+		// Extract actual outputs from the contract function, preserving order.
+		actualOutputs := make([]string, 0, len(function.Outputs))
 		for _, output := range function.Outputs {
-			actualOutputs.Add(getTypeName(output.Type))
+			actualOutputs = append(actualOutputs, getTypeName(output.Type))
 		}
 
 		for _, expectedSpec := range expectedSpecs {
-			// Convert expected outputs to set for comparison
-			expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
-
 			// Validate the function signature matches SEP-41 requirements
-			if validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
+			if validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedSpec.expectedOutputs) {
 				foundFunctions.Add(funcName)
 				break
 			}
@@ -195,25 +200,31 @@ func (v *SEP41ProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
 }
 
 // validateFunctionInputsAndOutputs checks if a function's signature matches the expected SEP-41 specification.
-// It compares input parameter names/types and output types, supporting both exact matches and sets of valid types
-// (e.g., for CAP-67 where "from" parameter accepts both Address and MuxedAddress).
-func validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
+// It compares ordered input/output slices with exact arity and exact position-by-position matches.
+func validateFunctionInputsAndOutputs(
+	inputs []sep41FunctionInputSpec,
+	outputs []string,
+	expectedInputs []sep41FunctionInputSpec,
+	expectedOutputs []string,
+) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
 	}
 
-	for expectedInput, expectedInputType := range expectedInputs {
-		if inputs[expectedInput] != expectedInputType {
+	for i := range expectedInputs {
+		if inputs[i] != expectedInputs[i] {
 			return false
 		}
 	}
 
-	if expectedOutputs.Cardinality() != outputs.Cardinality() {
+	if len(outputs) != len(expectedOutputs) {
 		return false
 	}
 
-	if !expectedOutputs.Equal(outputs) {
-		return false
+	for i := range expectedOutputs {
+		if outputs[i] != expectedOutputs[i] {
+			return false
+		}
 	}
 	return true
 }

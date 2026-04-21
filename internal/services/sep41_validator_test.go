@@ -3,7 +3,6 @@ package services
 import (
 	"testing"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 )
@@ -248,6 +247,42 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		assert.False(t, result)
 	})
 
+	t.Run("returns false for transfer with reordered inputs", func(t *testing.T) {
+		addressType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeAddress)
+		i128Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeI128)
+
+		transferFunc := createScSpecFunctionEntry("transfer",
+			[]xdr.ScSpecFunctionInputV0{
+				createFunctionInput("to", addressType),
+				createFunctionInput("from", addressType),
+				createFunctionInput("amount", i128Type),
+			},
+			[]xdr.ScSpecTypeDef{},
+		)
+
+		spec := createPartialSEP41Spec([]string{"transfer"})
+		spec = append(spec, transferFunc)
+
+		result := NewSEP41ProtocolValidator().Validate(spec)
+		assert.False(t, result)
+	})
+
+	t.Run("returns false for balance with duplicate outputs", func(t *testing.T) {
+		addressType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeAddress)
+		i128Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeI128)
+
+		balanceFunc := createScSpecFunctionEntry("balance",
+			[]xdr.ScSpecFunctionInputV0{createFunctionInput("id", addressType)},
+			[]xdr.ScSpecTypeDef{i128Type, i128Type},
+		)
+
+		spec := createPartialSEP41Spec([]string{"balance"})
+		spec = append(spec, balanceFunc)
+
+		result := NewSEP41ProtocolValidator().Validate(spec)
+		assert.False(t, result)
+	})
+
 	t.Run("returns false for empty contract spec", func(t *testing.T) {
 		spec := []xdr.ScSpecEntry{}
 		result := NewSEP41ProtocolValidator().Validate(spec)
@@ -293,147 +328,181 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	t.Run("returns true for exact match", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
-			"to":   "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		outputs := set.NewSet("i128")
+		outputs := []string{"i128"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
 
 	t.Run("returns false for too few inputs", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
 		}
-		outputs := set.NewSet("i128")
+		outputs := []string{"i128"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for too many inputs", func(t *testing.T) {
-		inputs := map[string]any{
-			"from":   "Address",
-			"to":     "Address",
-			"amount": "i128",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+			{name: "amount", typeName: "i128"},
 		}
-		outputs := set.NewSet("i128")
+		outputs := []string{"i128"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for wrong input parameter name", func(t *testing.T) {
-		inputs := map[string]any{
-			"sender":   "Address",
-			"receiver": "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "sender", typeName: "Address"},
+			{name: "receiver", typeName: "Address"},
 		}
-		outputs := set.NewSet("i128")
+		outputs := []string{"i128"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for wrong input parameter type", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
-			"to":   "u32", // Wrong type
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "u32"},
 		}
-		outputs := set.NewSet("i128")
+		outputs := []string{"i128"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
+
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		assert.False(t, result)
+	})
+
+	t.Run("returns false for reordered inputs", func(t *testing.T) {
+		inputs := []sep41FunctionInputSpec{
+			{name: "to", typeName: "Address"},
+			{name: "from", typeName: "Address"},
+		}
+		outputs := []string{"i128"}
+
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+		}
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for too few outputs", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
-			"to":   "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		outputs := set.NewSet[string]()
+		outputs := []string{}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for too many outputs", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
-			"to":   "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		outputs := set.NewSet("i128", "u32")
+		outputs := []string{"i128", "u32"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for wrong output type", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "Address",
-			"to":   "Address",
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		outputs := set.NewSet("u32") // Wrong type
+		outputs := []string{"u32"}
 
-		expectedInputs := map[string]string{
-			"from": "Address",
-			"to":   "Address",
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
 		}
-		expectedOutputs := set.NewSet("i128")
+		expectedOutputs := []string{"i128"}
+
+		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		assert.False(t, result)
+	})
+
+	t.Run("returns false for duplicate outputs", func(t *testing.T) {
+		inputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+		}
+		outputs := []string{"i128", "i128"}
+
+		expectedInputs := []sep41FunctionInputSpec{
+			{name: "from", typeName: "Address"},
+			{name: "to", typeName: "Address"},
+		}
+		expectedOutputs := []string{"i128"}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.False(t, result)
 	})
 
 	t.Run("returns true for empty inputs and outputs", func(t *testing.T) {
-		inputs := map[string]any{}
-		outputs := set.NewSet[string]()
+		inputs := []sep41FunctionInputSpec{}
+		outputs := []string{}
 
-		expectedInputs := map[string]string{}
-		expectedOutputs := set.NewSet[string]()
+		expectedInputs := []sep41FunctionInputSpec{}
+		expectedOutputs := []string{}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
