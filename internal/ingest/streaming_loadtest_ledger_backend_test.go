@@ -112,3 +112,56 @@ func TestStreamingLoadtestBackend_GetLedgerReadsFrame(t *testing.T) {
 	assert.Equal(t, uint32(42), got.LedgerSequence())
 	require.NoError(t, <-writerDone)
 }
+
+func TestStreamingLoadtestBackend_GetLedgerPaces(t *testing.T) {
+	pipePath := mkFIFO(t)
+
+	pace := 200 * time.Millisecond
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePath:        pipePath,
+		LedgerCloseDuration: pace,
+		NetworkPassphrase:   "Apply Load",
+	})
+	require.NoError(t, err)
+	defer backend.Close()
+
+	writerDone := make(chan error, 1)
+	go func() {
+		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			writerDone <- err
+			return
+		}
+		defer f.Close()
+		writeLedgerCloseMeta(t, f, 1)
+		writeLedgerCloseMeta(t, f, 2)
+		writeLedgerCloseMeta(t, f, 3)
+		writerDone <- nil
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	start := time.Now()
+	_, err = backend.GetLedger(ctx, 1)
+	require.NoError(t, err)
+	elapsedFirst := time.Since(start)
+	assert.Less(t, elapsedFirst, 100*time.Millisecond, "first GetLedger should not sleep")
+
+	start2 := time.Now()
+	_, err = backend.GetLedger(ctx, 2)
+	require.NoError(t, err)
+	elapsedSecond := time.Since(start2)
+	assert.GreaterOrEqual(t, elapsedSecond, pace-20*time.Millisecond,
+		"second GetLedger should pace by at least %v", pace)
+
+	start3 := time.Now()
+	_, err = backend.GetLedger(ctx, 3)
+	require.NoError(t, err)
+	elapsedThird := time.Since(start3)
+	assert.GreaterOrEqual(t, elapsedThird, pace-20*time.Millisecond,
+		"third GetLedger should pace by at least %v", pace)
+
+	require.NoError(t, <-writerDone)
+}
