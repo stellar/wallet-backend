@@ -15,3 +15,7 @@ func TestConfigsStreamingLoadtestFields(t *testing.T) {
 	assert.Equal(t, "/tmp/fake.pipe", cfg.MetaPipePath)
 	assert.Equal(t, 2*time.Second, cfg.LedgerCloseDuration)
 }
+
+func TestLedgerBackendTypeStreamingLoadtestConstant(t *testing.T) {
+	assert.Equal(t, LedgerBackendType("streaming-loadtest"), LedgerBackendTypeStreamingLoadtest)
+}

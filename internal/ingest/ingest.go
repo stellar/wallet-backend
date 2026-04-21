@@ -39,6 +39,9 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeStreamingLoadtest reads stream-framed XDR LedgerCloseMeta
+	// from a named pipe fed by stellar-core apply-load. Dev-only.
+	LedgerBackendTypeStreamingLoadtest LedgerBackendType = "streaming-loadtest"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
