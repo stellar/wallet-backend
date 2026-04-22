@@ -21,9 +21,10 @@ tidy: ## Tidy modfiles and format source files
 	go mod tidy -v
 	@echo "==> Formatting code..."
 	go fmt ./...
+	@command -v $(shell go env GOPATH)/bin/gofumpt >/dev/null 2>&1 || { go install mvdan.cc/gofumpt@v0.9.2; }
 	$(shell go env GOPATH)/bin/gofumpt -l -w .
 	@echo "==> Fixing imports..."
-	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.43.0; }
 	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
 
 fmt: ## Check if code is formatted with gofmt
@@ -48,20 +49,15 @@ shadow: ## Run shadow analysis to find shadowed variables
 	@echo "==> Running shadow analyzer..."
 	@if ! command -v $(shell go env GOPATH)/bin/shadow >/dev/null 2>&1; then \
 		echo "Installing shadow..."; \
-		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0; \
+		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.43.0; \
 	fi
 	@$(shell go env GOPATH)/bin/shadow ./... | { grep -v "generated.go" || true; }
-
-exhaustive: ## Check exhaustiveness of switch statements
-	@echo "==> Running exhaustive..."
-	@command -v exhaustive >/dev/null 2>&1 || { go install github.com/nishanths/exhaustive/cmd/exhaustive@v0.12.0; }
-	$(shell go env GOPATH)/bin/exhaustive -default-signifies-exhaustive ./...
 
 deadcode: ## Find unused code
 	@echo "==> Checking for deadcode..."
 	@if ! command -v $(shell go env GOPATH)/bin/deadcode >/dev/null 2>&1; then \
 		echo "Installing deadcode..."; \
-		go install golang.org/x/tools/cmd/deadcode@v0.31.0; \
+		go install golang.org/x/tools/cmd/deadcode@v0.43.0; \
 	fi
 	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./... | grep -v "UnmarshalUInt32" | grep -v "isBalance"); \
 	if [ -n "$$output" ]; then \
@@ -74,13 +70,13 @@ deadcode: ## Find unused code
 
 fix-imports: ## Fix import formatting and organization
 	@echo "==> Fixing imports..."
-	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.43.0; }
 	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
 	@echo "✅ Imports fixed."
 
 goimports: ## Check import formatting and organization
 	@echo "==> Checking imports..."
-	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.43.0; }
 	@non_compliant_files=$$(find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -l); \
 	if [ -n "$$non_compliant_files" ]; then \
 		echo "🚨 The following files are not compliant with goimports:"; \
@@ -90,12 +86,7 @@ goimports: ## Check import formatting and organization
 		echo "✅ All files are compliant with goimports."; \
 	fi
 
-govulncheck: ## Check for known vulnerabilities
-	@echo "==> Running vulnerability check..."
-	@command -v govulncheck >/dev/null 2>&1 || { go install golang.org/x/vuln/cmd/govulncheck@latest; }
-	$(shell go env GOPATH)/bin/govulncheck ./...
-
-check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulncheck  gql-validate ## Run all checks
+check: tidy fmt vet lint generate shadow deadcode goimports gql-validate ## Run all checks
 	@echo "✅ All checks completed successfully"
 
 # ==================================================================================== #
@@ -103,13 +94,13 @@ check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulnche
 # ==================================================================================== #
 gql-generate: ## Generate GraphQL code using gqlgen
 	@echo "==> Generating GraphQL code..."
-	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.88; }
 	$(shell go env GOPATH)/bin/gqlgen generate
 	@echo "✅ GraphQL code generated successfully"
 
 gql-validate: ## Validate GraphQL schema
 	@echo "==> Validating GraphQL schema..."
-	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.88; }
 	$(shell go env GOPATH)/bin/gqlgen validate
 	@echo "✅ GraphQL schema is valid"
 

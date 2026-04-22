@@ -44,7 +44,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	var args []interface{}
 	argIndex := 1
 
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_id FROM transactions`, columns))
+	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_id FROM transactions`, columns)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -65,7 +65,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -128,17 +128,17 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
+		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
 		args = append(args, *limit)
 	}
 
 	// Close CTE and LATERAL join to fetch full transaction rows
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
 		FROM account_txns ta
 		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
-		WHERE t.to_id IS NOT NULL`, columns))
+		WHERE t.to_id IS NOT NULL`, columns)
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
