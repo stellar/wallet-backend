@@ -157,12 +157,12 @@ func RenderResult(useCase *UseCase) string {
 	var builder strings.Builder
 
 	builder.WriteString(statusText)
-	builder.WriteString(fmt.Sprintf(" {Use Case: %s", useCase.name))
-	builder.WriteString(fmt.Sprintf(", Category: %s", useCase.category))
-	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.SendTransactionResult.Hash))
+	fmt.Fprintf(&builder, " {Use Case: %s", useCase.name)
+	fmt.Fprintf(&builder, ", Category: %s", useCase.category)
+	fmt.Fprintf(&builder, ", Hash: %s", useCase.SendTransactionResult.Hash)
 	if status != entities.SuccessStatus {
 		txResult := useCase.GetTransactionResult
-		builder.WriteString(fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR))
+		fmt.Fprintf(&builder, "ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR)
 	}
 	builder.WriteString("}")
 
