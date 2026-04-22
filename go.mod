@@ -1,8 +1,6 @@
 module github.com/stellar/wallet-backend
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.9
 
 require (
 	github.com/99designs/gqlgen v0.17.76
@@ -26,15 +24,15 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stellar/go-stellar-sdk v0.1.0
-	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2
+	github.com/stellar/go-stellar-sdk v0.5.0
+	github.com/stellar/go-xdr v0.0.0-20260312225820-cc2b0611aabf
 	github.com/stellar/stellar-rpc v0.9.6-0.20250618231249-2d3e8ff69365
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/vektah/gqlparser/v2 v2.5.30
 	github.com/vikstrous/dataloadgen v0.0.9
-	golang.org/x/text v0.27.0
+	golang.org/x/text v0.31.0
 )
 
 require (
@@ -177,12 +175,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	google.golang.org/api v0.215.0 // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
