@@ -57,6 +57,18 @@ type StreamingLoadtestLedgerBackend struct {
 	latestSeqSeen uint32
 	lastEmitTime  time.Time
 	done          bool
+
+	// pendingFrames holds frames drained from the pipe during constructor
+	// startup that GetLedger must replay before reading from the pipe again.
+	//
+	// The drain unsticks apply-load (see StreamingLoadtestBackendConfig.ArchiveURL)
+	// and stops once it has consumed a frame with seq >= archive checkpoint.
+	// Because the archive poll is asynchronous, the drain typically overshoots
+	// the checkpoint by a few ledgers. Rather than discard those frames (the
+	// ingest loop would start from the archive checkpoint and hit a sequence
+	// mismatch on the pipe), we buffer every frame from the archive checkpoint
+	// onward and replay them here.
+	pendingFrames []xdr.LedgerCloseMeta
 }
 
 // Verify interface implementation at compile time.
@@ -154,6 +166,10 @@ func (b *StreamingLoadtestLedgerBackend) drainUntilArchiveReady(ctx context.Cont
 	}()
 
 	var archiveCheckpointLedger uint32
+	// buffered holds every frame we have read, in order. Once the archive
+	// publishes a checkpoint C, we trim buffered to start at C and hand the
+	// remainder to GetLedger via pendingFrames.
+	var buffered []xdr.LedgerCloseMeta
 	for {
 		if archiveCheckpointLedger == 0 {
 			select {
@@ -176,6 +192,7 @@ func (b *StreamingLoadtestLedgerBackend) drainUntilArchiveReady(ctx context.Cont
 			return fmt.Errorf("reading meta frame during drain: %w", err)
 		}
 		seq := lcm.LedgerSequence()
+		buffered = append(buffered, lcm)
 		b.mu.Lock()
 		if seq > b.latestSeqSeen {
 			b.latestSeqSeen = seq
@@ -183,7 +200,21 @@ func (b *StreamingLoadtestLedgerBackend) drainUntilArchiveReady(ctx context.Cont
 		b.mu.Unlock()
 
 		if archiveCheckpointLedger > 0 && seq >= archiveCheckpointLedger {
-			log.Ctx(ctx).Infof("streaming-loadtest: drain complete at ledger %d; handing off to GetLedger", seq)
+			// Trim buffered to start at the archive checkpoint so the caller
+			// can replay from there. If the checkpoint ledger was already
+			// discarded above (drain outran the archive poll), the earliest
+			// retained frame is our effective replay start.
+			start := 0
+			for i, f := range buffered {
+				if f.LedgerSequence() >= archiveCheckpointLedger {
+					start = i
+					break
+				}
+			}
+			b.mu.Lock()
+			b.pendingFrames = buffered[start:]
+			b.mu.Unlock()
+			log.Ctx(ctx).Infof("streaming-loadtest: drain complete at ledger %d; buffered %d frame(s) starting at ledger %d for replay", seq, len(buffered)-start, buffered[start].LedgerSequence())
 			return nil
 		}
 	}
@@ -284,11 +315,16 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 	}
 
 	var lcm xdr.LedgerCloseMeta
-	if err := b.xdrStream.ReadOne(&lcm); err != nil {
-		if errors.Is(err, io.EOF) {
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("meta stream ended: %w", io.EOF)
+	if len(b.pendingFrames) > 0 {
+		lcm = b.pendingFrames[0]
+		b.pendingFrames = b.pendingFrames[1:]
+	} else {
+		if err := b.xdrStream.ReadOne(&lcm); err != nil {
+			if errors.Is(err, io.EOF) {
+				return xdr.LedgerCloseMeta{}, fmt.Errorf("meta stream ended: %w", io.EOF)
+			}
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("reading meta frame: %w", err)
 		}
-		return xdr.LedgerCloseMeta{}, fmt.Errorf("reading meta frame: %w", err)
 	}
 
 	gotSeq := lcm.LedgerSequence()

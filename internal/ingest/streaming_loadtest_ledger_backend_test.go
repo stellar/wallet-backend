@@ -337,20 +337,20 @@ func TestStreamingLoadtestBackend_DrainsUntilArchiveReady(t *testing.T) {
 	require.NoError(t, err)
 	defer backend.Close()
 
-	// The drain returns once it consumes a frame with seq >= archive's currentLedger.
-	// The exact handoff seq can be 7 or higher (archive reports 7, drain may have
-	// already overshot). Grab whatever the backend thinks is next via reading and
-	// asserting monotonic progress instead of pinning to a specific seq.
+	// The drain returns once it consumes a frame with seq >= archive's currentLedger (7).
+	// After drain, the backend buffers every frame from the archive checkpoint onward
+	// and replays them via GetLedger. The first replayed frame must be the archive
+	// checkpoint itself, since the drain retains every frame it consumes until the
+	// checkpoint is known, then trims to start at the checkpoint.
 	lastSeen, err := backend.GetLatestLedgerSequence(context.Background())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, lastSeen, uint32(7), "drain should have consumed >= the archive checkpoint")
 
-	// Next GetLedger should read the ledger with seq = lastSeen + 1 from the pipe.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	lcm, err := backend.GetLedger(ctx, lastSeen+1)
+	lcm, err := backend.GetLedger(ctx, 7)
 	require.NoError(t, err)
-	assert.Equal(t, lastSeen+1, lcm.LedgerSequence())
+	assert.Equal(t, uint32(7), lcm.LedgerSequence(), "first replayed frame should be the archive checkpoint")
 
 	writerCancel()
 	<-writerDone
