@@ -53,11 +53,6 @@ shadow: ## Run shadow analysis to find shadowed variables
 	fi
 	@$(shell go env GOPATH)/bin/shadow ./... | { grep -v "generated.go" || true; }
 
-exhaustive: ## Check exhaustiveness of switch statements
-	@echo "==> Running exhaustive..."
-	@command -v exhaustive >/dev/null 2>&1 || { go install github.com/nishanths/exhaustive/cmd/exhaustive@v0.12.0; }
-	$(shell go env GOPATH)/bin/exhaustive -default-signifies-exhaustive ./...
-
 deadcode: ## Find unused code
 	@echo "==> Checking for deadcode..."
 	@if ! command -v $(shell go env GOPATH)/bin/deadcode >/dev/null 2>&1; then \
@@ -91,7 +86,7 @@ goimports: ## Check import formatting and organization
 		echo "✅ All files are compliant with goimports."; \
 	fi
 
-check: tidy fmt vet lint generate shadow exhaustive deadcode goimports gql-validate ## Run all checks
+check: tidy fmt vet lint generate shadow deadcode goimports gql-validate ## Run all checks
 	@echo "✅ All checks completed successfully"
 
 # ==================================================================================== #

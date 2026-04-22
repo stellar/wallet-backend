@@ -22,6 +22,7 @@ linters:
     - unused
     - unconvert
     - unparam
+    - exhaustive
 
   settings:
     staticcheck:
@@ -33,6 +34,9 @@ linters:
     errcheck:
       # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`.
       check-blank: true
+
+    exhaustive:
+      default-signifies-exhaustive: true
 
   exclusions:
     paths:
