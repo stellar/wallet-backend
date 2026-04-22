@@ -43,7 +43,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	var args []interface{}
 	argIndex := 1
 
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations`, columns))
+	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations`, columns)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -64,7 +64,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 	query := queryBuilder.String()
@@ -139,9 +139,9 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, col
 			)
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM ranked_operations_per_to_id
 	`
-	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
+	fmt.Fprintf(&queryBuilder, query, sortOrder, columns)
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+		fmt.Fprintf(&queryBuilder, " WHERE rn <= %d", *limit)
 	}
 	query = queryBuilder.String()
 	if sortOrder == DESC {
@@ -167,16 +167,16 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
-	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations WHERE id > $1 AND id < $1 + 4096`, columns))
+	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations WHERE id > $1 AND id < $1 + 4096`, columns)
 
 	args := []interface{}{toID}
 	argIndex := 2
 
 	if cursor != nil {
 		if sortOrder == DESC {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id < $%d", argIndex))
+			fmt.Fprintf(&queryBuilder, " AND id < $%d", argIndex)
 		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" AND id > $%d", argIndex))
+			fmt.Fprintf(&queryBuilder, " AND id > $%d", argIndex)
 		}
 		args = append(args, *cursor)
 		argIndex++
@@ -189,7 +189,7 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -252,17 +252,17 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	}
 
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
+		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
 		args = append(args, *limit)
 	}
 
 	// Close CTE and LATERAL join to fetch full operation rows
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		)
 		SELECT %s, o.ledger_created_at as cursor_ledger_created_at, o.id as cursor_id
 		FROM account_ops ao
 		LEFT JOIN LATERAL (SELECT * FROM operations o WHERE o.id = ao.operation_id AND o.ledger_created_at = ao.ledger_created_at LIMIT 1) o ON true
-		WHERE o.id IS NOT NULL`, columns))
+		WHERE o.id IS NOT NULL`, columns)
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`

@@ -31,39 +31,39 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
 		WHERE account_id = $1
-	`, columns))
+	`, columns)
 
 	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
 	if txHash != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND to_id = (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex))
+		fmt.Fprintf(&queryBuilder, " AND to_id = (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex)
 		args = append(args, types.HashBytea(*txHash))
 		argIndex++
 	}
 
 	// Add operation ID filter if provided
 	if operationID != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND operation_id = $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " AND operation_id = $%d", argIndex)
 		args = append(args, *operationID)
 		argIndex++
 	}
 
 	// Add category filter if provided
 	if category != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_category = $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " AND state_change_category = $%d", argIndex)
 		args = append(args, *category)
 		argIndex++
 	}
 
 	// Add reason filter if provided
 	if reason != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_reason = $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " AND state_change_reason = $%d", argIndex)
 		args = append(args, *reason)
 		argIndex++
 	}
@@ -91,7 +91,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	// Add limit using parameterized query
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -122,10 +122,10 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	var args []interface{}
 	argIndex := 1
 
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
-	`, columns))
+	`, columns)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -149,7 +149,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -320,11 +320,11 @@ func generateStateChangeID() (int64, error) {
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
 		WHERE to_id = $1
-	`, columns))
+	`, columns)
 
 	args := []interface{}{toID}
 	argIndex := 2
@@ -350,7 +350,7 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	}
 
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -384,7 +384,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	// transactions, we use ROW_NUMBER() with PARTITION BY to_id to limit results per transaction.
 	// This guarantees that each transaction gets at most 'limit' state changes, providing
 	// more balanced and predictable pagination across multiple transactions.
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		WITH
 			inputs (to_id) AS (
 				SELECT * FROM UNNEST($1::bigint[])
@@ -400,9 +400,9 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 					inputs i ON sc.to_id = i.to_id
 			)
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id FROM ranked_state_changes_per_to_id
-	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
+	`, sortOrder, sortOrder, sortOrder, sortOrder, columns)
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+		fmt.Fprintf(&queryBuilder, " WHERE rn <= %d", *limit)
 	}
 	query := queryBuilder.String()
 
@@ -430,11 +430,11 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
 		WHERE operation_id = $1
-	`, columns))
+	`, columns)
 
 	args := []interface{}{operationID}
 	argIndex := 2
@@ -460,7 +460,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	}
 
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 
@@ -494,7 +494,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
 	// This guarantees that each operation gets at most 'limit' state changes, providing
 	// more balanced and predictable pagination across multiple operations.
-	queryBuilder.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&queryBuilder, `
 		WITH
 			inputs (operation_id) AS (
 				SELECT * FROM UNNEST($1::bigint[])
@@ -510,9 +510,9 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 					inputs i ON sc.operation_id = i.operation_id
 			)
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id FROM ranked_state_changes_per_operation_id
-	`, sortOrder, sortOrder, sortOrder, sortOrder, columns))
+	`, sortOrder, sortOrder, sortOrder, sortOrder, columns)
 	if limit != nil {
-		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+		fmt.Fprintf(&queryBuilder, " WHERE rn <= %d", *limit)
 	}
 	query := queryBuilder.String()
 
