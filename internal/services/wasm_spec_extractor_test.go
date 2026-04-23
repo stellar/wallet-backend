@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -62,6 +64,45 @@ func TestWasmSpecExtractor_RealWasm(t *testing.T) {
 		}
 		assert.True(t, hasFunctionEntry, "expected at least one ScSpecEntryFunctionV0 entry")
 	})
+}
+
+func TestWasmSpecExtractor_RejectsOversizedWasm(t *testing.T) {
+	ctx := context.Background()
+	extractor := NewWasmSpecExtractor()
+	defer func() { require.NoError(t, extractor.Close(ctx)) }()
+
+	oversized := make([]byte, maxWasmBytes+1)
+	specs, err := extractor.ExtractSpec(ctx, oversized)
+	require.Error(t, err)
+	assert.Nil(t, specs)
+	assert.Contains(t, err.Error(), "too large")
+}
+
+func TestWasmSpecExtractor_HonorsCallerContextCancellation(t *testing.T) {
+	extractor := NewWasmSpecExtractor()
+	defer func() { require.NoError(t, extractor.Close(context.Background())) }()
+
+	// Use a real, well-formed WASM so the failure mode can only be caller-ctx
+	// cancellation propagating through to wazero — not an invalid-module error
+	// that would succeed whether or not the caller's ctx was honored.
+	wasmBytes := loadTestWasm(t, "soroban_token_contract.wasm")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	specs, err := extractor.ExtractSpec(ctx, wasmBytes)
+	require.Error(t, err)
+	assert.Nil(t, specs)
+	assert.True(t, errors.Is(err, context.Canceled),
+		"expected wrapped context.Canceled, got %v", err)
+}
+
+func TestWasmSpecExtractor_RespectsWasmCompileTimeoutConstant(t *testing.T) {
+	// Sanity check: the timeout constant should be small enough that tests
+	// would notice regressions but large enough to compile real contracts on
+	// slow CI machines.
+	assert.Greater(t, wasmCompileTimeout, time.Second)
+	assert.LessOrEqual(t, wasmCompileTimeout, 30*time.Second)
 }
 
 func TestSEP41ProtocolValidator_RealWasm(t *testing.T) {

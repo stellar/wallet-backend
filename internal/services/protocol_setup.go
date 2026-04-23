@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -172,22 +173,13 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	}
 	log.Ctx(ctx).Infof("Fetched %d WASM bytecodes from RPC (out of %d requested)", len(wasmBytecodes), len(hexHashes))
 
-	// Classify each WASM with a fetched bytecode
+	// Classify each WASM with a fetched bytecode.
+	// Each iteration is isolated via recover so a single hostile blob (crafted
+	// to panic inside the WASM decoder) cannot halt the whole classification
+	// run and leave classification_status stuck at in_progress.
 	matchedHashes := make(map[string][]types.HashBytea)
 	for wasmHash, bytecode := range wasmBytecodes {
-		specEntries, extractErr := s.specExtractor.ExtractSpec(ctx, bytecode)
-		if extractErr != nil {
-			log.Ctx(ctx).Warnf("Failed to extract spec from WASM %s: %v", wasmHash, extractErr)
-			continue
-		}
-
-		for _, pid := range protocolIDs {
-			validator := validatorsByProtocol[pid]
-			if validator.Validate(specEntries) {
-				matchedHashes[pid] = append(matchedHashes[pid], types.HashBytea(wasmHash))
-				break // A WASM matches at most one protocol
-			}
-		}
+		s.classifyOne(ctx, wasmHash, bytecode, protocolIDs, validatorsByProtocol, matchedHashes)
 	}
 
 	// Persist results in a single transaction
@@ -205,6 +197,38 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	}
 
 	return nil
+}
+
+// classifyOne runs spec extraction + validation for a single WASM, recording
+// the first matching protocol. It recovers from panics in the extractor/
+// validators so a single hostile blob cannot halt the entire classify run.
+func (s *protocolSetupService) classifyOne(
+	ctx context.Context,
+	wasmHash string,
+	bytecode []byte,
+	protocolIDs []string,
+	validatorsByProtocol map[string]ProtocolValidator,
+	matchedHashes map[string][]types.HashBytea,
+) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Ctx(ctx).Errorf("panic classifying WASM %s, skipping: %v\nstack:\n%s", wasmHash, r, debug.Stack())
+		}
+	}()
+
+	specEntries, extractErr := s.specExtractor.ExtractSpec(ctx, bytecode)
+	if extractErr != nil {
+		log.Ctx(ctx).Warnf("Failed to extract spec from WASM %s: %v", wasmHash, extractErr)
+		return
+	}
+
+	for _, pid := range protocolIDs {
+		validator := validatorsByProtocol[pid]
+		if validator.Validate(specEntries) {
+			matchedHashes[pid] = append(matchedHashes[pid], types.HashBytea(wasmHash))
+			return // A WASM matches at most one protocol
+		}
+	}
 }
 
 // fetchWasmBytecodes fetches WASM bytecodes from RPC for the given hex hashes.
