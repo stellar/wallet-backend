@@ -236,13 +236,13 @@ func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	testCases := []struct {
-		name            string
-		setupDB         func(t *testing.T)
-		expectedValue   string
-		newValue        string
-		expectedSwap    bool
-		expectedErr     error  // sentinel error expected (nil means no error)
-		expectedDB      string // expected value in DB after CAS; empty means key should not exist
+		name          string
+		setupDB       func(t *testing.T)
+		expectedValue string
+		newValue      string
+		expectedSwap  bool
+		expectedErr   error  // sentinel error expected (nil means no error)
+		expectedDB    string // expected value in DB after CAS; empty means key should not exist
 	}{
 		{
 			name: "succeeds_when_value_matches",
