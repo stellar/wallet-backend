@@ -328,13 +328,13 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	t.Run("returns true for exact match", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -345,12 +345,12 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too few inputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -361,14 +361,14 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too many inputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 			{name: "amount", typeName: "i128"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -379,13 +379,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong input parameter name", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "sender", typeName: "Address"},
 			{name: "receiver", typeName: "Address"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -396,13 +396,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong input parameter type", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "u32"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -413,13 +413,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for reordered inputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "to", typeName: "Address"},
 			{name: "from", typeName: "Address"},
 		}
 		outputs := []string{"i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -430,13 +430,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too few outputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
 		outputs := []string{}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -447,13 +447,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too many outputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
 		outputs := []string{"i128", "u32"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -464,13 +464,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong output type", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
 		outputs := []string{"u32"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -481,13 +481,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for duplicate outputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{
+		inputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
 		outputs := []string{"i128", "i128"}
 
-		expectedInputs := []sep41FunctionInputSpec{
+		expectedInputs := []contractFunctionInputSpec{
 			{name: "from", typeName: "Address"},
 			{name: "to", typeName: "Address"},
 		}
@@ -498,10 +498,10 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns true for empty inputs and outputs", func(t *testing.T) {
-		inputs := []sep41FunctionInputSpec{}
+		inputs := []contractFunctionInputSpec{}
 		outputs := []string{}
 
-		expectedInputs := []sep41FunctionInputSpec{}
+		expectedInputs := []contractFunctionInputSpec{}
 		expectedOutputs := []string{}
 
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
