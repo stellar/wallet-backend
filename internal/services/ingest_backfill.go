@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // BackfillMode indicates the purpose of backfilling.
@@ -58,12 +60,12 @@ type BackfillResult struct {
 // This data is processed after all parallel batches complete to ensure proper ordering.
 type BatchChanges struct {
 	TrustlineChangesByKey     map[indexer.TrustlineChangeKey]types.TrustlineChange
-	ContractChanges           []types.ContractChange
 	AccountChangesByAccountID map[string]types.AccountChange
 	SACBalanceChangesByKey    map[indexer.SACBalanceChangeKey]types.SACBalanceChange
 	UniqueTrustlineAssets     map[uuid.UUID]data.TrustlineAsset
-	UniqueContractTokensByID  map[string]types.ContractType
 	SACContractsByID          map[string]*data.Contract // SAC contract metadata extracted from instance entries
+	ProtocolWasmsByHash       map[string]data.ProtocolWasms
+	ProtocolContractsByID     map[string]data.ProtocolContracts
 }
 
 // mergeTrustlineChanges merges source trustline changes into dest, keeping highest OperationID per key.
@@ -140,7 +142,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
 	}
 
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
@@ -208,36 +210,42 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		// Merge all batch changes into single maps
 		mergedTrustlineChanges := make(map[indexer.TrustlineChangeKey]types.TrustlineChange)
 		mergedUniqueTrustlineAssets := make(map[uuid.UUID]data.TrustlineAsset)
-		mergedUniqueContractTokens := make(map[string]types.ContractType)
 		mergedSACContracts := make(map[string]*data.Contract)
 		mergedAccountChanges := make(map[string]types.AccountChange)
 		mergedSACBalanceChanges := make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)
-		var allContractChanges []types.ContractChange
+		mergedProtocolWasms := make(map[string]data.ProtocolWasms)
+		mergedProtocolContracts := make(map[string]data.ProtocolContracts)
 		for _, result := range results {
 			if result.BatchChanges != nil {
 				mergeTrustlineChanges(mergedTrustlineChanges, result.BatchChanges.TrustlineChangesByKey)
-				allContractChanges = append(allContractChanges, result.BatchChanges.ContractChanges...)
 				mergeAccountChanges(mergedAccountChanges, result.BatchChanges.AccountChangesByAccountID)
 				mergeSACBalanceChanges(mergedSACBalanceChanges, result.BatchChanges.SACBalanceChangesByKey)
 				maps.Copy(mergedUniqueTrustlineAssets, result.BatchChanges.UniqueTrustlineAssets)
-				maps.Copy(mergedUniqueContractTokens, result.BatchChanges.UniqueContractTokensByID)
 				// Merge SAC contracts (first-write wins)
 				for id, contract := range result.BatchChanges.SACContractsByID {
 					if _, exists := mergedSACContracts[id]; !exists {
 						mergedSACContracts[id] = contract
 					}
 				}
+				// Merge protocol WASMs (first-write wins)
+				for hash, wasm := range result.BatchChanges.ProtocolWasmsByHash {
+					if _, exists := mergedProtocolWasms[hash]; !exists {
+						mergedProtocolWasms[hash] = wasm
+					}
+				}
+				// Merge protocol contracts (last-write-wins)
+				maps.Copy(mergedProtocolContracts, result.BatchChanges.ProtocolContractsByID)
 			}
 		}
 
 		// Update latest ledger cursor after all catchup processing succeeds
 		err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 			// Process aggregated changes (token cache updates)
-			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, allContractChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedUniqueContractTokens, mergedSACContracts)
+			innerErr := m.processBatchChanges(ctx, dbTx, mergedTrustlineChanges, mergedAccountChanges, mergedSACBalanceChanges, mergedUniqueTrustlineAssets, mergedSACContracts, mergedProtocolWasms, mergedProtocolContracts)
 			if innerErr != nil {
 				return fmt.Errorf("processing batch changes: %w", innerErr)
 			}
-			innerErr = m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger)
+			innerErr = m.models.IngestStore.Update(ctx, dbTx, data.LatestLedgerCursorName, endLedger)
 			if innerErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", endLedger, innerErr)
 			}
@@ -433,21 +441,26 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			// Collect changes for post-catchup processing if requested
 			if batchChanges != nil {
 				mergeTrustlineChanges(batchChanges.TrustlineChangesByKey, buffer.GetTrustlineChanges())
-				batchChanges.ContractChanges = append(batchChanges.ContractChanges, buffer.GetContractChanges()...)
 				mergeAccountChanges(batchChanges.AccountChangesByAccountID, buffer.GetAccountChanges())
 				mergeSACBalanceChanges(batchChanges.SACBalanceChangesByKey, buffer.GetSACBalanceChanges())
 				// Collect unique assets (iterate slice into map)
 				for _, asset := range buffer.GetUniqueTrustlineAssets() {
 					batchChanges.UniqueTrustlineAssets[asset.ID] = asset
 				}
-				// Collect unique contract tokens
-				maps.Copy(batchChanges.UniqueContractTokensByID, buffer.GetUniqueSEP41ContractTokensByID())
 				// Collect SAC contract metadata (first-write wins for deduplication)
 				for id, contract := range buffer.GetSACContracts() {
 					if _, exists := batchChanges.SACContractsByID[id]; !exists {
 						batchChanges.SACContractsByID[id] = contract
 					}
 				}
+				// Collect protocol WASMs (first-write wins)
+				for hash, wasm := range buffer.GetProtocolWasms() {
+					if _, exists := batchChanges.ProtocolWasmsByHash[hash]; !exists {
+						batchChanges.ProtocolWasmsByHash[hash] = wasm
+					}
+				}
+				// Collect protocol contracts (last-write-wins)
+				maps.Copy(batchChanges.ProtocolContractsByID, buffer.GetProtocolContracts())
 			}
 			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
@@ -465,6 +478,9 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 		}
 		lastErr = err
 		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush").Inc()
+		if attempt == maxIngestProcessedDataRetries-1 {
+			break
+		}
 
 		backoff := time.Duration(1<<attempt) * time.Second
 		if backoff > maxIngestProcessedDataRetryBackoff {
@@ -506,13 +522,22 @@ func (m *ingestService) processLedgersInBatch(
 			AccountChangesByAccountID: make(map[string]types.AccountChange),
 			SACBalanceChangesByKey:    make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange),
 			UniqueTrustlineAssets:     make(map[uuid.UUID]data.TrustlineAsset),
-			UniqueContractTokensByID:  make(map[string]types.ContractType),
 			SACContractsByID:          make(map[string]*data.Contract),
+			ProtocolWasmsByHash:       make(map[string]data.ProtocolWasms),
+			ProtocolContractsByID:     make(map[string]data.ProtocolContracts),
 		}
 	}
 
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
+		ledgerMeta, err := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return backend.GetLedger(ctx, ledgerSeq)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+		)
 		if err != nil {
 			return ledgersProcessed, nil, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}
@@ -577,12 +602,12 @@ func (m *ingestService) processBatchChanges(
 	ctx context.Context,
 	dbTx pgx.Tx,
 	trustlineChangesByKey map[indexer.TrustlineChangeKey]types.TrustlineChange,
-	contractChanges []types.ContractChange,
 	accountChangesByAccountID map[string]types.AccountChange,
 	sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange,
 	uniqueAssets map[uuid.UUID]data.TrustlineAsset,
-	uniqueContractTokens map[string]types.ContractType,
 	sacContracts map[string]*data.Contract,
+	protocolWasms map[string]data.ProtocolWasms,
+	protocolContracts map[string]data.ProtocolContracts,
 ) error {
 	// 1. Convert unique assets map to slice for BatchInsert
 	assetSlice := make([]data.TrustlineAsset, 0, len(uniqueAssets))
@@ -597,26 +622,44 @@ func (m *ingestService) processBatchChanges(
 		}
 	}
 
-	// 3. Insert new contract tokens (filter existing, fetch metadata, insert)
-	if len(uniqueContractTokens) > 0 {
-		contracts, txErr := m.prepareNewContractTokens(ctx, dbTx, uniqueContractTokens, sacContracts)
-		if txErr != nil {
-			return fmt.Errorf("preparing contracts: %w", txErr)
-		}
-		if len(contracts) > 0 {
-			if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-				return fmt.Errorf("inserting contracts: %w", txErr)
-			}
+	// 3. Insert new SAC contract tokens (filter existing, insert)
+	contracts, txErr := m.prepareNewSACContracts(ctx, dbTx, sacContracts)
+	if txErr != nil {
+		return fmt.Errorf("preparing contracts: %w", txErr)
+	}
+	if len(contracts) > 0 {
+		if txErr := m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+			return fmt.Errorf("inserting contracts: %w", txErr)
 		}
 	}
 
-	// 4. Apply token changes to PostgreSQL
-	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, contractChanges, accountChangesByAccountID, sacBalanceChangesByKey); txErr != nil {
+	// 4. Persist protocol wasms and contracts (wasms first due to FK)
+	if len(protocolWasms) > 0 {
+		wasmSlice := make([]data.ProtocolWasms, 0, len(protocolWasms))
+		for _, wasm := range protocolWasms {
+			wasmSlice = append(wasmSlice, wasm)
+		}
+		if txErr := m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol wasms: %w", txErr)
+		}
+	}
+	if len(protocolContracts) > 0 {
+		contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
+		for _, contract := range protocolContracts {
+			contractSlice = append(contractSlice, contract)
+		}
+		if txErr := m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol contracts: %w", txErr)
+		}
+	}
+
+	// 5. Apply token changes to PostgreSQL
+	if txErr := m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx, trustlineChangesByKey, accountChangesByAccountID, sacBalanceChangesByKey); txErr != nil {
 		return fmt.Errorf("processing token changes: %w", txErr)
 	}
 
-	log.Ctx(ctx).Infof("Processed batch changes: %d trustline, %d contract, %d account, %d SAC balance changes",
-		len(trustlineChangesByKey), len(contractChanges), len(accountChangesByAccountID), len(sacBalanceChangesByKey))
+	log.Ctx(ctx).Infof("Processed batch changes: %d trustline, %d account, %d SAC balance changes",
+		len(trustlineChangesByKey), len(accountChangesByAccountID), len(sacBalanceChangesByKey))
 
 	return nil
 }

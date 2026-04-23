@@ -71,6 +71,11 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
+	// Data migration tests — protocol setup plus setup-to-live protocol state production
+	t.Run("DataMigrationTestSuite", func(t *testing.T) {
+		suite.Run(t, &DataMigrationTestSuite{testEnv: testEnv})
+	})
+
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
 			testEnv: testEnv,

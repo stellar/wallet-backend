@@ -33,17 +33,18 @@ type IndexerBufferInterface interface {
 	GetOperations() []*types.Operation
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
-	GetContractChanges() []types.ContractChange
 	GetAccountChanges() map[string]types.AccountChange
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
-	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
+	PushProtocolWasm(wasm data.ProtocolWasms)
+	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
-	GetUniqueSEP41ContractTokensByID() map[string]types.ContractType
 	GetSACContracts() map[string]*data.Contract
+	GetProtocolWasms() map[string]data.ProtocolWasms
+	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
@@ -69,26 +70,30 @@ type LedgerChangeProcessor[T any] interface {
 }
 
 type Indexer struct {
-	participantsProcessor  ParticipantsProcessorInterface
-	tokenTransferProcessor TokenTransferProcessorInterface
-	trustlinesProcessor    LedgerChangeProcessor[types.TrustlineChange]
-	accountsProcessor      LedgerChangeProcessor[types.AccountChange]
-	sacBalancesProcessor   LedgerChangeProcessor[types.SACBalanceChange]
-	sacInstancesProcessor  LedgerChangeProcessor[*data.Contract]
-	processors             []OperationProcessorInterface
-	pool                   pond.Pool
-	ingestionMetrics       *metrics.IngestionMetrics
-	networkPassphrase      string
+	participantsProcessor      ParticipantsProcessorInterface
+	tokenTransferProcessor     TokenTransferProcessorInterface
+	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
+	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
+	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
+	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
+	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
+	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
+	processors                 []OperationProcessorInterface
+	pool                       pond.Pool
+	ingestionMetrics           *metrics.IngestionMetrics
+	networkPassphrase          string
 }
 
 func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
 	return &Indexer{
-		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
-		sacBalancesProcessor:   processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
-		sacInstancesProcessor:  processors.NewSACInstanceProcessor(networkPassphrase),
-		accountsProcessor:      processors.NewAccountsProcessor(ingestionMetrics),
-		trustlinesProcessor:    processors.NewTrustlinesProcessor(ingestionMetrics),
+		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
+		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
+		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
+		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(ingestionMetrics),
+		protocolContractsProcessor: processors.NewProtocolContractsProcessor(ingestionMetrics),
+		accountsProcessor:          processors.NewAccountsProcessor(ingestionMetrics),
+		trustlinesProcessor:        processors.NewTrustlinesProcessor(ingestionMetrics),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, ingestionMetrics),
 			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
@@ -236,24 +241,21 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		for _, c := range sacContracts {
 			buffer.PushSACContract(c)
 		}
-	}
 
-	// Process state changes to extract contract changes
-	for _, stateChange := range stateChanges {
-		//exhaustive:ignore
-		switch stateChange.StateChangeCategory {
-		case types.StateChangeCategoryBalance:
-			// Only store contract changes when contract token is SEP41
-			if stateChange.ContractType == types.ContractTypeSEP41 {
-				contractChange := types.ContractChange{
-					AccountID:    string(stateChange.AccountID),
-					OperationID:  stateChange.OperationID,
-					ContractID:   stateChange.TokenID.String(),
-					LedgerNumber: tx.Ledger.LedgerSequence(),
-					ContractType: stateChange.ContractType,
-				}
-				buffer.PushContractChange(contractChange)
-			}
+		protocolWasms, pwErr := i.protocolWasmsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if pwErr != nil {
+			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
+		}
+		for _, wasm := range protocolWasms {
+			buffer.PushProtocolWasm(wasm)
+		}
+
+		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if pcErr != nil {
+			return 0, fmt.Errorf("processing protocol contracts: %w", pcErr)
+		}
+		for _, contract := range protocolContracts {
+			buffer.PushProtocolContracts(contract)
 		}
 	}
 

@@ -46,6 +46,10 @@ type IngestionMetrics struct {
 	// State change metrics
 	StateChangeProcessingDuration *prometheus.HistogramVec
 	StateChangesTotal             *prometheus.CounterVec
+	// Protocol state production metrics
+	ProtocolStateProcessingDuration *prometheus.HistogramVec
+	ProtocolContractCacheAccess     *prometheus.CounterVec
+	ProtocolContractCacheRefresh    prometheus.Histogram
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -115,6 +119,20 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_state_changes_total",
 			Help: "Total number of state changes persisted to database by type and category.",
 		}, []string{"type", "category"}),
+		ProtocolStateProcessingDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_protocol_state_processing_duration_seconds",
+			Help:    "Duration of protocol state persistence by protocol ID and phase (process_ledger, load_current_state, persist_history, persist_current_state).",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		}, []string{"protocol_id", "phase"}),
+		ProtocolContractCacheAccess: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_ingestion_protocol_contract_cache_access_total",
+			Help: "Protocol contract cache accesses by protocol ID and result (hit, miss, refresh).",
+		}, []string{"protocol_id", "result"}),
+		ProtocolContractCacheRefresh: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_protocol_contract_cache_refresh_duration_seconds",
+			Help:    "Duration of protocol contract cache refresh queries.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -132,6 +150,9 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.ErrorsTotal,
 		m.StateChangeProcessingDuration,
 		m.StateChangesTotal,
+		m.ProtocolStateProcessingDuration,
+		m.ProtocolContractCacheAccess,
+		m.ProtocolContractCacheRefresh,
 	)
 	return m
 }

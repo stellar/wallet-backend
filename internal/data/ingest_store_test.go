@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -70,6 +71,100 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 	}
 }
 
+func Test_IngestStoreModel_GetMany(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	testCases := []struct {
+		name     string
+		keys     []string
+		setupDB  func(t *testing.T)
+		expected map[string]uint32
+	}{
+		{
+			name:     "nil_keys_returns_nil",
+			keys:     nil,
+			expected: nil,
+		},
+		{
+			name:     "empty_keys_returns_nil",
+			keys:     []string{},
+			expected: nil,
+		},
+		{
+			name:     "no_matching_keys",
+			keys:     []string{"missing_a", "missing_b"},
+			expected: map[string]uint32{},
+		},
+		{
+			name: "all_keys_present",
+			keys: []string{"key_a", "key_b", "key_c"},
+			setupDB: func(t *testing.T) {
+				for _, kv := range []struct {
+					k string
+					v string
+				}{{"key_a", "10"}, {"key_b", "20"}, {"key_c", "30"}} {
+					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
+					require.NoError(t, err)
+				}
+			},
+			expected: map[string]uint32{"key_a": 10, "key_b": 20, "key_c": 30},
+		},
+		{
+			name: "partial_match",
+			keys: []string{"key_a", "missing", "key_c"},
+			setupDB: func(t *testing.T) {
+				for _, kv := range []struct {
+					k string
+					v string
+				}{{"key_a", "10"}, {"key_c", "30"}} {
+					_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, kv.k, kv.v)
+					require.NoError(t, err)
+				}
+			},
+			expected: map[string]uint32{"key_a": 10, "key_c": 30},
+		},
+		{
+			name: "single_key",
+			keys: []string{"key_a"},
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "key_a", "42")
+				require.NoError(t, err)
+			},
+			expected: map[string]uint32{"key_a": 42},
+		},
+	}
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			m := &IngestStoreModel{
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
+			}
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			result, err := m.GetMany(ctx, tc.keys)
+			require.NoError(t, err)
+			if tc.expected == nil {
+				assert.Nil(t, result)
+			} else {
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
 func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -128,6 +223,103 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			dbStoredLedger, err := db.QueryOne[uint32](ctx, m.DB, `SELECT value::int FROM ingest_store WHERE key = $1`, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.ledgerToUpsert, dbStoredLedger)
+		})
+	}
+}
+
+func Test_IngestStoreModel_CompareAndSwap(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	testCases := []struct {
+		name          string
+		setupDB       func(t *testing.T)
+		expectedValue string
+		newValue      string
+		expectedSwap  bool
+		expectedErr   error  // sentinel error expected (nil means no error)
+		expectedDB    string // expected value in DB after CAS; empty means key should not exist
+	}{
+		{
+			name: "succeeds_when_value_matches",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "cas_cursor", "100")
+				require.NoError(t, err)
+			},
+			expectedValue: "100",
+			newValue:      "200",
+			expectedSwap:  true,
+			expectedDB:    "200",
+		},
+		{
+			name: "fails_when_value_mismatches",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, "cas_cursor", "100")
+				require.NoError(t, err)
+			},
+			expectedValue: "50",
+			newValue:      "200",
+			expectedSwap:  false,
+			expectedDB:    "100",
+		},
+		{
+			name:          "errors_when_key_not_found",
+			expectedValue: "100",
+			newValue:      "200",
+			expectedSwap:  false,
+			expectedErr:   ErrCASCursorMissing,
+			expectedDB:    "",
+		},
+	}
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dbConnectionPool.Exec(ctx, "DELETE FROM ingest_store")
+			require.NoError(t, err)
+
+			m := &IngestStoreModel{
+				DB:      dbConnectionPool,
+				Metrics: dbMetrics,
+			}
+
+			if tc.setupDB != nil {
+				tc.setupDB(t)
+			}
+
+			var swapped bool
+			var casErr error
+			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+				swapped, casErr = m.CompareAndSwap(ctx, dbTx, "cas_cursor", tc.expectedValue, tc.newValue)
+				// Return nil so the transaction commits and we can assert on
+				// the post-CAS DB state below. casErr is asserted separately.
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedSwap, swapped)
+			if tc.expectedErr != nil {
+				require.Error(t, casErr)
+				assert.True(t, errors.Is(casErr, tc.expectedErr), "expected error %v, got %v", tc.expectedErr, casErr)
+			} else {
+				require.NoError(t, casErr)
+			}
+
+			if tc.expectedDB != "" {
+				var dbValue string
+				err = m.DB.QueryRow(ctx, `SELECT value FROM ingest_store WHERE key = $1`, "cas_cursor").Scan(&dbValue)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedDB, dbValue)
+			} else {
+				var count int
+				err = m.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ingest_store WHERE key = $1`, "cas_cursor").Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, 0, count)
+			}
 		})
 	}
 }

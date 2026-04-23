@@ -49,7 +49,6 @@ type StorageBackendConfig struct {
 
 type Configs struct {
 	IngestionMode          string
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 	DatabaseURL            string
 	ServerPort             int
@@ -167,8 +166,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
-	contractValidator := services.NewContractValidator()
-
 	// Create pond pool for contract metadata fetching
 	contractMetadataPool := pond.NewPool(0)
 	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
@@ -191,24 +188,55 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
-	tokenIngestionService := services.NewTokenIngestionService(models.DB, cfg.NetworkPassphrase, archive, contractValidator, contractMetadataService, models.TrustlineAsset, models.TrustlineBalance, models.NativeBalance, models.SACBalance, models.AccountContractTokens, models.Contract)
+	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
+		TrustlineBalanceModel: models.TrustlineBalance,
+		NativeBalanceModel:    models.NativeBalance,
+		SACBalanceModel:       models.SACBalance,
+		NetworkPassphrase:     cfg.NetworkPassphrase,
+	})
+
+	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
+		DB:                      models.DB,
+		Archive:                 archive,
+		ContractMetadataService: contractMetadataService,
+		TrustlineAssetModel:     models.TrustlineAsset,
+		TrustlineBalanceModel:   models.TrustlineBalance,
+		NativeBalanceModel:      models.NativeBalance,
+		SACBalanceModel:         models.SACBalance,
+		ContractModel:           models.Contract,
+		ProtocolWasmsModel:      models.ProtocolWasms,
+		ProtocolContractsModel:  models.ProtocolContracts,
+		NetworkPassphrase:       cfg.NetworkPassphrase,
+	})
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}
 
+	// Resolve protocol processors from registry
+	var protocolProcessors []services.ProtocolProcessor
+	for protocolID, factory := range services.GetAllProcessors() {
+		if factory == nil {
+			return nil, fmt.Errorf("protocol processor factory for %q is nil", protocolID)
+		}
+		processor := factory()
+		if processor == nil {
+			return nil, fmt.Errorf("protocol processor factory for %q returned nil", protocolID)
+		}
+		protocolProcessors = append(protocolProcessors, processor)
+	}
+
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
 		Models:                    models,
-		LatestLedgerCursorName:    cfg.LatestLedgerCursorName,
 		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		AppTracker:                cfg.AppTracker,
 		RPCService:                rpcService,
 		LedgerBackend:             ledgerBackend,
 		LedgerBackendFactory:      ledgerBackendFactory,
 		TokenIngestionService:     tokenIngestionService,
-		ContractMetadataService:   contractMetadataService,
+		CheckpointService:         checkpointService,
 		Metrics:                   m,
 		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,
@@ -218,6 +246,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		CatchupThreshold:          cfg.CatchupThreshold,
+		ProtocolProcessors:        protocolProcessors,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

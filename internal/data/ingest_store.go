@@ -15,6 +15,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const (
+	LatestLedgerCursorName = "latest_ingest_ledger"
+	OldestLedgerCursorName = "oldest_ingest_ledger"
+)
+
+// ErrCASCursorMissing is returned by CompareAndSwap when the cursor row does
+// not exist in ingest_store. Missing rows are a correctness problem (dropped
+// row, bad restore) rather than the ordinary value-mismatch race, so callers
+// must fail loudly instead of interpreting it as a successful handoff.
+var ErrCASCursorMissing = errors.New("ingest_store cursor row missing")
+
 type LedgerRange struct {
 	GapStart uint32 `db:"gap_start"`
 	GapEnd   uint32 `db:"gap_end"`
@@ -47,6 +58,45 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	return uint32(v), nil
 }
 
+func (m *IngestStoreModel) GetMany(ctx context.Context, keys []string) (map[string]uint32, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	const query = `SELECT key, value FROM ingest_store WHERE key = ANY($1)`
+
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, query, keys)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetMany", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetMany", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting values for keys: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]uint32, len(keys))
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("scanning ingest_store row: %w", err)
+		}
+		parsed, err := strconv.ParseUint(value, 10, 32)
+		if err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("parsing value for key %s: %w", key, err)
+		}
+		result[key] = uint32(parsed)
+	}
+	if err := rows.Err(); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetMany", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating ingest_store rows: %w", err)
+	}
+	return result, nil
+}
+
 func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
@@ -62,6 +112,39 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
 	return nil
+}
+
+func (m *IngestStoreModel) CompareAndSwap(ctx context.Context, dbTx pgx.Tx, cursorName string, expectedValue string, newValue string) (bool, error) {
+	// A plain UPDATE returns RowsAffected=0 for both "value mismatch" and
+	// "row missing" — callers treat false as a race loss and mark the
+	// migration as handed off, which silently succeeds if the cursor row
+	// was dropped. Distinguish the two cases in a single round-trip: EXISTS
+	// runs against the same snapshot as the UPDATE and, since UPDATE can't
+	// delete rows, correctly reports whether the cursor exists at all.
+	const query = `
+		WITH cas AS (
+			UPDATE ingest_store SET value = $1 WHERE key = $2 AND value = $3 RETURNING 1
+		)
+		SELECT
+			EXISTS(SELECT 1 FROM ingest_store WHERE key = $2) AS row_exists,
+			(SELECT COUNT(*) FROM cas) AS updated_count
+	`
+	start := time.Now()
+	var rowExists bool
+	var updatedCount int
+	err := dbTx.QueryRow(ctx, query, newValue, cursorName, expectedValue).Scan(&rowExists, &updatedCount)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("CompareAndSwap", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("CompareAndSwap", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("CompareAndSwap", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return false, fmt.Errorf("compare-and-swap for cursor %s: %w", cursorName, err)
+	}
+	if !rowExists {
+		m.Metrics.QueryErrors.WithLabelValues("CompareAndSwap", "ingest_store", "cursor_missing").Inc()
+		return false, fmt.Errorf("compare-and-swap for cursor %s: %w", cursorName, ErrCASCursorMissing)
+	}
+	return updatedCount == 1, nil
 }
 
 func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {

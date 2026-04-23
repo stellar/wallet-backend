@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -57,12 +58,14 @@ type IngestServiceConfig struct {
 	LedgerBackendFactory LedgerBackendFactory
 
 	// === Cursors ===
-	LatestLedgerCursorName string
 	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
-	TokenIngestionService   TokenIngestionService
-	ContractMetadataService ContractMetadataService
+	TokenIngestionService TokenIngestionService
+	CheckpointService     CheckpointService
+
+	// === Protocol Processors ===
+	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
 
 	// === Processing Options ===
 	GetLedgersLimit int
@@ -95,7 +98,6 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	ingestionMode             string
 	models                    *data.Models
-	latestLedgerCursorName    string
 	oldestLedgerCursorName    string
 	advisoryLockID            int
 	appTracker                apptracker.AppTracker
@@ -103,7 +105,7 @@ type ingestService struct {
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
 	tokenIngestionService     TokenIngestionService
-	contractMetadataService   ContractMetadataService
+	checkpointService         CheckpointService
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	getLedgersLimit           int
@@ -114,6 +116,20 @@ type ingestService struct {
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	knownContractIDs          set.Set[string]
+	protocolProcessors        map[string]ProtocolProcessor
+	protocolContractCache     *protocolContractCache
+	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
+	// sequence, scoping protocol processing and the CAS loop to processors that
+	// may persist the current ledger. Only accessed from the single-threaded live
+	// ingestion loop.
+	eligibleProtocolProcessors map[string]ProtocolProcessor
+	// protocolCurrentStateLoaded tracks which protocols have had their current
+	// state loaded into processor memory via LoadCurrentState. On the first
+	// successful CAS advance of the current_state_cursor (handoff from migration),
+	// LoadCurrentState reads state from DB; subsequent ledgers use the in-memory
+	// state maintained by PersistCurrentState. Reset on transaction failure to
+	// force a reload. Only accessed from the single-threaded live ingestion loop.
+	protocolCurrentStateLoaded map[string]bool
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -130,28 +146,50 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
+	// Build protocol processor map from slice
+	for i, p := range cfg.ProtocolProcessors {
+		if p == nil {
+			return nil, fmt.Errorf("protocol processor at index %d is nil", i)
+		}
+	}
+	ppMap, err := utils.BuildMap(cfg.ProtocolProcessors, func(p ProtocolProcessor) string {
+		return p.ProtocolID()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("building protocol processor map: %w", err)
+	}
+
+	var ppCache *protocolContractCache
+	if len(ppMap) > 0 {
+		ppCache = &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		}
+	}
+
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		contractMetadataService:   cfg.ContractMetadataService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:          uint32(cfg.CatchupThreshold),
-		knownContractIDs:          set.NewSet[string](),
+		ingestionMode:              cfg.IngestionMode,
+		models:                     cfg.Models,
+		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
+		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
+		appTracker:                 cfg.AppTracker,
+		rpcService:                 cfg.RPCService,
+		ledgerBackend:              cfg.LedgerBackend,
+		ledgerBackendFactory:       cfg.LedgerBackendFactory,
+		tokenIngestionService:      cfg.TokenIngestionService,
+		checkpointService:          cfg.CheckpointService,
+		appMetrics:                 cfg.Metrics,
+		networkPassphrase:          cfg.NetworkPassphrase,
+		getLedgersLimit:            cfg.GetLedgersLimit,
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		archive:                    cfg.Archive,
+		backfillPool:               backfillPool,
+		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:           uint32(cfg.CatchupThreshold),
+		knownContractIDs:           set.NewSet[string](),
+		protocolProcessors:         ppMap,
+		protocolContractCache:      ppCache,
+		protocolCurrentStateLoaded: make(map[string]bool),
 	}, nil
 }
 
@@ -167,49 +205,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
-}
-
-// getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
-// It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
-// LedgerFetchDuration is always observed (including on error/exhaustion paths) to capture full retry latency.
-func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
-	fetchStart := time.Now()
-	defer func() {
-		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
-	}()
-
-	var lastErr error
-	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
-		default:
-		}
-
-		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
-		if err == nil {
-			return ledgerMeta, nil
-		}
-		lastErr = err
-
-		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxRetryBackoff {
-			backoff = maxRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-	}
-	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("ledger_fetch").Inc()
-	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ledger_fetch").Inc()
-	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
 // processLedger processes a single ledger - gets the transactions and processes them using indexer processors.

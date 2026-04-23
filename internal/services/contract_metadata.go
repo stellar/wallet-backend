@@ -1,5 +1,5 @@
 // Package services provides business logic for the wallet-backend.
-// This file implements ContractMetadataService for fetching SAC/SEP-41 token metadata via RPC.
+// This file implements ContractMetadataService for fetching SAC token metadata via RPC.
 package services
 
 import (
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -23,24 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// validateTokenString enforces the invariants a SEP-41 string field must satisfy
-// before it can be safely persisted to a Postgres TEXT column: bounded length,
-// valid UTF-8, and no NUL bytes. PG TEXT (in a UTF-8 DB) rejects both invalid
-// UTF-8 and 0x00, so letting either through would wedge the whole ledger-persist
-// transaction.
-func validateTokenString(fieldName, value string, maxLen int) error {
-	if len(value) > maxLen {
-		return fmt.Errorf("%s exceeds %d byte cap (got %d)", fieldName, maxLen, len(value))
-	}
-	if !utf8.ValidString(value) {
-		return fmt.Errorf("%s is not valid UTF-8", fieldName)
-	}
-	if strings.IndexByte(value, 0) >= 0 {
-		return fmt.Errorf("%s contains NUL byte", fieldName)
-	}
-	return nil
-}
-
 const (
 	// simulateTransactionBatchSize is the number of contracts to process in parallel
 	// when fetching metadata via RPC simulation.
@@ -48,32 +29,11 @@ const (
 
 	// batchSleepDuration is the delay between batches to avoid overwhelming the RPC.
 	batchSleepDuration = 2 * time.Second
-
-	// maxTokenDecimals caps SEP-41 decimals() at a realistic upper bound. Real tokens
-	// use ≤ 18; this also keeps the value inside Postgres INTEGER range, since SEP-41
-	// technically permits a u32 that exceeds INT32_MAX.
-	maxTokenDecimals uint32 = 70
-
-	// maxTokenNameLength / maxTokenSymbolLength bound attacker-controlled strings from
-	// SEP-41 name() and symbol(), measured in bytes. Real tokens are well under these.
-	maxTokenNameLength   = 128
-	maxTokenSymbolLength = 32
 )
 
-// ContractMetadata holds the metadata for a SEP-41 contract token (name, symbol, decimals).
-type ContractMetadata struct {
-	ContractID string
-	Name       string
-	Symbol     string
-	Decimals   uint32
-}
-
 // ContractMetadataService handles fetching metadata (name, symbol, decimals)
-// for SEP-41 token contracts via RPC simulation.
+// for SAC token contracts via RPC simulation.
 type ContractMetadataService interface {
-	// FetchSep41Metadata fetches metadata for SEP-41 contracts via RPC without storing.
-	// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
-	FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
 	// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
 	// SAC name() returns "code:issuer" format (or "native" for XLM).
 	// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7.
@@ -114,42 +74,6 @@ func NewContractMetadataService(
 		pool:          pool,
 		dummyAccount:  keypair.MustRandom(),
 	}, nil
-}
-
-// FetchSep41Metadata fetches metadata for SEP-41 contracts via RPC without storing in database.
-// Returns []*data.Contract with ID field pre-computed via DeterministicContractID.
-func (s *contractMetadataService) FetchSep41Metadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
-	if len(contractIDs) == 0 {
-		return []*data.Contract{}, nil
-	}
-
-	// Build initial metadata map
-	metadataMap := make(map[string]ContractMetadata, len(contractIDs))
-	for _, contractID := range contractIDs {
-		metadataMap[contractID] = ContractMetadata{
-			ContractID: contractID,
-		}
-	}
-
-	// Fetch metadata in parallel batches
-	start := time.Now()
-	metadataMap = s.fetchBatch(ctx, metadataMap, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d SEP-41 contracts in %.4f seconds", len(metadataMap), time.Since(start).Seconds())
-
-	// Convert to []*data.Contract with pre-computed deterministic IDs
-	contracts := make([]*data.Contract, 0, len(metadataMap))
-	for _, metadata := range metadataMap {
-		contracts = append(contracts, &data.Contract{
-			ID:         data.DeterministicContractID(metadata.ContractID),
-			ContractID: metadata.ContractID,
-			Type:       string(types.ContractTypeSEP41),
-			Name:       &metadata.Name,
-			Symbol:     &metadata.Symbol,
-			Decimals:   metadata.Decimals,
-		})
-	}
-
-	return contracts, nil
 }
 
 // FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
@@ -249,104 +173,6 @@ func (s *contractMetadataService) fetchSACMetadataForContract(ctx context.Contex
 	}, nil
 }
 
-// fetchMetadata fetches name, symbol, and decimals for a single SEP-41 contract in parallel.
-// Returns ContractMetadata with the fetched values.
-func (s *contractMetadataService) fetchMetadata(ctx context.Context, contractID string) (ContractMetadata, error) {
-	group := s.pool.NewGroupContext(ctx)
-
-	var (
-		name     string
-		symbol   string
-		decimals uint32
-		errs     []error
-		mu       sync.Mutex
-	)
-
-	appendError := func(err error) {
-		mu.Lock()
-		errs = append(errs, err)
-		mu.Unlock()
-	}
-
-	// Fetch name
-	group.Submit(func() {
-		nameVal, err := s.FetchSingleField(ctx, contractID, "name")
-		if err != nil {
-			appendError(fmt.Errorf("fetching name: %w", err))
-			return
-		}
-		nameStr, ok := nameVal.GetStr()
-		if !ok {
-			appendError(fmt.Errorf("name value is not a string"))
-			return
-		}
-		if vErr := validateTokenString("name", string(nameStr), maxTokenNameLength); vErr != nil {
-			appendError(vErr)
-			return
-		}
-		mu.Lock()
-		name = string(nameStr)
-		mu.Unlock()
-	})
-
-	// Fetch symbol
-	group.Submit(func() {
-		symbolVal, err := s.FetchSingleField(ctx, contractID, "symbol")
-		if err != nil {
-			appendError(fmt.Errorf("fetching symbol: %w", err))
-			return
-		}
-		symbolStr, ok := symbolVal.GetStr()
-		if !ok {
-			appendError(fmt.Errorf("symbol value is not a string"))
-			return
-		}
-		if vErr := validateTokenString("symbol", string(symbolStr), maxTokenSymbolLength); vErr != nil {
-			appendError(vErr)
-			return
-		}
-		mu.Lock()
-		symbol = string(symbolStr)
-		mu.Unlock()
-	})
-
-	// Fetch decimals
-	group.Submit(func() {
-		decimalsVal, err := s.FetchSingleField(ctx, contractID, "decimals")
-		if err != nil {
-			appendError(fmt.Errorf("fetching decimals: %w", err))
-			return
-		}
-		decimalsU32, ok := decimalsVal.GetU32()
-		if !ok {
-			appendError(fmt.Errorf("decimals value is not a uint32"))
-			return
-		}
-		if uint32(decimalsU32) > maxTokenDecimals {
-			appendError(fmt.Errorf("decimals exceeds cap of %d (got %d)", maxTokenDecimals, decimalsU32))
-			return
-		}
-		mu.Lock()
-		decimals = uint32(decimalsU32)
-		mu.Unlock()
-	})
-
-	if err := group.Wait(); err != nil {
-		return ContractMetadata{}, fmt.Errorf("waiting for metadata fetch group for contract %s: %w", contractID, err)
-	}
-
-	if len(errs) > 0 {
-		return ContractMetadata{}, fmt.Errorf("fetching contract metadata for contract %s: %w", contractID, errors.Join(errs...))
-	}
-
-	return ContractMetadata{
-		ContractID: contractID,
-		Name:       name,
-		Symbol:     symbol,
-		Decimals:   decimals,
-	}, nil
-}
-
 // FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc.) via RPC simulation.
 // The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 func (s *contractMetadataService) FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error) {
@@ -409,46 +235,4 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 	}
 
 	return result.Results[0].XDR, nil
-}
-
-// fetchBatch fetches metadata for multiple SEP-41 contracts in parallel using pond groups.
-// Processes contracts in batches to limit RPC load.
-func (s *contractMetadataService) fetchBatch(ctx context.Context, metadataMap map[string]ContractMetadata, contractIDs []string) map[string]ContractMetadata {
-	var mu sync.Mutex
-
-	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
-		end := min(i+simulateTransactionBatchSize, len(contractIDs))
-		contractIDsBatch := contractIDs[i:end]
-
-		group := s.pool.NewGroupContext(ctx)
-		for _, contractID := range contractIDsBatch {
-			group.Submit(func() {
-				existing := metadataMap[contractID]
-				metadata, err := s.fetchMetadata(ctx, contractID)
-				if err != nil {
-					log.Ctx(ctx).Warnf("Failed to fetch metadata for contract %s: %v", contractID, err)
-					return
-				}
-
-				mu.Lock()
-				if metadata.Name != "" {
-					existing.Name = metadata.Name
-				}
-				if metadata.Symbol != "" {
-					existing.Symbol = metadata.Symbol
-				}
-				if metadata.Decimals != 0 {
-					existing.Decimals = metadata.Decimals
-				}
-				metadataMap[contractID] = existing
-				mu.Unlock()
-			})
-		}
-
-		if err := group.Wait(); err != nil {
-			log.Ctx(ctx).Warnf("Error waiting for batch metadata fetch: %v", err)
-		}
-		time.Sleep(batchSleepDuration)
-	}
-	return metadataMap
 }

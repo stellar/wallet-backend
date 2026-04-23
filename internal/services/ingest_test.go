@@ -3,6 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -26,6 +30,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var (
@@ -334,7 +339,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &mockAppTracker,
 				RPCService:             &mockRPCService,
@@ -352,6 +356,29 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			assert.Equal(t, tc.expectedGaps, gaps)
 		})
 	}
+}
+
+func Test_NewIngestService_ProtocolProcessorValidation(t *testing.T) {
+	t.Run("nil processor returns error", func(t *testing.T) {
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
+		cfg.ProtocolProcessors = []ProtocolProcessor{nil}
+		_, err := NewIngestService(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "protocol processor at index 0 is nil")
+	})
+
+	t.Run("duplicate ProtocolID returns error", func(t *testing.T) {
+		p1 := NewProtocolProcessorMock(t)
+		p1.On("ProtocolID").Return("dup-id")
+		p2 := NewProtocolProcessorMock(t)
+		p2.On("ProtocolID").Return("dup-id")
+
+		cfg := IngestServiceConfig{Metrics: metrics.NewMetrics(prometheus.NewRegistry())}
+		cfg.ProtocolProcessors = []ProtocolProcessor{p1, p2}
+		_, err := NewIngestService(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `duplicate key "dup-id"`)
+	})
 }
 
 func Test_BackfillMode_Validation(t *testing.T) {
@@ -417,8 +444,8 @@ func Test_BackfillMode_Validation(t *testing.T) {
 
 			// Set up latest ingested ledger cursor
 			_, err = dbConnectionPool.Exec(ctx,
-				`INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`,
-				fmt.Sprintf("%d", tc.latestIngested))
+				`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
+				data.LatestLedgerCursorName, fmt.Sprintf("%d", tc.latestIngested))
 			require.NoError(t, err)
 			_, err = dbConnectionPool.Exec(ctx,
 				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
@@ -445,7 +472,6 @@ func Test_BackfillMode_Validation(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &mockAppTracker,
 				RPCService:             &mockRPCService,
@@ -491,7 +517,7 @@ func setupDBCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, lates
 	_, err := pool.Exec(ctx, `DELETE FROM ingest_store`)
 	require.NoError(t, err)
 	if latestLedger > 0 {
-		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('latest_ledger_cursor', $1)`, fmt.Sprintf("%d", latestLedger))
+		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, data.LatestLedgerCursorName, fmt.Sprintf("%d", latestLedger))
 		require.NoError(t, err)
 	}
 	if oldestLedger > 0 {
@@ -623,116 +649,6 @@ func Test_analyzeBatchResults(t *testing.T) {
 	}
 }
 
-func Test_ingestService_getLedgerWithRetry(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	testCases := []struct {
-		name            string
-		setupBackend    func(*LedgerBackendMock)
-		ctxFunc         func() (context.Context, context.CancelFunc)
-		wantErr         bool
-		wantErrContains string
-	}{
-		{
-			name: "success_on_first_try",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "success_after_retries",
-			setupBackend: func(lb *LedgerBackendMock) {
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				// Fail twice, then succeed
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("temporary error")).Twice()
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(meta, nil).Once()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(ctx)
-			},
-			wantErr: false,
-		},
-		{
-			name: "context_cancelled_immediately",
-			setupBackend: func(lb *LedgerBackendMock) {
-				// May or may not be called depending on timing
-				lb.On("GetLedger", mock.Anything, uint32(100)).Return(xdr.LedgerCloseMeta{}, fmt.Errorf("error")).Maybe()
-			},
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				cancelledCtx, cancel := context.WithCancel(ctx)
-				cancel() // Cancel immediately
-				return cancelledCtx, cancel
-			},
-			wantErr:         true,
-			wantErrContains: "context cancelled",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			m := metrics.NewMetrics(prometheus.NewRegistry())
-
-			models, err := data.NewModels(dbConnectionPool, m.DB)
-			require.NoError(t, err)
-
-			mockLedgerBackend := &LedgerBackendMock{}
-			tc.setupBackend(mockLedgerBackend)
-			defer mockLedgerBackend.AssertExpectations(t)
-
-			mockRPCService := &RPCServiceMock{}
-			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
-
-			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-			})
-			require.NoError(t, err)
-
-			testCtx, cancel := tc.ctxFunc()
-			defer cancel()
-
-			ledger, err := svc.getLedgerWithRetry(testCtx, mockLedgerBackend, 100)
-			if tc.wantErr {
-				require.Error(t, err)
-				if tc.wantErrContains != "" {
-					assert.Contains(t, err.Error(), tc.wantErrContains)
-				}
-			} else {
-				require.NoError(t, err)
-
-				var meta xdr.LedgerCloseMeta
-				err := xdr.SafeUnmarshalBase64(ledgerMetadataWith0Tx, &meta)
-				require.NoError(t, err)
-				assert.Equal(t, meta, ledger)
-			}
-		})
-	}
-}
-
 func Test_ingestService_setupBatchBackend(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -799,7 +715,6 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -877,7 +792,6 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -946,7 +860,6 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeLive,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -965,7 +878,7 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify both cursors are set to the same value
-			latestCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+			latestCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 			require.NoError(t, err)
 			assert.Equal(t, tc.startLedger, latestCursor)
 
@@ -1009,7 +922,6 @@ func Test_ingestService_Run(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          tc.mode,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1149,7 +1061,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1307,7 +1218,6 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1445,7 +1355,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -1543,7 +1452,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
-		LatestLedgerCursorName:    "latest_ledger_cursor",
 		OldestLedgerCursorName:    "oldest_ledger_cursor",
 		AppTracker:                &apptracker.MockAppTracker{},
 		RPCService:                mockRPCService,
@@ -1642,7 +1550,6 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:          IngestionModeBackfill,
 		Models:                 models,
-		LatestLedgerCursorName: "latest_ledger_cursor",
 		OldestLedgerCursorName: "oldest_ledger_cursor",
 		AppTracker:             &apptracker.MockAppTracker{},
 		RPCService:             mockRPCService,
@@ -1666,7 +1573,7 @@ func Test_ingestService_startBackfilling_CatchupMode_PartialFailure_ReturnsError
 	assert.Contains(t, backfillErr.Error(), "batches failed")
 
 	// Verify latest cursor was NOT updated
-	finalLatest, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+	finalLatest, getErr := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	require.NoError(t, getErr)
 	assert.Equal(t, uint32(99), finalLatest, "latest cursor should NOT be updated when catchup fails")
 }
@@ -1706,7 +1613,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:          IngestionModeBackfill,
 		Models:                 models,
-		LatestLedgerCursorName: "latest_ledger_cursor",
 		OldestLedgerCursorName: "oldest_ledger_cursor",
 		AppTracker:             &apptracker.MockAppTracker{},
 		RPCService:             mockRPCService,
@@ -1733,7 +1639,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	assert.Equal(t, initialOldest, finalOldest,
 		"oldest cursor should remain unchanged when all batches fail")
 
-	finalLatest, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+	finalLatest, getErr := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	require.NoError(t, getErr)
 	assert.Equal(t, initialLatest, finalLatest,
 		"latest cursor should remain unchanged when all batches fail")
@@ -1782,7 +1688,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1815,7 +1720,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Equal(t, 0, numOps)
 
 		// Verify DB cursor was updated
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated to 100")
 
@@ -1863,7 +1768,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1896,7 +1800,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Contains(t, err.Error(), "db connection failed")
 
 		// Verify DB cursor was NOT updated (transaction rolled back)
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, initialCursor, finalCursor, "cursor should NOT be updated when DB fails")
 
@@ -1952,7 +1856,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:          IngestionModeLive,
 			Models:                 models,
-			LatestLedgerCursorName: "latest_ledger_cursor",
 			OldestLedgerCursorName: "oldest_ledger_cursor",
 			AppTracker:             &apptracker.MockAppTracker{},
 			RPCService:             mockRPCService,
@@ -1985,7 +1888,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		assert.Equal(t, 0, numOps)
 
 		// Verify DB cursor was updated
-		finalCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), finalCursor, "cursor should be updated after successful retry")
 
@@ -2009,65 +1912,34 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	testCases := []struct {
-		name                 string
-		trustlineChanges     map[indexer.TrustlineChangeKey]types.TrustlineChange
-		contractChanges      []types.ContractChange
-		uniqueAssets         map[uuid.UUID]data.TrustlineAsset
-		uniqueContractTokens map[string]types.ContractType
-		setupMocks           func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock)
-		wantErr              bool
-		wantErrContains      string
-		verifySortedChanges  func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock)
+		name             string
+		trustlineChanges map[indexer.TrustlineChangeKey]types.TrustlineChange
+		uniqueAssets     map[uuid.UUID]data.TrustlineAsset
+		setupMocks       func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock)
+		wantErr          bool
+		wantErrContains  string
 	}{
 		{
-			name:                 "empty_data_calls_ProcessTokenChanges",
-			trustlineChanges:     map[indexer.TrustlineChangeKey]types.TrustlineChange{},
-			contractChanges:      []types.ContractChange{},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges is called with empty map and slice
+			name:             "empty_data_calls_ProcessTokenChanges",
+			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
+			uniqueAssets:     map[uuid.UUID]data.TrustlineAsset{},
+			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock) {
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 0
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			// Data is now pre-deduplicated by caller
 			name: "passes_through_deduplicated_trustline_changes",
 			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USD", "GA1")}: {AccountID: "GA1", Asset: "USD:GA1", OperationID: toid.New(100, 0, 10).ToInt64(), LedgerNumber: 100},
 				{AccountID: "GA2", TrustlineID: data.DeterministicAssetID("EUR", "GA2")}: {AccountID: "GA2", Asset: "EUR:GA2", OperationID: toid.New(101, 0, 1).ToInt64(), LedgerNumber: 101},
 				{AccountID: "GA3", TrustlineID: data.DeterministicAssetID("GBP", "GA3")}: {AccountID: "GA3", Asset: "GBP:GA3", OperationID: toid.New(100, 0, 5).ToInt64(), LedgerNumber: 100},
 			},
-			contractChanges:      []types.ContractChange{},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Verify all 3 changes are in the map (different keys)
+			uniqueAssets: map[uuid.UUID]data.TrustlineAsset{},
+			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock) {
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
-					return len(changes) == 3
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			// Contract changes are passed through (not deduplicated here)
-			name:             "passes_contract_changes_through",
-			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{},
-			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "C1", OperationID: toid.New(200, 0, 20).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA2", ContractID: "C2", OperationID: toid.New(200, 0, 5).ToInt64(), LedgerNumber: 200, ContractType: types.ContractTypeUnknown},
-				{AccountID: "GA3", ContractID: "C3", OperationID: toid.New(201, 0, 1).ToInt64(), LedgerNumber: 201, ContractType: types.ContractTypeUnknown},
-			},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// All 3 contract changes are passed through
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
-					return len(changes) == 0
-				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
 					return len(changes) == 3
 				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
@@ -2078,13 +1950,10 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GA1", Asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 1, LedgerNumber: 100, Operation: types.TrustlineOpAdd},
 			},
-			contractChanges: []types.ContractChange{},
 			uniqueAssets: map[uuid.UUID]data.TrustlineAsset{
 				data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"): {ID: data.DeterministicAssetID("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"), Code: "USDC", Issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 			},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges is called after trustline assets are inserted to DB
+			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock) {
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					if len(changes) != 1 {
 						return false
@@ -2093,51 +1962,6 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 						return change.Asset == "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 					}
 					return false
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			// Note: Unknown contracts don't get inserted into contracts table but are still passed to ProcessTokenChanges
-			name:                 "processes_unknown_contract_changes",
-			trustlineChanges:     map[indexer.TrustlineChangeKey]types.TrustlineChange{},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			contractChanges: []types.ContractChange{
-				{AccountID: "GA1", ContractID: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
-			},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// Unknown contracts don't trigger FetchMetadata but are passed to ProcessTokenChanges
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
-					return len(changes) == 0
-				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
-					return len(changes) == 1 && changes[0].ContractType == types.ContractTypeUnknown
-				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name: "calls_ProcessTokenChanges_with_trustline_and_contract_changes",
-			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
-				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA")}: {AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
-			},
-			contractChanges: []types.ContractChange{
-				{AccountID: "GA2", ContractID: "C1", OperationID: toid.New(100, 0, 2).ToInt64(), LedgerNumber: 100, ContractType: types.ContractTypeUnknown},
-			},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges receives both trustline and contract changes
-				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
-					if len(changes) != 1 {
-						return false
-					}
-					for _, change := range changes {
-						return change.Asset == "USDC:GA"
-					}
-					return false
-				}), mock.MatchedBy(func(changes []types.ContractChange) bool {
-					return len(changes) == 1 && changes[0].ContractID == "C1"
 				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(nil)
 			},
 			wantErr: false,
@@ -2147,14 +1971,11 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			trustlineChanges: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 				{AccountID: "GA1", TrustlineID: data.DeterministicAssetID("USDC", "GA")}: {AccountID: "GA1", Asset: "USDC:GA", OperationID: toid.New(100, 0, 1).ToInt64(), LedgerNumber: 100},
 			},
-			contractChanges:      []types.ContractChange{},
-			uniqueAssets:         map[uuid.UUID]data.TrustlineAsset{},
-			uniqueContractTokens: map[string]types.ContractType{},
-			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock, contractMetadataSvc *ContractMetadataServiceMock) {
-				// ProcessTokenChanges receives the actual trustline changes
+			uniqueAssets: map[uuid.UUID]data.TrustlineAsset{},
+			setupMocks: func(t *testing.T, tokenIngestionService *TokenIngestionServiceMock) {
 				tokenIngestionService.On("ProcessTokenChanges", mock.Anything, mock.Anything, mock.MatchedBy(func(changes map[indexer.TrustlineChangeKey]types.TrustlineChange) bool {
 					return len(changes) == 1
-				}), []types.ContractChange{}, mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(fmt.Errorf("db error"))
+				}), mock.MatchedBy(func(m map[string]types.AccountChange) bool { return true }), mock.Anything).Return(fmt.Errorf("db error"))
 			},
 			wantErr:         true,
 			wantErrContains: "processing token changes",
@@ -2172,30 +1993,27 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-			mockContractMetadataSvc := NewContractMetadataServiceMock(t)
 
-			tc.setupMocks(t, mockTokenIngestionService, mockContractMetadataSvc)
+			tc.setupMocks(t, mockTokenIngestionService)
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:           IngestionModeBackfill,
-				Models:                  models,
-				LatestLedgerCursorName:  "latest_ledger_cursor",
-				OldestLedgerCursorName:  "oldest_ledger_cursor",
-				AppTracker:              &apptracker.MockAppTracker{},
-				RPCService:              mockRPCService,
-				LedgerBackend:           &LedgerBackendMock{},
-				TokenIngestionService:   mockTokenIngestionService,
-				ContractMetadataService: mockContractMetadataSvc,
-				Metrics:                 m,
-				GetLedgersLimit:         defaultGetLedgersLimit,
-				Network:                 network.TestNetworkPassphrase,
-				NetworkPassphrase:       network.TestNetworkPassphrase,
-				Archive:                 &HistoryArchiveMock{},
+				IngestionMode:          IngestionModeBackfill,
+				Models:                 models,
+				OldestLedgerCursorName: "oldest_ledger_cursor",
+				AppTracker:             &apptracker.MockAppTracker{},
+				RPCService:             mockRPCService,
+				LedgerBackend:          &LedgerBackendMock{},
+				TokenIngestionService:  mockTokenIngestionService,
+				Metrics:                m,
+				GetLedgersLimit:        defaultGetLedgersLimit,
+				Network:                network.TestNetworkPassphrase,
+				NetworkPassphrase:      network.TestNetworkPassphrase,
+				Archive:                &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
 			err = db.RunInTransaction(ctx, models.DB, func(dbTx pgx.Tx) error {
-				return svc.processBatchChanges(ctx, dbTx, tc.trustlineChanges, tc.contractChanges, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange), tc.uniqueAssets, tc.uniqueContractTokens, make(map[string]*data.Contract))
+				return svc.processBatchChanges(ctx, dbTx, tc.trustlineChanges, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange), tc.uniqueAssets, make(map[string]*data.Contract), make(map[string]data.ProtocolWasms), make(map[string]data.ProtocolContracts))
 			})
 
 			if tc.wantErr {
@@ -2205,10 +2023,6 @@ func Test_ingestService_processBatchChanges(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-			}
-
-			if tc.verifySortedChanges != nil {
-				tc.verifySortedChanges(t, mockTokenIngestionService)
 			}
 		})
 	}
@@ -2229,7 +2043,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 		setupBuffer               func() *indexer.IndexerBuffer
 		batchChanges              *BatchChanges
 		wantTrustlineChangesCount int
-		wantContractChanges       []types.ContractChange
 	}{
 		{
 			name: "collects_trustline_changes_when_batchChanges_provided",
@@ -2246,36 +2059,8 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 				})
 				return buf
 			},
-			batchChanges:              &BatchChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange), UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset), UniqueContractTokensByID: make(map[string]types.ContractType)},
+			batchChanges:              &BatchChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange), UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset)},
 			wantTrustlineChangesCount: 1,
-			wantContractChanges:       nil,
-		},
-		{
-			name: "collects_contract_changes_when_batchChanges_provided",
-			setupBuffer: func() *indexer.IndexerBuffer {
-				buf := indexer.NewIndexerBuffer()
-				tx1 := createTestTransaction(catchupTxHash2, 2)
-				buf.PushTransaction(testAddr2, tx1)
-				buf.PushContractChange(types.ContractChange{
-					AccountID:    testAddr2,
-					ContractID:   "CCONTRACTID",
-					OperationID:  101,
-					LedgerNumber: 1001,
-					ContractType: types.ContractTypeSAC,
-				})
-				return buf
-			},
-			batchChanges:              &BatchChanges{TrustlineChangesByKey: make(map[indexer.TrustlineChangeKey]types.TrustlineChange), UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset), UniqueContractTokensByID: make(map[string]types.ContractType)},
-			wantTrustlineChangesCount: 0,
-			wantContractChanges: []types.ContractChange{
-				{
-					AccountID:    testAddr2,
-					ContractID:   "CCONTRACTID",
-					OperationID:  101,
-					LedgerNumber: 1001,
-					ContractType: types.ContractTypeSAC,
-				},
-			},
 		},
 		{
 			name: "nil_batchChanges_does_not_collect",
@@ -2294,7 +2079,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			},
 			batchChanges:              nil, // nil means historical mode - no collection happens
 			wantTrustlineChangesCount: 0,
-			wantContractChanges:       nil,
 		},
 		{
 			name: "accumulates_across_multiple_flushes",
@@ -2316,11 +2100,9 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 				TrustlineChangesByKey: map[indexer.TrustlineChangeKey]types.TrustlineChange{
 					{AccountID: "GPREV", TrustlineID: data.DeterministicAssetID("PREV", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")}: {AccountID: "GPREV", Asset: "PREV:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", OperationID: 50, LedgerNumber: 999, Operation: types.TrustlineOpAdd},
 				},
-				UniqueTrustlineAssets:    make(map[uuid.UUID]data.TrustlineAsset),
-				UniqueContractTokensByID: make(map[string]types.ContractType),
+				UniqueTrustlineAssets: make(map[uuid.UUID]data.TrustlineAsset),
 			},
 			wantTrustlineChangesCount: 2, // Pre-existing + new change
-			wantContractChanges:       nil,
 		},
 	}
 
@@ -2351,7 +2133,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2373,17 +2154,6 @@ func Test_ingestService_flushBatchBuffer_batchChanges(t *testing.T) {
 			if tc.batchChanges != nil {
 				// Verify trustline changes count
 				require.Len(t, tc.batchChanges.TrustlineChangesByKey, tc.wantTrustlineChangesCount, "trustline changes count mismatch")
-
-				// Verify contract changes
-				require.Len(t, tc.batchChanges.ContractChanges, len(tc.wantContractChanges), "contract changes count mismatch")
-				for i, want := range tc.wantContractChanges {
-					got := tc.batchChanges.ContractChanges[i]
-					assert.Equal(t, want.AccountID, got.AccountID, "ContractChange[%d].AccountID mismatch", i)
-					assert.Equal(t, want.ContractID, got.ContractID, "ContractChange[%d].ContractID mismatch", i)
-					assert.Equal(t, want.OperationID, got.OperationID, "ContractChange[%d].OperationID mismatch", i)
-					assert.Equal(t, want.LedgerNumber, got.LedgerNumber, "ContractChange[%d].LedgerNumber mismatch", i)
-					assert.Equal(t, want.ContractType, got.ContractType, "ContractChange[%d].ContractType mismatch", i)
-				}
 			}
 		})
 	}
@@ -2443,7 +2213,6 @@ func Test_ingestService_processLedgersInBatch_catchupMode(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2580,7 +2349,6 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2608,7 +2376,7 @@ func Test_ingestService_startBackfilling_CatchupMode_ProcessesBatchChanges(t *te
 			}
 
 			// Verify cursor state
-			cursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+			cursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantLatestCursor, cursor, "latest ledger cursor mismatch")
 		})
@@ -2670,7 +2438,6 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:          IngestionModeBackfill,
 				Models:                 models,
-				LatestLedgerCursorName: "latest_ledger_cursor",
 				OldestLedgerCursorName: "oldest_ledger_cursor",
 				AppTracker:             &apptracker.MockAppTracker{},
 				RPCService:             mockRPCService,
@@ -2699,4 +2466,572 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testProtocolProcessor is a test-only ProtocolProcessor that writes sentinel
+// values into ingest_store within the DB transaction, proving PersistHistory
+// and PersistCurrentState were called and committed atomically.
+type testProtocolProcessor struct {
+	id                         string
+	processLedgerCalls         int
+	processedLedger            uint32
+	ingestStore                *data.IngestStoreModel
+	loadCurrentStateCalls      int
+	persistCurrentStateCalls   int
+	failPersistCurrentStateAt  uint32
+	persistCurrentStateVersion int
+}
+
+func (p *testProtocolProcessor) ProtocolID() string { return p.id }
+
+func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
+	p.processLedgerCalls++
+	p.processedLedger = input.LedgerSequence
+	return nil
+}
+
+func (p *testProtocolProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
+	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_history_written", p.id), p.processedLedger)
+}
+
+func (p *testProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	p.persistCurrentStateCalls++
+	p.persistCurrentStateVersion++
+	if p.failPersistCurrentStateAt != 0 && p.processedLedger == p.failPersistCurrentStateAt {
+		return fmt.Errorf("simulated current state persist failure at ledger %d", p.processedLedger)
+	}
+	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_written", p.id), p.processedLedger)
+}
+
+func (p *testProtocolProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) error {
+	p.loadCurrentStateCalls++
+	return nil
+}
+
+// setupProtocolCursors inserts protocol cursors into ingest_store.
+// Call AFTER setupDBCursors (which wipes the table).
+func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, historyCursor, currentStateCursor uint32) {
+	t.Helper()
+	const protocolID = "testproto"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
+		utils.ProtocolHistoryCursorName(protocolID), strconv.FormatUint(uint64(historyCursor), 10))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
+		utils.ProtocolCurrentStateCursorName(protocolID), strconv.FormatUint(uint64(currentStateCursor), 10))
+	require.NoError(t, err)
+}
+
+func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
+	// Helper to set up common test infrastructure
+	setupTest := func(t *testing.T, processors []ProtocolProcessor) (context.Context, *ingestService, *data.Models, *pgxpool.Pool) {
+		t.Helper()
+		dbt := dbtest.Open(t)
+		t.Cleanup(func() { dbt.Close() })
+		ctx := context.Background()
+		pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { pool.Close() })
+
+		m := metrics.NewMetrics(prometheus.NewRegistry())
+
+		models, err := data.NewModels(pool, m.DB)
+		require.NoError(t, err)
+
+		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+		mockTokenIngestionService.On("ProcessTokenChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+
+		svc, err := NewIngestService(IngestServiceConfig{
+			IngestionMode:          IngestionModeLive,
+			Models:                 models,
+			OldestLedgerCursorName: "oldest_ledger_cursor",
+			AppTracker:             &apptracker.MockAppTracker{},
+			RPCService:             &RPCServiceMock{},
+			LedgerBackend:          &LedgerBackendMock{},
+			TokenIngestionService:  mockTokenIngestionService,
+			Metrics:                m,
+			GetLedgersLimit:        defaultGetLedgersLimit,
+			Network:                network.TestNetworkPassphrase,
+			NetworkPassphrase:      network.TestNetworkPassphrase,
+			Archive:                &HistoryArchiveMock{},
+			ProtocolProcessors:     processors,
+		})
+		require.NoError(t, err)
+
+		return ctx, svc, models, pool
+	}
+
+	t.Run("A: CAS win — cursors at ledger-1", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+
+		// Set ingestStore after models are created, and simulate ProcessLedger
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Both protocol cursors should advance to 100
+		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), histCursor)
+
+		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), csCursor)
+
+		// Sentinel values prove PersistHistory/PersistCurrentState were called
+		histSentinel, err := models.IngestStore.Get(ctx, "test_testproto_history_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), histSentinel)
+
+		csSentinel, err := models.IngestStore.Get(ctx, "test_testproto_current_state_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), csSentinel)
+	})
+
+	t.Run("B: CAS lose — cursors already at ledger", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 100, 100)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Cursors should stay at 100 (CAS expected 99 but found 100)
+		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), histCursor)
+
+		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), csCursor)
+
+		// No sentinels — persist methods were NOT called
+		histSentinel, err := models.IngestStore.Get(ctx, "test_testproto_history_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), histSentinel)
+
+		csSentinel, err := models.IngestStore.Get(ctx, "test_testproto_current_state_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), csSentinel)
+	})
+
+	t.Run("C: cursor behind — migration hasn't caught up", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 98, 98)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Cursors should stay at 98 (behind, so entire block is skipped)
+		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(98), histCursor)
+
+		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(98), csCursor)
+
+		// No sentinels
+		histSentinel, err := models.IngestStore.Get(ctx, "test_testproto_history_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), histSentinel)
+
+		csSentinel, err := models.IngestStore.Get(ctx, "test_testproto_current_state_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), csSentinel)
+	})
+
+	t.Run("D: missing cursor row — CAS fails loudly", func(t *testing.T) {
+		// Invariant: by the time a protocol reaches the CAS block,
+		// protocolProcessorsEligibleForProduction has already observed a cursor
+		// row (row absent ⇒ Get returns 0 ⇒ not eligible). A missing row at
+		// CAS time therefore indicates an operational incident (DBA delete,
+		// bad restore). The model must surface that as an error rather than
+		// swallowing it as a lost-race "handoff".
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		// No protocol cursors inserted — simulates an incident-deleted row.
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, data.ErrCASCursorMissing)
+
+		// Transaction rolled back — no sentinels written, no cursor rows created.
+		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), histCursor)
+
+		histSentinel, err := models.IngestStore.Get(ctx, "test_testproto_history_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), histSentinel)
+
+		csSentinel, err := models.IngestStore.Get(ctx, "test_testproto_current_state_written")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), csSentinel)
+	})
+
+	t.Run("E: no processors — main cursor advances, no protocol work", func(t *testing.T) {
+		ctx, svc, models, pool := setupTest(t, nil) // nil ProtocolProcessors
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// Main cursor should advance
+		mainCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), mainCursor)
+	})
+
+	t.Run("F: first CAS success calls LoadCurrentState", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// LoadCurrentState should be called exactly once on the handoff ledger
+		assert.Equal(t, 1, processor.loadCurrentStateCalls)
+		// protocolCurrentStateLoaded should be set
+		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
+	})
+
+	t.Run("G: subsequent CAS success skips LoadCurrentState", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+
+		// First ledger — triggers LoadCurrentState
+		processor.processedLedger = 100
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, 1, processor.loadCurrentStateCalls)
+
+		// Second ledger — should NOT call LoadCurrentState again
+		processor.processedLedger = 101
+		buffer = indexer.NewIndexerBuffer()
+		_, _, err = svc.PersistLedgerData(ctx, 101, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, 1, processor.loadCurrentStateCalls) // still 1, not 2
+	})
+
+	t.Run("H: CAS lose does not trigger LoadCurrentState", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		// Current state cursor already at 100 — CAS will fail
+		setupProtocolCursors(t, ctx, pool, 99, 100)
+
+		buffer := indexer.NewIndexerBuffer()
+		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// LoadCurrentState should NOT be called since current state CAS failed
+		assert.Equal(t, 0, processor.loadCurrentStateCalls)
+		assert.False(t, svc.protocolCurrentStateLoaded["testproto"])
+	})
+
+	t.Run("I: rollback after later PersistCurrentState failure clears loaded flag for retry", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto", failPersistCurrentStateAt: 101}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		svc.eligibleProtocolProcessors = map[string]ProtocolProcessor{"testproto": processor}
+
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+
+		// First ledger succeeds and establishes the in-memory cache handoff.
+		processor.processedLedger = 100
+		_, _, err := svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, 1, processor.loadCurrentStateCalls)
+		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
+
+		// Later ledger mutates in-memory state during PersistCurrentState, then fails.
+		processor.processedLedger = 101
+		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		require.Error(t, err)
+		assert.Equal(t, 2, processor.persistCurrentStateVersion)
+		assert.False(t, svc.protocolCurrentStateLoaded["testproto"])
+
+		currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(100), currentStateCursor)
+
+		// Retrying the same ledger should reload current state because the flag was reset.
+		processor.failPersistCurrentStateAt = 0
+		processor.processedLedger = 101
+		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, 2, processor.loadCurrentStateCalls)
+		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
+	})
+}
+
+func Test_protocolStateCursorReady(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		cursorValue uint32
+		ledgerSeq   uint32
+		want        bool
+	}{
+		{name: "ledger zero", cursorValue: 0, ledgerSeq: 0, want: true},
+		{name: "cursor at previous ledger", cursorValue: 99, ledgerSeq: 100, want: true},
+		{name: "cursor ahead", cursorValue: 100, ledgerSeq: 100, want: true},
+		{name: "cursor behind", cursorValue: 98, ledgerSeq: 100, want: false},
+		{name: "missing row semantics", cursorValue: 0, ledgerSeq: 100, want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, protocolStateCursorReady(tc.cursorValue, tc.ledgerSeq))
+		})
+	}
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	selectedProcessor := NewProtocolProcessorMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	selectedProcessor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"selected": expectedContracts,
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]ProtocolProcessor{
+		"selected": selectedProcessor,
+	})
+	require.NoError(t, err)
+}
+
+func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	processor := NewProtocolProcessorMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	processor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": processor,
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"testproto": expectedContracts,
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, svc.protocolProcessors)
+	require.NoError(t, err)
+}
+
+func Test_ingestService_getProtocolContracts_RefreshesAndRecordsMetrics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
+		Return(map[string][]data.ProtocolContracts{"testproto": expectedContracts}, nil).Once()
+
+	svc := &ingestService{
+		appMetrics: m,
+		models: &data.Models{
+			ProtocolContracts: protocolContractsModel,
+		},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	contracts, err := svc.getProtocolContracts(ctx, "testproto", 100)
+	require.NoError(t, err)
+	assert.Equal(t, expectedContracts, contracts)
+}
+
+func Test_ingestService_refreshProtocolContractCache_Failure_EmptyCache_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 2 && slices.Contains(ids, "proto_ok") && slices.Contains(ids, "proto_fail")
+	})).Return(nil, fmt.Errorf("db error")).Once()
+
+	svc := &ingestService{
+		appMetrics: m,
+		models:     &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	err := svc.refreshProtocolContractCache(ctx, 200)
+
+	// Empty cache + DB failure must fail loudly so the caller can surface a
+	// ledger error instead of letting processors run with empty state while
+	// CAS still advances per-protocol cursors.
+	require.Error(t, err)
+	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.Ingestion.ErrorsTotal.WithLabelValues("protocol_contract_cache_refresh")))
+}
+
+func Test_ingestService_refreshProtocolContractCache_Failure_PreservesPreviousEntries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	previousContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1)}}
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 2 && slices.Contains(ids, "proto_ok") && slices.Contains(ids, "proto_fail")
+	})).Return(nil, fmt.Errorf("db error")).Once()
+
+	svc := &ingestService{
+		appMetrics: m,
+		models:     &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"proto_ok":   NewProtocolProcessorMock(t),
+			"proto_fail": NewProtocolProcessorMock(t),
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"proto_ok":   previousContracts,
+				"proto_fail": previousContracts,
+			},
+			lastRefreshLedger: 150, // force refresh at ledger 300
+		},
+	}
+
+	err := svc.refreshProtocolContractCache(ctx, 300)
+
+	// With prior cache entries, a batch failure returns nil (stale data is
+	// usable). Previous entries are preserved and lastRefreshLedger is NOT
+	// advanced, so the next ledger will retry.
+	require.NoError(t, err)
+	assert.Equal(t, uint32(150), svc.protocolContractCache.lastRefreshLedger)
+	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_ok"])
+	assert.Equal(t, previousContracts, svc.protocolContractCache.contractsByProtocol["proto_fail"])
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.Ingestion.ErrorsTotal.WithLabelValues("protocol_contract_cache_refresh")))
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_FirstRefreshFailure_FailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, mock.Anything).
+		Return(nil, fmt.Errorf("db error")).Once()
+
+	// Processor must NOT be called: the refresh error should short-circuit the
+	// loop before any ProcessLedger invocation.
+	processor := NewProtocolProcessorMock(t)
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		models:            &data.Models{ProtocolContracts: protocolContractsModel},
+		protocolProcessors: map[string]ProtocolProcessor{
+			"testproto": processor,
+		},
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 200, svc.protocolProcessors)
+	require.Error(t, err)
+	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
 }
