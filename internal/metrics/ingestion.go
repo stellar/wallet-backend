@@ -121,7 +121,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}, []string{"type", "category"}),
 		ProtocolStateProcessingDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_protocol_state_processing_duration_seconds",
-			Help:    "Duration of protocol state persistence by protocol ID and phase (persist_history, persist_current_state).",
+			Help:    "Duration of protocol state persistence by protocol ID and phase (process_ledger, load_current_state, persist_history, persist_current_state).",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		}, []string{"protocol_id", "phase"}),
 		ProtocolContractCacheAccess: prometheus.NewCounterVec(prometheus.CounterOpts{

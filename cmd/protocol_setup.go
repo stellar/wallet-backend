@@ -116,6 +116,11 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 
 	// Create spec extractor
 	specExtractor := services.NewWasmSpecExtractor()
+	defer func() {
+		if closeErr := specExtractor.Close(ctx); closeErr != nil {
+			log.Warnf("closing wasm spec extractor: %v", closeErr)
+		}
+	}()
 
 	// Create and run the service
 	service := services.NewProtocolSetupService(

@@ -216,8 +216,15 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	// Resolve protocol processors from registry
 	var protocolProcessors []services.ProtocolProcessor
-	for _, factory := range services.GetAllProcessors() {
-		protocolProcessors = append(protocolProcessors, factory())
+	for protocolID, factory := range services.GetAllProcessors() {
+		if factory == nil {
+			return nil, fmt.Errorf("protocol processor factory for %q is nil", protocolID)
+		}
+		processor := factory()
+		if processor == nil {
+			return nil, fmt.Errorf("protocol processor factory for %q returned nil", protocolID)
+		}
+		protocolProcessors = append(protocolProcessors, processor)
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
