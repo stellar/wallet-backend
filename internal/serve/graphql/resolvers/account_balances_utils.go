@@ -99,3 +99,4 @@ func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphr
 		IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 	}, nil
 }
+
