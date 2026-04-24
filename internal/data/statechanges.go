@@ -23,6 +23,14 @@ type StateChangeModel struct {
 	Metrics *metrics.DBMetrics
 }
 
+// StateChangeWriter is the bulk-insert surface external protocol processors use to persist
+// history into the state_changes hypertable inside a CAS-guarded transaction.
+type StateChangeWriter interface {
+	BatchCopy(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) (int, error)
+}
+
+var _ StateChangeWriter = (*StateChangeModel)(nil)
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {

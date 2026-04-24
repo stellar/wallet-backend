@@ -48,6 +48,7 @@ type processor struct {
 	balances          sep41data.BalanceModelInterface
 	allowances        sep41data.AllowanceModelInterface
 	contractTokens    data.ContractModelInterface
+	stateChanges      data.StateChangeWriter
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
@@ -72,6 +73,7 @@ func newProcessor(d Dependencies) *processor {
 		balances:           d.Balances,
 		allowances:         d.Allowances,
 		contractTokens:     d.ContractTokens,
+		stateChanges:       d.StateChanges,
 		sep41Contracts:     map[string]struct{}{},
 		inMemoryBalances:   map[balanceKey]*big.Int{},
 		inMemoryAllowances: map[allowanceKey]stagedAllowance{},
@@ -299,11 +301,10 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	if len(p.stagedStateChanges) == 0 {
 		return nil
 	}
-	// TODO(sep41): wire into the project's state_changes write path. The StateChangeModel in
-	// internal/data does not yet expose a BatchInsert-style method for external processors.
-	// Until that interface is exposed, emit a debug log and treat the write as a no-op so the
-	// migration loop can still advance cursors; unit tests verify the staged slice instead.
-	log.Ctx(ctx).Debugf("sep41: PersistHistory staged=%d for ledger=%d", len(p.stagedStateChanges), p.ledgerNumber)
+	if _, err := p.stateChanges.BatchCopy(ctx, dbTx, p.stagedStateChanges); err != nil {
+		return fmt.Errorf("persisting %d SEP-41 state changes for ledger %d: %w",
+			len(p.stagedStateChanges), p.ledgerNumber, err)
+	}
 	return nil
 }
 

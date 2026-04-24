@@ -16,6 +16,7 @@ type Dependencies struct {
 	Balances          sep41data.BalanceModelInterface
 	Allowances        sep41data.AllowanceModelInterface
 	ContractTokens    data.ContractModelInterface
+	StateChanges      data.StateChangeWriter
 }
 
 var (

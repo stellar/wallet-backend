@@ -209,6 +209,7 @@ func runMigration(
 		Balances:          models.SEP41.Balances,
 		Allowances:        models.SEP41.Allowances,
 		ContractTokens:    models.Contract,
+		StateChanges:      models.StateChanges,
 	})
 
 	// Build processors from protocol IDs using the dynamic registry.

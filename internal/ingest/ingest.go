@@ -163,6 +163,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		Balances:          models.SEP41.Balances,
 		Allowances:        models.SEP41.Allowances,
 		ContractTokens:    models.Contract,
+		StateChanges:      models.StateChanges,
 	})
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, m.RPC)

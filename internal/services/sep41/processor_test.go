@@ -1,12 +1,14 @@
 package sep41
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -17,6 +19,13 @@ import (
 func newTestProcessor() *processor {
 	return newProcessor(Dependencies{
 		NetworkPassphrase: "Test SDF Network ; September 2015",
+	})
+}
+
+func newTestProcessorWithStateChanges(sc data.StateChangeWriter) *processor {
+	return newProcessor(Dependencies{
+		NetworkPassphrase: "Test SDF Network ; September 2015",
+		StateChanges:      sc,
 	})
 }
 
@@ -112,6 +121,36 @@ func TestProcessor_IndexContracts(t *testing.T) {
 	}
 	p.indexContracts(contracts)
 	assert.Len(t, p.sep41Contracts, 1)
+}
+
+func TestProcessor_PersistHistory_NoOpWhenEmpty(t *testing.T) {
+	scMock := data.NewStateChangeWriterMock(t)
+	p := newTestProcessorWithStateChanges(scMock)
+	// Fresh processor has no staged changes — BatchCopy must not be called.
+	require.NoError(t, p.PersistHistory(context.Background(), nil))
+}
+
+func TestProcessor_PersistHistory_WritesStagedChanges(t *testing.T) {
+	scMock := data.NewStateChangeWriterMock(t)
+	p := newTestProcessorWithStateChanges(scMock)
+	p.resetStaged(42)
+
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	p.sep41Contracts[contractID] = struct{}{}
+
+	event := buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer),
+		mustAddressScVal(t, testAccountA),
+		mustAddressScVal(t, testAccountB),
+	}, i128ScVal(500))
+	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+	require.Len(t, p.stagedStateChanges, 2)
+
+	scMock.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(scs []types.StateChange) bool {
+		return len(scs) == 2
+	})).Return(2, nil).Once()
+
+	require.NoError(t, p.PersistHistory(context.Background(), nil))
 }
 
 // ---- helpers ----

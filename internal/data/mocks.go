@@ -46,6 +46,30 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Error(0)
 }
 
+// StateChangeWriterMock is a mock implementation of StateChangeWriter.
+type StateChangeWriterMock struct {
+	mock.Mock
+}
+
+var _ StateChangeWriter = (*StateChangeWriterMock)(nil)
+
+// NewStateChangeWriterMock creates a new instance of StateChangeWriterMock.
+func NewStateChangeWriterMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *StateChangeWriterMock {
+	m := &StateChangeWriterMock{}
+	m.Mock.Test(t)
+	t.Cleanup(func() { m.AssertExpectations(t) })
+	return m
+}
+
+func (m *StateChangeWriterMock) BatchCopy(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) (int, error) {
+	args := m.Called(ctx, pgxTx, stateChanges)
+	return args.Int(0), args.Error(1)
+}
+
 // TrustlineAssetModelMock is a mock implementation of TrustlineAssetModelInterface.
 type TrustlineAssetModelMock struct {
 	mock.Mock
