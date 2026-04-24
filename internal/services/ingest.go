@@ -120,9 +120,10 @@ type ingestService struct {
 	protocolContractCache     *protocolContractCache
 	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
 	// sequence, scoping protocol processing and the CAS loop to processors that
-	// may persist the current ledger. Only accessed from the single-threaded live
-	// ingestion loop.
-	eligibleProtocolProcessors map[string]ProtocolProcessor
+	// may persist the current ledger. Per-cursor eligibility is encoded in each
+	// entry — see protocolProductionTarget. Only accessed from the single-threaded
+	// live ingestion loop.
+	eligibleProtocolProcessors map[string]protocolProductionTarget
 	// protocolCurrentStateLoaded tracks which protocols have had their current
 	// state loaded into processor memory via LoadCurrentState. On the first
 	// successful CAS advance of the current_state_cursor (handoff from migration),
@@ -130,6 +131,12 @@ type ingestService struct {
 	// state maintained by PersistCurrentState. Reset on transaction failure to
 	// force a reload. Only accessed from the single-threaded live ingestion loop.
 	protocolCurrentStateLoaded map[string]bool
+	// protocolCursorInitPending tracks which protocols we've already warned about
+	// having no cursor rows (waiting on protocol-setup / protocol-migrate). Used
+	// to log once per protocol per ingest-process instead of per-ledger. Cleared
+	// when cursor rows are first observed. Only accessed from the single-threaded
+	// live ingestion loop.
+	protocolCursorInitPending map[string]bool
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -190,6 +197,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		protocolProcessors:         ppMap,
 		protocolContractCache:      ppCache,
 		protocolCurrentStateLoaded: make(map[string]bool),
+		protocolCursorInitPending:  make(map[string]bool),
 	}, nil
 }
 
