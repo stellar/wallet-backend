@@ -16,6 +16,16 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// SortOrder is the local alias of the repo-wide data.SortOrder so this package
+// does not have to import its parent (which would create a cycle). Values are the
+// same string literals ("ASC"/"DESC").
+type SortOrder string
+
+const (
+	SortASC  SortOrder = "ASC"
+	SortDESC SortOrder = "DESC"
+)
+
 // Balance contains a holder balance for a SEP-41 token contract.
 // Metadata (code, name, symbol, decimals) is read from contract_tokens on demand.
 type Balance struct {
@@ -33,8 +43,16 @@ type Balance struct {
 
 // BalanceModelInterface exposes SEP-41 balance storage operations.
 type BalanceModelInterface interface {
-	GetByAccount(ctx context.Context, accountAddress string) ([]Balance, error)
-	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Balance, deletes []Balance) error
+	// GetByAccount returns SEP-41 balances held by the account, ordered by contract_id.
+	// Pass nil limit/cursor to fetch every row; provide them for keyset pagination (the
+	// cursor is the last contract_id seen from the previous page).
+	GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]Balance, error)
+	// BatchApplyDeltas applies signed balance deltas server-side
+	// (balance := existing + delta) and sweeps any rows that settle to zero.
+	// Each input Balance.Balance is interpreted as the delta to add, NOT as
+	// the absolute new balance. This avoids needing to preload state from DB
+	// into memory at the cost of per-ledger SQL arithmetic on TEXT→numeric.
+	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
 	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error
 }
 
@@ -45,22 +63,47 @@ type BalanceModel struct {
 
 var _ BalanceModelInterface = (*BalanceModel)(nil)
 
-// GetByAccount returns all SEP-41 balances held by an account, joined with contract_tokens metadata.
-func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string) ([]Balance, error) {
+// GetByAccount returns SEP-41 balances held by an account, ordered by contract_id and
+// joined with contract_tokens metadata. The optional cursor carries the last contract_id
+// seen by the previous page so GraphQL can page deterministically.
+func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]Balance, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	const query = `
+	query := `
 		SELECT
 			b.contract_id, b.balance, b.last_modified_ledger,
 			ct.contract_id, ct.name, ct.symbol, ct.decimals
 		FROM sep41_balances b
 		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
 		WHERE b.account_address = $1`
+	args := []interface{}{accountAddress}
+	argIndex := 2
+
+	if cursor != nil {
+		op := ">"
+		if sortOrder == SortDESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" AND b.contract_id %s $%d", op, argIndex)
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == SortDESC {
+		query += " ORDER BY b.contract_id DESC"
+	} else {
+		query += " ORDER BY b.contract_id ASC"
+	}
+
+	if limit != nil {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, *limit)
+	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, accountAddress)
+	rows, err := m.DB.Query(ctx, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sep41_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sep41_balances").Inc()
@@ -89,41 +132,52 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string) 
 	return balances, nil
 }
 
-// BatchUpsert applies a set of balance inserts/updates and deletes inside the given transaction.
-func (m *BalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Balance, deletes []Balance) error {
-	if len(upserts) == 0 && len(deletes) == 0 {
+// BatchApplyDeltas accumulates signed balance deltas server-side (balance := existing + delta)
+// and removes rows that settle to zero. Each input Balance.Balance is a decimal string delta.
+//
+// The per-delta upsert runs within the caller's transaction so retries re-apply the same
+// ledger's deltas exactly once (guarded by the CAS cursor). Zero-balance cleanup is a single
+// DELETE sweep at the end, scoped to the (account, contract) pairs we just touched.
+func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error {
+	if len(deltas) == 0 {
 		return nil
 	}
 
 	start := time.Now()
 	batch := &pgx.Batch{}
 
+	// Sum in SQL: existing + delta. The TEXT columns are cast to numeric for arithmetic
+	// and back to text for storage so the column type stays TEXT (preserves full i128 range).
 	const upsertQuery = `
 		INSERT INTO sep41_balances (account_address, contract_id, balance, last_modified_ledger)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (account_address, contract_id) DO UPDATE SET
-			balance = EXCLUDED.balance,
+			balance = (sep41_balances.balance::numeric + EXCLUDED.balance::numeric)::text,
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-	for _, bal := range upserts {
-		batch.Queue(upsertQuery, bal.AccountAddress, bal.ContractID, bal.Balance, bal.LedgerNumber)
+	accountAddresses := make([]string, 0, len(deltas))
+	contractIDs := make([]uuid.UUID, 0, len(deltas))
+	for _, d := range deltas {
+		batch.Queue(upsertQuery, d.AccountAddress, d.ContractID, d.Balance, d.LedgerNumber)
+		accountAddresses = append(accountAddresses, d.AccountAddress)
+		contractIDs = append(contractIDs, d.ContractID)
 	}
 
-	const deleteQuery = `DELETE FROM sep41_balances WHERE account_address = $1 AND contract_id = $2`
-	for _, bal := range deletes {
-		batch.Queue(deleteQuery, bal.AccountAddress, bal.ContractID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
+	// Single DELETE sweep for any (account, contract) that settled to zero this batch.
+	const deleteZeroesQuery = `
+		DELETE FROM sep41_balances
+		WHERE balance::numeric = 0
+		  AND (account_address, contract_id) IN (
+		      SELECT UNNEST($1::text[]), UNNEST($2::uuid[])
+		  )`
+	batch.Queue(deleteZeroesQuery, accountAddresses, contractIDs)
 
 	br := dbTx.SendBatch(ctx, batch)
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close() //nolint:errcheck // cleanup on error path
-			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-			return fmt.Errorf("upserting SEP-41 balances: %w", err)
+			m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
@@ -131,9 +185,9 @@ func (m *BalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []B
 	}
 
 	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sep41_balances").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sep41_balances").Inc()
-	m.Metrics.BatchSize.WithLabelValues("BatchUpsert", "sep41_balances").Observe(float64(len(upserts) + len(deletes)))
+	m.Metrics.QueryDuration.WithLabelValues("BatchApplyDeltas", "sep41_balances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchApplyDeltas", "sep41_balances").Inc()
+	m.Metrics.BatchSize.WithLabelValues("BatchApplyDeltas", "sep41_balances").Observe(float64(len(deltas)))
 	return nil
 }
 

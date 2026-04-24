@@ -59,7 +59,11 @@ func ContractIDString(event xdr.ContractEvent) (string, error) {
 	if event.ContractId == nil {
 		return "", fmt.Errorf("contract event missing contract id")
 	}
-	return strkey.Encode(strkey.VersionByteContract, event.ContractId[:])
+	addr, err := strkey.Encode(strkey.VersionByteContract, event.ContractId[:])
+	if err != nil {
+		return "", fmt.Errorf("encoding contract id to strkey: %w", err)
+	}
+	return addr, nil
 }
 
 // ParseTransferEvent decodes a SEP-41 transfer ContractEvent.

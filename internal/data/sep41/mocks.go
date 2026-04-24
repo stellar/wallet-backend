@@ -4,6 +4,7 @@ package sep41
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 )
@@ -26,16 +27,16 @@ func NewBalanceModelMock(t interface {
 	return m
 }
 
-func (m *BalanceModelMock) GetByAccount(ctx context.Context, accountAddress string) ([]Balance, error) {
-	args := m.Called(ctx, accountAddress)
+func (m *BalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]Balance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]Balance), args.Error(1)
 }
 
-func (m *BalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Balance, deletes []Balance) error {
-	args := m.Called(ctx, dbTx, upserts, deletes)
+func (m *BalanceModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error {
+	args := m.Called(ctx, dbTx, deltas)
 	return args.Error(0)
 }
 

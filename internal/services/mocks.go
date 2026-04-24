@@ -409,6 +409,14 @@ func (c *ContractMetadataServiceMock) FetchSACMetadata(ctx context.Context, cont
 	return args.Get(0).([]*data.Contract), args.Error(1)
 }
 
+func (c *ContractMetadataServiceMock) FetchSEP41Metadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error) {
+	args := c.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]*data.Contract), args.Error(1)
+}
+
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
 	args := c.Called(ctx, contractAddress, functionName, funcArgs)
 	return args.Get(0).(xdr.ScVal), args.Error(1)

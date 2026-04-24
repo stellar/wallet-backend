@@ -27,8 +27,11 @@ type StandardBalanceChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
+  tokenId:                    String!
   amount:                     String!
+  # CAP-67 destination memo carried by SEP-41 transfer/mint events. Rendered as a
+  # decimal string so u64 values above 2^53-1 survive JSON number quantization.
+  toMuxedId:                  String @goField(forceResolver: true)
 }
 
 type AccountChange implements BaseStateChange {

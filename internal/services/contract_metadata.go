@@ -38,6 +38,11 @@ type ContractMetadataService interface {
 	// SAC name() returns "code:issuer" format (or "native" for XLM).
 	// Returns []*data.Contract with Code, Issuer, Name, Symbol, and Decimals=7.
 	FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error)
+	// FetchSEP41Metadata fetches name/symbol/decimals for each SEP-41 contract and returns
+	// them keyed by C-address. Per-contract RPC failures are logged and the contract is
+	// omitted from the returned map — the caller should fall back to defaults for those.
+	// Only a context error (cancellation / deadline) is returned as an error.
+	FetchSEP41Metadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error)
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
@@ -170,6 +175,93 @@ func (s *contractMetadataService) fetchSACMetadataForContract(ctx context.Contex
 		Name:       &name,
 		Symbol:     &code,
 		Decimals:   7, // Stellar assets always use 7 decimals
+	}, nil
+}
+
+// FetchSEP41Metadata fetches name/symbol/decimals in parallel for each SEP-41 contract.
+// Unlike FetchSACMetadata, this function is tolerant of per-contract failures: a contract
+// whose RPC calls fail (invalid simulation, missing function, timeout) is logged and
+// omitted from the result. The caller falls back to default values for those contracts.
+func (s *contractMetadataService) FetchSEP41Metadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error) {
+	if len(contractIDs) == 0 {
+		return map[string]*data.Contract{}, nil
+	}
+
+	var (
+		mu  sync.Mutex
+		out = make(map[string]*data.Contract, len(contractIDs))
+	)
+
+	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
+		end := min(i+simulateTransactionBatchSize, len(contractIDs))
+		batch := contractIDs[i:end]
+
+		group := s.pool.NewGroupContext(ctx)
+		for _, contractID := range batch {
+			group.Submit(func() {
+				contract, err := s.fetchSEP41MetadataForContract(ctx, contractID)
+				if err != nil {
+					log.Ctx(ctx).Warnf("sep41 metadata fetch failed for %s: %v", contractID, err)
+					return
+				}
+				mu.Lock()
+				out[contractID] = contract
+				mu.Unlock()
+			})
+		}
+
+		if err := group.Wait(); err != nil {
+			// Pool errors (typically ctx cancellation) are fatal — callers want to stop ingesting.
+			return nil, fmt.Errorf("error in SEP-41 metadata batch: %w", err)
+		}
+
+		if end < len(contractIDs) {
+			time.Sleep(batchSleepDuration)
+		}
+	}
+
+	return out, nil
+}
+
+// fetchSEP41MetadataForContract pulls name, symbol, and decimals for a single contract.
+// Failures are propagated so the parallel wrapper can log and skip this contract.
+func (s *contractMetadataService) fetchSEP41MetadataForContract(ctx context.Context, contractID string) (*data.Contract, error) {
+	nameVal, err := s.FetchSingleField(ctx, contractID, "name")
+	if err != nil {
+		return nil, fmt.Errorf("fetching name: %w", err)
+	}
+	nameStr, ok := nameVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("name is not a string")
+	}
+
+	symbolVal, err := s.FetchSingleField(ctx, contractID, "symbol")
+	if err != nil {
+		return nil, fmt.Errorf("fetching symbol: %w", err)
+	}
+	symbolStr, ok := symbolVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("symbol is not a string")
+	}
+
+	decimalsVal, err := s.FetchSingleField(ctx, contractID, "decimals")
+	if err != nil {
+		return nil, fmt.Errorf("fetching decimals: %w", err)
+	}
+	decimalsU32, ok := decimalsVal.GetU32()
+	if !ok {
+		return nil, fmt.Errorf("decimals is not a u32")
+	}
+
+	name := string(nameStr)
+	symbol := string(symbolStr)
+	return &data.Contract{
+		ID:         data.DeterministicContractID(contractID),
+		ContractID: contractID,
+		Type:       "sep41",
+		Name:       &name,
+		Symbol:     &symbol,
+		Decimals:   uint32(decimalsU32),
 	}, nil
 }
 

@@ -211,6 +211,7 @@ func (m *StateChangeModel) BatchCopy(
 			"claimable_balance_id", "liquidity_pool_id", "sponsored_data",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
+			"to_muxed_id",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
@@ -286,6 +287,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.TrustlineLimitNew),
 				pgtypeInt2FromNullInt16(sc.Flags),
 				jsonbFromMap(sc.KeyValue),
+				pgtypeTextFromNullString(sc.ToMuxedID),
 			}, nil
 		}),
 	)

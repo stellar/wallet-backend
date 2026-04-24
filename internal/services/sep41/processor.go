@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -49,6 +48,7 @@ type processor struct {
 	allowances        sep41data.AllowanceModelInterface
 	contractTokens    data.ContractModelInterface
 	stateChanges      data.StateChangeWriter
+	metadataFetcher   MetadataFetcher
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
@@ -59,24 +59,18 @@ type processor struct {
 	stagedBalanceDelta map[balanceKey]*big.Int
 	stagedAllowances   map[allowanceKey]stagedAllowance
 	stagedContracts    map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
-
-	// Write-through cache (populated on LoadCurrentState at handoff; updated by PersistCurrentState).
-	inMemoryBalances   map[balanceKey]*big.Int
-	inMemoryAllowances map[allowanceKey]stagedAllowance
-	currentStateLoaded bool
 }
 
 // newProcessor constructs a SEP-41 processor from registered dependencies.
 func newProcessor(d Dependencies) *processor {
 	return &processor{
-		networkPassphrase:  d.NetworkPassphrase,
-		balances:           d.Balances,
-		allowances:         d.Allowances,
-		contractTokens:     d.ContractTokens,
-		stateChanges:       d.StateChanges,
-		sep41Contracts:     map[string]struct{}{},
-		inMemoryBalances:   map[balanceKey]*big.Int{},
-		inMemoryAllowances: map[allowanceKey]stagedAllowance{},
+		networkPassphrase: d.NetworkPassphrase,
+		balances:          d.Balances,
+		allowances:        d.Allowances,
+		contractTokens:    d.ContractTokens,
+		stateChanges:      d.StateChanges,
+		metadataFetcher:   d.MetadataFetcher,
+		sep41Contracts:    map[string]struct{}{},
 	}
 }
 
@@ -189,11 +183,15 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		}
 		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
 		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
+		creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
+			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+		if decoded.ToMuxedID != nil {
+			creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		}
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
 				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-			scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
-				WithAccount(decoded.To).WithAmount(decoded.Amount.String()).Build(),
+			creditBuilder.Build(),
 		)
 
 	case EventMint:
@@ -202,10 +200,12 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			return err
 		}
 		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonMint).
-				WithAccount(decoded.To).WithAmount(decoded.Amount.String()).Build(),
-		)
+		mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
+			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+		if decoded.ToMuxedID != nil {
+			mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		}
+		p.stagedStateChanges = append(p.stagedStateChanges, mintBuilder.Build())
 
 	case EventBurn:
 		decoded, err := ParseBurnEvent(event)
@@ -240,14 +240,18 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			Amount:           new(big.Int).Set(decoded.Amount),
 			ExpirationLedger: decoded.LiveUntilLedger,
 		}
+		// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
+		// through GraphQL. StandardBalanceChange would drop those fields.
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().
+				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonUpdate).
 				WithAccount(decoded.From).
 				WithAmount(decoded.Amount.String()).
 				WithKeyValue(map[string]any{
 					"sep41_event":       EventApprove,
 					"spender":           decoded.Spender,
+					"amount":            decoded.Amount.String(),
 					"live_until_ledger": decoded.LiveUntilLedger,
 				}).
 				Build(),
@@ -308,51 +312,33 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
-// PersistCurrentState applies staged deltas to the in-memory cache and writes through to DB.
+// PersistCurrentState applies staged balance deltas server-side (balance := existing + delta)
+// and writes allowance values directly (approve semantics are a set, not an add). Runs inside
+// the CAS-guarded transaction so each ledger's deltas are applied exactly once.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	// Ensure a contract_tokens row exists for every contract we're about to reference.
-	// For now we store minimal metadata (decimals=0); a follow-up RPC-backed backfill
-	// can fill name/symbol/decimals. contract_tokens is an ON CONFLICT DO NOTHING insert,
-	// so repeated calls are safe.
 	if err := p.ensureContractTokens(ctx, dbTx); err != nil {
 		return fmt.Errorf("ensuring contract_tokens rows: %w", err)
 	}
 
-	// Merge staged balance deltas into inMemoryBalances.
-	var upserts []sep41data.Balance
-	var deletes []sep41data.Balance
+	// Build delta rows directly from the staged deltas — the data layer sums and cleans up zeros.
+	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
 	for key, delta := range p.stagedBalanceDelta {
-		existing, ok := p.inMemoryBalances[key]
-		next := new(big.Int)
-		if ok {
-			next.Add(existing, delta)
-		} else {
-			next.Set(delta)
-		}
-		p.inMemoryBalances[key] = next
-
-		bal := sep41data.Balance{
+		deltas = append(deltas, sep41data.Balance{
 			AccountAddress: key.Account,
 			ContractID:     data.DeterministicContractID(key.ContractID),
-			Balance:        next.String(),
+			Balance:        delta.String(),
 			LedgerNumber:   p.ledgerNumber,
-		}
-		if next.Sign() == 0 {
-			deletes = append(deletes, bal)
-		} else {
-			upserts = append(upserts, bal)
-		}
+		})
+	}
+	if err := p.balances.BatchApplyDeltas(ctx, dbTx, deltas); err != nil {
+		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 	}
 
-	if err := p.balances.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
-		return fmt.Errorf("upserting SEP-41 balances: %w", err)
-	}
-
-	// Merge staged allowance writes into inMemoryAllowances.
+	// Allowances are written absolutely (approve replaces the grant). Amount=0 deletes the row.
 	var allowanceUpserts []sep41data.Allowance
 	var allowanceDeletes []sep41data.Allowance
 	for key, staged := range p.stagedAllowances {
-		p.inMemoryAllowances[key] = staged
 		row := sep41data.Allowance{
 			OwnerAddress:     key.Owner,
 			SpenderAddress:   key.Spender,
@@ -375,23 +361,19 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	return nil
 }
 
-// LoadCurrentState hydrates the in-memory cache from DB on first successful CAS advance
-// of the current_state_cursor. Called inside the same transaction as PersistCurrentState.
-//
-// For v1 we rely on the BatchUpsert path to read-through on demand rather than preloading
-// every balance for every SEP-41 contract at handoff. The deltas applied in
-// PersistCurrentState operate on inMemoryBalances which starts empty and is populated the
-// first time each (account, contract) pair is touched. This is safe because PersistCurrentState
-// computes `next = existing + delta` where existing defaults to 0 — equivalent to the DB
-// behavior via ON CONFLICT DO UPDATE with string math, since each delta is applied exactly
-// once per ledger via the CAS gate.
+// LoadCurrentState is called inside the transaction of the first successful CAS advance of
+// the current_state_cursor (handoff from migration to live ingestion). Because
+// PersistCurrentState now applies deltas in SQL via existing + delta, the processor needs
+// no preloaded in-memory state — correctness on restart is guaranteed by the CAS gate.
 func (p *processor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-	p.currentStateLoaded = true
 	return nil
 }
 
 // ensureContractTokens inserts a contract_tokens row for every contract touched this ledger,
-// if not already present. Metadata fields are left NULL/zero; a follow-up fetch can enrich them.
+// if not already present. For newly inserted rows, metadata (name/symbol/decimals) is fetched
+// via RPC inline; per-contract RPC failures fall back to default values (decimals=0, nil
+// name/symbol) and are logged. No separate backfill path exists, so correctness depends on
+// the RPC being reachable most of the time.
 func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error {
 	if len(p.stagedContracts) == 0 {
 		return nil
@@ -409,20 +391,45 @@ func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error
 		existingSet[id] = struct{}{}
 	}
 
-	var toInsert []*data.Contract
+	newIDs := make([]string, 0, len(ids))
 	for _, addr := range ids {
-		if _, ok := existingSet[addr]; ok {
-			continue
+		if _, ok := existingSet[addr]; !ok {
+			newIDs = append(newIDs, addr)
 		}
-		toInsert = append(toInsert, &data.Contract{
-			ID:         uuid.UUID(data.DeterministicContractID(addr)),
-			ContractID: addr,
-			Type:       "sep41",
-		})
 	}
-	if len(toInsert) == 0 {
+	if len(newIDs) == 0 {
 		return nil
 	}
+
+	// Fetch metadata for new contracts; missing entries keep default (zero) values.
+	metadata := map[string]*data.Contract{}
+	if p.metadataFetcher != nil {
+		fetched, ferr := p.metadataFetcher.FetchSEP41Metadata(ctx, newIDs)
+		if ferr != nil {
+			// A fetcher-level error (context cancellation, pool failure) is worth logging
+			// but must not abort the ledger — we still insert rows with defaults so the
+			// state_changes history stays consistent with the balance movements.
+			log.Ctx(ctx).Warnf("sep41 metadata fetch batch failed: %v", ferr)
+		} else {
+			metadata = fetched
+		}
+	}
+
+	toInsert := make([]*data.Contract, 0, len(newIDs))
+	for _, addr := range newIDs {
+		c := &data.Contract{
+			ID:         data.DeterministicContractID(addr),
+			ContractID: addr,
+			Type:       "sep41",
+		}
+		if meta, ok := metadata[addr]; ok {
+			c.Name = meta.Name
+			c.Symbol = meta.Symbol
+			c.Decimals = meta.Decimals
+		}
+		toInsert = append(toInsert, c)
+	}
+
 	if err := p.contractTokens.BatchInsert(ctx, dbTx, toInsert); err != nil {
 		return fmt.Errorf("inserting contract_tokens: %w", err)
 	}

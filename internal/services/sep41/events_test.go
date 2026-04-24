@@ -202,7 +202,7 @@ func TestContractIDString(t *testing.T) {
 		Type:       xdr.ContractEventTypeContract,
 		ContractId: &cid,
 		Body: xdr.ContractEventBody{
-			V: 0,
+			V:  0,
 			V0: &xdr.ContractEventV0{Topics: []xdr.ScVal{}, Data: i128ScVal(0)},
 		},
 	}

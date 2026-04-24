@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"go/types"
 	"io"
+	"net/http"
+	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
@@ -204,12 +207,35 @@ func runMigration(
 		return fmt.Errorf("creating models: %w", err)
 	}
 
+	// Metadata fetcher is wired in only if an RPC URL is available; the protocol-migrate CLI
+	// does not strictly require RPC (datastore backend runs without one), but SEP-41
+	// contract metadata enrichment on first-ingest does. A nil MetadataFetcher is tolerated
+	// by the processor — it just falls back to default values for decimals/name/symbol.
+	var metadataFetcher sep41.MetadataFetcher
+	if opts.rpcURL != "" {
+		rpcService, rpcErr := services.NewRPCService(
+			opts.rpcURL,
+			opts.networkPassphrase,
+			&http.Client{Timeout: 30 * time.Second},
+			m.RPC,
+		)
+		if rpcErr != nil {
+			return fmt.Errorf("instantiating rpc service for metadata fetcher: %w", rpcErr)
+		}
+		cms, cmsErr := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
+		if cmsErr != nil {
+			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
+		}
+		metadataFetcher = cms
+	}
+
 	sep41.SetDependencies(sep41.Dependencies{
 		NetworkPassphrase: opts.networkPassphrase,
 		Balances:          models.SEP41.Balances,
 		Allowances:        models.SEP41.Allowances,
 		ContractTokens:    models.Contract,
 		StateChanges:      models.StateChanges,
+		MetadataFetcher:   metadataFetcher,
 	})
 
 	// Build processors from protocol IDs using the dynamic registry.

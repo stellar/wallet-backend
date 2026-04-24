@@ -13,11 +13,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -50,11 +49,12 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	Account struct {
-		Address      func(childComplexity int) int
-		Balances     func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		Operations   func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
-		StateChanges func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
-		Transactions func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		Address         func(childComplexity int) int
+		Balances        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		Operations      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		Sep41Allowances func(childComplexity int) int
+		StateChanges    func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		Transactions    func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 	}
 
 	AccountChange struct {
@@ -195,6 +195,25 @@ type ComplexityRoot struct {
 		TokenType         func(childComplexity int) int
 	}
 
+	SEP41Allowance struct {
+		Amount             func(childComplexity int) int
+		ExpirationLedger   func(childComplexity int) int
+		LastModifiedLedger func(childComplexity int) int
+		Owner              func(childComplexity int) int
+		Spender            func(childComplexity int) int
+		TokenID            func(childComplexity int) int
+	}
+
+	SEP41Balance struct {
+		Balance            func(childComplexity int) int
+		Decimals           func(childComplexity int) int
+		LastModifiedLedger func(childComplexity int) int
+		Name               func(childComplexity int) int
+		Symbol             func(childComplexity int) int
+		TokenID            func(childComplexity int) int
+		TokenType          func(childComplexity int) int
+	}
+
 	SignerChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -228,6 +247,7 @@ type ComplexityRoot struct {
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
+		ToMuxedID       func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
@@ -302,6 +322,7 @@ type AccountResolver interface {
 	Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
 	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
+	Sep41Allowances(ctx context.Context, obj *types.Account) ([]*SEP41Allowance, error)
 }
 type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
@@ -398,6 +419,7 @@ type StandardBalanceChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Transaction, error)
 	TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
 	Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
+	ToMuxedID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*string, error)
 }
 type TransactionResolver interface {
 	Hash(ctx context.Context, obj *types.Transaction) (string, error)
@@ -460,6 +482,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Account.Operations(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+	case "Account.sep41Allowances":
+		if e.ComplexityRoot.Account.Sep41Allowances == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Account.Sep41Allowances(childComplexity), true
 	case "Account.stateChanges":
 		if e.ComplexityRoot.Account.StateChanges == nil {
 			break
@@ -1109,6 +1137,86 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SACBalance.TokenType(childComplexity), true
 
+	case "SEP41Allowance.amount":
+		if e.ComplexityRoot.SEP41Allowance.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.Amount(childComplexity), true
+	case "SEP41Allowance.expirationLedger":
+		if e.ComplexityRoot.SEP41Allowance.ExpirationLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.ExpirationLedger(childComplexity), true
+	case "SEP41Allowance.lastModifiedLedger":
+		if e.ComplexityRoot.SEP41Allowance.LastModifiedLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.LastModifiedLedger(childComplexity), true
+	case "SEP41Allowance.owner":
+		if e.ComplexityRoot.SEP41Allowance.Owner == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.Owner(childComplexity), true
+	case "SEP41Allowance.spender":
+		if e.ComplexityRoot.SEP41Allowance.Spender == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.Spender(childComplexity), true
+	case "SEP41Allowance.tokenId":
+		if e.ComplexityRoot.SEP41Allowance.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Allowance.TokenID(childComplexity), true
+
+	case "SEP41Balance.balance":
+		if e.ComplexityRoot.SEP41Balance.Balance == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.Balance(childComplexity), true
+	case "SEP41Balance.decimals":
+		if e.ComplexityRoot.SEP41Balance.Decimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.Decimals(childComplexity), true
+	case "SEP41Balance.lastModifiedLedger":
+		if e.ComplexityRoot.SEP41Balance.LastModifiedLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.LastModifiedLedger(childComplexity), true
+	case "SEP41Balance.name":
+		if e.ComplexityRoot.SEP41Balance.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.Name(childComplexity), true
+	case "SEP41Balance.symbol":
+		if e.ComplexityRoot.SEP41Balance.Symbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.Symbol(childComplexity), true
+	case "SEP41Balance.tokenId":
+		if e.ComplexityRoot.SEP41Balance.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.TokenID(childComplexity), true
+	case "SEP41Balance.tokenType":
+		if e.ComplexityRoot.SEP41Balance.TokenType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41Balance.TokenType(childComplexity), true
+
 	case "SignerChange.account":
 		if e.ComplexityRoot.SignerChange.Account == nil {
 			break
@@ -1267,6 +1375,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StandardBalanceChange.Reason(childComplexity), true
+	case "StandardBalanceChange.toMuxedId":
+		if e.ComplexityRoot.StandardBalanceChange.ToMuxedID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StandardBalanceChange.ToMuxedID(childComplexity), true
 	case "StandardBalanceChange.tokenId":
 		if e.ComplexityRoot.StandardBalanceChange.TokenID == nil {
 			break
@@ -1647,6 +1761,11 @@ type Account{
     since: Time, until: Time
     first: Int, after: String, last: Int, before: String
   ):   StateChangeConnection
+
+  # Active SEP-41 allowances granted by this account (as owner). Allowances whose
+  # expiration_ledger is below the latest ingested ledger are filtered out server-side.
+  # Returned unpaginated — an account rarely has more than a handful of outstanding grants.
+  sep41Allowances: [SEP41Allowance!]! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
@@ -1694,6 +1813,27 @@ type SACBalance implements Balance {
     isClawbackEnabled: Boolean!
 }
 
+"""SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder."""
+type SEP41Balance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+
+    name: String
+    symbol: String
+    decimals: Int!
+    lastModifiedLedger: UInt32!
+}
+
+"""SEP41Allowance represents an approve() grant issued by a SEP-41 token holder."""
+type SEP41Allowance {
+    owner: String!
+    spender: String!
+    tokenId: String!
+    amount: String!
+    expirationLedger: UInt32!
+    lastModifiedLedger: UInt32!
+}
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
 # Directives are like annotations that modify how GraphQL processes fields
@@ -1795,6 +1935,7 @@ enum TokenType {
   NATIVE
   CLASSIC
   SAC
+  SEP41
 }
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries
@@ -1946,8 +2087,11 @@ type StandardBalanceChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
+  tokenId:                    String!
   amount:                     String!
+  # CAP-67 destination memo carried by SEP-41 transfer/mint events. Rendered as a
+  # decimal string so u64 values above 2^53-1 survive JSON number quantization.
+  toMuxedId:                  String @goField(forceResolver: true)
 }
 
 type AccountChange implements BaseStateChange {
@@ -2702,6 +2846,49 @@ func (ec *executionContext) fieldContext_Account_stateChanges(ctx context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_sep41Allowances(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Account_sep41Allowances,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Account().Sep41Allowances(ctx, obj)
+		},
+		nil,
+		ec.marshalNSEP41Allowance2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowanceᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Account_sep41Allowances(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "owner":
+				return ec.fieldContext_SEP41Allowance_owner(ctx, field)
+			case "spender":
+				return ec.fieldContext_SEP41Allowance_spender(ctx, field)
+			case "tokenId":
+				return ec.fieldContext_SEP41Allowance_tokenId(ctx, field)
+			case "amount":
+				return ec.fieldContext_SEP41Allowance_amount(ctx, field)
+			case "expirationLedger":
+				return ec.fieldContext_SEP41Allowance_expirationLedger(ctx, field)
+			case "lastModifiedLedger":
+				return ec.fieldContext_SEP41Allowance_lastModifiedLedger(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SEP41Allowance", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AccountChange_type(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2881,6 +3068,8 @@ func (ec *executionContext) fieldContext_AccountChange_account(_ context.Context
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -3200,6 +3389,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_account(_ co
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -3709,6 +3900,8 @@ func (ec *executionContext) fieldContext_FlagsChange_account(_ context.Context, 
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -4028,6 +4221,8 @@ func (ec *executionContext) fieldContext_MetadataChange_account(_ context.Contex
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -4688,6 +4883,8 @@ func (ec *executionContext) fieldContext_Operation_accounts(_ context.Context, f
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -5159,6 +5356,8 @@ func (ec *executionContext) fieldContext_Query_accountByAddress(ctx context.Cont
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -5623,6 +5822,8 @@ func (ec *executionContext) fieldContext_ReservesChange_account(_ context.Contex
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6140,6 +6341,383 @@ func (ec *executionContext) fieldContext_SACBalance_isClawbackEnabled(_ context.
 	return fc, nil
 }
 
+func (ec *executionContext) _SEP41Allowance_owner(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_owner,
+		func(ctx context.Context) (any, error) {
+			return obj.Owner, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_owner(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Allowance_spender(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_spender,
+		func(ctx context.Context) (any, error) {
+			return obj.Spender, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_spender(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Allowance_tokenId(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Allowance_amount(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Allowance_expirationLedger(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_expirationLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpirationLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_expirationLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Allowance_lastModifiedLedger(ctx context.Context, field graphql.CollectedField, obj *SEP41Allowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Allowance_lastModifiedLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.LastModifiedLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Allowance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Allowance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_balance(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_balance,
+		func(ctx context.Context) (any, error) {
+			return obj.Balance, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_balance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_tokenId(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_tokenType(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_tokenType,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenType, nil
+		},
+		nil,
+		ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_name(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_symbol(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_symbol,
+		func(ctx context.Context) (any, error) {
+			return obj.Symbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_symbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_decimals(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_decimals,
+		func(ctx context.Context) (any, error) {
+			return obj.Decimals, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_decimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41Balance_lastModifiedLedger(ctx context.Context, field graphql.CollectedField, obj *SEP41Balance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41Balance_lastModifiedLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.LastModifiedLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41Balance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41Balance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SignerChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6319,6 +6897,8 @@ func (ec *executionContext) fieldContext_SignerChange_account(_ context.Context,
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6667,6 +7247,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsChange_account(_ contex
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6986,6 +7568,8 @@ func (ec *executionContext) fieldContext_StandardBalanceChange_account(_ context
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7143,6 +7727,35 @@ func (ec *executionContext) _StandardBalanceChange_amount(ctx context.Context, f
 }
 
 func (ec *executionContext) fieldContext_StandardBalanceChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_toMuxedId(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StandardBalanceChange_toMuxedId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.StandardBalanceChange().ToMuxedID(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_toMuxedId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StandardBalanceChange",
 		Field:      field,
@@ -7571,6 +8184,8 @@ func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context,
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8306,6 +8921,8 @@ func (ec *executionContext) fieldContext_TrustlineChange_account(_ context.Conte
 				return ec.fieldContext_Account_operations(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -10016,6 +10633,13 @@ func (ec *executionContext) _Balance(ctx context.Context, sel ast.SelectionSet, 
 			return graphql.Null
 		}
 		return ec._TrustlineBalance(ctx, sel, obj)
+	case SEP41Balance:
+		return ec._SEP41Balance(ctx, sel, &obj)
+	case *SEP41Balance:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SEP41Balance(ctx, sel, obj)
 	case SACBalance:
 		return ec._SACBalance(ctx, sel, &obj)
 	case *SACBalance:
@@ -10278,6 +10902,42 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 					}
 				}()
 				res = ec._Account_stateChanges(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "sep41Allowances":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Account_sep41Allowances(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -12594,6 +13254,133 @@ func (ec *executionContext) _SACBalance(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
+var sEP41AllowanceImplementors = []string{"SEP41Allowance"}
+
+func (ec *executionContext) _SEP41Allowance(ctx context.Context, sel ast.SelectionSet, obj *SEP41Allowance) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sEP41AllowanceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SEP41Allowance")
+		case "owner":
+			out.Values[i] = ec._SEP41Allowance_owner(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "spender":
+			out.Values[i] = ec._SEP41Allowance_spender(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SEP41Allowance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._SEP41Allowance_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expirationLedger":
+			out.Values[i] = ec._SEP41Allowance_expirationLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastModifiedLedger":
+			out.Values[i] = ec._SEP41Allowance_lastModifiedLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var sEP41BalanceImplementors = []string{"SEP41Balance", "Balance"}
+
+func (ec *executionContext) _SEP41Balance(ctx context.Context, sel ast.SelectionSet, obj *SEP41Balance) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sEP41BalanceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SEP41Balance")
+		case "balance":
+			out.Values[i] = ec._SEP41Balance_balance(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SEP41Balance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenType":
+			out.Values[i] = ec._SEP41Balance_tokenType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SEP41Balance_name(ctx, field, obj)
+		case "symbol":
+			out.Values[i] = ec._SEP41Balance_symbol(ctx, field, obj)
+		case "decimals":
+			out.Values[i] = ec._SEP41Balance_decimals(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastModifiedLedger":
+			out.Values[i] = ec._SEP41Balance_lastModifiedLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var signerChangeImplementors = []string{"SignerChange", "BaseStateChange"}
 
 func (ec *executionContext) _SignerChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerStateChangeModel) graphql.Marshaler {
@@ -13400,6 +14187,39 @@ func (ec *executionContext) _StandardBalanceChange(ctx context.Context, sel ast.
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "toMuxedId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_toMuxedId(ctx, field, obj)
 				return res
 			}
 
@@ -14729,6 +15549,32 @@ func (ec *executionContext) marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwallet�
 		return graphql.Null
 	}
 	return ec._PageInfo(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSEP41Allowance2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowanceᚄ(ctx context.Context, sel ast.SelectionSet, v []*SEP41Allowance) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance(ctx context.Context, sel ast.SelectionSet, v *SEP41Allowance) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SEP41Allowance(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx context.Context, v any) (types.StateChangeCategory, error) {

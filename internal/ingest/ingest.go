@@ -157,14 +157,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
 
-	// Inject dependencies into registered protocol processor factories before they are resolved.
-	sep41.SetDependencies(sep41.Dependencies{
-		NetworkPassphrase: cfg.NetworkPassphrase,
-		Balances:          models.SEP41.Balances,
-		Allowances:        models.SEP41.Allowances,
-		ContractTokens:    models.Contract,
-		StateChanges:      models.StateChanges,
-	})
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, m.RPC)
 	if err != nil {
@@ -185,6 +177,18 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
+
+	// Inject dependencies into registered protocol processor factories before they are resolved.
+	// ContractMetadataService is wired in so the SEP-41 processor can populate name/symbol/decimals
+	// on first-ingest; there is no separate backfill worker.
+	sep41.SetDependencies(sep41.Dependencies{
+		NetworkPassphrase: cfg.NetworkPassphrase,
+		Balances:          models.SEP41.Balances,
+		Allowances:        models.SEP41.Allowances,
+		ContractTokens:    models.Contract,
+		StateChanges:      models.StateChanges,
+		MetadataFetcher:   contractMetadataService,
+	})
 
 	// Initialize history archive once for use by both TokenIngestionService and IngestService
 	archive, err := historyarchive.Connect(

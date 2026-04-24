@@ -27,4 +27,9 @@ type Account{
     since: Time, until: Time
     first: Int, after: String, last: Int, before: String
   ):   StateChangeConnection
+
+  # Active SEP-41 allowances granted by this account (as owner). Allowances whose
+  # expiration_ledger is below the latest ingested ledger are filtered out server-side.
+  # Returned unpaginated — an account rarely has more than a handful of outstanding grants.
+  sep41Allowances: [SEP41Allowance!]! @goField(forceResolver: true)
 }

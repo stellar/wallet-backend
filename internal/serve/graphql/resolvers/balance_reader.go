@@ -68,12 +68,18 @@ func (r *balanceReaderAdapter) GetSACBalances(ctx context.Context, accountAddres
 	return balances, nil
 }
 
-// GetSEP41Balances retrieves all SEP-41 (pure, non-SAC) balances for an account.
-func (r *balanceReaderAdapter) GetSEP41Balances(ctx context.Context, accountAddress string) ([]sep41data.Balance, error) {
+// GetSEP41Balances retrieves SEP-41 (pure, non-SAC) balances for an account. Pass nil
+// limit/cursor to fetch all rows, or provide them for keyset pagination.
+func (r *balanceReaderAdapter) GetSEP41Balances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]sep41data.Balance, error) {
 	if r.sep41BalanceModel == nil {
 		return nil, nil
 	}
-	balances, err := r.sep41BalanceModel.GetByAccount(ctx, accountAddress)
+	// Convert data.SortOrder to the package-local alias defined in sep41 to avoid an import cycle.
+	sep41Sort := sep41data.SortASC
+	if sortOrder == data.DESC {
+		sep41Sort = sep41data.SortDESC
+	}
+	balances, err := r.sep41BalanceModel.GetByAccount(ctx, accountAddress, limit, cursor, sep41Sort)
 	if err != nil {
 		return nil, fmt.Errorf("getting SEP-41 balances: %w", err)
 	}

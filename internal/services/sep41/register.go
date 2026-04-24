@@ -1,12 +1,20 @@
 package sep41
 
 import (
+	"context"
 	"sync"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/services"
 )
+
+// MetadataFetcher resolves token metadata for newly classified SEP-41 contracts. A miss
+// (contract not in returned map) indicates an RPC-side failure that the caller should
+// tolerate by falling back to default metadata values.
+type MetadataFetcher interface {
+	FetchSEP41Metadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error)
+}
 
 // Dependencies holds the runtime objects the SEP-41 processor needs. Populated by the cmd
 // layer via SetDependencies after Models are built; the registered processor factory captures
@@ -17,6 +25,9 @@ type Dependencies struct {
 	Allowances        sep41data.AllowanceModelInterface
 	ContractTokens    data.ContractModelInterface
 	StateChanges      data.StateChangeWriter
+	// MetadataFetcher populates name/symbol/decimals on newly inserted contract_tokens rows.
+	// Optional — nil means "ship with defaults".
+	MetadataFetcher MetadataFetcher
 }
 
 var (
