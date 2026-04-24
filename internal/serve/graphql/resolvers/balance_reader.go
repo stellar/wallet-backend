@@ -87,11 +87,11 @@ func (r *balanceReaderAdapter) GetSEP41Balances(ctx context.Context, accountAddr
 }
 
 // GetSEP41Allowances retrieves active SEP-41 allowances issued by the given owner.
-func (r *balanceReaderAdapter) GetSEP41Allowances(ctx context.Context, ownerAddress string, currentLedger uint32) ([]sep41data.Allowance, error) {
+func (r *balanceReaderAdapter) GetSEP41Allowances(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *sep41data.AllowanceCursor, sortOrder sep41data.SortOrder) ([]sep41data.Allowance, error) {
 	if r.sep41AllowanceModel == nil {
 		return nil, nil
 	}
-	allowances, err := r.sep41AllowanceModel.GetByOwner(ctx, ownerAddress, currentLedger)
+	allowances, err := r.sep41AllowanceModel.GetByOwner(ctx, ownerAddress, currentLedger, limit, cursor, sortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting SEP-41 allowances: %w", err)
 	}

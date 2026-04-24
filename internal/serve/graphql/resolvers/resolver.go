@@ -34,7 +34,7 @@ type BalanceReader interface {
 	GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error)
 	GetSACBalances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error)
 	GetSEP41Balances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]sep41data.Balance, error)
-	GetSEP41Allowances(ctx context.Context, ownerAddress string, currentLedger uint32) ([]sep41data.Allowance, error)
+	GetSEP41Allowances(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *sep41data.AllowanceCursor, sortOrder sep41data.SortOrder) ([]sep41data.Allowance, error)
 }
 
 const (

@@ -52,7 +52,7 @@ type ComplexityRoot struct {
 		Address         func(childComplexity int) int
 		Balances        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		Operations      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
-		Sep41Allowances func(childComplexity int) int
+		Sep41Allowances func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges    func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 		Transactions    func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 	}
@@ -204,6 +204,16 @@ type ComplexityRoot struct {
 		TokenID            func(childComplexity int) int
 	}
 
+	SEP41AllowanceConnection struct {
+		Edges    func(childComplexity int) int
+		PageInfo func(childComplexity int) int
+	}
+
+	SEP41AllowanceEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
 	SEP41Balance struct {
 		Balance            func(childComplexity int) int
 		Decimals           func(childComplexity int) int
@@ -322,7 +332,7 @@ type AccountResolver interface {
 	Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
 	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
-	Sep41Allowances(ctx context.Context, obj *types.Account) ([]*SEP41Allowance, error)
+	Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*SEP41AllowanceConnection, error)
 }
 type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
@@ -487,7 +497,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			break
 		}
 
-		return e.ComplexityRoot.Account.Sep41Allowances(childComplexity), true
+		args, err := ec.field_Account_sep41Allowances_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Account.Sep41Allowances(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 	case "Account.stateChanges":
 		if e.ComplexityRoot.Account.StateChanges == nil {
 			break
@@ -1174,6 +1189,32 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SEP41Allowance.TokenID(childComplexity), true
 
+	case "SEP41AllowanceConnection.edges":
+		if e.ComplexityRoot.SEP41AllowanceConnection.Edges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41AllowanceConnection.Edges(childComplexity), true
+	case "SEP41AllowanceConnection.pageInfo":
+		if e.ComplexityRoot.SEP41AllowanceConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41AllowanceConnection.PageInfo(childComplexity), true
+
+	case "SEP41AllowanceEdge.cursor":
+		if e.ComplexityRoot.SEP41AllowanceEdge.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41AllowanceEdge.Cursor(childComplexity), true
+	case "SEP41AllowanceEdge.node":
+		if e.ComplexityRoot.SEP41AllowanceEdge.Node == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SEP41AllowanceEdge.Node(childComplexity), true
+
 	case "SEP41Balance.balance":
 		if e.ComplexityRoot.SEP41Balance.Balance == nil {
 			break
@@ -1764,8 +1805,8 @@ type Account{
 
   # Active SEP-41 allowances granted by this account (as owner). Allowances whose
   # expiration_ledger is below the latest ingested ledger are filtered out server-side.
-  # Returned unpaginated — an account rarely has more than a handful of outstanding grants.
-  sep41Allowances: [SEP41Allowance!]! @goField(forceResolver: true)
+  # Relay-paginated with a max page size of 100.
+  sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
@@ -2018,6 +2059,16 @@ type BalanceConnection {
 
 type BalanceEdge {
     node: Balance!
+    cursor: String!
+}
+
+type SEP41AllowanceConnection {
+    edges: [SEP41AllowanceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type SEP41AllowanceEdge {
+    node: SEP41Allowance!
     cursor: String!
 }
 
@@ -2297,6 +2348,32 @@ func (ec *executionContext) field_Account_operations_args(ctx context.Context, r
 		return nil, err
 	}
 	args["before"] = arg5
+	return args, nil
+}
+
+func (ec *executionContext) field_Account_sep41Allowances_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
 	return args, nil
 }
 
@@ -2853,16 +2930,17 @@ func (ec *executionContext) _Account_sep41Allowances(ctx context.Context, field 
 		field,
 		ec.fieldContext_Account_sep41Allowances,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Account().Sep41Allowances(ctx, obj)
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Account().Sep41Allowances(ctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
-		ec.marshalNSEP41Allowance2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowanceᚄ,
+		ec.marshalNSEP41AllowanceConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceConnection,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_Account_sep41Allowances(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Account_sep41Allowances(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Account",
 		Field:      field,
@@ -2870,21 +2948,24 @@ func (ec *executionContext) fieldContext_Account_sep41Allowances(_ context.Conte
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "owner":
-				return ec.fieldContext_SEP41Allowance_owner(ctx, field)
-			case "spender":
-				return ec.fieldContext_SEP41Allowance_spender(ctx, field)
-			case "tokenId":
-				return ec.fieldContext_SEP41Allowance_tokenId(ctx, field)
-			case "amount":
-				return ec.fieldContext_SEP41Allowance_amount(ctx, field)
-			case "expirationLedger":
-				return ec.fieldContext_SEP41Allowance_expirationLedger(ctx, field)
-			case "lastModifiedLedger":
-				return ec.fieldContext_SEP41Allowance_lastModifiedLedger(ctx, field)
+			case "edges":
+				return ec.fieldContext_SEP41AllowanceConnection_edges(ctx, field)
+			case "pageInfo":
+				return ec.fieldContext_SEP41AllowanceConnection_pageInfo(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type SEP41Allowance", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type SEP41AllowanceConnection", field.Name)
 		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Account_sep41Allowances_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -6510,6 +6591,152 @@ func (ec *executionContext) fieldContext_SEP41Allowance_lastModifiedLedger(_ con
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41AllowanceConnection_edges(ctx context.Context, field graphql.CollectedField, obj *SEP41AllowanceConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41AllowanceConnection_edges,
+		func(ctx context.Context) (any, error) {
+			return obj.Edges, nil
+		},
+		nil,
+		ec.marshalNSEP41AllowanceEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceEdgeᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41AllowanceConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41AllowanceConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "node":
+				return ec.fieldContext_SEP41AllowanceEdge_node(ctx, field)
+			case "cursor":
+				return ec.fieldContext_SEP41AllowanceEdge_cursor(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SEP41AllowanceEdge", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41AllowanceConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *SEP41AllowanceConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41AllowanceConnection_pageInfo,
+		func(ctx context.Context) (any, error) {
+			return obj.PageInfo, nil
+		},
+		nil,
+		ec.marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPageInfo,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41AllowanceConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41AllowanceConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "startCursor":
+				return ec.fieldContext_PageInfo_startCursor(ctx, field)
+			case "endCursor":
+				return ec.fieldContext_PageInfo_endCursor(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+			case "hasPreviousPage":
+				return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PageInfo", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41AllowanceEdge_node(ctx context.Context, field graphql.CollectedField, obj *SEP41AllowanceEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41AllowanceEdge_node,
+		func(ctx context.Context) (any, error) {
+			return obj.Node, nil
+		},
+		nil,
+		ec.marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41AllowanceEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41AllowanceEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "owner":
+				return ec.fieldContext_SEP41Allowance_owner(ctx, field)
+			case "spender":
+				return ec.fieldContext_SEP41Allowance_spender(ctx, field)
+			case "tokenId":
+				return ec.fieldContext_SEP41Allowance_tokenId(ctx, field)
+			case "amount":
+				return ec.fieldContext_SEP41Allowance_amount(ctx, field)
+			case "expirationLedger":
+				return ec.fieldContext_SEP41Allowance_expirationLedger(ctx, field)
+			case "lastModifiedLedger":
+				return ec.fieldContext_SEP41Allowance_lastModifiedLedger(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SEP41Allowance", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SEP41AllowanceEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *SEP41AllowanceEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SEP41AllowanceEdge_cursor,
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SEP41AllowanceEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SEP41AllowanceEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -13318,6 +13545,94 @@ func (ec *executionContext) _SEP41Allowance(ctx context.Context, sel ast.Selecti
 	return out
 }
 
+var sEP41AllowanceConnectionImplementors = []string{"SEP41AllowanceConnection"}
+
+func (ec *executionContext) _SEP41AllowanceConnection(ctx context.Context, sel ast.SelectionSet, obj *SEP41AllowanceConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sEP41AllowanceConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SEP41AllowanceConnection")
+		case "edges":
+			out.Values[i] = ec._SEP41AllowanceConnection_edges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pageInfo":
+			out.Values[i] = ec._SEP41AllowanceConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var sEP41AllowanceEdgeImplementors = []string{"SEP41AllowanceEdge"}
+
+func (ec *executionContext) _SEP41AllowanceEdge(ctx context.Context, sel ast.SelectionSet, obj *SEP41AllowanceEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sEP41AllowanceEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SEP41AllowanceEdge")
+		case "node":
+			out.Values[i] = ec._SEP41AllowanceEdge_node(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cursor":
+			out.Values[i] = ec._SEP41AllowanceEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var sEP41BalanceImplementors = []string{"SEP41Balance", "Balance"}
 
 func (ec *executionContext) _SEP41Balance(ctx context.Context, sel ast.SelectionSet, obj *SEP41Balance) graphql.Marshaler {
@@ -15551,11 +15866,35 @@ func (ec *executionContext) marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwallet�
 	return ec._PageInfo(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNSEP41Allowance2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowanceᚄ(ctx context.Context, sel ast.SelectionSet, v []*SEP41Allowance) graphql.Marshaler {
+func (ec *executionContext) marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance(ctx context.Context, sel ast.SelectionSet, v *SEP41Allowance) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SEP41Allowance(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSEP41AllowanceConnection2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceConnection(ctx context.Context, sel ast.SelectionSet, v SEP41AllowanceConnection) graphql.Marshaler {
+	return ec._SEP41AllowanceConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSEP41AllowanceConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceConnection(ctx context.Context, sel ast.SelectionSet, v *SEP41AllowanceConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SEP41AllowanceConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSEP41AllowanceEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []*SEP41AllowanceEdge) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance(ctx, sel, v[i])
+		return ec.marshalNSEP41AllowanceEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceEdge(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -15567,14 +15906,14 @@ func (ec *executionContext) marshalNSEP41Allowance2ᚕᚖgithubᚗcomᚋstellar�
 	return ret
 }
 
-func (ec *executionContext) marshalNSEP41Allowance2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41Allowance(ctx context.Context, sel ast.SelectionSet, v *SEP41Allowance) graphql.Marshaler {
+func (ec *executionContext) marshalNSEP41AllowanceEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSEP41AllowanceEdge(ctx context.Context, sel ast.SelectionSet, v *SEP41AllowanceEdge) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
-	return ec._SEP41Allowance(ctx, sel, v)
+	return ec._SEP41AllowanceEdge(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx context.Context, v any) (types.StateChangeCategory, error) {

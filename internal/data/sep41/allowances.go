@@ -25,11 +25,20 @@ type Allowance struct {
 	TokenID          string // C... address populated on read
 }
 
+// AllowanceCursor is a keyset cursor into a single owner's allowance list,
+// ordered by (spender_address, contract_id). Those two columns together with
+// owner_address form the primary key, so the pair is unique per page.
+type AllowanceCursor struct {
+	SpenderAddress string
+	ContractID     uuid.UUID
+}
+
 // AllowanceModelInterface exposes SEP-41 allowance storage operations.
 type AllowanceModelInterface interface {
 	// GetByOwner returns non-expired allowances owned by the given account, filtered by ledger.
-	// An allowance is considered active while expiration_ledger >= currentLedger.
-	GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32) ([]Allowance, error)
+	// An allowance is considered active while expiration_ledger >= currentLedger. Results are
+	// keyset-paginated by (spender_address, contract_id); pass a nil cursor for the first page.
+	GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Allowance, deletes []Allowance) error
 }
 
@@ -40,22 +49,48 @@ type AllowanceModel struct {
 
 var _ AllowanceModelInterface = (*AllowanceModel)(nil)
 
-// GetByOwner returns active allowances (expiration_ledger >= currentLedger).
-func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32) ([]Allowance, error) {
+// GetByOwner returns active allowances (expiration_ledger >= currentLedger), keyset-paginated
+// by (spender_address, contract_id). The PK on (owner_address, spender_address, contract_id)
+// backs the ordering + keyset predicate without an extra index.
+func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
 	if ownerAddress == "" {
 		return nil, fmt.Errorf("empty owner address")
 	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be positive, got %d", limit)
+	}
 
-	const query = `
+	query := `
 		SELECT
 			a.spender_address, a.contract_id, a.amount, a.expiration_ledger, a.last_modified_ledger,
 			ct.contract_id
 		FROM sep41_allowances a
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
 		WHERE a.owner_address = $1 AND a.expiration_ledger >= $2`
+	args := []interface{}{ownerAddress, currentLedger}
+	argIndex := 3
+
+	if cursor != nil {
+		op := ">"
+		if sortOrder == SortDESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" AND (a.spender_address, a.contract_id) %s ($%d, $%d)", op, argIndex, argIndex+1)
+		args = append(args, cursor.SpenderAddress, cursor.ContractID)
+		argIndex += 2
+	}
+
+	if sortOrder == SortDESC {
+		query += " ORDER BY a.spender_address DESC, a.contract_id DESC"
+	} else {
+		query += " ORDER BY a.spender_address ASC, a.contract_id ASC"
+	}
+
+	query += fmt.Sprintf(" LIMIT $%d", argIndex)
+	args = append(args, limit)
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, ownerAddress, currentLedger)
+	rows, err := m.DB.Query(ctx, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByOwner", "sep41_allowances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByOwner", "sep41_allowances").Inc()

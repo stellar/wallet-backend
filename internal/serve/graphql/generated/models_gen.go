@@ -114,6 +114,16 @@ type SEP41Allowance struct {
 	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
 }
 
+type SEP41AllowanceConnection struct {
+	Edges    []*SEP41AllowanceEdge `json:"edges"`
+	PageInfo *PageInfo             `json:"pageInfo"`
+}
+
+type SEP41AllowanceEdge struct {
+	Node   *SEP41Allowance `json:"node"`
+	Cursor string          `json:"cursor"`
+}
+
 // SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder.
 type SEP41Balance struct {
 	Balance            string    `json:"balance"`

@@ -317,6 +317,7 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Account.StateChanges = func(childComplexity int, filter *generated.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}
+	config.Complexity.Account.Sep41Allowances = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc

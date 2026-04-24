@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stellar/go-stellar-sdk/support/log"
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -174,42 +172,11 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	}, nil
 }
 
-// Sep41Allowances is the resolver for the sep41Allowances field.
-//
-// The "current ledger" used to filter expired allowances is the live ingestion high-watermark
-// read from ingest_store. If ingestion hasn't advanced yet (fresh install) we pass 0, which
-// returns allowances with any future expiration_ledger; this is the safest behavior for a
-// brand-new database.
-func (r *accountResolver) Sep41Allowances(ctx context.Context, obj *types.Account) ([]*graphql1.SEP41Allowance, error) {
-	address := obj.StellarAddress.String()
-	if address == "" {
-		return nil, balanceBadUserInputError("account has no address")
-	}
-
-	currentLedger, err := r.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to read latest ingested ledger for sep41Allowances: %v", err)
-		return nil, balanceInternalError()
-	}
-
-	allowances, err := r.balanceReader.GetSEP41Allowances(ctx, address, currentLedger)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to get SEP-41 allowances for %s: %v", address, err)
-		return nil, balanceInternalError()
-	}
-
-	out := make([]*graphql1.SEP41Allowance, 0, len(allowances))
-	for _, a := range allowances {
-		out = append(out, &graphql1.SEP41Allowance{
-			Owner:              a.OwnerAddress,
-			Spender:            a.SpenderAddress,
-			TokenID:            a.TokenID,
-			Amount:             a.Amount,
-			ExpirationLedger:   a.ExpirationLedger,
-			LastModifiedLedger: a.LedgerNumber,
-		})
-	}
-	return out, nil
+// Sep41Allowances is the resolver for the sep41Allowances field. The underlying
+// SQL page is keyset-paginated and the expiration filter is applied server-side;
+// getSEP41Allowances does the heavy lifting (see account_sep41.go).
+func (r *accountResolver) Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.SEP41AllowanceConnection, error) {
+	return r.getSEP41Allowances(ctx, string(obj.StellarAddress), first, after, last, before)
 }
 
 // Account returns graphql1.AccountResolver implementation.
