@@ -1,30 +1,35 @@
-package services
+package sep41
 
 import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
-// Minimal XDR helpers shared by tests in the services package. The richer
-// versions live in internal/services/sep41 alongside the validator — this file
-// keeps a small surface for callers outside that subpackage.
+// Shared XDR test helpers for creating contract spec entries.
 
 func createScSpecFunctionEntry(name string, inputs []xdr.ScSpecFunctionInputV0, outputs []xdr.ScSpecTypeDef) xdr.ScSpecEntry {
+	funcName := xdr.ScSymbol(name)
+	funcV0 := &xdr.ScSpecFunctionV0{
+		Name:    funcName,
+		Inputs:  inputs,
+		Outputs: outputs,
+	}
 	return xdr.ScSpecEntry{
-		Kind: xdr.ScSpecEntryKindScSpecEntryFunctionV0,
-		FunctionV0: &xdr.ScSpecFunctionV0{
-			Name:    xdr.ScSymbol(name),
-			Inputs:  inputs,
-			Outputs: outputs,
-		},
+		Kind:       xdr.ScSpecEntryKindScSpecEntryFunctionV0,
+		FunctionV0: funcV0,
 	}
 }
 
 func createFunctionInput(name string, typeDef xdr.ScSpecTypeDef) xdr.ScSpecFunctionInputV0 {
-	return xdr.ScSpecFunctionInputV0{Name: name, Type: typeDef}
+	return xdr.ScSpecFunctionInputV0{
+		Name: name,
+		Type: typeDef,
+	}
 }
 
 func createScSpecTypeDef(scType xdr.ScSpecType) xdr.ScSpecTypeDef {
-	return xdr.ScSpecTypeDef{Type: scType}
+	return xdr.ScSpecTypeDef{
+		Type: scType,
+	}
 }
 
 func createSEP41ContractSpec() []xdr.ScSpecEntry {
@@ -99,4 +104,23 @@ func createSEP41ContractSpec() []xdr.ScSpecEntry {
 			[]xdr.ScSpecTypeDef{},
 		),
 	}
+}
+
+func createPartialSEP41Spec(missingFunctions []string) []xdr.ScSpecEntry {
+	fullSpec := createSEP41ContractSpec()
+	missingSet := make(map[string]bool, len(missingFunctions))
+	for _, f := range missingFunctions {
+		missingSet[f] = true
+	}
+
+	var result []xdr.ScSpecEntry
+	for _, entry := range fullSpec {
+		if entry.FunctionV0 != nil {
+			funcName := string(entry.FunctionV0.Name)
+			if !missingSet[funcName] {
+				result = append(result, entry)
+			}
+		}
+	}
+	return result
 }
