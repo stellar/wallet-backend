@@ -78,7 +78,9 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	defer indexerPool.StopAndWait()
 
 	metrics.RegisterPoolMetrics(m.Registry(), "loadtest_indexer", indexerPool)
-	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
+	// Loadtest doesn't exercise live classification; nil classifier preserves
+	// the legacy "record raw hash" behavior.
+	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion, nil)
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{

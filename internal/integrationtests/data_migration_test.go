@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -102,11 +103,19 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 	specExtractor := services.NewWasmSpecExtractor()
 	validator := sep41.NewValidator()
 
+	metadataPool := pond.NewPool(0)
+	defer metadataPool.StopAndWait()
+	metadataService, mErr := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
+	s.Require().NoError(mErr)
+
 	svc := services.NewProtocolSetupService(
 		pool,
 		s.testEnv.RPCService,
 		models.Protocols,
 		models.ProtocolWasms,
+		models.ProtocolContracts,
+		models.Contract,
+		metadataService,
 		specExtractor,
 		[]services.ProtocolValidator{validator},
 	)

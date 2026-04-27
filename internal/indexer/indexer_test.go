@@ -140,7 +140,7 @@ func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, pool, nil)
+	indexer := NewIndexer(networkPassphrase, pool, nil, nil)
 
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)

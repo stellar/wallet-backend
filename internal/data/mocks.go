@@ -46,6 +46,11 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Error(0)
 }
 
+func (m *ContractModelMock) BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
+	args := m.Called(ctx, dbTx, contracts)
+	return args.Error(0)
+}
+
 // StateChangeWriterMock is a mock implementation of StateChangeWriter.
 type StateChangeWriterMock struct {
 	mock.Mock

@@ -33,6 +33,11 @@ type ContractModelInterface interface {
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error
+	// BatchUpdateMetadata updates type/name/symbol/decimals on existing rows keyed by id.
+	// Rows that don't exist are silently skipped. Used to enrich contract_tokens after
+	// protocol classification (e.g., setting type='SEP41' + name/symbol/decimals fetched
+	// from on-chain view functions).
+	BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error
 }
 
 // ContractModel implements ContractModelInterface.
@@ -120,6 +125,53 @@ func (m *ContractModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts 
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchInsert", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("batch inserting contracts: %w", err)
+	}
+	return nil
+}
+
+// BatchUpdateMetadata updates type/name/symbol/decimals on existing contract_tokens rows
+// keyed by id. Rows whose id is not present in the table are silently skipped (no error,
+// no insert). Used by post-classification enrichment to set type='SEP41' and populate
+// name/symbol/decimals fetched via on-chain view functions.
+func (m *ContractModel) BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
+	if len(contracts) == 0 {
+		return nil
+	}
+
+	ids := make([]uuid.UUID, len(contracts))
+	types := make([]string, len(contracts))
+	names := make([]*string, len(contracts))
+	symbols := make([]*string, len(contracts))
+	decimals := make([]uint32, len(contracts))
+
+	for i, c := range contracts {
+		ids[i] = c.ID
+		types[i] = c.Type
+		names[i] = c.Name
+		symbols[i] = c.Symbol
+		decimals[i] = c.Decimals
+	}
+
+	const query = `
+		UPDATE contract_tokens AS ct SET
+			type     = u.type,
+			name     = u.name,
+			symbol   = u.symbol,
+			decimals = u.decimals
+		FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::integer[])
+		     AS u(id, type, name, symbol, decimals)
+		WHERE ct.id = u.id
+	`
+
+	start := time.Now()
+	_, err := dbTx.Exec(ctx, query, ids, types, names, symbols, decimals)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateMetadata", "contract_tokens").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchUpdateMetadata", "contract_tokens").Observe(float64(len(contracts)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateMetadata", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpdateMetadata", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("batch updating contract metadata: %w", err)
 	}
 	return nil
 }

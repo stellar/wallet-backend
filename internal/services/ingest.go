@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -66,6 +67,16 @@ type IngestServiceConfig struct {
 
 	// === Protocol Processors ===
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
+
+	// === Live Classification ===
+	// WasmClassifier, when non-nil, lets the indexer's protocol_wasms processor
+	// validate new WASM uploads against registered protocol validators on the
+	// fly. Pass services.NewLiveWasmClassifier(GetAllValidators(), extractor).
+	// nil retains the legacy "record raw hash, leave protocol_id NULL" behavior.
+	WasmClassifier processors.WasmClassifier
+
+	// === Metadata Service (used for both SAC + post-classification SEP-41 enrichment) ===
+	ContractMetadataService ContractMetadataService
 
 	// === Processing Options ===
 	GetLedgersLimit int
@@ -116,6 +127,7 @@ type ingestService struct {
 	backfillDBInsertBatchSize uint32
 	catchupThreshold          uint32
 	knownContractIDs          set.Set[string]
+	contractMetadataService   ContractMetadataService
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolContractCache     *protocolContractCache
 	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
@@ -187,7 +199,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		appMetrics:                 cfg.Metrics,
 		networkPassphrase:          cfg.NetworkPassphrase,
 		getLedgersLimit:            cfg.GetLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion, cfg.WasmClassifier),
+		contractMetadataService:    cfg.ContractMetadataService,
 		archive:                    cfg.Archive,
 		backfillPool:               backfillPool,
 		backfillBatchSize:          uint32(cfg.BackfillBatchSize),

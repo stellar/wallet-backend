@@ -241,6 +241,19 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		protocolProcessors = append(protocolProcessors, processor)
 	}
 
+	// Build the live WASM classifier so the indexer's protocol_wasms processor
+	// can validate uploaded WASMs against registered protocols on the fly. Each
+	// new WASM hash hitting the chain is now recorded with its matched
+	// protocol_id (or NULL if no validator matches).
+	wasmExtractor := services.NewWasmSpecExtractor()
+	go func() {
+		<-ctx.Done()
+		if err := wasmExtractor.Close(context.Background()); err != nil {
+			log.Ctx(ctx).Warnf("closing wasm spec extractor on shutdown: %v", err)
+		}
+	}()
+	wasmClassifier := services.NewLiveWasmClassifier(services.GetAllValidators(), wasmExtractor)
+
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
 		Models:                    models,
@@ -261,6 +274,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		CatchupThreshold:          cfg.CatchupThreshold,
 		ProtocolProcessors:        protocolProcessors,
+		WasmClassifier:            wasmClassifier,
+		ContractMetadataService:   contractMetadataService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

@@ -13,12 +13,12 @@ import (
 )
 
 func TestProtocolWasmProcessor_Name(t *testing.T) {
-	processor := NewProtocolWasmProcessor(nil)
+	processor := NewProtocolWasmProcessor(nil, nil)
 	assert.Equal(t, "protocol_wasms", processor.Name())
 }
 
 func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
-	processor := NewProtocolWasmProcessor(nil)
+	processor := NewProtocolWasmProcessor(nil, nil)
 
 	testWasmHash := xdr.Hash{
 		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,
@@ -130,4 +130,88 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// stubClassifier is a tiny test double for WasmClassifier that returns a
+// pre-baked protocol id (or error) regardless of the bytecode.
+type stubClassifier struct {
+	protocolID string
+	err        error
+	calls      int
+}
+
+func (s *stubClassifier) Classify(ctx context.Context, wasmCode []byte) (string, error) {
+	s.calls++
+	return s.protocolID, s.err
+}
+
+func TestProtocolWasmProcessor_ClassifierMatch(t *testing.T) {
+	classifier := &stubClassifier{protocolID: "SEP41"}
+	processor := NewProtocolWasmProcessor(nil, classifier)
+
+	hash := xdr.Hash{0x01, 0x02, 0x03}
+	op := xdr.Operation{
+		Body: xdr.OperationBody{
+			Type:                 xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+		},
+	}
+	contractCodeChange := []xdr.LedgerEntryChange{
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+			Created: &xdr.LedgerEntry{
+				Data: xdr.LedgerEntryData{
+					Type: xdr.LedgerEntryTypeContractCode,
+					ContractCode: &xdr.ContractCodeEntry{
+						Hash: hash,
+						Code: []byte{0x00, 0x61, 0x73, 0x6d}, // arbitrary 4 bytes; classifier is stubbed
+					},
+				},
+			},
+		},
+	}
+	tx := createTx(op, contractCodeChange, nil, false)
+	wasms, err := processor.ProcessOperation(context.Background(), &TransactionOperationWrapper{
+		Index: 0, Transaction: tx, Operation: op, LedgerSequence: 1, Network: networkPassphrase,
+	})
+	require.NoError(t, err)
+	require.Len(t, wasms, 1)
+	assert.Equal(t, types.HashBytea(hex.EncodeToString(hash[:])), wasms[0].WasmHash)
+	require.NotNil(t, wasms[0].ProtocolID)
+	assert.Equal(t, "SEP41", *wasms[0].ProtocolID)
+	assert.Equal(t, 1, classifier.calls)
+}
+
+func TestProtocolWasmProcessor_ClassifierError_RecordsRaw(t *testing.T) {
+	classifier := &stubClassifier{err: assert.AnError}
+	processor := NewProtocolWasmProcessor(nil, classifier)
+
+	hash := xdr.Hash{0xff}
+	op := xdr.Operation{
+		Body: xdr.OperationBody{
+			Type:                 xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+		},
+	}
+	contractCodeChange := []xdr.LedgerEntryChange{
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+			Created: &xdr.LedgerEntry{
+				Data: xdr.LedgerEntryData{
+					Type: xdr.LedgerEntryTypeContractCode,
+					ContractCode: &xdr.ContractCodeEntry{
+						Hash: hash,
+						Code: []byte{0x00},
+					},
+				},
+			},
+		},
+	}
+	tx := createTx(op, contractCodeChange, nil, false)
+	wasms, err := processor.ProcessOperation(context.Background(), &TransactionOperationWrapper{
+		Index: 0, Transaction: tx, Operation: op, LedgerSequence: 1, Network: networkPassphrase,
+	})
+	require.NoError(t, err)
+	require.Len(t, wasms, 1)
+	assert.Nil(t, wasms[0].ProtocolID, "classifier error should leave protocol_id NULL so a future protocol-setup re-run can fill it")
 }

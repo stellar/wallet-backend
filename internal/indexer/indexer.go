@@ -84,13 +84,18 @@ type Indexer struct {
 	networkPassphrase          string
 }
 
-func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
+// NewIndexer constructs an Indexer. wasmClassifier is optional — when non-nil,
+// the protocol-WASMs processor uses it to inline-classify new WASM uploads
+// against registered protocol validators (per docs/feature-design/data-migrations.md).
+// Pass nil to retain the legacy behavior of recording WASM hashes with
+// protocol_id = NULL (a subsequent protocol-setup run will fill them in).
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics, wasmClassifier processors.WasmClassifier) *Indexer {
 	return &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
 		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
-		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(ingestionMetrics),
+		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(ingestionMetrics, wasmClassifier),
 		protocolContractsProcessor: processors.NewProtocolContractsProcessor(ingestionMetrics),
 		accountsProcessor:          processors.NewAccountsProcessor(ingestionMetrics),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(ingestionMetrics),

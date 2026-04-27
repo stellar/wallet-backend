@@ -23,6 +23,19 @@ func GetValidator(protocolID string) (ProtocolValidator, bool) {
 	return v, ok
 }
 
+// GetAllValidators returns a snapshot of every registered validator.
+// Order is unspecified — callers that depend on a deterministic match order
+// must sort the result by ProtocolID() themselves.
+func GetAllValidators() []ProtocolValidator {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	result := make([]ProtocolValidator, 0, len(validatorRegistry))
+	for _, v := range validatorRegistry {
+		result = append(result, v)
+	}
+	return result
+}
+
 // resetRegistry replaces the registry map while holding the write lock.
 // It is intended for use in tests only.
 func resetRegistry(m map[string]ProtocolValidator) {

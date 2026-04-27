@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -26,12 +27,15 @@ type ProtocolSetupService interface {
 }
 
 type protocolSetupService struct {
-	db                *pgxpool.Pool
-	rpcService        RPCService
-	protocolModel     data.ProtocolsModelInterface
-	protocolWasmModel data.ProtocolWasmsModelInterface
-	specExtractor     WasmSpecExtractor
-	validators        []ProtocolValidator
+	db                     *pgxpool.Pool
+	rpcService             RPCService
+	protocolModel          data.ProtocolsModelInterface
+	protocolWasmModel      data.ProtocolWasmsModelInterface
+	protocolContractsModel data.ProtocolContractsModelInterface
+	contractModel          data.ContractModelInterface
+	metadataService        ContractMetadataService
+	specExtractor          WasmSpecExtractor
+	validators             []ProtocolValidator
 }
 
 // NewProtocolSetupService creates a new ProtocolSetupService.
@@ -40,16 +44,22 @@ func NewProtocolSetupService(
 	rpcService RPCService,
 	protocolModel data.ProtocolsModelInterface,
 	protocolWasmModel data.ProtocolWasmsModelInterface,
+	protocolContractsModel data.ProtocolContractsModelInterface,
+	contractModel data.ContractModelInterface,
+	metadataService ContractMetadataService,
 	specExtractor WasmSpecExtractor,
 	validators []ProtocolValidator,
 ) *protocolSetupService {
 	return &protocolSetupService{
-		db:                dbPool,
-		rpcService:        rpcService,
-		protocolModel:     protocolModel,
-		protocolWasmModel: protocolWasmModel,
-		specExtractor:     specExtractor,
-		validators:        validators,
+		db:                     dbPool,
+		rpcService:             rpcService,
+		protocolModel:          protocolModel,
+		protocolWasmModel:      protocolWasmModel,
+		protocolContractsModel: protocolContractsModel,
+		contractModel:          contractModel,
+		metadataService:        metadataService,
+		specExtractor:          specExtractor,
+		validators:             validators,
 	}
 }
 
@@ -196,6 +206,85 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 		return fmt.Errorf("persisting classification results: %w", err)
 	}
 
+	// Post-classification enrichment: now that wasms are tagged with protocol_id,
+	// fetch on-chain metadata (name/symbol/decimals) for each newly classified
+	// SEP-41 contract and update contract_tokens accordingly. Failures are logged
+	// rather than propagated — classification itself is authoritative; metadata
+	// is best-effort and will be retried on the next protocol-setup run.
+	for protocolID := range matchedHashes {
+		if err := s.enrichContractMetadata(ctx, protocolID); err != nil {
+			log.Ctx(ctx).Warnf("metadata enrichment for %s skipped: %v", protocolID, err)
+		}
+	}
+
+	return nil
+}
+
+// enrichContractMetadata loads every contract for the given protocol, fetches
+// on-chain metadata (name, symbol, decimals) via RPC, and updates the
+// corresponding contract_tokens rows with type=<protocolID> + metadata. Per-
+// contract RPC failures are silently dropped by FetchSEP41Metadata; this
+// function only fails on DB-level errors (which the caller logs and skips).
+//
+// Currently this enriches every classified protocol identically using the
+// SEP-41 metadata function shape. Future protocols whose metadata lives in
+// different view functions can switch on protocolID here.
+func (s *protocolSetupService) enrichContractMetadata(ctx context.Context, protocolID string) error {
+	if s.metadataService == nil || s.contractModel == nil || s.protocolContractsModel == nil {
+		return nil // dependencies absent — caller didn't wire enrichment, that's fine
+	}
+
+	contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, protocolID)
+	if err != nil {
+		return fmt.Errorf("loading protocol_contracts for %s: %w", protocolID, err)
+	}
+	if len(contracts) == 0 {
+		return nil
+	}
+
+	addrs := make([]string, 0, len(contracts))
+	for _, c := range contracts {
+		raw, decodeErr := hex.DecodeString(string(c.ContractID))
+		if decodeErr != nil {
+			log.Ctx(ctx).Warnf("skipping contract with invalid hex id %q: %v", c.ContractID, decodeErr)
+			continue
+		}
+		addr, encErr := strkey.Encode(strkey.VersionByteContract, raw)
+		if encErr != nil {
+			log.Ctx(ctx).Warnf("skipping contract with invalid id (%d bytes): %v", len(raw), encErr)
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	metaByAddr, err := s.metadataService.FetchSEP41Metadata(ctx, addrs)
+	if err != nil {
+		return fmt.Errorf("fetching SEP-41 metadata: %w", err)
+	}
+	if len(metaByAddr) == 0 {
+		log.Ctx(ctx).Infof("Protocol %s: no contracts produced metadata (all RPC calls failed)", protocolID)
+		return nil
+	}
+
+	updates := make([]*data.Contract, 0, len(metaByAddr))
+	for _, c := range metaByAddr {
+		// Tag the row with the matched protocolID so contract_tokens.type reflects the
+		// classifier's verdict; metaByAddr's Type defaults to "sep41" today, but we
+		// override here to keep the source of truth in protocols/protocol_wasms.
+		c.Type = protocolID
+		updates = append(updates, c)
+	}
+
+	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		return s.contractModel.BatchUpdateMetadata(ctx, dbTx, updates)
+	}); err != nil {
+		return fmt.Errorf("updating contract_tokens: %w", err)
+	}
+
+	log.Ctx(ctx).Infof("Protocol %s: enriched %d contract_tokens rows", protocolID, len(updates))
 	return nil
 }
 

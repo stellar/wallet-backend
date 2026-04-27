@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,12 +11,14 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -156,6 +159,15 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			}
 			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
+			}
+
+			// Enrich contract_tokens for any of these contracts whose WASM was
+			// classified as SEP-41 (either in this ledger via the live classifier,
+			// or in an earlier ledger and looked up via protocol_wasms). Best
+			// effort: a failure here is logged, the transaction still commits with
+			// the classification in place.
+			if enrichErr := m.enrichSEP41Contracts(ctx, dbTx, contractSlice, protocolWasms); enrichErr != nil {
+				log.Ctx(ctx).Warnf("sep41 metadata enrichment skipped for ledger %d: %v", ledgerSeq, enrichErr)
 			}
 		}
 
@@ -543,6 +555,125 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
 	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
+}
+
+// enrichSEP41Contracts updates contract_tokens metadata (type/name/symbol/
+// decimals) for any contracts in `protocolContracts` whose WASM is classified
+// as SEP-41. Two sources of classification are consulted: the WASMs we just
+// inserted in this same ledger (thisLedgerWasms — the live classifier may
+// have stamped protocol_id on them) and the protocol_wasms table for hashes
+// that aren't in thisLedgerWasms (deployments/upgrades against an earlier-
+// classified WASM). Per-contract RPC failures inside FetchSEP41Metadata are
+// logged-and-skipped by the metadata service; this function only surfaces
+// DB-level errors so the caller can decide what to do.
+func (m *ingestService) enrichSEP41Contracts(
+	ctx context.Context,
+	dbTx pgx.Tx,
+	protocolContracts []data.ProtocolContracts,
+	thisLedgerWasms map[string]data.ProtocolWasms,
+) error {
+	if m.contractMetadataService == nil || len(protocolContracts) == 0 {
+		return nil
+	}
+
+	// Gather every WASM hash referenced by these contracts so we can resolve
+	// each to its protocol_id. We start with the in-flight slice (which may
+	// carry ProtocolID set by the live classifier) and fall back to the DB
+	// for hashes that didn't surface in this ledger.
+	resolvedProtocol := make(map[types.HashBytea]string)
+	for _, w := range thisLedgerWasms {
+		if w.ProtocolID != nil {
+			resolvedProtocol[w.WasmHash] = *w.ProtocolID
+		}
+	}
+	var unresolved []types.HashBytea
+	for _, pc := range protocolContracts {
+		if _, ok := resolvedProtocol[pc.WasmHash]; ok {
+			continue
+		}
+		unresolved = append(unresolved, pc.WasmHash)
+	}
+	if len(unresolved) > 0 {
+		// Query protocol_wasms for the hashes we haven't classified locally.
+		// Use a fresh tx-bound query so it sees the rows we just inserted.
+		hashes := make([][]byte, 0, len(unresolved))
+		seen := make(map[types.HashBytea]struct{}, len(unresolved))
+		for _, h := range unresolved {
+			if _, dup := seen[h]; dup {
+				continue
+			}
+			seen[h] = struct{}{}
+			b, valErr := h.Value()
+			if valErr != nil {
+				log.Ctx(ctx).Debugf("sep41 enrich: skipping invalid hash %q: %v", h, valErr)
+				continue
+			}
+			hashes = append(hashes, b.([]byte))
+		}
+		if len(hashes) > 0 {
+			rows, queryErr := dbTx.Query(ctx,
+				`SELECT wasm_hash, protocol_id FROM protocol_wasms
+				 WHERE wasm_hash = ANY($1) AND protocol_id IS NOT NULL`, hashes)
+			if queryErr != nil {
+				return fmt.Errorf("looking up protocol_wasms classifications: %w", queryErr)
+			}
+			for rows.Next() {
+				var h types.HashBytea
+				var pid string
+				if scanErr := rows.Scan(&h, &pid); scanErr != nil {
+					rows.Close()
+					return fmt.Errorf("scanning protocol_wasms row: %w", scanErr)
+				}
+				resolvedProtocol[h] = pid
+			}
+			rows.Close()
+		}
+	}
+
+	// Bucket contracts by protocol id (currently only SEP41 has metadata
+	// enrichment; future protocols can be plugged in here).
+	addrsByProtocol := make(map[string][]string)
+	for _, pc := range protocolContracts {
+		pid, ok := resolvedProtocol[pc.WasmHash]
+		if !ok || pid != "SEP41" {
+			continue
+		}
+		raw, decodeErr := hex.DecodeString(string(pc.ContractID))
+		if decodeErr != nil {
+			log.Ctx(ctx).Debugf("sep41 enrich: skipping invalid contract id %q: %v", pc.ContractID, decodeErr)
+			continue
+		}
+		addr, encErr := strkey.Encode(strkey.VersionByteContract, raw)
+		if encErr != nil {
+			log.Ctx(ctx).Debugf("sep41 enrich: strkey encode failed for %q: %v", pc.ContractID, encErr)
+			continue
+		}
+		addrsByProtocol[pid] = append(addrsByProtocol[pid], addr)
+	}
+	if len(addrsByProtocol) == 0 {
+		return nil
+	}
+
+	for protocolID, addrs := range addrsByProtocol {
+		metaByAddr, fetchErr := m.contractMetadataService.FetchSEP41Metadata(ctx, addrs)
+		if fetchErr != nil {
+			log.Ctx(ctx).Debugf("sep41 enrich: FetchSEP41Metadata for %s: %v", protocolID, fetchErr)
+			continue
+		}
+		if len(metaByAddr) == 0 {
+			continue
+		}
+		updates := make([]*data.Contract, 0, len(metaByAddr))
+		for _, c := range metaByAddr {
+			c.Type = protocolID
+			updates = append(updates, c)
+		}
+		if updErr := m.models.Contract.BatchUpdateMetadata(ctx, dbTx, updates); updErr != nil {
+			return fmt.Errorf("batch updating contract metadata for %s: %w", protocolID, updErr)
+		}
+		log.Ctx(ctx).Debugf("sep41 enrich: updated %d contract_tokens rows", len(updates))
+	}
+	return nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.
