@@ -600,6 +600,10 @@ func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
 }
 
 // GetProtocolWasmBytecodes returns a clone of the wasmHash → bytecode map.
+// The map is a shallow copy: the returned []byte values alias the buffer's
+// internal storage and MUST be treated as read-only by callers. Bytecode is
+// content-addressed by wasmHash and immutable by construction; mutating a
+// returned slice would corrupt the buffer's encapsulated state.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetProtocolWasmBytecodes() map[string][]byte {
 	b.mu.RLock()

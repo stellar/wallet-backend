@@ -45,6 +45,9 @@ type IndexerBufferInterface interface {
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
+	// GetProtocolWasmBytecodes returns a shallow clone of the wasmHash → bytecode
+	// map. The []byte values alias buffer-owned storage and MUST be treated as
+	// read-only; bytecode is content-addressed and immutable.
 	GetProtocolWasmBytecodes() map[string][]byte
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
