@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -17,17 +18,32 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// newTestPool returns a pond worker pool with cleanup registered, used by
+// tests that need a metadataFetcher.
+func newTestPool(t *testing.T) pond.Pool {
+	t.Helper()
+	p := pond.NewPool(0)
+	t.Cleanup(p.StopAndWait)
+	return p
+}
+
+// newTestProcessor builds a bare processor for tests that don't need any
+// data-layer dependencies. We construct the struct directly rather than going
+// through newProcessor → ProtocolDeps because most of these tests only
+// exercise event-processing logic.
 func newTestProcessor() *processor {
-	return newProcessor(Dependencies{
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-	})
+	return &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		sep41Contracts:    map[string]struct{}{},
+	}
 }
 
 func newTestProcessorWithStateChanges(sc data.StateChangeWriter) *processor {
-	return newProcessor(Dependencies{
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-		StateChanges:      sc,
-	})
+	return &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		stateChanges:      sc,
+		sep41Contracts:    map[string]struct{}{},
+	}
 }
 
 func newTestOpBuilder() *processors.StateChangeBuilder {
@@ -183,28 +199,44 @@ func TestProcessor_ProcessEvent_Approve_UsesMetadataCategory(t *testing.T) {
 	assert.EqualValues(t, uint32(1234), sc.KeyValue["live_until_ledger"])
 }
 
-type metadataFetcherFunc func(ctx context.Context, ids []string) (map[string]*data.Contract, error)
+// stubMetadataRPC implements services.ContractMetadataService well enough for
+// the SEP-41 metadata fetcher to call FetchSingleField against it. It only
+// stores per-call answers and returns the next one on each invocation.
+type stubMetadataRPC struct {
+	answers []xdr.ScVal
+	err     error
+}
 
-func (f metadataFetcherFunc) FetchSEP41Metadata(ctx context.Context, ids []string) (map[string]*data.Contract, error) {
-	return f(ctx, ids)
+func (s *stubMetadataRPC) FetchSACMetadata(_ context.Context, _ []string) ([]*data.Contract, error) {
+	return nil, nil
+}
+
+func (s *stubMetadataRPC) FetchSingleField(_ context.Context, _, _ string, _ ...xdr.ScVal) (xdr.ScVal, error) {
+	if s.err != nil {
+		return xdr.ScVal{}, s.err
+	}
+	if len(s.answers) == 0 {
+		return xdr.ScVal{}, fakeRPCError{}
+	}
+	v := s.answers[0]
+	s.answers = s.answers[1:]
+	return v, nil
 }
 
 func TestProcessor_EnsureContractTokens_PopulatesMetadataFromFetcher(t *testing.T) {
 	contractsMock := data.NewContractModelMock(t)
 	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	name, symbol := "USDC", "USDC"
-	fetched := map[string]*data.Contract{
-		contract: {Name: &name, Symbol: &symbol, Decimals: 7},
+	rpc := &stubMetadataRPC{
+		answers: []xdr.ScVal{strScVal("USDC"), strScVal("USDC"), u32ScVal(7)},
 	}
-	fetcher := metadataFetcherFunc(func(_ context.Context, ids []string) (map[string]*data.Contract, error) {
-		require.Equal(t, []string{contract}, ids)
-		return fetched, nil
-	})
 
-	p := newProcessor(Dependencies{
-		ContractTokens:  contractsMock,
-		MetadataFetcher: fetcher,
-	})
+	pool := newTestPool(t)
+	p := &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		contractTokens:    contractsMock,
+		metadataFetcher:   newMetadataFetcher(rpc, pool),
+		sep41Contracts:    map[string]struct{}{},
+	}
 	p.resetStaged(42)
 	p.stagedContracts[contract] = struct{}{}
 
@@ -226,14 +258,15 @@ func TestProcessor_EnsureContractTokens_PopulatesMetadataFromFetcher(t *testing.
 func TestProcessor_EnsureContractTokens_FallsBackOnFetcherError(t *testing.T) {
 	contractsMock := data.NewContractModelMock(t)
 	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	fetcher := metadataFetcherFunc(func(_ context.Context, _ []string) (map[string]*data.Contract, error) {
-		return nil, fakeRPCError{}
-	})
+	rpc := &stubMetadataRPC{err: fakeRPCError{}}
 
-	p := newProcessor(Dependencies{
-		ContractTokens:  contractsMock,
-		MetadataFetcher: fetcher,
-	})
+	pool := newTestPool(t)
+	p := &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		contractTokens:    contractsMock,
+		metadataFetcher:   newMetadataFetcher(rpc, pool),
+		sep41Contracts:    map[string]struct{}{},
+	}
 	p.resetStaged(42)
 	p.stagedContracts[contract] = struct{}{}
 
@@ -273,12 +306,13 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 	balancesMock := sep41data.NewBalanceModelMock(t)
 	allowancesMock := sep41data.NewAllowanceModelMock(t)
 	contractsMock := data.NewContractModelMock(t)
-	p := newProcessor(Dependencies{
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-		Balances:          balancesMock,
-		Allowances:        allowancesMock,
-		ContractTokens:    contractsMock,
-	})
+	p := &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		balances:          balancesMock,
+		allowances:        allowancesMock,
+		contractTokens:    contractsMock,
+		sep41Contracts:    map[string]struct{}{},
+	}
 	p.resetStaged(42)
 
 	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"

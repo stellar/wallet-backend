@@ -1,0 +1,146 @@
+// Package sep41 — metadata.go owns the SEP-41 token metadata fetch path. It
+// uses services.ContractMetadataService.FetchSingleField (a generic helper)
+// to invoke name(), symbol(), and decimals() via RPC simulation against
+// SEP-41 contracts. Per-contract RPC failures are tolerated; missing entries
+// in the returned map signal "could not fetch — caller should fall back to
+// defaults."
+//
+// This path is private to the sep41 package — the framework knows nothing
+// about token metadata or these particular view functions. Other protocols
+// that need their own enrichment write their own equivalents.
+package sep41
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/alitto/pond/v2"
+	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/services"
+)
+
+const (
+	// metadataBatchSize is the number of contracts processed in parallel per
+	// RPC simulation batch. Tuned the same as the previous generic
+	// simulateTransactionBatchSize so behavior is preserved verbatim.
+	metadataBatchSize = 20
+
+	// metadataBatchSleep is the delay between batches to avoid overwhelming
+	// the RPC.
+	metadataBatchSleep = 2 * time.Second
+)
+
+// metadataFetcher resolves token metadata for newly classified SEP-41
+// contracts via RPC simulation. Holds an internal worker pool for parallel
+// fetches inside a single batch.
+type metadataFetcher struct {
+	rpc  services.ContractMetadataService
+	pool pond.Pool
+}
+
+// newMetadataFetcher returns a fetcher backed by the supplied
+// ContractMetadataService (which provides the generic FetchSingleField
+// primitive). pool is owned by the caller.
+func newMetadataFetcher(rpc services.ContractMetadataService, pool pond.Pool) *metadataFetcher {
+	if rpc == nil || pool == nil {
+		return nil
+	}
+	return &metadataFetcher{rpc: rpc, pool: pool}
+}
+
+// FetchMetadata returns name/symbol/decimals for each contract, keyed by
+// C-address. Per-contract failures are logged and the contract is omitted
+// from the map; only context errors propagate.
+func (f *metadataFetcher) FetchMetadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error) {
+	if f == nil || len(contractIDs) == 0 {
+		return map[string]*data.Contract{}, nil
+	}
+
+	var (
+		mu  sync.Mutex
+		out = make(map[string]*data.Contract, len(contractIDs))
+	)
+
+	for i := 0; i < len(contractIDs); i += metadataBatchSize {
+		end := i + metadataBatchSize
+		if end > len(contractIDs) {
+			end = len(contractIDs)
+		}
+		batch := contractIDs[i:end]
+
+		group := f.pool.NewGroupContext(ctx)
+		for _, contractID := range batch {
+			contractID := contractID
+			group.Submit(func() {
+				contract, err := f.fetchOne(ctx, contractID)
+				if err != nil {
+					log.Ctx(ctx).Warnf("sep41 metadata fetch failed for %s: %v", contractID, err)
+					return
+				}
+				mu.Lock()
+				out[contractID] = contract
+				mu.Unlock()
+			})
+		}
+
+		if err := group.Wait(); err != nil {
+			// Pool errors (typically ctx cancellation) are fatal — callers want to stop.
+			return nil, fmt.Errorf("error in SEP-41 metadata batch: %w", err)
+		}
+
+		if end < len(contractIDs) {
+			select {
+			case <-ctx.Done():
+				return out, fmt.Errorf("waiting between SEP-41 metadata batches: %w", ctx.Err())
+			case <-time.After(metadataBatchSleep):
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// fetchOne pulls name, symbol, and decimals for a single contract.
+func (f *metadataFetcher) fetchOne(ctx context.Context, contractID string) (*data.Contract, error) {
+	nameVal, err := f.rpc.FetchSingleField(ctx, contractID, "name")
+	if err != nil {
+		return nil, fmt.Errorf("fetching name: %w", err)
+	}
+	nameStr, ok := nameVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("name is not a string")
+	}
+
+	symbolVal, err := f.rpc.FetchSingleField(ctx, contractID, "symbol")
+	if err != nil {
+		return nil, fmt.Errorf("fetching symbol: %w", err)
+	}
+	symbolStr, ok := symbolVal.GetStr()
+	if !ok {
+		return nil, fmt.Errorf("symbol is not a string")
+	}
+
+	decimalsVal, err := f.rpc.FetchSingleField(ctx, contractID, "decimals")
+	if err != nil {
+		return nil, fmt.Errorf("fetching decimals: %w", err)
+	}
+	decimalsU32, ok := decimalsVal.GetU32()
+	if !ok {
+		return nil, fmt.Errorf("decimals is not a u32")
+	}
+
+	name := string(nameStr)
+	symbol := string(symbolStr)
+	return &data.Contract{
+		ID:         data.DeterministicContractID(contractID),
+		ContractID: contractID,
+		Type:       ProtocolID,
+		Name:       &name,
+		Symbol:     &symbol,
+		Decimals:   uint32(decimalsU32),
+	}, nil
+}

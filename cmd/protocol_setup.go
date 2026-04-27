@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -18,7 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	_ "github.com/stellar/wallet-backend/internal/services/sep41" // ensure validator/processor init()
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 type protocolSetupCmd struct{}
@@ -79,16 +81,6 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string) error {
 	ctx := context.Background()
 
-	// Build validators from protocol IDs using the dynamic registry
-	var validators []services.ProtocolValidator
-	for _, pid := range protocolIDs {
-		v, ok := services.GetValidator(pid)
-		if !ok {
-			return fmt.Errorf("unknown protocol ID %q — no validator registered", pid)
-		}
-		validators = append(validators, v)
-	}
-
 	// Open DB connection
 	dbPool, err := db.OpenDBConnectionPool(ctx, databaseURL)
 	if err != nil {
@@ -115,20 +107,39 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		return fmt.Errorf("creating RPC service: %w", err)
 	}
 
-	// Create spec extractor
-	specExtractor := services.NewWasmSpecExtractor()
-	defer func() {
-		if closeErr := specExtractor.Close(ctx); closeErr != nil {
-			log.Warnf("closing wasm spec extractor: %v", closeErr)
-		}
-	}()
+	// Build the contract metadata service. Per-protocol validators that need
+	// it (e.g. SEP-41) pull it from ProtocolDeps; the framework itself is
+	// agnostic.
+	metadataPool := pond.NewPool(0)
+	defer metadataPool.StopAndWait()
+	metadataService, err := services.NewContractMetadataService(rpcService, models.Contract, metadataPool)
+	if err != nil {
+		return fmt.Errorf("creating contract metadata service: %w", err)
+	}
 
-	// Create and run the service
+	// Build validators via the registry. Sort the requested IDs so the
+	// dispatcher's first-match-wins iteration is deterministic.
+	deps := services.ProtocolDeps{
+		NetworkPassphrase:       networkPassphrase,
+		Models:                  models,
+		RPCService:              rpcService,
+		ContractMetadataService: metadataService,
+		MetricsService:          m,
+	}
+	sortedIDs := append([]string(nil), protocolIDs...)
+	sort.Strings(sortedIDs)
+	validators, err := services.BuildValidators(deps, sortedIDs)
+	if err != nil {
+		return fmt.Errorf("building validators: %w", err)
+	}
+
+	// Create spec extractor — owned by the service, closed via service.Run.
+	specExtractor := services.NewWasmSpecExtractor()
+
 	service := services.NewProtocolSetupService(
 		dbPool,
 		rpcService,
-		models.Protocols,
-		models.ProtocolWasms,
+		models,
 		specExtractor,
 		validators,
 	)

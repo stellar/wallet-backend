@@ -317,7 +317,7 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 	require.Len(t, rpage2.Edges, 2)
 
 	// Oversize page is rejected with BAD_USER_INPUT.
-	huge := int32(maxAllowancePageLimit + 1)
+	huge := maxAllowancePageLimit + 1
 	_, err = resolver.Sep41Allowances(ctx, parentAccount, &huge, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "less than or equal to 100")

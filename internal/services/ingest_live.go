@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -140,34 +138,40 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
-		// 2.5: Persist protocol wasms and contracts
-		protocolWasms := buffer.GetProtocolWasms()
-		if len(protocolWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasms, 0, len(protocolWasms))
-			for _, wasm := range protocolWasms {
+		// 2.5: Run protocol classification (black-box per protocol) and persist
+		// the resulting protocol_wasms / protocol_contracts mappings. Per-
+		// protocol side effects (e.g. SEP-41 contract_tokens metadata) happen
+		// inside this same dbTx via the validators' Validate calls.
+		bufferedWasms := buffer.GetProtocolWasms()
+		bufferedBytecodes := buffer.GetProtocolWasmBytecodes()
+		bufferedContracts := buffer.GetProtocolContracts()
+
+		contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
+		for _, c := range bufferedContracts {
+			contractSlice = append(contractSlice, c)
+		}
+
+		matches, classifyErr := m.runClassification(ctx, dbTx, bufferedWasms, bufferedBytecodes, contractSlice)
+		if classifyErr != nil {
+			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
+		}
+
+		if len(bufferedWasms) > 0 {
+			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
+			for hash, wasm := range bufferedWasms {
+				if pid, ok := matches[types.HashBytea(hash)]; ok {
+					stamped := pid
+					wasm.ProtocolID = &stamped
+				}
 				wasmSlice = append(wasmSlice, wasm)
 			}
 			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
 			}
 		}
-		protocolContracts := buffer.GetProtocolContracts()
-		if len(protocolContracts) > 0 {
-			contractSlice := make([]data.ProtocolContracts, 0, len(protocolContracts))
-			for _, contract := range protocolContracts {
-				contractSlice = append(contractSlice, contract)
-			}
+		if len(contractSlice) > 0 {
 			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
-			}
-
-			// Enrich contract_tokens for any of these contracts whose WASM was
-			// classified as SEP-41 (either in this ledger via the live classifier,
-			// or in an earlier ledger and looked up via protocol_wasms). Best
-			// effort: a failure here is logged, the transaction still commits with
-			// the classification in place.
-			if enrichErr := m.enrichSEP41Contracts(ctx, dbTx, contractSlice, protocolWasms); enrichErr != nil {
-				log.Ctx(ctx).Warnf("sep41 metadata enrichment skipped for ledger %d: %v", ledgerSeq, enrichErr)
 			}
 		}
 
@@ -557,123 +561,52 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 
-// enrichSEP41Contracts updates contract_tokens metadata (type/name/symbol/
-// decimals) for any contracts in `protocolContracts` whose WASM is classified
-// as SEP-41. Two sources of classification are consulted: the WASMs we just
-// inserted in this same ledger (thisLedgerWasms — the live classifier may
-// have stamped protocol_id on them) and the protocol_wasms table for hashes
-// that aren't in thisLedgerWasms (deployments/upgrades against an earlier-
-// classified WASM). Per-contract RPC failures inside FetchSEP41Metadata are
-// logged-and-skipped by the metadata service; this function only surfaces
-// DB-level errors so the caller can decide what to do.
-func (m *ingestService) enrichSEP41Contracts(
+// runClassification builds a ValidationInput from this ledger's buffered
+// raw WASMs and contracts and dispatches to each registered ProtocolValidator
+// in priority order. Returns the wasm_hash → protocol_id map; the caller
+// stamps protocol_wasms rows from this map and persists them in the same tx.
+//
+// Validator side effects (e.g. SEP-41 contract_tokens metadata writes) happen
+// inside dbTx via the validators themselves and commit atomically with the
+// classification verdict.
+func (m *ingestService) runClassification(
 	ctx context.Context,
 	dbTx pgx.Tx,
-	protocolContracts []data.ProtocolContracts,
-	thisLedgerWasms map[string]data.ProtocolWasms,
-) error {
-	if m.contractMetadataService == nil || len(protocolContracts) == 0 {
-		return nil
+	bufferedWasms map[string]data.ProtocolWasms,
+	bufferedBytecodes map[string][]byte,
+	bufferedContracts []data.ProtocolContracts,
+) (map[types.HashBytea]string, error) {
+	if len(m.protocolValidators) == 0 {
+		return nil, nil
+	}
+	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
+		return nil, nil
 	}
 
-	// Gather every WASM hash referenced by these contracts so we can resolve
-	// each to its protocol_id. We start with the in-flight slice (which may
-	// carry ProtocolID set by the live classifier) and fall back to the DB
-	// for hashes that didn't surface in this ledger.
-	resolvedProtocol := make(map[types.HashBytea]string)
-	for _, w := range thisLedgerWasms {
-		if w.ProtocolID != nil {
-			resolvedProtocol[w.WasmHash] = *w.ProtocolID
-		}
-	}
-	var unresolved []types.HashBytea
-	for _, pc := range protocolContracts {
-		if _, ok := resolvedProtocol[pc.WasmHash]; ok {
-			continue
-		}
-		unresolved = append(unresolved, pc.WasmHash)
-	}
-	if len(unresolved) > 0 {
-		// Query protocol_wasms for the hashes we haven't classified locally.
-		// Use a fresh tx-bound query so it sees the rows we just inserted.
-		hashes := make([][]byte, 0, len(unresolved))
-		seen := make(map[types.HashBytea]struct{}, len(unresolved))
-		for _, h := range unresolved {
-			if _, dup := seen[h]; dup {
-				continue
-			}
-			seen[h] = struct{}{}
-			b, valErr := h.Value()
-			if valErr != nil {
-				log.Ctx(ctx).Debugf("sep41 enrich: skipping invalid hash %q: %v", h, valErr)
-				continue
-			}
-			hashes = append(hashes, b.([]byte))
-		}
-		if len(hashes) > 0 {
-			rows, queryErr := dbTx.Query(ctx,
-				`SELECT wasm_hash, protocol_id FROM protocol_wasms
-				 WHERE wasm_hash = ANY($1) AND protocol_id IS NOT NULL`, hashes)
-			if queryErr != nil {
-				return fmt.Errorf("looking up protocol_wasms classifications: %w", queryErr)
-			}
-			for rows.Next() {
-				var h types.HashBytea
-				var pid string
-				if scanErr := rows.Scan(&h, &pid); scanErr != nil {
-					rows.Close()
-					return fmt.Errorf("scanning protocol_wasms row: %w", scanErr)
-				}
-				resolvedProtocol[h] = pid
-			}
-			rows.Close()
-		}
+	rawWasms := make([]RawWasm, 0, len(bufferedWasms))
+	thisBatch := make(map[types.HashBytea]struct{}, len(bufferedWasms))
+	for hash := range bufferedWasms {
+		bytecode := bufferedBytecodes[hash]
+		rawWasms = append(rawWasms, RawWasm{
+			Hash:     types.HashBytea(hash),
+			Bytecode: bytecode,
+		})
+		thisBatch[types.HashBytea(hash)] = struct{}{}
 	}
 
-	// Bucket contracts by protocol id (currently only SEP41 has metadata
-	// enrichment; future protocols can be plugged in here).
-	addrsByProtocol := make(map[string][]string)
-	for _, pc := range protocolContracts {
-		pid, ok := resolvedProtocol[pc.WasmHash]
-		if !ok || pid != "SEP41" {
-			continue
-		}
-		raw, decodeErr := hex.DecodeString(string(pc.ContractID))
-		if decodeErr != nil {
-			log.Ctx(ctx).Debugf("sep41 enrich: skipping invalid contract id %q: %v", pc.ContractID, decodeErr)
-			continue
-		}
-		addr, encErr := strkey.Encode(strkey.VersionByteContract, raw)
-		if encErr != nil {
-			log.Ctx(ctx).Debugf("sep41 enrich: strkey encode failed for %q: %v", pc.ContractID, encErr)
-			continue
-		}
-		addrsByProtocol[pid] = append(addrsByProtocol[pid], addr)
-	}
-	if len(addrsByProtocol) == 0 {
-		return nil
+	known, err := ResolveKnownProtocols(ctx, dbTx, bufferedContracts, thisBatch)
+	if err != nil {
+		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}
 
-	for protocolID, addrs := range addrsByProtocol {
-		metaByAddr, fetchErr := m.contractMetadataService.FetchSEP41Metadata(ctx, addrs)
-		if fetchErr != nil {
-			log.Ctx(ctx).Debugf("sep41 enrich: FetchSEP41Metadata for %s: %v", protocolID, fetchErr)
-			continue
-		}
-		if len(metaByAddr) == 0 {
-			continue
-		}
-		updates := make([]*data.Contract, 0, len(metaByAddr))
-		for _, c := range metaByAddr {
-			c.Type = protocolID
-			updates = append(updates, c)
-		}
-		if updErr := m.models.Contract.BatchUpdateMetadata(ctx, dbTx, updates); updErr != nil {
-			return fmt.Errorf("batch updating contract metadata for %s: %w", protocolID, updErr)
-		}
-		log.Ctx(ctx).Debugf("sep41 enrich: updated %d contract_tokens rows", len(updates))
+	matches, err := DispatchClassification(
+		ctx, dbTx, m.wasmSpecExtractor, m.protocolValidators,
+		rawWasms, bufferedContracts, m.rpcService, m.models, known,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dispatching classification: %w", err)
 	}
-	return nil
+	return matches, nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.

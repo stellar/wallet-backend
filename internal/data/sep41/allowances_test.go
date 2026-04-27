@@ -7,7 +7,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -41,8 +40,7 @@ func newAllowancesFixture(t *testing.T) (context.Context, *pgxpool.Pool, *sep41.
 }
 
 // seedAllowance inserts a single allowance row and its backing contract_tokens row.
-// Returns the spender + contract UUID so callers can assert on ordering.
-func seedAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, spender, contractAddr string, expirationLedger uint32) uuid.UUID {
+func seedAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, spender, contractAddr string, expirationLedger uint32) {
 	t.Helper()
 	cid := insertContractToken(t, ctx, pool, contractAddr)
 	_, err := pool.Exec(ctx, `
@@ -50,7 +48,6 @@ func seedAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner,
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, owner, spender, cid, "100", expirationLedger, uint32(1))
 	require.NoError(t, err)
-	return cid
 }
 
 func TestAllowanceModel_GetByOwner_LimitsAndOrders(t *testing.T) {

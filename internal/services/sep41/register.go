@@ -1,58 +1,23 @@
 package sep41
 
 import (
-	"context"
-	"sync"
-
-	"github.com/stellar/wallet-backend/internal/data"
-	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-// MetadataFetcher resolves token metadata for newly classified SEP-41 contracts. A miss
-// (contract not in returned map) indicates an RPC-side failure that the caller should
-// tolerate by falling back to default metadata values.
-type MetadataFetcher interface {
-	FetchSEP41Metadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error)
-}
-
-// Dependencies holds the runtime objects the SEP-41 processor needs. Populated by the cmd
-// layer via SetDependencies after Models are built; the registered processor factory captures
-// this package-level var by closure.
-type Dependencies struct {
-	NetworkPassphrase string
-	Balances          sep41data.BalanceModelInterface
-	Allowances        sep41data.AllowanceModelInterface
-	ContractTokens    data.ContractModelInterface
-	StateChanges      data.StateChangeWriter
-	// MetadataFetcher populates name/symbol/decimals on newly inserted contract_tokens rows.
-	// Optional — nil means "ship with defaults".
-	MetadataFetcher MetadataFetcher
-}
-
-var (
-	depsMu sync.RWMutex
-	deps   Dependencies
-)
-
-// SetDependencies stores the processor dependencies. Call this after building data.Models
-// and before invoking services.GetAllProcessors / GetProcessor.
-func SetDependencies(d Dependencies) {
-	depsMu.Lock()
-	defer depsMu.Unlock()
-	deps = d
-}
-
-// currentDeps returns a snapshot of the dependencies.
-func currentDeps() Dependencies {
-	depsMu.RLock()
-	defer depsMu.RUnlock()
-	return deps
-}
-
+// init wires SEP-41 into the framework's registries. Both factories receive
+// services.ProtocolDeps and pull the fields they need from there — there is
+// no SEP-41-specific dependency struct exposed outside this package, and no
+// cmd/* or internal/ingest/* code needs to know that SEP-41 needs a
+// metadata fetcher (or anything else).
+//
+// To use SEP-41, callers blank-import this package (the import alone runs
+// init) and then call services.BuildValidators / services.BuildProcessors
+// with a single shared ProtocolDeps.
 func init() {
-	services.RegisterValidator(ProtocolID, NewValidator())
-	services.RegisterProcessor(ProtocolID, func() services.ProtocolProcessor {
-		return newProcessor(currentDeps())
+	services.RegisterValidator(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolValidator {
+		return newValidator(deps)
+	})
+	services.RegisterProcessor(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolProcessor {
+		return newProcessor(deps)
 	})
 }

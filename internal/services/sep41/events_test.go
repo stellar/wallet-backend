@@ -50,6 +50,11 @@ func u64ScVal(n uint64) xdr.ScVal {
 	return xdr.ScVal{Type: xdr.ScValTypeScvU64, U64: &v}
 }
 
+func strScVal(s string) xdr.ScVal {
+	v := xdr.ScString(s)
+	return xdr.ScVal{Type: xdr.ScValTypeScvString, Str: &v}
+}
+
 func mapScVal(entries ...xdr.ScMapEntry) xdr.ScVal {
 	m := xdr.ScMap(entries)
 	mp := &m

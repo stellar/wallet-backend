@@ -2,82 +2,87 @@ package sep41
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/data"
+	indexerTypes "github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
 func TestIsContractCodeSEP41(t *testing.T) {
 	t.Run("returns true for complete SEP-41 contract", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 
 	t.Run("returns false when missing balance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing allowance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"allowance"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing decimals function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"decimals"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing name function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"name"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing symbol function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"symbol"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing approve function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"approve"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer_from"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn_from"})
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -93,7 +98,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -109,7 +114,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -125,7 +130,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -145,7 +150,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
 		spec = append(spec, transferFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -161,13 +166,13 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for empty contract spec", func(t *testing.T) {
 		spec := []xdr.ScSpecEntry{}
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -182,7 +187,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, customFunc)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 
@@ -201,7 +206,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, udtEntry)
 
-		result := NewValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 }
@@ -414,7 +419,7 @@ func TestValidator_RealWasm(t *testing.T) {
 		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
 		require.NoError(t, err)
 
-		assert.True(t, validator.Validate(specs), "token contract should validate as SEP-41")
+		assert.True(t, matchSEP41Spec(specs), "token contract should validate as SEP-41")
 		assert.Equal(t, "SEP41", validator.ProtocolID())
 	})
 
@@ -423,6 +428,50 @@ func TestValidator_RealWasm(t *testing.T) {
 		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
 		require.NoError(t, err)
 
-		assert.False(t, validator.Validate(specs), "increment contract should not validate as SEP-41")
+		assert.False(t, matchSEP41Spec(specs), "increment contract should not validate as SEP-41")
 	})
+}
+
+// TestValidator_NoMatch covers the case where the signature check rejects the
+// candidate spec. No contract_tokens writes happen and no matches are
+// returned.
+func TestValidator_NoMatch(t *testing.T) {
+	v := NewValidator()
+	hash := indexerTypes.HashBytea("aabb")
+	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
+		Candidates: []services.WasmCandidate{
+			{Hash: hash, SpecEntries: []xdr.ScSpecEntry{{Kind: xdr.ScSpecEntryKindScSpecEntryFunctionV0}}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.MatchedWasms)
+}
+
+// TestValidator_KnownContractEnrichmentRunsWithoutCandidate verifies that the
+// validator enriches contracts whose wasm hash was classified as SEP-41 in a
+// prior batch (KnownProtocolID = "SEP41") even when the wasm itself is not
+// in this batch's Candidates.
+func TestValidator_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
+	contractsMock := data.NewContractModelMock(t)
+	models := &data.Models{Contract: contractsMock}
+
+	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*data.Contract) bool {
+		return len(cs) == 1 && cs[0].Type == ProtocolID
+	})).Return(nil).Once()
+
+	v := NewValidator()
+
+	contractAddr := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	rawAddr, err := strkey.Decode(strkey.VersionByteContract, contractAddr)
+	require.NoError(t, err)
+	contractID := indexerTypes.HashBytea(hex.EncodeToString(rawAddr))
+
+	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
+		Contracts: []services.ContractCandidate{
+			{ContractID: contractID, WasmHash: indexerTypes.HashBytea("aabb"), KnownProtocolID: ProtocolID},
+		},
+		Models: models,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.MatchedWasms, "no in-batch candidates → no match returned")
 }

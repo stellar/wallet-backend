@@ -26,7 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/services/sep41"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 const sep41ProtocolID = "SEP41"
@@ -101,23 +101,27 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 	s.Require().NoError(err)
 
 	specExtractor := services.NewWasmSpecExtractor()
-	validator := sep41.NewValidator()
 
 	metadataPool := pond.NewPool(0)
 	defer metadataPool.StopAndWait()
 	metadataService, mErr := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
 	s.Require().NoError(mErr)
 
+	deps := services.ProtocolDeps{
+		NetworkPassphrase:       s.testEnv.NetworkPassphrase,
+		Models:                  models,
+		RPCService:              s.testEnv.RPCService,
+		ContractMetadataService: metadataService,
+	}
+	validators, cErr := services.BuildValidators(deps, []string{sep41ProtocolID})
+	s.Require().NoError(cErr)
+
 	svc := services.NewProtocolSetupService(
 		pool,
 		s.testEnv.RPCService,
-		models.Protocols,
-		models.ProtocolWasms,
-		models.ProtocolContracts,
-		models.Contract,
-		metadataService,
+		models,
 		specExtractor,
-		[]services.ProtocolValidator{validator},
+		validators,
 	)
 
 	s.Require().NoError(svc.Run(ctx, []string{sep41ProtocolID}))

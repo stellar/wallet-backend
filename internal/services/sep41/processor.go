@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -48,7 +49,8 @@ type processor struct {
 	allowances        sep41data.AllowanceModelInterface
 	contractTokens    data.ContractModelInterface
 	stateChanges      data.StateChangeWriter
-	metadataFetcher   MetadataFetcher
+	metadataFetcher   *metadataFetcher
+	ownsMetadataPool  bool
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
@@ -61,17 +63,28 @@ type processor struct {
 	stagedContracts    map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
 }
 
-// newProcessor constructs a SEP-41 processor from registered dependencies.
-func newProcessor(d Dependencies) *processor {
-	return &processor{
-		networkPassphrase: d.NetworkPassphrase,
-		balances:          d.Balances,
-		allowances:        d.Allowances,
-		contractTokens:    d.ContractTokens,
-		stateChanges:      d.StateChanges,
-		metadataFetcher:   d.MetadataFetcher,
+// newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
+// data layer paths are pulled from deps.Models; metadata enrichment in
+// PersistCurrentState requires deps.ContractMetadataService — when nil
+// (offline migration), the processor still ingests state changes and inserts
+// contract_tokens with default values, leaving metadata for a subsequent run.
+func newProcessor(deps services.ProtocolDeps) *processor {
+	p := &processor{
+		networkPassphrase: deps.NetworkPassphrase,
 		sep41Contracts:    map[string]struct{}{},
 	}
+	if deps.Models != nil {
+		p.balances = deps.Models.SEP41.Balances
+		p.allowances = deps.Models.SEP41.Allowances
+		p.contractTokens = deps.Models.Contract
+		p.stateChanges = deps.Models.StateChanges
+	}
+	if deps.ContractMetadataService != nil {
+		pool := pond.NewPool(0)
+		p.metadataFetcher = newMetadataFetcher(deps.ContractMetadataService, pool)
+		p.ownsMetadataPool = true
+	}
+	return p
 }
 
 // Compile-time interface check.
@@ -404,7 +417,7 @@ func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error
 	// Fetch metadata for new contracts; missing entries keep default (zero) values.
 	metadata := map[string]*data.Contract{}
 	if p.metadataFetcher != nil {
-		fetched, ferr := p.metadataFetcher.FetchSEP41Metadata(ctx, newIDs)
+		fetched, ferr := p.metadataFetcher.FetchMetadata(ctx, newIDs)
 		if ferr != nil {
 			// A fetcher-level error (context cancellation, pool failure) is worth logging
 			// but must not abort the ledger — we still insert rows with defaults so the

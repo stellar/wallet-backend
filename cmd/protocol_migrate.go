@@ -24,7 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/services/sep41"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 type protocolMigrateCmd struct{}
@@ -199,19 +199,20 @@ func runMigration(
 	}
 	defer dbPool.Close()
 
-	// Create models first so processor factories (which capture dependencies via SetDependencies)
-	// have the data-layer objects they need when invoked.
+	// Create models so the per-protocol processor factories (registered via
+	// services.RegisterProcessor) can pull what they need from ProtocolDeps.
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	models, err := data.NewModels(dbPool, m.DB)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
 	}
 
-	// Metadata fetcher is wired in only if an RPC URL is available; the protocol-migrate CLI
-	// does not strictly require RPC (datastore backend runs without one), but SEP-41
-	// contract metadata enrichment on first-ingest does. A nil MetadataFetcher is tolerated
-	// by the processor — it just falls back to default values for decimals/name/symbol.
-	var metadataFetcher sep41.MetadataFetcher
+	// ContractMetadataService is wired in only if an RPC URL is available; the
+	// protocol-migrate CLI does not strictly require RPC (datastore backend
+	// runs without one), but per-protocol contract metadata enrichment on
+	// first-ingest does. A nil ContractMetadataService is tolerated by
+	// processors — they fall back to defaults.
+	var metadataService services.ContractMetadataService
 	if opts.rpcURL != "" {
 		rpcService, rpcErr := services.NewRPCService(
 			opts.rpcURL,
@@ -226,30 +227,18 @@ func runMigration(
 		if cmsErr != nil {
 			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
 		}
-		metadataFetcher = cms
+		metadataService = cms
 	}
 
-	sep41.SetDependencies(sep41.Dependencies{
-		NetworkPassphrase: opts.networkPassphrase,
-		Balances:          models.SEP41.Balances,
-		Allowances:        models.SEP41.Allowances,
-		ContractTokens:    models.Contract,
-		StateChanges:      models.StateChanges,
-		MetadataFetcher:   metadataFetcher,
-	})
-
-	// Build processors from protocol IDs using the dynamic registry.
-	var processors []services.ProtocolProcessor
-	for _, pid := range opts.protocolIDs {
-		factory, ok := services.GetProcessor(pid)
-		if !ok {
-			return fmt.Errorf("unknown protocol ID %q — no processor registered", pid)
-		}
-		p := factory()
-		if p == nil {
-			return fmt.Errorf("processor factory for protocol %q returned nil", pid)
-		}
-		processors = append(processors, p)
+	deps := services.ProtocolDeps{
+		NetworkPassphrase:       opts.networkPassphrase,
+		Models:                  models,
+		ContractMetadataService: metadataService,
+		MetricsService:          m,
+	}
+	processors, err := services.BuildProcessors(deps, opts.protocolIDs)
+	if err != nil {
+		return fmt.Errorf("building protocol processors: %w", err)
 	}
 
 	// Build a ledger backend using the same selector the ingest service uses,

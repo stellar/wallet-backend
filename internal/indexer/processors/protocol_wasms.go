@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"time"
 
-	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -15,33 +13,26 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// WasmClassifier matches WASM bytecode against a registered protocol's spec.
-// It mirrors services.ProtocolValidator + services.WasmSpecExtractor combined
-// into a single interface so this package doesn't have to import services
-// (which would create a cycle: services already imports from indexer/types).
-type WasmClassifier interface {
-	// Classify returns the matched protocol id (empty string if no match)
-	// for the given WASM bytecode.
-	Classify(ctx context.Context, wasmCode []byte) (protocolID string, err error)
+// ProtocolWasmObservation pairs a protocol_wasms record (with NULL ProtocolID
+// at this stage) with the raw bytecode that was uploaded. Downstream
+// classification fills in ProtocolID; the bytecode is what validators consume
+// via the spec extractor.
+type ProtocolWasmObservation struct {
+	Record   data.ProtocolWasms
+	Bytecode []byte
 }
 
-// ProtocolWasmProcessor extracts WASM hashes from ContractCode ledger entries
-// and, when a classifier is provided, validates each new WASM against the
-// registered protocol validators so that `protocol_wasms.protocol_id` is
-// populated immediately on upload — matching the behavior the design doc
-// specifies for live ingestion.
+// ProtocolWasmProcessor extracts WASM hashes and bytecodes from ContractCode
+// ledger entries. It does not classify on the fly — that is the job of the
+// per-batch ProtocolValidator dispatcher run inside PersistLedgerData.
 type ProtocolWasmProcessor struct {
 	metricsService *metrics.IngestionMetrics
-	classifier     WasmClassifier
 }
 
 // NewProtocolWasmProcessor creates a protocol WASM processor.
-// Pass a non-nil classifier to enable inline classification; passing nil
-// preserves the prior "record raw hash, leave protocol_id NULL" behavior.
-func NewProtocolWasmProcessor(metricsService *metrics.IngestionMetrics, classifier WasmClassifier) *ProtocolWasmProcessor {
+func NewProtocolWasmProcessor(metricsService *metrics.IngestionMetrics) *ProtocolWasmProcessor {
 	return &ProtocolWasmProcessor{
 		metricsService: metricsService,
-		classifier:     classifier,
 	}
 }
 
@@ -50,11 +41,10 @@ func (p *ProtocolWasmProcessor) Name() string {
 	return "protocol_wasms"
 }
 
-// ProcessOperation extracts WASM hashes from an operation's ledger changes.
-// Only processes ContractCode entries that have a Post state (created or updated).
-// When the processor has a classifier, each new WASM is validated against the
-// registered protocols so the resulting record carries the matched protocol_id.
-func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolWasms, error) {
+// ProcessOperation extracts WASM hashes and raw bytecode from an operation's
+// ledger changes. Only processes ContractCode entries that have a Post state
+// (created or updated).
+func (p *ProtocolWasmProcessor) ProcessOperation(_ context.Context, opWrapper *TransactionOperationWrapper) ([]ProtocolWasmObservation, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -68,52 +58,21 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	var wasms []data.ProtocolWasms
+	var observations []ProtocolWasmObservation
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractCode || change.Post == nil {
 			continue
 		}
 
 		entry := change.Post.Data.MustContractCode()
-		record := data.ProtocolWasms{
-			WasmHash: types.HashBytea(hex.EncodeToString(entry.Hash[:])),
-		}
-
-		if p.classifier != nil {
-			protocolID, classifyErr := p.classifier.Classify(ctx, entry.Code)
-			if classifyErr != nil {
-				// Non-fatal: live ingest must keep moving forward. The WASM is
-				// recorded with protocol_id = NULL — indistinguishable on the
-				// row from a legitimate non-match — so operators recover by
-				// re-running the protocol-setup CLI, which scans
-				// protocol_id IS NULL rows via GetUnclassified. The
-				// wasm_classification_failures_total counter is the alertable
-				// signal that a row was left NULL because of a classifier
-				// error rather than a true non-match.
-				log.Ctx(ctx).Warnf("protocol_wasms: classify failed for hash=%s: %v",
-					hex.EncodeToString(entry.Hash[:]), classifyErr)
-				if p.metricsService != nil {
-					p.metricsService.WasmClassificationFailuresTotal.
-						WithLabelValues("unknown", "classify_error").Inc()
-				}
-			} else if protocolID != "" {
-				id := protocolID
-				record.ProtocolID = &id
-			}
-		}
-
-		wasms = append(wasms, record)
+		bytecode := append([]byte(nil), entry.Code...)
+		observations = append(observations, ProtocolWasmObservation{
+			Record: data.ProtocolWasms{
+				WasmHash: types.HashBytea(hex.EncodeToString(entry.Hash[:])),
+			},
+			Bytecode: bytecode,
+		})
 	}
 
-	return wasms, nil
-}
-
-// SortProtocolIDs returns the validators sorted by ProtocolID for deterministic
-// match order. Exported for callers that want a stable order; not used inside
-// this processor (each WASM matches at most one protocol so order rarely
-// matters).
-func SortProtocolIDs(ids []string) []string {
-	out := append([]string(nil), ids...)
-	sort.Strings(out)
-	return out
+	return observations, nil
 }

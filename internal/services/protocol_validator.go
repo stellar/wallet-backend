@@ -6,10 +6,91 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/tetratelabs/wazero"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+// ProtocolValidator is the per-protocol seam the data-migration framework
+// calls during classification. The framework hands the validator a batch of
+// candidate WASMs (with parsed spec entries) plus the contracts referencing
+// those WASMs, and the validator returns the wasm hashes it claims. A
+// validator is free to do anything else it needs inside the supplied dbTx —
+// fetch on-chain metadata, write protocol-specific side tables, anything —
+// and the framework treats those side effects as invisible. Only the returned
+// matches drive generic persistence into protocol_wasms.protocol_id.
+//
+// First-match-wins ordering across protocols is enforced by the dispatcher:
+// by the time Validate is called for a given protocol, candidates already
+// claimed by a higher-priority protocol have been filtered out.
+type ProtocolValidator interface {
+	ProtocolID() string
+	Validate(ctx context.Context, dbTx pgx.Tx, input ValidationInput) (ValidationResult, error)
+}
+
+// ValidationInput is the batch handed to a protocol's Validate call.
+type ValidationInput struct {
+	// Candidates are WASMs awaiting classification in this batch. Each entry
+	// carries the raw bytecode and pre-extracted ScSpecEntry items.
+	Candidates []WasmCandidate
+	// Contracts references both in-batch candidates and previously-classified
+	// WASMs. KnownProtocolID is set for hashes already classified by an
+	// earlier ledger or protocol-setup run; the empty string means the wasm
+	// has not been classified yet (or was classified to no match).
+	Contracts []ContractCandidate
+	// RPC is available for validators that need live network reads (e.g.
+	// fetching token metadata via simulation). May be nil; validators must
+	// degrade gracefully.
+	RPC RPCService
+	// Models provides the full data layer. Validators should write only to
+	// protocol-specific tables here; the framework persists the generic
+	// protocol_wasms / protocol_contracts mapping based on the returned
+	// matches.
+	Models *data.Models
+}
+
+// WasmCandidate represents one WASM awaiting classification. Bytecode and
+// SpecEntries are pre-populated by the dispatcher.
+type WasmCandidate struct {
+	Hash        types.HashBytea
+	Bytecode    []byte
+	SpecEntries []xdr.ScSpecEntry
+}
+
+// ContractCandidate represents one contract instance whose wasm hash was seen
+// in this batch (either via a fresh upload or a deploy/upgrade against an
+// older wasm). KnownProtocolID is the empty string until the wasm has been
+// classified.
+type ContractCandidate struct {
+	ContractID      types.HashBytea
+	WasmHash        types.HashBytea
+	KnownProtocolID string
+}
+
+// ValidationResult is what a protocol returns from Validate. MatchedWasms
+// drives the framework's stamp of protocol_wasms.protocol_id. Contract claims
+// are an internal detail of the validator's own enrichment path — the
+// framework persists protocol_contracts unconditionally as a contract→wasm
+// map and the wasm's protocol_id (set via this match) is what downstream
+// JOINs use to resolve the protocol.
+type ValidationResult struct {
+	MatchedWasms []types.HashBytea
+}
+
+// ProtocolContractsByWasm groups a slice of ProtocolContracts by wasm hash.
+// Helper for validators that want to walk only the contracts referencing
+// their matched wasms.
+func ProtocolContractsByWasm(contracts []data.ProtocolContracts) map[types.HashBytea][]data.ProtocolContracts {
+	out := make(map[types.HashBytea][]data.ProtocolContracts, len(contracts))
+	for _, c := range contracts {
+		out[c.WasmHash] = append(out[c.WasmHash], c)
+	}
+	return out
+}
 
 const (
 	contractSpecV0SectionName = "contractspecv0"
@@ -38,13 +119,6 @@ const (
 	// flight and leak the underlying compiler state.
 	wasmCloseTimeout = 5 * time.Second
 )
-
-// ProtocolValidator is the contract between protocol-setup and individual protocol validators.
-// Each validator knows how to identify whether a WASM contract implements a specific protocol.
-type ProtocolValidator interface {
-	ProtocolID() string
-	Validate(specEntries []xdr.ScSpecEntry) bool
-}
 
 // WasmSpecExtractor extracts ScSpecEntry from WASM bytecode.
 type WasmSpecExtractor interface {

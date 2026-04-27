@@ -14,7 +14,7 @@ func withCleanProcessorRegistry(t *testing.T) {
 	processorRegistryMu.RLock()
 	original := processorRegistry
 	processorRegistryMu.RUnlock()
-	resetProcessorRegistry(map[string]func() ProtocolProcessor{})
+	resetProcessorRegistry(map[string]func(ProtocolDeps) ProtocolProcessor{})
 	t.Cleanup(func() { resetProcessorRegistry(original) })
 }
 
@@ -23,14 +23,14 @@ func TestRegisterProcessor(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
 		called := false
-		RegisterProcessor("TEST", func() ProtocolProcessor {
+		RegisterProcessor("TEST", func(ProtocolDeps) ProtocolProcessor {
 			called = true
 			return nil
 		})
 
 		factory, ok := GetProcessor("TEST")
 		require.True(t, ok)
-		factory()
+		factory(ProtocolDeps{})
 		assert.True(t, called)
 	})
 
@@ -45,30 +45,26 @@ func TestRegisterProcessor(t *testing.T) {
 	t.Run("re-register overwrites previous factory", func(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
-		RegisterProcessor("DUP", func() ProtocolProcessor { return nil })
+		RegisterProcessor("DUP", func(ProtocolDeps) ProtocolProcessor { return nil })
 
 		mock := NewProtocolProcessorMock(t)
 		mock.On("ProtocolID").Return("DUP")
-		RegisterProcessor("DUP", func() ProtocolProcessor { return mock })
+		RegisterProcessor("DUP", func(ProtocolDeps) ProtocolProcessor { return mock })
 
 		factory, ok := GetProcessor("DUP")
 		require.True(t, ok)
-		p := factory()
+		p := factory(ProtocolDeps{})
 		assert.Equal(t, "DUP", p.ProtocolID())
 	})
 
-	t.Run("GetAllProcessors returns copy of all registered", func(t *testing.T) {
+	t.Run("GetAllProcessorIDs returns sorted protocol IDs", func(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
-		RegisterProcessor("A", func() ProtocolProcessor { return nil })
-		RegisterProcessor("B", func() ProtocolProcessor { return nil })
+		RegisterProcessor("B", func(ProtocolDeps) ProtocolProcessor { return nil })
+		RegisterProcessor("A", func(ProtocolDeps) ProtocolProcessor { return nil })
 
-		all := GetAllProcessors()
-		assert.Len(t, all, 2)
-		_, hasA := all["A"]
-		_, hasB := all["B"]
-		assert.True(t, hasA)
-		assert.True(t, hasB)
+		ids := GetAllProcessorIDs()
+		assert.Equal(t, []string{"A", "B"}, ids)
 	})
 
 	t.Run("concurrent register and get does not race", func(t *testing.T) {
@@ -82,7 +78,7 @@ func TestRegisterProcessor(t *testing.T) {
 			id := fmt.Sprintf("PROTO_%d", i)
 			go func() {
 				defer wg.Done()
-				RegisterProcessor(id, func() ProtocolProcessor { return nil })
+				RegisterProcessor(id, func(ProtocolDeps) ProtocolProcessor { return nil })
 			}()
 			go func() {
 				defer wg.Done()

@@ -25,7 +25,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/services/sep41"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 const (
@@ -178,17 +178,17 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	// Inject dependencies into registered protocol processor factories before they are resolved.
-	// ContractMetadataService is wired in so the SEP-41 processor can populate name/symbol/decimals
-	// on first-ingest; there is no separate backfill worker.
-	sep41.SetDependencies(sep41.Dependencies{
-		NetworkPassphrase: cfg.NetworkPassphrase,
-		Balances:          models.SEP41.Balances,
-		Allowances:        models.SEP41.Allowances,
-		ContractTokens:    models.Contract,
-		StateChanges:      models.StateChanges,
-		MetadataFetcher:   contractMetadataService,
-	})
+	// Build a single ProtocolDeps to pass through both the validator and
+	// processor registries. cmd/ingest knows nothing about specific
+	// protocols — adding a new one is a blank import elsewhere plus a SQL
+	// migration.
+	protocolDeps := services.ProtocolDeps{
+		NetworkPassphrase:       cfg.NetworkPassphrase,
+		Models:                  models,
+		RPCService:              rpcService,
+		ContractMetadataService: contractMetadataService,
+		MetricsService:          m,
+	}
 
 	// Initialize history archive once for use by both TokenIngestionService and IngestService
 	archive, err := historyarchive.Connect(
@@ -228,23 +228,23 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return NewLedgerBackend(ctx, cfg)
 	}
 
-	// Resolve protocol processors from registry
-	var protocolProcessors []services.ProtocolProcessor
-	for protocolID, factory := range services.GetAllProcessors() {
-		if factory == nil {
-			return nil, fmt.Errorf("protocol processor factory for %q is nil", protocolID)
-		}
-		processor := factory()
-		if processor == nil {
-			return nil, fmt.Errorf("protocol processor factory for %q returned nil", protocolID)
-		}
-		protocolProcessors = append(protocolProcessors, processor)
+	// Resolve protocol processors and validators from the registries.
+	// Both share ProtocolDeps so the cmd layer never names a specific
+	// protocol or its dependencies.
+	allProtocolIDs := services.GetAllProcessorIDs()
+	protocolProcessors, err := services.BuildProcessors(protocolDeps, allProtocolIDs)
+	if err != nil {
+		return nil, fmt.Errorf("building protocol processors: %w", err)
 	}
 
-	// Build the live WASM classifier so the indexer's protocol_wasms processor
-	// can validate uploaded WASMs against registered protocols on the fly. Each
-	// new WASM hash hitting the chain is now recorded with its matched
-	// protocol_id (or NULL if no validator matches).
+	allValidatorIDs := services.GetAllValidatorIDs()
+	protocolValidators, err := services.BuildValidators(protocolDeps, allValidatorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("building protocol validators: %w", err)
+	}
+
+	// Spec extractor is owned by the ingest service so it lives for the
+	// process lifetime and is closed on shutdown.
 	wasmExtractor := services.NewWasmSpecExtractor()
 	go func() {
 		<-ctx.Done()
@@ -252,7 +252,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			log.Ctx(ctx).Warnf("closing wasm spec extractor on shutdown: %v", err)
 		}
 	}()
-	wasmClassifier := services.NewLiveWasmClassifier(services.GetAllValidators(), wasmExtractor)
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
@@ -274,7 +273,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 		CatchupThreshold:          cfg.CatchupThreshold,
 		ProtocolProcessors:        protocolProcessors,
-		WasmClassifier:            wasmClassifier,
+		ProtocolValidators:        protocolValidators,
+		WasmSpecExtractor:         wasmExtractor,
 		ContractMetadataService:   contractMetadataService,
 	})
 	if err != nil {

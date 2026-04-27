@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
-	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -69,13 +68,18 @@ type IngestServiceConfig struct {
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
 
 	// === Live Classification ===
-	// WasmClassifier, when non-nil, lets the indexer's protocol_wasms processor
-	// validate new WASM uploads against registered protocol validators on the
-	// fly. Pass services.NewLiveWasmClassifier(GetAllValidators(), extractor).
-	// nil retains the legacy "record raw hash, leave protocol_id NULL" behavior.
-	WasmClassifier processors.WasmClassifier
+	// ProtocolValidators are run once per ledger inside PersistLedgerData against
+	// the buffered raw WASMs and contracts. Order matters: validators earlier in
+	// the slice win first-match-wins ties for the same wasm hash. Pass the result
+	// of services.BuildValidators with services.GetAllValidatorIDs() (already
+	// sorted) for deterministic priority.
+	ProtocolValidators []ProtocolValidator
+	// WasmSpecExtractor is owned by the caller (lifecycle is process-wide). The
+	// dispatcher uses it to extract spec entries from candidate wasm bytecode.
+	WasmSpecExtractor WasmSpecExtractor
 
-	// === Metadata Service (used for both SAC + post-classification SEP-41 enrichment) ===
+	// === Metadata Service (used for SAC; per-protocol validators/processors get
+	// it via ProtocolDeps and are responsible for their own protocol metadata) ===
 	ContractMetadataService ContractMetadataService
 
 	// === Processing Options ===
@@ -129,6 +133,8 @@ type ingestService struct {
 	knownContractIDs          set.Set[string]
 	contractMetadataService   ContractMetadataService
 	protocolProcessors        map[string]ProtocolProcessor
+	protocolValidators        []ProtocolValidator
+	wasmSpecExtractor         WasmSpecExtractor
 	protocolContractCache     *protocolContractCache
 	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
 	// sequence, scoping protocol processing and the CAS loop to processors that
@@ -199,8 +205,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		appMetrics:                 cfg.Metrics,
 		networkPassphrase:          cfg.NetworkPassphrase,
 		getLedgersLimit:            cfg.GetLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion, cfg.WasmClassifier),
+		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
 		contractMetadataService:    cfg.ContractMetadataService,
+		protocolValidators:         cfg.ProtocolValidators,
+		wasmSpecExtractor:          cfg.WasmSpecExtractor,
 		archive:                    cfg.Archive,
 		backfillPool:               backfillPool,
 		backfillBatchSize:          uint32(cfg.BackfillBatchSize),

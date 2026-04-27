@@ -40,10 +40,12 @@ type IndexerBufferInterface interface {
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
 	PushProtocolWasm(wasm data.ProtocolWasms)
+	PushProtocolWasmBytecode(wasmHash string, bytecode []byte)
 	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
+	GetProtocolWasmBytecodes() map[string][]byte
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
@@ -76,7 +78,7 @@ type Indexer struct {
 	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
-	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
+	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
@@ -84,18 +86,17 @@ type Indexer struct {
 	networkPassphrase          string
 }
 
-// NewIndexer constructs an Indexer. wasmClassifier is optional — when non-nil,
-// the protocol-WASMs processor uses it to inline-classify new WASM uploads
-// against registered protocol validators (per docs/feature-design/data-migrations.md).
-// Pass nil to retain the legacy behavior of recording WASM hashes with
-// protocol_id = NULL (a subsequent protocol-setup run will fill them in).
-func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics, wasmClassifier processors.WasmClassifier) *Indexer {
+// NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
+// during ledger meta processing; classification is performed downstream
+// (per-batch) by services.DispatchClassification — this keeps the indexer
+// agnostic of any specific protocol or its validator shape.
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
 	return &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
 		sacInstancesProcessor:      processors.NewSACInstanceProcessor(networkPassphrase),
-		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(ingestionMetrics, wasmClassifier),
+		protocolWasmsProcessor:     processors.NewProtocolWasmProcessor(ingestionMetrics),
 		protocolContractsProcessor: processors.NewProtocolContractsProcessor(ingestionMetrics),
 		accountsProcessor:          processors.NewAccountsProcessor(ingestionMetrics),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(ingestionMetrics),
@@ -252,7 +253,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
 		}
 		for _, wasm := range protocolWasms {
-			buffer.PushProtocolWasm(wasm)
+			buffer.PushProtocolWasm(wasm.Record)
+			if len(wasm.Bytecode) > 0 {
+				buffer.PushProtocolWasmBytecode(string(wasm.Record.WasmHash), wasm.Bytecode)
+			}
 		}
 
 		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
