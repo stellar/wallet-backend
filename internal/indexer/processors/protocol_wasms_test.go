@@ -5,11 +5,14 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 func TestProtocolWasmProcessor_Name(t *testing.T) {
@@ -184,7 +187,8 @@ func TestProtocolWasmProcessor_ClassifierMatch(t *testing.T) {
 
 func TestProtocolWasmProcessor_ClassifierError_RecordsRaw(t *testing.T) {
 	classifier := &stubClassifier{err: assert.AnError}
-	processor := NewProtocolWasmProcessor(nil, classifier)
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	processor := NewProtocolWasmProcessor(m.Ingestion, classifier)
 
 	hash := xdr.Hash{0xff}
 	op := xdr.Operation{
@@ -213,5 +217,8 @@ func TestProtocolWasmProcessor_ClassifierError_RecordsRaw(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, wasms, 1)
-	assert.Nil(t, wasms[0].ProtocolID, "classifier error should leave protocol_id NULL so a future protocol-setup re-run can fill it")
+	assert.Nil(t, wasms[0].ProtocolID, "classifier error must leave protocol_id NULL; recovery is via manual protocol-setup re-run")
+	assert.Equal(t, 1.0, testutil.ToFloat64(
+		m.Ingestion.WasmClassificationFailuresTotal.WithLabelValues("unknown", "classify_error"),
+	), "classifier error should increment the failure counter so the NULL row is alertable")
 }

@@ -82,11 +82,20 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 		if p.classifier != nil {
 			protocolID, classifyErr := p.classifier.Classify(ctx, entry.Code)
 			if classifyErr != nil {
-				// Non-fatal: log and fall through with protocol_id=NULL so the
-				// next protocol-setup re-run can re-classify (it scans
-				// protocol_id IS NULL rows).
-				log.Ctx(ctx).Debugf("protocol_wasms: classify failed for hash=%s: %v",
+				// Non-fatal: live ingest must keep moving forward. The WASM is
+				// recorded with protocol_id = NULL — indistinguishable on the
+				// row from a legitimate non-match — so operators recover by
+				// re-running the protocol-setup CLI, which scans
+				// protocol_id IS NULL rows via GetUnclassified. The
+				// wasm_classification_failures_total counter is the alertable
+				// signal that a row was left NULL because of a classifier
+				// error rather than a true non-match.
+				log.Ctx(ctx).Warnf("protocol_wasms: classify failed for hash=%s: %v",
 					hex.EncodeToString(entry.Hash[:]), classifyErr)
+				if p.metricsService != nil {
+					p.metricsService.WasmClassificationFailuresTotal.
+						WithLabelValues("unknown", "classify_error").Inc()
+				}
 			} else if protocolID != "" {
 				id := protocolID
 				record.ProtocolID = &id
