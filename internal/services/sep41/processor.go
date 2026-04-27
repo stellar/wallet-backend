@@ -436,7 +436,7 @@ func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error
 		c := &data.Contract{
 			ID:         data.DeterministicContractID(addr),
 			ContractID: addr,
-			Type:       "sep41",
+			Type:       contractTokenType,
 		}
 		if meta, ok := metadata[addr]; ok {
 			c.Name = meta.Name

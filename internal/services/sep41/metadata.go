@@ -180,7 +180,7 @@ func (f *metadataFetcher) fetchOne(ctx context.Context, contractID string) (*dat
 	return &data.Contract{
 		ID:         data.DeterministicContractID(contractID),
 		ContractID: contractID,
-		Type:       ProtocolID,
+		Type:       contractTokenType,
 		Name:       &name,
 		Symbol:     &symbol,
 		Decimals:   uint32(decimalsU32),

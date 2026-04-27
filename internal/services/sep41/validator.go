@@ -20,6 +20,14 @@ import (
 
 const ProtocolID = "SEP41"
 
+// contractTokenType is the lower-case value written to contract_tokens.type
+// for SEP-41 rows. It is intentionally distinct from ProtocolID, which is the
+// upper-case identifier stored in protocols.protocol_id and
+// protocol_wasms.protocol_id. Pre-existing rows in contract_tokens use
+// lower-case discriminators ("sac", "sep41", "unknown"), so writes from the
+// SEP-41 validator must match that convention.
+const contractTokenType = "sep41"
+
 // Validator is SEP-41's implementation of services.ProtocolValidator. It
 // satisfies the framework's per-protocol seam: signature-check candidate
 // WASMs against the SEP-41 token interface and, for any contract whose wasm
@@ -180,7 +188,7 @@ func (v *Validator) enrichContractTokens(ctx context.Context, dbTx pgx.Tx, model
 		defaults = append(defaults, &data.Contract{
 			ID:         data.DeterministicContractID(addr),
 			ContractID: addr,
-			Type:       ProtocolID,
+			Type:       contractTokenType,
 		})
 	}
 	if err := models.Contract.BatchInsert(ctx, dbTx, defaults); err != nil {
@@ -207,10 +215,10 @@ func (v *Validator) enrichContractTokens(ctx context.Context, dbTx pgx.Tx, model
 
 	updates := make([]*data.Contract, 0, len(metaByAddr))
 	for _, contract := range metaByAddr {
-		// Force the row's type to SEP41 so the source of truth stays in
-		// protocols/protocol_wasms — defensive against future fetcher refactors
-		// that might omit the type field.
-		contract.Type = ProtocolID
+		// Force the row's type to the lower-case SEP-41 discriminator so the
+		// source of truth stays in protocols/protocol_wasms — defensive
+		// against future fetcher refactors that might omit the type field.
+		contract.Type = contractTokenType
 		updates = append(updates, contract)
 	}
 	if err := models.Contract.BatchUpdateMetadata(ctx, dbTx, updates); err != nil {

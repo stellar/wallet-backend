@@ -456,7 +456,7 @@ func TestValidator_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
 	models := &data.Models{Contract: contractsMock}
 
 	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*data.Contract) bool {
-		return len(cs) == 1 && cs[0].Type == ProtocolID
+		return len(cs) == 1 && cs[0].Type == contractTokenType
 	})).Return(nil).Once()
 
 	v := NewValidator()
