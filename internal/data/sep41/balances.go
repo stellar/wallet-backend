@@ -168,7 +168,7 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 		DELETE FROM sep41_balances
 		WHERE balance::numeric = 0
 		  AND (account_address, contract_id) IN (
-		      SELECT UNNEST($1::text[]), UNNEST($2::uuid[])
+		      SELECT * FROM UNNEST($1::text[], $2::uuid[])
 		  )`
 	batch.Queue(deleteZeroesQuery, accountAddresses, contractIDs)
 
