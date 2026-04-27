@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -165,4 +166,39 @@ func TestAllowanceModel_GetByOwner_RejectsNonPositiveLimit(t *testing.T) {
 
 	_, err := m.GetByOwner(ctx, keypair.MustRandom().Address(), 0, 0, nil, sep41.SortASC)
 	require.Error(t, err)
+}
+
+func TestAllowanceModel_DeleteExpiredBefore_RemovesOnlyExpiredRows(t *testing.T) {
+	ctx, pool, m, cleanup := newAllowancesFixture(t)
+	defer cleanup()
+
+	ownerExpired := keypair.MustRandom().Address()
+	ownerActive := keypair.MustRandom().Address()
+	spender := keypair.MustRandom().Address()
+	const currentLedger uint32 = 5000
+
+	expiredContract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	activeContract := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
+	boundaryContract := "CBKGXSTBGF7EEX6SYCJTFQ4RZJL3O4WKXBFHIWSL4SDP3UEESH4XJY3A"
+	seedAllowance(t, ctx, pool, ownerExpired, spender, expiredContract, currentLedger-1)
+	seedAllowance(t, ctx, pool, ownerActive, spender, activeContract, currentLedger+1)
+	seedAllowance(t, ctx, pool, ownerActive, keypair.MustRandom().Address(), boundaryContract, currentLedger)
+
+	err := db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		return m.DeleteExpiredBefore(ctx, dbTx, currentLedger)
+	})
+	require.NoError(t, err)
+
+	var remaining int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM sep41_allowances`).Scan(&remaining)
+	require.NoError(t, err)
+	assert.Equal(t, 2, remaining)
+
+	expiredPage, err := m.GetByOwner(ctx, ownerExpired, currentLedger, 10, nil, sep41.SortASC)
+	require.NoError(t, err)
+	assert.Empty(t, expiredPage)
+
+	activePage, err := m.GetByOwner(ctx, ownerActive, currentLedger, 10, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, activePage, 2)
 }

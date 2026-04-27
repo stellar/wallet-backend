@@ -26,6 +26,7 @@ CREATE TABLE sep41_allowances (
 
 CREATE INDEX idx_sep41_allowances_owner ON sep41_allowances(owner_address);
 CREATE INDEX idx_sep41_allowances_spender ON sep41_allowances(spender_address);
+CREATE INDEX idx_sep41_allowances_expiration_ledger ON sep41_allowances(expiration_ledger);
 
 -- +migrate Down
 

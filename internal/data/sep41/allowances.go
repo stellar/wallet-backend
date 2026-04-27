@@ -13,6 +13,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const expiredAllowanceSweepLimit = 1000
+
 // Allowance represents a SEP-41 approve() grant: owner allows spender to move up to amount
 // until expiration_ledger. The pair (owner, spender, contract_id) is unique.
 type Allowance struct {
@@ -40,6 +42,11 @@ type AllowanceModelInterface interface {
 	// keyset-paginated by (spender_address, contract_id); pass a nil cursor for the first page.
 	GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Allowance, deletes []Allowance) error
+	// DeleteExpiredBefore removes a bounded batch of allowances whose expiration_ledger is
+	// strictly below currentLedger. Callers should invoke it from the current-state
+	// transaction after applying the ledger's own allowance writes so refreshed grants
+	// survive the sweep.
+	DeleteExpiredBefore(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error
 }
 
 type AllowanceModel struct {
@@ -171,5 +178,36 @@ func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts [
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sep41_allowances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sep41_allowances").Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchUpsert", "sep41_allowances").Observe(float64(len(upserts) + len(deletes)))
+	return nil
+}
+
+// DeleteExpiredBefore removes a bounded batch of expired current-state rows.
+// Rows whose expiration_ledger equals currentLedger remain active for that ledger
+// and are not deleted until the next successful current-state write.
+func (m *AllowanceModel) DeleteExpiredBefore(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
+	if currentLedger == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	_, err := dbTx.Exec(ctx, `
+		WITH expired AS (
+			SELECT ctid
+			FROM sep41_allowances
+			WHERE expiration_ledger < $1
+			ORDER BY expiration_ledger ASC
+			LIMIT $2
+		)
+		DELETE FROM sep41_allowances a
+		USING expired
+		WHERE a.ctid = expired.ctid
+	`, currentLedger, expiredAllowanceSweepLimit)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("DeleteExpiredBefore", "sep41_allowances").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("DeleteExpiredBefore", "sep41_allowances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("DeleteExpiredBefore", "sep41_allowances", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("deleting expired SEP-41 allowances before ledger %d: %w", currentLedger, err)
+	}
 	return nil
 }

@@ -75,3 +75,8 @@ func (m *AllowanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	args := m.Called(ctx, dbTx, upserts, deletes)
 	return args.Error(0)
 }
+
+func (m *AllowanceModelMock) DeleteExpiredBefore(ctx context.Context, dbTx pgx.Tx, currentLedger uint32) error {
+	args := m.Called(ctx, dbTx, currentLedger)
+	return args.Error(0)
+}

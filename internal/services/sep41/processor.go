@@ -370,6 +370,9 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	if err := p.allowances.BatchUpsert(ctx, dbTx, allowanceUpserts, allowanceDeletes); err != nil {
 		return fmt.Errorf("upserting SEP-41 allowances: %w", err)
 	}
+	if err := p.allowances.DeleteExpiredBefore(ctx, dbTx, p.ledgerNumber); err != nil {
+		return fmt.Errorf("deleting expired SEP-41 allowances: %w", err)
+	}
 
 	return nil
 }

@@ -343,6 +343,7 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 
 	// No allowances staged this ledger.
 	allowancesMock.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	allowancesMock.On("DeleteExpiredBefore", mock.Anything, mock.Anything, uint32(42)).Return(nil).Once()
 
 	require.NoError(t, p.PersistCurrentState(context.Background(), nil))
 }
