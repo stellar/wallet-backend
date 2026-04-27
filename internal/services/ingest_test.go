@@ -3092,7 +3092,7 @@ func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols
 
 	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
 		"selected": {processor: selectedProcessor, historyEligible: true, currentStateEligible: true},
-	})
+	}, nil, classificationOutcome{})
 	require.NoError(t, err)
 }
 
@@ -3126,7 +3126,119 @@ func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 
 	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
+	}, nil, classificationOutcome{})
+	require.NoError(t, err)
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_IncludesSameLedgerMatchedContracts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	baseContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
+	currentLedgerContract := data.ProtocolContracts{ContractID: types.HashBytea(flushTxHash3), WasmHash: types.HashBytea(flushTxHash4)}
+	expectedContracts := []data.ProtocolContracts{baseContract, currentLedgerContract}
+
+	processor := NewProtocolProcessorMock(t)
+	processor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"testproto": {baseContract},
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
+	}, map[string]data.ProtocolContracts{
+		string(currentLedgerContract.ContractID): currentLedgerContract,
+	}, classificationOutcome{
+		matches: map[types.HashBytea]string{
+			currentLedgerContract.WasmHash: "testproto",
+		},
 	})
+	require.NoError(t, err)
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_IncludesSameLedgerKnownContracts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	currentLedgerContract := data.ProtocolContracts{ContractID: types.HashBytea(flushTxHash3), WasmHash: types.HashBytea(flushTxHash4)}
+	expectedContracts := []data.ProtocolContracts{currentLedgerContract}
+
+	processor := NewProtocolProcessorMock(t)
+	processor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			reflect.DeepEqual(input.ProtocolContracts, expectedContracts)
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: make(map[string][]data.ProtocolContracts),
+			lastRefreshLedger:   123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
+	}, map[string]data.ProtocolContracts{
+		string(currentLedgerContract.ContractID): currentLedgerContract,
+	}, classificationOutcome{
+		knownByHash: map[types.HashBytea]string{
+			currentLedgerContract.WasmHash: "testproto",
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_ingestService_produceProtocolStateForProcessors_RemovesContractsUpgradedAwayFromProtocol(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	baseContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
+	upgradedContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(flushTxHash3)}
+
+	processor := NewProtocolProcessorMock(t)
+	processor.On("ProcessLedger", ctx, mock.MatchedBy(func(input ProtocolProcessorInput) bool {
+		return input.LedgerSequence == 123 &&
+			input.NetworkPassphrase == "test-passphrase" &&
+			len(input.ProtocolContracts) == 0
+	})).Return(nil).Once()
+
+	svc := &ingestService{
+		appMetrics:        m,
+		networkPassphrase: "test-passphrase",
+		protocolContractCache: &protocolContractCache{
+			contractsByProtocol: map[string][]data.ProtocolContracts{
+				"testproto": {baseContract},
+			},
+			lastRefreshLedger: 123,
+		},
+	}
+
+	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
+	}, map[string]data.ProtocolContracts{
+		string(upgradedContract.ContractID): upgradedContract,
+	}, classificationOutcome{})
 	require.NoError(t, err)
 }
 
@@ -3261,7 +3373,7 @@ func Test_ingestService_produceProtocolStateForProcessors_FirstRefreshFailure_Fa
 
 	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 200, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
-	})
+	}, nil, classificationOutcome{})
 	require.Error(t, err)
 	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
 }

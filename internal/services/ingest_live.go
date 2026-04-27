@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -32,6 +33,18 @@ const (
 type protocolContractCache struct {
 	contractsByProtocol map[string][]data.ProtocolContracts
 	lastRefreshLedger   uint32
+}
+
+type classificationOutcome struct {
+	matches     map[types.HashBytea]string
+	knownByHash map[types.HashBytea]string
+}
+
+func (o classificationOutcome) protocolIDForWasm(hash types.HashBytea) string {
+	if pid, ok := o.matches[hash]; ok {
+		return pid
+	}
+	return o.knownByHash[hash]
 }
 
 func protocolStateCursorReady(cursorValue, ledgerSeq uint32) bool {
@@ -112,10 +125,21 @@ func (m *ingestService) protocolProcessorsEligibleForProduction(ctx context.Cont
 // It handles: trustline assets, contract tokens, filtered data insertion,
 // token changes, and cursor update.
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
+	return m.persistLedgerData(ctx, ledgerSeq, nil, buffer, cursorName)
+}
+
+func (m *ingestService) persistLedgerData(
+	ctx context.Context,
+	ledgerSeq uint32,
+	ledgerMeta *xdr.LedgerCloseMeta,
+	buffer *indexer.IndexerBuffer,
+	cursorName string,
+) (int, int, error) {
 	var numTxs, numOps int
 	// Track protocols that persisted current state in this transaction attempt
 	// so we can reset their cache-loaded flag on rollback.
 	var currentStatePersistedProtocols []string
+	var invalidateProtocolContractCache bool
 
 	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
@@ -138,10 +162,12 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
-		// 2.5: Run protocol classification (black-box per protocol) and persist
-		// the resulting protocol_wasms / protocol_contracts mappings. Per-
+		// 2.5: Run protocol classification (black-box per protocol). Per-
 		// protocol side effects (e.g. SEP-41 contract_tokens metadata) happen
-		// inside this same dbTx via the validators' Validate calls.
+		// inside this same dbTx via the validators' Validate calls. Live
+		// protocol processors then stage ledger state from the classification
+		// result before the generic protocol_wasms / protocol_contracts rows
+		// are persisted below.
 		bufferedWasms := buffer.GetProtocolWasms()
 		bufferedBytecodes := buffer.GetProtocolWasmBytecodes()
 		bufferedContracts := buffer.GetProtocolContracts()
@@ -151,15 +177,22 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			contractSlice = append(contractSlice, c)
 		}
 
-		matches, classifyErr := m.runClassification(ctx, dbTx, bufferedWasms, bufferedBytecodes, contractSlice)
+		classification, classifyErr := m.runClassification(ctx, dbTx, bufferedWasms, bufferedBytecodes, contractSlice)
 		if classifyErr != nil {
 			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
+		}
+		if ledgerMeta != nil && len(m.eligibleProtocolProcessors) > 0 {
+			if produceErr := m.produceProtocolStateForProcessors(
+				ctx, *ledgerMeta, ledgerSeq, m.eligibleProtocolProcessors, bufferedContracts, classification,
+			); produceErr != nil {
+				return fmt.Errorf("producing protocol state for ledger %d: %w", ledgerSeq, produceErr)
+			}
 		}
 
 		if len(bufferedWasms) > 0 {
 			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
 			for hash, wasm := range bufferedWasms {
-				if pid, ok := matches[types.HashBytea(hash)]; ok {
+				if pid, ok := classification.matches[types.HashBytea(hash)]; ok {
 					stamped := pid
 					wasm.ProtocolID = &stamped
 				}
@@ -173,6 +206,7 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
 			}
+			invalidateProtocolContractCache = true
 		}
 
 		// 3. Insert transactions/operations/state_changes
@@ -278,6 +312,11 @@ func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32,
 			m.protocolCurrentStateLoaded[pid] = false
 		}
 		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
+	}
+	if invalidateProtocolContractCache && m.protocolContractCache != nil {
+		// Force the next ledger to reload committed protocol_contracts from the DB
+		// instead of serving a pre-commit snapshot from cache.
+		m.protocolContractCache.lastRefreshLedger = 0
 	}
 
 	return numTxs, numOps, nil
@@ -412,15 +451,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.eligibleProtocolProcessors = eligibleProcessors
 
-		// Run protocol state production (in-memory analysis before DB transaction) only
-		// for processors that may actually persist this ledger.
-		if produceErr := m.produceProtocolStateForProcessors(ctx, ledgerMeta, currentLedger, eligibleProcessors); produceErr != nil {
-			return fmt.Errorf("producing protocol state for ledger %d: %w", currentLedger, produceErr)
-		}
-
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetryLive(ctx, currentLedger, &ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -450,12 +483,19 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, ledgerSeq uint32, targets map[string]protocolProductionTarget) error {
+func (m *ingestService) produceProtocolStateForProcessors(
+	ctx context.Context,
+	ledgerMeta xdr.LedgerCloseMeta,
+	ledgerSeq uint32,
+	targets map[string]protocolProductionTarget,
+	bufferedContracts map[string]data.ProtocolContracts,
+	classification classificationOutcome,
+) error {
 	if len(targets) == 0 {
 		return nil
 	}
 	for protocolID, target := range targets {
-		contracts, err := m.getProtocolContracts(ctx, protocolID, ledgerSeq)
+		contracts, err := m.getEffectiveProtocolContracts(ctx, protocolID, ledgerSeq, bufferedContracts, classification)
 		if err != nil {
 			return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, err)
 		}
@@ -473,6 +513,45 @@ func (m *ingestService) produceProtocolStateForProcessors(ctx context.Context, l
 		m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
 	}
 	return nil
+}
+
+func (m *ingestService) getEffectiveProtocolContracts(
+	ctx context.Context,
+	protocolID string,
+	currentLedger uint32,
+	bufferedContracts map[string]data.ProtocolContracts,
+	classification classificationOutcome,
+) ([]data.ProtocolContracts, error) {
+	baseContracts, err := m.getProtocolContracts(ctx, protocolID, currentLedger)
+	if err != nil {
+		return nil, err
+	}
+	if len(bufferedContracts) == 0 {
+		return baseContracts, nil
+	}
+
+	out := make([]data.ProtocolContracts, 0, len(baseContracts)+len(bufferedContracts))
+	for _, contract := range baseContracts {
+		if _, updatedThisLedger := bufferedContracts[string(contract.ContractID)]; updatedThisLedger {
+			continue
+		}
+		out = append(out, contract)
+	}
+
+	contractIDs := make([]string, 0, len(bufferedContracts))
+	for contractID := range bufferedContracts {
+		contractIDs = append(contractIDs, contractID)
+	}
+	sort.Strings(contractIDs)
+
+	for _, contractID := range contractIDs {
+		contract := bufferedContracts[contractID]
+		if classification.protocolIDForWasm(contract.WasmHash) != protocolID {
+			continue
+		}
+		out = append(out, contract)
+	}
+	return out, nil
 }
 
 // getProtocolContracts returns cached contracts for a protocol, refreshing if stale.
@@ -525,6 +604,15 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 
 // ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
 func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
+	return m.ingestProcessedDataWithRetryLive(ctx, currentLedger, nil, buffer)
+}
+
+func (m *ingestService) ingestProcessedDataWithRetryLive(
+	ctx context.Context,
+	currentLedger uint32,
+	ledgerMeta *xdr.LedgerCloseMeta,
+	buffer *indexer.IndexerBuffer,
+) (int, int, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -533,7 +621,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 		default:
 		}
 
-		numTxs, numOps, err := m.PersistLedgerData(ctx, currentLedger, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, ledgerMeta, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}
@@ -563,8 +651,10 @@ func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, curren
 
 // runClassification builds a ValidationInput from this ledger's buffered
 // raw WASMs and contracts and dispatches to each registered ProtocolValidator
-// in priority order. Returns the wasm_hash → protocol_id map; the caller
-// stamps protocol_wasms rows from this map and persists them in the same tx.
+// in priority order. The returned outcome carries both new wasm matches for
+// this batch and previously-known protocol IDs for buffered contract hashes,
+// so live ProcessLedger can reason about same-ledger deploy/upgrade events
+// before protocol_contracts is committed.
 //
 // Validator side effects (e.g. SEP-41 contract_tokens metadata writes) happen
 // inside dbTx via the validators themselves and commit atomically with the
@@ -575,12 +665,10 @@ func (m *ingestService) runClassification(
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
 	bufferedContracts []data.ProtocolContracts,
-) (map[types.HashBytea]string, error) {
-	if len(m.protocolValidators) == 0 {
-		return nil, nil
-	}
+) (classificationOutcome, error) {
+	out := classificationOutcome{}
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
-		return nil, nil
+		return out, nil
 	}
 
 	rawWasms := make([]RawWasm, 0, len(bufferedWasms))
@@ -596,7 +684,11 @@ func (m *ingestService) runClassification(
 
 	known, err := ResolveKnownProtocols(ctx, dbTx, bufferedContracts, thisBatch)
 	if err != nil {
-		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
+		return out, fmt.Errorf("resolving known protocol classifications: %w", err)
+	}
+	out.knownByHash = known
+	if len(m.protocolValidators) == 0 {
+		return out, nil
 	}
 
 	matches, err := DispatchClassification(
@@ -604,9 +696,10 @@ func (m *ingestService) runClassification(
 		rawWasms, bufferedContracts, m.rpcService, m.models, known,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("dispatching classification: %w", err)
+		return out, fmt.Errorf("dispatching classification: %w", err)
 	}
-	return matches, nil
+	out.matches = matches
+	return out, nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.
