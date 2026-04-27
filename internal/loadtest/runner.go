@@ -78,6 +78,8 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	defer indexerPool.StopAndWait()
 
 	metrics.RegisterPoolMetrics(m.Registry(), "loadtest_indexer", indexerPool)
+	// Loadtest doesn't exercise classification; the indexer just buffers raw
+	// WASM bytecode and the dispatcher is bypassed (no validators wired).
 	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
 
 	// Create TokenIngestionService for token change processing

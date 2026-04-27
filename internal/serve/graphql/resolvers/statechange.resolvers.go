@@ -339,6 +339,15 @@ func (r *standardBalanceChangeResolver) Amount(ctx context.Context, obj *types.S
 	return r.resolveRequiredString(obj.Amount), nil
 }
 
+// ToMuxedID is the resolver for the toMuxedId field.
+func (r *standardBalanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*string, error) {
+	if !obj.ToMuxedID.Valid {
+		return nil, nil
+	}
+	v := obj.ToMuxedID.String
+	return &v, nil
+}
+
 // Type is the resolver for the type field.
 func (r *trustlineChangeResolver) Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
@@ -432,14 +441,12 @@ func (r *Resolver) TrustlineChange() graphql1.TrustlineChangeResolver {
 	return &trustlineChangeResolver{r}
 }
 
-type (
-	accountChangeResolver              struct{ *Resolver }
-	balanceAuthorizationChangeResolver struct{ *Resolver }
-	flagsChangeResolver                struct{ *Resolver }
-	metadataChangeResolver             struct{ *Resolver }
-	reservesChangeResolver             struct{ *Resolver }
-	signerChangeResolver               struct{ *Resolver }
-	signerThresholdsChangeResolver     struct{ *Resolver }
-	standardBalanceChangeResolver      struct{ *Resolver }
-	trustlineChangeResolver            struct{ *Resolver }
-)
+type accountChangeResolver struct{ *Resolver }
+type balanceAuthorizationChangeResolver struct{ *Resolver }
+type flagsChangeResolver struct{ *Resolver }
+type metadataChangeResolver struct{ *Resolver }
+type reservesChangeResolver struct{ *Resolver }
+type signerChangeResolver struct{ *Resolver }
+type signerThresholdsChangeResolver struct{ *Resolver }
+type standardBalanceChangeResolver struct{ *Resolver }
+type trustlineChangeResolver struct{ *Resolver }

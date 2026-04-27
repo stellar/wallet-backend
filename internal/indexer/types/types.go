@@ -568,6 +568,10 @@ type StateChange struct {
 	TokenID NullAddressBytea `json:"tokenId,omitempty" db:"token_id"`
 	Amount  sql.NullString   `json:"amount,omitempty" db:"amount"`
 
+	// CAP-67 destination memo (u64) carried by SEP-41 transfer/mint events; stored as TEXT
+	// because u64 values above 2^63-1 would overflow BIGINT.
+	ToMuxedID sql.NullString `json:"toMuxedId,omitempty" db:"to_muxed_id"`
+
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID   NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`

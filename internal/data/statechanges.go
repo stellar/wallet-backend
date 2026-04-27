@@ -23,6 +23,14 @@ type StateChangeModel struct {
 	Metrics *metrics.DBMetrics
 }
 
+// StateChangeWriter is the bulk-insert surface external protocol processors use to persist
+// history into the state_changes hypertable inside a CAS-guarded transaction.
+type StateChangeWriter interface {
+	BatchCopy(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) (int, error)
+}
+
+var _ StateChangeWriter = (*StateChangeModel)(nil)
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
@@ -203,6 +211,7 @@ func (m *StateChangeModel) BatchCopy(
 			"claimable_balance_id", "liquidity_pool_id", "sponsored_data",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
+			"to_muxed_id",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
@@ -278,6 +287,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.TrustlineLimitNew),
 				pgtypeInt2FromNullInt16(sc.Flags),
 				jsonbFromMap(sc.KeyValue),
+				pgtypeTextFromNullString(sc.ToMuxedID),
 			}, nil
 		}),
 	)

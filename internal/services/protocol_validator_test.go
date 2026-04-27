@@ -82,7 +82,16 @@ func TestWasmSpecExtractor_ExtractSpec(t *testing.T) {
 		ex := NewWasmSpecExtractor()
 		t.Cleanup(func() { _ = ex.Close(ctx) })
 
-		specs := createSEP41ContractSpec()
+		specs := []xdr.ScSpecEntry{
+			{
+				Kind:       xdr.ScSpecEntryKindScSpecEntryFunctionV0,
+				FunctionV0: &xdr.ScSpecFunctionV0{Name: xdr.ScSymbol("balance")},
+			},
+			{
+				Kind:       xdr.ScSpecEntryKindScSpecEntryFunctionV0,
+				FunctionV0: &xdr.ScSpecFunctionV0{Name: xdr.ScSymbol("transfer")},
+			},
+		}
 		payload := marshalSpecEntries(t, specs)
 		mod := buildWasmWithCustomSection(contractSpecV0SectionName, payload)
 

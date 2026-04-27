@@ -40,10 +40,15 @@ type IndexerBufferInterface interface {
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
 	PushProtocolWasm(wasm data.ProtocolWasms)
+	PushProtocolWasmBytecode(wasmHash string, bytecode []byte)
 	PushProtocolContracts(contract data.ProtocolContracts)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
+	// GetProtocolWasmBytecodes returns a shallow clone of the wasmHash → bytecode
+	// map. The []byte values alias buffer-owned storage and MUST be treated as
+	// read-only; bytecode is content-addressed and immutable.
+	GetProtocolWasmBytecodes() map[string][]byte
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	Merge(other IndexerBufferInterface)
 	Clear()
@@ -76,7 +81,7 @@ type Indexer struct {
 	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
-	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
+	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
@@ -84,6 +89,10 @@ type Indexer struct {
 	networkPassphrase          string
 }
 
+// NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
+// during ledger meta processing; classification is performed downstream
+// (per-batch) by services.DispatchClassification — this keeps the indexer
+// agnostic of any specific protocol or its validator shape.
 func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
 	return &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
@@ -247,7 +256,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
 		}
 		for _, wasm := range protocolWasms {
-			buffer.PushProtocolWasm(wasm)
+			buffer.PushProtocolWasm(wasm.Record)
+			if len(wasm.Bytecode) > 0 {
+				buffer.PushProtocolWasmBytecode(string(wasm.Record.WasmHash), wasm.Bytecode)
+			}
 		}
 
 		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)

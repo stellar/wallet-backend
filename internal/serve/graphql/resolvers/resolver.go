@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -26,11 +27,14 @@ import (
 )
 
 // BalanceReader provides read-only access to account balance data.
-// This interface abstracts balance retrieval for trustlines, native XLM, and SAC balances.
+// This interface abstracts balance retrieval for trustlines, native XLM, SAC, and
+// SEP-41 balances (plus SEP-41 allowances).
 type BalanceReader interface {
 	GetTrustlineBalances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.TrustlineBalance, error)
 	GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error)
 	GetSACBalances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]data.SACBalance, error)
+	GetSEP41Balances(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder data.SortOrder) ([]sep41data.Balance, error)
+	GetSEP41Allowances(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *sep41data.AllowanceCursor, sortOrder sep41data.SortOrder) ([]sep41data.Allowance, error)
 }
 
 const (

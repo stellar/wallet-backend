@@ -33,6 +33,7 @@ const (
 	balanceSourceNative  balanceSource = "native"
 	balanceSourceClassic balanceSource = "classic"
 	balanceSourceSAC     balanceSource = "sac"
+	balanceSourceSEP41   balanceSource = "sep41"
 )
 
 // balanceCursor is the decoded form of our opaque cursor payload:
@@ -96,13 +97,14 @@ func balanceInternalError() error {
 // balanceSourcesForAddress returns the ordered set of balance sources that can
 // apply to the requested address type.
 //
-// G-addresses can have native XLM and classic trustlines.
-// C-addresses can hold SAC balances, but never native/classic rows.
+// G-addresses can have native XLM, classic trustlines, and SEP-41 token balances.
+// C-addresses can hold SAC balances and SEP-41 token balances, but never
+// native/classic rows.
 func balanceSourcesForAddress(address string) []balanceSource {
 	if utils.IsContractAddress(address) {
-		return []balanceSource{balanceSourceSAC}
+		return []balanceSource{balanceSourceSAC, balanceSourceSEP41}
 	}
-	return []balanceSource{balanceSourceNative, balanceSourceClassic}
+	return []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41}
 }
 
 // balanceSourceIndex maps a source to its canonical order position. The walkers
@@ -408,6 +410,8 @@ func (r *Resolver) getBalanceNodesForSource(
 		return r.getTrustlineBalanceNodes(ctx, address, cursor, sortOrder, limit, networkPassphrase)
 	case balanceSourceSAC:
 		return r.getSACBalanceNodes(ctx, address, cursor, sortOrder, limit)
+	case balanceSourceSEP41:
+		return r.getSEP41BalanceNodes(ctx, address, cursor, sortOrder, limit)
 	default:
 		return nil, balanceBadUserInputError("invalid balance source")
 	}
@@ -502,6 +506,38 @@ func (r *Resolver) getSACBalanceNodes(
 			Balance: buildSACBalanceFromDB(sacBalance),
 			Source:  balanceSourceSAC,
 			ID:      sacBalance.ContractID.String(),
+		})
+	}
+
+	return nodes, nil
+}
+
+// getSEP41BalanceNodes pages holder SEP-41 balances by contract UUID. Cursor is the last
+// contract_id UUID from the previous page (same shape as SAC).
+func (r *Resolver) getSEP41BalanceNodes(
+	ctx context.Context,
+	address string,
+	cursor *balanceCursor,
+	sortOrder data.SortOrder,
+	limit int32,
+) ([]*balanceNode, error) {
+	cursorID, err := cursor.uuid()
+	if err != nil {
+		return nil, balanceBadUserInputError("invalid balance cursor id")
+	}
+
+	balances, err := r.balanceReader.GetSEP41Balances(ctx, address, &limit, cursorID, sortOrder)
+	if err != nil {
+		log.Ctx(ctx).Errorf("failed to get paginated SEP-41 balances for %s: %v", address, err)
+		return nil, balanceInternalError()
+	}
+
+	nodes := make([]*balanceNode, 0, len(balances))
+	for _, bal := range balances {
+		nodes = append(nodes, &balanceNode{
+			Balance: buildSEP41BalanceFromDB(bal),
+			Source:  balanceSourceSEP41,
+			ID:      bal.ContractID.String(),
 		})
 	}
 

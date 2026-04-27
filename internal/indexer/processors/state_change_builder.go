@@ -4,6 +4,7 @@ package processors
 
 import (
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -118,6 +119,13 @@ func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeB
 // WithAmount sets the amount
 func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 	b.base.Amount = utils.SQLNullString(amount)
+	return b
+}
+
+// WithToMuxedID sets the CAP-67 destination memo (u64) on the state change.
+// Stored as a decimal string so values above 2^63-1 round-trip without overflow.
+func (b *StateChangeBuilder) WithToMuxedID(muxedID uint64) *StateChangeBuilder {
+	b.base.ToMuxedID = sql.NullString{String: strconv.FormatUint(muxedID, 10), Valid: true}
 	return b
 }
 

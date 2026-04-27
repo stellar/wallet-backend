@@ -25,7 +25,7 @@ Adding a protocol involves six code-level steps and one operational step:
 ```
 Code changes:
   1. Protocol migration SQL       (register protocol ID in the database)
-  2. Validator                    (classify contracts by WASM spec)
+  2. Validator                    (decide which contracts belong to your protocol — black box)
   3. State table + data model     (store protocol-specific state, optional and can be skipped if state tracking is not needed)
   4. Processor                    (extract state from ledgers)
   5. Registration file            (wire validator + processor into global registries)
@@ -34,6 +34,8 @@ Code changes:
 Operational:
   7. Run the 4-step migration workflow (setup -> live ingest + history + current-state)
 ```
+
+> The framework treats each protocol's validator as a black box during classification. Inside `Validate` you are free to do anything you need (signature checks, RPC fetches, writes to your own protocol-specific tables). The only thing the framework cares about is the `MatchedWasms` slice your validator returns — that drives the generic `protocol_wasms.protocol_id` stamp.
 
 ## Prerequisites
 
@@ -57,75 +59,82 @@ The protocol ID is a string primary key (e.g., `BLEND`, `AQUA`). It must match e
 
 ## Step 2: Create a Protocol Validator
 
-A validator tells the system how to identify contracts that implement your protocol. It inspects the WASM bytecode's `contractspecv0` section and checks for required function signatures.
+The validator is your protocol's **black box during classification**. The framework hands it a batch of candidate WASMs (with parsed spec entries), the contracts referencing those WASMs, an RPC handle, and the data layer. The validator returns the wasm hashes it claims and may write anything else it needs to its own protocol-specific tables inside the supplied `dbTx`.
 
-**File:** `internal/services/<protocol>_validator.go`
+**File:** `internal/services/<protocol>/validator.go` (next to your processor and register files)
 
-Implement the `ProtocolValidator` interface defined in `internal/services/protocol_validator.go`:
+Implement the `services.ProtocolValidator` interface defined in `internal/services/protocol_validator.go`:
 
 ```go
 type ProtocolValidator interface {
     ProtocolID() string
-    Validate(specEntries []xdr.ScSpecEntry) bool
+    Validate(ctx context.Context, dbTx pgx.Tx, input ValidationInput) (ValidationResult, error)
+}
+
+type ValidationInput struct {
+    Candidates []WasmCandidate     // hash + bytecode + parsed spec entries
+    Contracts  []ContractCandidate // contract_id + wasm_hash + KnownProtocolID (set if classified by an earlier batch)
+    RPC        RPCService          // may be nil for offline migration
+    Models     *data.Models
+}
+
+type ValidationResult struct {
+    MatchedWasms []types.HashBytea
 }
 ```
 
-Your validator receives the parsed `ScSpecEntry` slice from a contract's WASM bytecode and returns `true` if the contract implements your protocol.
-In cases where the protocol is made up of only a known set of contracts, the validator can simply match on those contract's IDs.
+### What goes inside `Validate`
 
-### Writing the Validate Method
+1. **Decide which candidate WASMs you claim.** Most protocols implement this as a private helper — for SEP-41 it is a signature-check against `WasmCandidate.SpecEntries` (see `matchSEP41Spec` in `internal/services/sep41/validator.go`). If your protocol is identified by a known set of contract IDs rather than a WASM signature, match on `Contracts[i].ContractID` instead.
+2. **(Optional) Enrich the contracts you own.** Every contract whose `WasmHash` is in your match set, plus any `Contract` whose `KnownProtocolID == ProtocolID()` from a prior batch, is yours to act on. Common patterns: fetch on-chain metadata via `input.RPC` and write to your own tables via `dbTx`.
+3. **Return the matched hashes.** The framework will stamp `protocol_wasms.protocol_id` for each returned hash inside the same transaction.
 
-1. Define the required function signatures for your protocol -- each with a function name, input parameter names and types, and output types.
-2. Iterate through the `ScSpecEntry` slice and filter for `ScSpecEntryKindScSpecEntryFunctionV0` entries.
-3. For each function entry, compare its signature against your requirements.
-4. Return `true` only if **all** required functions are present with matching signatures.
+The framework guarantees:
+- Spec extraction (wazero compile + `contractspecv0` parse) has already happened — `WasmCandidate.SpecEntries` is the parsed result.
+- First-match-wins ordering across protocols. By the time your `Validate` runs, candidates already claimed by a higher-priority protocol have been filtered out of `input.Candidates`.
+- The same `dbTx` you receive will commit `protocol_wasms.protocol_id` atomically with whatever you write — there is no separate "tail" transaction.
+- A panicking or error-returning validator is logged and treated as a no-match for that protocol; it does not block the rest of classification.
+
+### Skeleton (signature-based protocol)
 
 ```go
-package services
+package myprotocol
 
 import (
+    "context"
+
+    "github.com/jackc/pgx/v5"
     "github.com/stellar/go-stellar-sdk/xdr"
+
+    "github.com/stellar/wallet-backend/internal/indexer/types"
+    "github.com/stellar/wallet-backend/internal/services"
 )
 
-type MyProtocolValidator struct{}
+type Validator struct{}
 
-func NewMyProtocolValidator() *MyProtocolValidator { return &MyProtocolValidator{} }
+func NewValidator() *Validator { return &Validator{} }
 
-func (v *MyProtocolValidator) ProtocolID() string { return "MY_PROTOCOL" }
+func newValidator(_ services.ProtocolDeps) *Validator { return NewValidator() }
 
-func (v *MyProtocolValidator) Validate(contractSpec []xdr.ScSpecEntry) bool {
-    // Define required functions for your protocol
-    required := map[string]bool{
-        "deposit":  false,
-        "withdraw": false,
-        "balance":  false,
-    }
+func (v *Validator) ProtocolID() string { return ProtocolID }
 
-    for _, spec := range contractSpec {
-        if spec.Kind != xdr.ScSpecEntryKindScSpecEntryFunctionV0 || spec.FunctionV0 == nil {
-            continue
-        }
-
-        funcName := string(spec.FunctionV0.Name)
-        if _, isRequired := required[funcName]; isRequired {
-            // Validate input/output types match your protocol spec.
-            // You should check both parameter names and types exactly.
-            if validateMyProtocolSignature(spec.FunctionV0, funcName) {
-                required[funcName] = true
-            }
+func (v *Validator) Validate(_ context.Context, _ pgx.Tx, input services.ValidationInput) (services.ValidationResult, error) {
+    var matches []types.HashBytea
+    for _, cand := range input.Candidates {
+        if matchesMyProtocol(cand.SpecEntries) {
+            matches = append(matches, cand.Hash)
         }
     }
+    return services.ValidationResult{MatchedWasms: matches}, nil
+}
 
-    for _, found := range required {
-        if !found {
-            return false
-        }
-    }
-    return true
+func matchesMyProtocol(specs []xdr.ScSpecEntry) bool {
+    // Signature check goes here.
+    return false
 }
 ```
 
-The WASM spec extraction pipeline (compile with wazero, extract `contractspecv0` custom section, unmarshal XDR `ScSpecEntry` items) is handled upstream by the system. Your validator only receives the parsed entries. See the [WASM Classification Pipeline](../feature-design/data-migrations.md) section in the design document for details.
+If your protocol also needs to populate metadata or other side tables, look at `internal/services/sep41/validator.go` for a worked example that uses RPC simulation inside `Validate` and writes to `contract_tokens` via `input.Models.Contract` — all inside the framework-supplied `dbTx`.
 
 ## Step 3: Create the State Table and Data Model
 
@@ -461,24 +470,40 @@ func (p *MyProtocolProcessor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx)
 
 ## Step 5: Register the Validator and Processor
 
-Create a registration file that wires your validator and processor into the global registries via `init()`. This is how the system discovers your protocol at runtime.
+Create a registration file inside your protocol package that wires your validator and processor into the global registries via `init()`. This is how the framework discovers your protocol at runtime — and the only place a `cmd/*` or `internal/ingest/*` binary needs to know your protocol exists is through a single blank import of this package.
 
-**File:** `internal/services/<protocol>_register.go`
+**File:** `internal/services/<protocol>/register.go`
 
 ```go
-package services
+package myprotocol
+
+import (
+    "github.com/stellar/wallet-backend/internal/services"
+)
 
 func init() {
-    RegisterValidator("MY_PROTOCOL", NewMyProtocolValidator())
-    RegisterProcessor("MY_PROTOCOL", func() ProtocolProcessor {
-        return NewMyProtocolProcessor()
+    services.RegisterValidator(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolValidator {
+        return newValidator(deps)
+    })
+    services.RegisterProcessor(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolProcessor {
+        return newProcessor(deps)
     })
 }
 ```
 
-The `init()` function runs at program startup. The processor factory (closure) creates a fresh processor instance each time one is needed.
+Both factories receive a `services.ProtocolDeps` so per-protocol packages can avoid package-level mutable state. Pull only the fields you need:
 
-The `RegisterValidator` and `RegisterProcessor` functions are defined in `internal/services/validator_registry.go` and `internal/services/processor_registry.go` respectively. Both are thread-safe global registries.
+```go
+type ProtocolDeps struct {
+    NetworkPassphrase       string
+    Models                  *data.Models
+    RPCService              services.RPCService
+    ContractMetadataService services.ContractMetadataService
+    MetricsService          *metrics.Metrics
+}
+```
+
+The `RegisterValidator` and `RegisterProcessor` functions live in `internal/services/validator_registry.go` and `internal/services/processor_registry.go`. Both are thread-safe global registries. The cmd/ingest layer calls `services.BuildValidators(deps, protocolIDs)` / `services.BuildProcessors(deps, protocolIDs)` to materialize them — no per-protocol imports beyond the blank import that triggers `init()`.
 
 ## Step 6: Wire the Data Model into Models
 
@@ -523,7 +548,7 @@ Once the code is deployed, run the 4-step protocol onboarding workflow. Steps 2,
 
 ### Step 7.1: Protocol Setup
 
-Classifies existing contracts on the network against your protocol's validator:
+Classifies existing contracts on the network by handing each protocol's validator the batch of unclassified WASMs:
 
 ```bash
 ./wallet-backend protocol-setup --protocol-id <PROTOCOL_ID>
@@ -532,8 +557,8 @@ Classifies existing contracts on the network against your protocol's validator:
 This:
 - Runs your protocol migration SQL (registers the protocol in the `protocols` table)
 - Fetches all unclassified WASM bytecodes via RPC
-- Validates each against your protocol's validator
-- Populates `protocol_wasms` and `protocol_contracts`
+- Calls each registered validator's `Validate` (your code) inside one DB tx
+- Stamps `protocol_wasms.protocol_id` from the returned matches and lets your validator write to its own tables in the same tx
 - Sets `classification_status = success`
 - Initializes both CAS cursors
 
@@ -686,10 +711,11 @@ When adding a new protocol, you should create or modify these files:
 |------|--------|---------|
 | `internal/db/migrations/protocols/NNN_<protocol>.sql` | **Create** | Register protocol ID in DB |
 | `internal/db/migrations/<date>.<seq>-<table>.sql` | **Create** | State table schema |
-| `internal/services/<protocol>_validator.go` | **Create** | WASM contract classification |
-| `internal/services/<protocol>_validator_test.go` | **Create** | Validator unit tests |
+| `internal/services/<protocol>/validator.go` | **Create** | Black-box validator — signature checks + any side-effect writes during classification |
+| `internal/services/<protocol>/validator_test.go` | **Create** | Validator unit tests |
 | `internal/data/<protocol>_<entity>.go` | **Create** | Data model (struct + interface + impl) |
-| `internal/services/<protocol>_processor.go` | **Create** | Ledger state extraction |
-| `internal/services/<protocol>_processor_test.go` | **Create** | Processor unit tests |
-| `internal/services/<protocol>_register.go` | **Create** | Registry wiring via `init()` |
+| `internal/services/<protocol>/processor.go` | **Create** | Ledger state extraction |
+| `internal/services/<protocol>/processor_test.go` | **Create** | Processor unit tests |
+| `internal/services/<protocol>/register.go` | **Create** | Registry wiring via `init()` (`RegisterValidator` + `RegisterProcessor`) |
 | `internal/data/models.go` | **Modify** | Add model field + initialization |
+| `cmd/protocol_setup.go`, `cmd/protocol_migrate.go`, `internal/ingest/ingest.go` | **Modify** | Add a single blank import `_ "internal/services/<protocol>"` so `init()` runs |
