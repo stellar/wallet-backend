@@ -81,17 +81,6 @@ type ValidationResult struct {
 	MatchedWasms []types.HashBytea
 }
 
-// ProtocolContractsByWasm groups a slice of ProtocolContracts by wasm hash.
-// Helper for validators that want to walk only the contracts referencing
-// their matched wasms.
-func ProtocolContractsByWasm(contracts []data.ProtocolContracts) map[types.HashBytea][]data.ProtocolContracts {
-	out := make(map[types.HashBytea][]data.ProtocolContracts, len(contracts))
-	for _, c := range contracts {
-		out[c.WasmHash] = append(out[c.WasmHash], c)
-	}
-	return out
-}
-
 const (
 	contractSpecV0SectionName = "contractspecv0"
 

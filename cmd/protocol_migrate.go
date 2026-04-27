@@ -223,7 +223,9 @@ func runMigration(
 		if rpcErr != nil {
 			return fmt.Errorf("instantiating rpc service for metadata fetcher: %w", rpcErr)
 		}
-		cms, cmsErr := services.NewContractMetadataService(rpcService, models.Contract, pond.NewPool(0))
+		metadataPool := pond.NewPool(0)
+		defer metadataPool.StopAndWait()
+		cms, cmsErr := services.NewContractMetadataService(rpcService, models.Contract, metadataPool)
 		if cmsErr != nil {
 			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
 		}
