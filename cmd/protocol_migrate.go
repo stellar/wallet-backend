@@ -24,7 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
+	"github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 type protocolMigrateCmd struct{}
@@ -304,17 +304,36 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 
 func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 	var startLedger uint32
+	var opts *migrationCommandOpts
 
 	return buildMigrationCommand(
 		"current-state",
 		"Build protocol current state from a start ledger forward",
 		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors.",
-		func(cmd *cobra.Command, opts *migrationCommandOpts) {
+		func(cmd *cobra.Command, o *migrationCommandOpts) {
+			opts = o
 			cmd.Flags().Uint32Var(&startLedger, "start-ledger", 0, "Ledger sequence to begin current-state migration from (required)")
 		},
 		func() error {
 			if startLedger == 0 {
 				return fmt.Errorf("--start-ledger is required and must be > 0")
+			}
+			// SEP-41 current-state is now populated from `balance(addr)` RPC at the
+			// live-ingest handoff (processor.LoadCurrentState), not by per-ledger
+			// replay. SEP-41 only standardizes the interface, so transfer/mint/burn
+			// event amounts are not guaranteed to equal balance changes — replaying
+			// them would produce the same (potentially wrong) values as live ingest
+			// did before this fix. The replay also can't query historical state
+			// since simulateTransaction always runs against tip.
+			if opts != nil {
+				for _, id := range opts.protocolIDs {
+					if id == sep41.ProtocolID {
+						return fmt.Errorf(
+							"protocol %s is not supported by protocol-migrate current-state; balances are populated automatically by the live indexer at handoff via balance() RPC",
+							sep41.ProtocolID,
+						)
+					}
+				}
 			}
 			return nil
 		},

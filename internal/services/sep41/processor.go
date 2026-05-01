@@ -9,6 +9,7 @@ import (
 	"math/big"
 
 	"github.com/alitto/pond/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -50,6 +51,7 @@ type processor struct {
 	contractTokens    data.ContractModelInterface
 	stateChanges      data.StateChangeWriter
 	metadataFetcher   *metadataFetcher
+	balanceFetcher    *balanceFetcher
 	ownsMetadataPool  bool
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
@@ -58,16 +60,23 @@ type processor struct {
 	// Per-ledger staged state (rebuilt on every ProcessLedger call for determinism).
 	ledgerNumber       uint32
 	stagedStateChanges []types.StateChange
-	stagedBalanceDelta map[balanceKey]*big.Int
-	stagedAllowances   map[allowanceKey]stagedAllowance
-	stagedContracts    map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
+	// stagedTouched is the set of (account, contract) pairs whose balance
+	// should be refreshed via RPC at PersistCurrentState time. We deliberately
+	// do NOT track per-event amounts: SEP-41 only standardizes the interface,
+	// so transfer/mint/burn amounts are not guaranteed to equal the actual
+	// balance change (fee-on-transfer, rebasing, interest-bearing tokens
+	// diverge). Authoritative balances come from `balance(addr)` only.
+	stagedTouched    map[balanceKey]struct{}
+	stagedAllowances map[allowanceKey]stagedAllowance
+	stagedContracts  map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
-// data layer paths are pulled from deps.Models; metadata enrichment in
-// PersistCurrentState requires deps.ContractMetadataService — when nil
-// (offline migration), the processor still ingests state changes and inserts
-// contract_tokens with default values, leaving metadata for a subsequent run.
+// data layer paths are pulled from deps.Models; balance and metadata reads
+// require deps.ContractMetadataService — when nil (offline migration paths
+// without RPC), PersistHistory still works and the processor still stages
+// touched pairs, but PersistCurrentState/LoadCurrentState skip the RPC
+// refresh and leave existing rows untouched.
 func newProcessor(deps services.ProtocolDeps) *processor {
 	p := &processor{
 		networkPassphrase: deps.NetworkPassphrase,
@@ -82,6 +91,7 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 	if deps.ContractMetadataService != nil {
 		pool := pond.NewPool(0)
 		p.metadataFetcher = newMetadataFetcher(deps.ContractMetadataService, pool)
+		p.balanceFetcher = newBalanceFetcher(deps.ContractMetadataService, pool)
 		p.ownsMetadataPool = true
 	}
 	return p
@@ -194,8 +204,8 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
-		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
+		p.markTouched(decoded.From, contractStr)
+		p.markTouched(decoded.To, contractStr)
 		creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
 			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 		if decoded.ToMuxedID != nil {
@@ -212,7 +222,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
+		p.markTouched(decoded.To, contractStr)
 		mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
 			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 		if decoded.ToMuxedID != nil {
@@ -225,7 +235,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
+		p.markTouched(decoded.From, contractStr)
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
 				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
@@ -236,7 +246,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
+		p.markTouched(decoded.From, contractStr)
 		// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
@@ -277,20 +287,17 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	return nil
 }
 
-func (p *processor) applyBalanceDelta(account, contractStr string, delta *big.Int) {
-	key := balanceKey{Account: account, ContractID: contractStr}
-	existing, ok := p.stagedBalanceDelta[key]
-	if !ok {
-		existing = new(big.Int)
-		p.stagedBalanceDelta[key] = existing
-	}
-	existing.Add(existing, delta)
+// markTouched records that (account, contract) needs a `balance(addr)` refresh
+// at PersistCurrentState time. The event amount is intentionally ignored —
+// SEP-41 doesn't guarantee it equals the actual balance change.
+func (p *processor) markTouched(account, contractStr string) {
+	p.stagedTouched[balanceKey{Account: account, ContractID: contractStr}] = struct{}{}
 }
 
 func (p *processor) resetStaged(ledgerSeq uint32) {
 	p.ledgerNumber = ledgerSeq
 	p.stagedStateChanges = nil
-	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
+	p.stagedTouched = map[balanceKey]struct{}{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
 	p.stagedContracts = map[string]struct{}{}
 }
@@ -325,27 +332,26 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
-// PersistCurrentState applies staged balance deltas server-side (balance := existing + delta)
-// and writes allowance values directly (approve semantics are a set, not an add). Runs inside
-// the CAS-guarded transaction so each ledger's deltas are applied exactly once.
+// PersistCurrentState refreshes per-pair balances by calling `balance(addr)`
+// on each touched contract via Soroban simulation, then writes the
+// authoritative absolute values. Allowances are written from the staged
+// approve events (absolute, replacing prior grants). Runs inside the
+// CAS-guarded transaction so each ledger's writes are applied exactly once.
+//
+// SEP-41 does not standardize the math relating event amounts to balance
+// changes (fee-on-transfer, rebasing, interest-bearing tokens diverge), so
+// we ignore event amounts and read the contract's view function directly.
+// Per-pair RPC failures are logged and skipped — one bad token must not
+// block ingest. The pair stays with its existing row value until the next
+// event re-marks it.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	// Ensure a contract_tokens row exists for every contract we're about to reference.
 	if err := p.ensureContractTokens(ctx, dbTx); err != nil {
 		return fmt.Errorf("ensuring contract_tokens rows: %w", err)
 	}
 
-	// Build delta rows directly from the staged deltas — the data layer sums and cleans up zeros.
-	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
-	for key, delta := range p.stagedBalanceDelta {
-		deltas = append(deltas, sep41data.Balance{
-			AccountAddress: key.Account,
-			ContractID:     data.DeterministicContractID(key.ContractID),
-			Balance:        delta.String(),
-			LedgerNumber:   p.ledgerNumber,
-		})
-	}
-	if err := p.balances.BatchApplyDeltas(ctx, dbTx, deltas); err != nil {
-		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
+	if err := p.refreshBalances(ctx, dbTx, p.touchedPairs()); err != nil {
+		return fmt.Errorf("refreshing SEP-41 balances: %w", err)
 	}
 
 	// Allowances are written absolutely (approve replaces the grant). Amount=0 deletes the row.
@@ -377,11 +383,129 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	return nil
 }
 
-// LoadCurrentState is called inside the transaction of the first successful CAS advance of
-// the current_state_cursor (handoff from migration to live ingestion). Because
-// PersistCurrentState now applies deltas in SQL via existing + delta, the processor needs
-// no preloaded in-memory state — correctness on restart is guaranteed by the CAS gate.
+// LoadCurrentState is called inside the transaction of the first successful
+// CAS advance of the current_state_cursor (handoff from migration to live
+// ingestion). It rebuilds every existing sep41_balances row from the
+// authoritative `balance(addr)` view function. This wipes any incorrect
+// values left over from prior delta-based math (the bug this whole change
+// addresses) and replaces them with values matching the on-chain truth.
+//
+// Scaling note: this runs inside the handoff transaction, so a deployment
+// with many existing pairs can hold the transaction open for the duration
+// of the RPC sweep. Concurrency is bounded by balanceFetchBatchSize. New
+// pairs introduced after handoff are populated incrementally by
+// PersistCurrentState as their owning contracts emit events.
 func (p *processor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	if p.balances == nil || p.balanceFetcher == nil {
+		// Without RPC the bootstrap can't refresh values; skip cleanly so
+		// migration command paths (which don't pass a ContractMetadataService)
+		// don't fail at handoff.
+		return nil
+	}
+
+	pairs, err := p.balances.GetAllSEP41Pairs(ctx, dbTx)
+	if err != nil {
+		return fmt.Errorf("enumerating SEP-41 pairs for bootstrap: %w", err)
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	keys := make([]balanceKey, 0, len(pairs))
+	idByAddress := make(map[string]uuid.UUID, len(pairs))
+	for _, pair := range pairs {
+		keys = append(keys, balanceKey{Account: pair.AccountAddress, ContractID: pair.ContractAddress})
+		idByAddress[pair.ContractAddress] = pair.ContractID
+	}
+
+	if err := p.refreshBalancesWithIDs(ctx, dbTx, keys, idByAddress); err != nil {
+		return fmt.Errorf("bootstrapping SEP-41 balances: %w", err)
+	}
+	return nil
+}
+
+// touchedPairs returns the (account, contract) pairs marked dirty during
+// ProcessLedger as a slice — handy for handing to balanceFetcher.
+func (p *processor) touchedPairs() []balanceKey {
+	if len(p.stagedTouched) == 0 {
+		return nil
+	}
+	out := make([]balanceKey, 0, len(p.stagedTouched))
+	for k := range p.stagedTouched {
+		out = append(out, k)
+	}
+	return out
+}
+
+// refreshBalances looks up balance(addr) for each pair, derives the
+// deterministic UUID for the contract, and upserts absolute values. Used by
+// PersistCurrentState — the contract IDs come from data.DeterministicContractID
+// because the sep41_balances row may not exist yet.
+func (p *processor) refreshBalances(ctx context.Context, dbTx pgx.Tx, pairs []balanceKey) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	if p.balanceFetcher == nil {
+		// No RPC configured — leave existing rows untouched. Touched pairs will
+		// be retried the next time PersistCurrentState runs with RPC available.
+		return nil
+	}
+
+	results, err := p.balanceFetcher.FetchBalances(ctx, pairs)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		return nil
+	}
+
+	rows := make([]sep41data.Balance, 0, len(results))
+	for k, bal := range results {
+		rows = append(rows, sep41data.Balance{
+			AccountAddress: k.Account,
+			ContractID:     data.DeterministicContractID(k.ContractID),
+			Balance:        bal.String(),
+			LedgerNumber:   p.ledgerNumber,
+		})
+	}
+	if err := p.balances.BatchUpsertAbsolute(ctx, dbTx, rows); err != nil {
+		return fmt.Errorf("upserting SEP-41 balances: %w", err)
+	}
+	return nil
+}
+
+// refreshBalancesWithIDs is the bootstrap variant: contract UUIDs are taken
+// from the supplied lookup (sourced from sep41_balances JOIN contract_tokens)
+// rather than recomputed, matching what's actually persisted.
+func (p *processor) refreshBalancesWithIDs(ctx context.Context, dbTx pgx.Tx, pairs []balanceKey, ids map[string]uuid.UUID) error {
+	if len(pairs) == 0 || p.balanceFetcher == nil {
+		return nil
+	}
+
+	results, err := p.balanceFetcher.FetchBalances(ctx, pairs)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		return nil
+	}
+
+	rows := make([]sep41data.Balance, 0, len(results))
+	for k, bal := range results {
+		cid, ok := ids[k.ContractID]
+		if !ok {
+			cid = data.DeterministicContractID(k.ContractID)
+		}
+		rows = append(rows, sep41data.Balance{
+			AccountAddress: k.Account,
+			ContractID:     cid,
+			Balance:        bal.String(),
+			LedgerNumber:   p.ledgerNumber,
+		})
+	}
+	if err := p.balances.BatchUpsertAbsolute(ctx, dbTx, rows); err != nil {
+		return fmt.Errorf("upserting SEP-41 balances: %w", err)
+	}
 	return nil
 }
 

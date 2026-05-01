@@ -35,14 +35,22 @@ func (m *BalanceModelMock) GetByAccount(ctx context.Context, accountAddress stri
 	return args.Get(0).([]Balance), args.Error(1)
 }
 
-func (m *BalanceModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error {
-	args := m.Called(ctx, dbTx, deltas)
+func (m *BalanceModelMock) BatchUpsertAbsolute(ctx context.Context, dbTx pgx.Tx, balances []Balance) error {
+	args := m.Called(ctx, dbTx, balances)
 	return args.Error(0)
 }
 
 func (m *BalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error {
 	args := m.Called(ctx, dbTx, balances)
 	return args.Error(0)
+}
+
+func (m *BalanceModelMock) GetAllSEP41Pairs(ctx context.Context, dbTx pgx.Tx) ([]BalancePair, error) {
+	args := m.Called(ctx, dbTx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]BalancePair), args.Error(1)
 }
 
 // AllowanceModelMock mocks AllowanceModelInterface.

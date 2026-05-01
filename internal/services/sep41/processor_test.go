@@ -2,6 +2,8 @@ package sep41
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -65,12 +67,13 @@ func TestProcessor_ProcessEvent_Transfer(t *testing.T) {
 
 	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
 
-	deltaA := p.stagedBalanceDelta[balanceKey{Account: testAccountA, ContractID: contractID}]
-	deltaB := p.stagedBalanceDelta[balanceKey{Account: testAccountB, ContractID: contractID}]
-	require.NotNil(t, deltaA)
-	require.NotNil(t, deltaB)
-	assert.Equal(t, big.NewInt(-500), deltaA)
-	assert.Equal(t, big.NewInt(500), deltaB)
+	// Both sides of the transfer must be marked touched — the actual balance is
+	// fetched authoritatively from the contract at PersistCurrentState time, so
+	// we don't track per-event deltas here.
+	_, touchedA := p.stagedTouched[balanceKey{Account: testAccountA, ContractID: contractID}]
+	_, touchedB := p.stagedTouched[balanceKey{Account: testAccountB, ContractID: contractID}]
+	assert.True(t, touchedA, "transfer.from must be marked touched")
+	assert.True(t, touchedB, "transfer.to must be marked touched")
 
 	require.Len(t, p.stagedStateChanges, 2)
 	debitFound, creditFound := false, false
@@ -104,7 +107,7 @@ func TestProcessor_ProcessEvent_SkipsUnclassifiedContract(t *testing.T) {
 
 	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
 	assert.Empty(t, p.stagedStateChanges)
-	assert.Empty(t, p.stagedBalanceDelta)
+	assert.Empty(t, p.stagedTouched)
 }
 
 func TestProcessor_ProcessEvent_MintAndBurn(t *testing.T) {
@@ -126,9 +129,11 @@ func TestProcessor_ProcessEvent_MintAndBurn(t *testing.T) {
 	}, i128ScVal(30))
 	require.NoError(t, p.processEvent(burnEvent, newTestOpBuilder()))
 
-	delta := p.stagedBalanceDelta[balanceKey{Account: testAccountB, ContractID: contractID}]
-	require.NotNil(t, delta)
-	assert.Equal(t, big.NewInt(70), delta)
+	// Mint and burn each touch the holder; the set keeps a single entry. The
+	// authoritative balance is read from the contract, so no arithmetic.
+	_, touched := p.stagedTouched[balanceKey{Account: testAccountB, ContractID: contractID}]
+	assert.True(t, touched, "mint+burn target must be marked touched")
+	assert.Len(t, p.stagedTouched, 1)
 }
 
 func TestProcessor_ProcessEvent_Transfer_PersistsToMuxedID(t *testing.T) {
@@ -299,26 +304,39 @@ func TestProcessor_PersistHistory_NoOpWhenEmpty(t *testing.T) {
 	require.NoError(t, p.PersistHistory(context.Background(), nil))
 }
 
-func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *testing.T) {
-	// Regression test: prior behavior kept an in-memory cache and passed absolute balances
-	// to the upsert (overwriting DB rows on restart). The processor must now pass raw signed
-	// deltas to BatchApplyDeltas so the SQL-side add stays correct across restarts.
+func TestProcessor_PersistCurrentState_FetchesAuthoritativeBalances(t *testing.T) {
+	// Correctness test: SEP-41 only standardizes the interface, so transfer
+	// amounts are not guaranteed to equal balance changes. PersistCurrentState
+	// must read `balance(addr)` from the contract and store the absolute value
+	// — NOT compute it from event amounts. We simulate a fee-on-transfer
+	// token: transfer of 500, but balance() reports A=499 (fee burned), B=400
+	// (fee skimmed elsewhere). The stored values must match the RPC result,
+	// not the event amount.
 	balancesMock := sep41data.NewBalanceModelMock(t)
 	allowancesMock := sep41data.NewAllowanceModelMock(t)
 	contractsMock := data.NewContractModelMock(t)
+
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	balanceByAccount := map[string]int64{
+		testAccountA: 499,
+		testAccountB: 400,
+	}
+	rpc := &lookupBalanceRPC{
+		balanceByAccount: balanceByAccount,
+	}
+	pool := newTestPool(t)
 	p := &processor{
 		networkPassphrase: "Test SDF Network ; September 2015",
 		balances:          balancesMock,
 		allowances:        allowancesMock,
 		contractTokens:    contractsMock,
+		balanceFetcher:    newBalanceFetcher(rpc, pool),
 		sep41Contracts:    map[string]struct{}{},
 	}
 	p.resetStaged(42)
-
-	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 	p.sep41Contracts[contractID] = struct{}{}
 
-	// Transfer 500 from A to B → delta(A)=-500, delta(B)=+500.
+	// Transfer 500 — emitted amount lies about the actual balance change.
 	event := buildEventForContract(t, contractID, []xdr.ScVal{
 		symScVal(EventTransfer),
 		mustAddressScVal(t, testAccountA),
@@ -326,26 +344,153 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 	}, i128ScVal(500))
 	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
 
-	// contract_tokens: none existing, expect BatchInsert of the one staged contract.
 	contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
 	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
-	balancesMock.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(deltas []sep41data.Balance) bool {
-		if len(deltas) != 2 {
+	balancesMock.On("BatchUpsertAbsolute", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []sep41data.Balance) bool {
+		if len(rows) != 2 {
 			return false
 		}
-		deltaByAccount := map[string]string{}
-		for _, d := range deltas {
-			deltaByAccount[d.AccountAddress] = d.Balance
+		got := map[string]string{}
+		for _, r := range rows {
+			got[r.AccountAddress] = r.Balance
 		}
-		return deltaByAccount[testAccountA] == "-500" && deltaByAccount[testAccountB] == "500"
+		return got[testAccountA] == "499" && got[testAccountB] == "400"
 	})).Return(nil).Once()
 
-	// No allowances staged this ledger.
 	allowancesMock.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 	allowancesMock.On("DeleteExpiredBefore", mock.Anything, mock.Anything, uint32(42)).Return(nil).Once()
 
 	require.NoError(t, p.PersistCurrentState(context.Background(), nil))
+}
+
+func TestProcessor_PersistCurrentState_SkipsArchivedPair(t *testing.T) {
+	// When balance() returns an archive/restore-required error, that pair must
+	// be skipped (existing row left untouched) rather than failing the ledger.
+	balancesMock := sep41data.NewBalanceModelMock(t)
+	allowancesMock := sep41data.NewAllowanceModelMock(t)
+	contractsMock := data.NewContractModelMock(t)
+
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	rpc := &lookupBalanceRPC{
+		balanceByAccount: map[string]int64{},
+		errByAccount: map[string]error{
+			testAccountA: errors.New("simulation failed: ledger entry archived"),
+			testAccountB: errors.New("simulation failed: ledger entry archived"),
+		},
+	}
+	pool := newTestPool(t)
+	p := &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		balances:          balancesMock,
+		allowances:        allowancesMock,
+		contractTokens:    contractsMock,
+		balanceFetcher:    newBalanceFetcher(rpc, pool),
+		sep41Contracts:    map[string]struct{}{},
+	}
+	p.resetStaged(42)
+	p.sep41Contracts[contractID] = struct{}{}
+
+	event := buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer),
+		mustAddressScVal(t, testAccountA),
+		mustAddressScVal(t, testAccountB),
+	}, i128ScVal(500))
+	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+
+	contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
+	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	// All RPC fetches errored — BatchUpsertAbsolute must not be called.
+	allowancesMock.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	allowancesMock.On("DeleteExpiredBefore", mock.Anything, mock.Anything, uint32(42)).Return(nil).Once()
+
+	require.NoError(t, p.PersistCurrentState(context.Background(), nil))
+}
+
+func TestProcessor_LoadCurrentState_BootstrapsFromExistingPairs(t *testing.T) {
+	// The bootstrap (called inside the handoff transaction) must enumerate
+	// existing sep41_balances pairs and overwrite each row with the
+	// authoritative balance from RPC. This is what fixes the broken
+	// delta-derived rows from the prior implementation.
+	balancesMock := sep41data.NewBalanceModelMock(t)
+	contractsMock := data.NewContractModelMock(t)
+
+	contractAddr := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	contractUUID := data.DeterministicContractID(contractAddr)
+	pairs := []sep41data.BalancePair{
+		{AccountAddress: testAccountA, ContractID: contractUUID, ContractAddress: contractAddr},
+		{AccountAddress: testAccountB, ContractID: contractUUID, ContractAddress: contractAddr},
+	}
+	balancesMock.On("GetAllSEP41Pairs", mock.Anything, mock.Anything).Return(pairs, nil).Once()
+
+	rpc := &lookupBalanceRPC{
+		balanceByAccount: map[string]int64{
+			testAccountA: 1234,
+			testAccountB: 5678,
+		},
+	}
+	pool := newTestPool(t)
+	p := &processor{
+		networkPassphrase: "Test SDF Network ; September 2015",
+		balances:          balancesMock,
+		contractTokens:    contractsMock,
+		balanceFetcher:    newBalanceFetcher(rpc, pool),
+		sep41Contracts:    map[string]struct{}{},
+	}
+	p.resetStaged(99)
+
+	balancesMock.On("BatchUpsertAbsolute", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []sep41data.Balance) bool {
+		if len(rows) != 2 {
+			return false
+		}
+		got := map[string]string{}
+		for _, r := range rows {
+			if r.ContractID != contractUUID || r.LedgerNumber != 99 {
+				return false
+			}
+			got[r.AccountAddress] = r.Balance
+		}
+		return got[testAccountA] == "1234" && got[testAccountB] == "5678"
+	})).Return(nil).Once()
+
+	require.NoError(t, p.LoadCurrentState(context.Background(), nil))
+}
+
+// lookupBalanceRPC is a ContractMetadataService stub that returns canned
+// balance() results keyed by account address (decoded from the second arg).
+// Used by PersistCurrentState/LoadCurrentState tests.
+type lookupBalanceRPC struct {
+	balanceByAccount map[string]int64
+	errByAccount     map[string]error
+}
+
+func (s *lookupBalanceRPC) FetchSACMetadata(_ context.Context, _ []string) ([]*data.Contract, error) {
+	return nil, nil
+}
+
+func (s *lookupBalanceRPC) FetchSingleField(_ context.Context, _, function string, args ...xdr.ScVal) (xdr.ScVal, error) {
+	if function != "balance" {
+		return xdr.ScVal{}, fmt.Errorf("lookupBalanceRPC: unexpected function %q", function)
+	}
+	if len(args) != 1 {
+		return xdr.ScVal{}, fmt.Errorf("lookupBalanceRPC: expected 1 arg, got %d", len(args))
+	}
+	addr, ok := args[0].GetAddress()
+	if !ok {
+		return xdr.ScVal{}, fmt.Errorf("lookupBalanceRPC: arg is not an address")
+	}
+	addrStr, err := addr.String()
+	if err != nil {
+		return xdr.ScVal{}, fmt.Errorf("lookupBalanceRPC: address String: %w", err)
+	}
+	if e, ok := s.errByAccount[addrStr]; ok {
+		return xdr.ScVal{}, e
+	}
+	v, ok := s.balanceByAccount[addrStr]
+	if !ok {
+		return xdr.ScVal{}, fmt.Errorf("lookupBalanceRPC: no balance for %s", addrStr)
+	}
+	return i128ScVal(v), nil
 }
 
 func TestProcessor_PersistHistory_WritesStagedChanges(t *testing.T) {
