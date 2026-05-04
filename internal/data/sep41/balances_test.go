@@ -6,6 +6,7 @@ package sep41_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -45,13 +47,39 @@ func newBalancesFixture(t *testing.T) (context.Context, *pgxpool.Pool, *sep41.Ba
 // insertContractToken seeds contract_tokens so FK-deferred sep41_balances inserts pass commit-time validation.
 func insertContractToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, contractAddr string) uuid.UUID {
 	t.Helper()
+	return insertContractTokenOfType(t, ctx, pool, contractAddr, "sep41")
+}
+
+func insertContractTokenOfType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, contractAddr, typ string) uuid.UUID {
+	t.Helper()
 	id := data.DeterministicContractID(contractAddr)
 	_, err := pool.Exec(ctx, `
 		INSERT INTO contract_tokens (id, contract_id, type, decimals) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (id) DO NOTHING
-	`, id, contractAddr, "sep41", 7)
+	`, id, contractAddr, typ, 7)
 	require.NoError(t, err)
 	return id
+}
+
+// insertBalanceStateChange writes one state_changes row with the BYTEA encoding
+// the production code emits, so GetAllSEP41Pairs sees real data shapes. We
+// don't go through StateChangeModel.BatchCopy here to keep the helper light;
+// the column subset we set is the minimum needed by the bootstrap query.
+func insertBalanceStateChange(t *testing.T, ctx context.Context, pool *pgxpool.Pool, account, contract string, toID, opID, scID int64, ledger uint32, ts time.Time) {
+	t.Helper()
+	accountBytes, err := types.AddressBytea(account).Value()
+	require.NoError(t, err)
+	tokenBytes, err := types.AddressBytea(contract).Value()
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO state_changes (
+			to_id, operation_id, state_change_id,
+			state_change_category, state_change_reason,
+			ledger_number, account_id, token_id,
+			ledger_created_at
+		) VALUES ($1, $2, $3, 'BALANCE', 'CREDIT', $4, $5, $6, $7)
+	`, toID, opID, scID, ledger, accountBytes, tokenBytes, ts)
+	require.NoError(t, err)
 }
 
 func runInTx(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx)) {
@@ -148,7 +176,11 @@ func TestBalanceModel_BatchUpsertAbsolute_EmptyInputNoOp(t *testing.T) {
 	require.NoError(t, m.BatchUpsertAbsolute(ctx, nil, nil))
 }
 
-func TestBalanceModel_GetAllSEP41Pairs(t *testing.T) {
+func TestBalanceModel_GetAllSEP41Pairs_FromStateChanges(t *testing.T) {
+	// The bootstrap source is `state_changes`, not `sep41_balances`. After a
+	// fresh `protocol-migrate history` run, sep41_balances is empty but
+	// state_changes contains every event for every account that ever held a
+	// SEP-41 token — that's the set we have to refresh.
 	ctx, pool, m, cleanup := newBalancesFixture(t)
 	defer cleanup()
 
@@ -157,12 +189,11 @@ func TestBalanceModel_GetAllSEP41Pairs(t *testing.T) {
 
 	acctA := keypair.MustRandom().Address()
 	acctB := keypair.MustRandom().Address()
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchUpsertAbsolute(ctx, tx, []sep41.Balance{
-			{AccountAddress: acctA, ContractID: cid, Balance: "10", LedgerNumber: 1},
-			{AccountAddress: acctB, ContractID: cid, Balance: "20", LedgerNumber: 1},
-		}))
-	})
+	now := time.Now()
+	insertBalanceStateChange(t, ctx, pool, acctA, contract, 1, 11, 1, 1, now)
+	insertBalanceStateChange(t, ctx, pool, acctB, contract, 2, 22, 1, 1, now)
+	// A second event for acctA on the same token must not produce a duplicate pair.
+	insertBalanceStateChange(t, ctx, pool, acctA, contract, 3, 33, 1, 2, now.Add(time.Second))
 
 	var pairs []sep41.BalancePair
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
@@ -172,8 +203,58 @@ func TestBalanceModel_GetAllSEP41Pairs(t *testing.T) {
 	})
 
 	require.Len(t, pairs, 2)
+	got := map[string]sep41.BalancePair{}
+	for _, p := range pairs {
+		got[p.AccountAddress] = p
+	}
+	require.Contains(t, got, acctA)
+	require.Contains(t, got, acctB)
 	for _, p := range pairs {
 		assert.Equal(t, contract, p.ContractAddress)
 		assert.Equal(t, cid, p.ContractID)
 	}
+}
+
+func TestBalanceModel_GetAllSEP41Pairs_ExcludesNonSEP41Tokens(t *testing.T) {
+	// state_changes carries balance events for every token type, including
+	// SAC. The bootstrap must filter to contract_tokens.type='sep41' so SAC
+	// (or unknown) tokens don't get refreshed via SEP-41's RPC path.
+	ctx, pool, m, cleanup := newBalancesFixture(t)
+	defer cleanup()
+
+	sep41Contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	sacContract := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+	insertContractTokenOfType(t, ctx, pool, sep41Contract, "sep41")
+	insertContractTokenOfType(t, ctx, pool, sacContract, "sac")
+
+	holder := keypair.MustRandom().Address()
+	now := time.Now()
+	insertBalanceStateChange(t, ctx, pool, holder, sep41Contract, 1, 11, 1, 1, now)
+	insertBalanceStateChange(t, ctx, pool, holder, sacContract, 2, 22, 1, 1, now)
+
+	var pairs []sep41.BalancePair
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		var err error
+		pairs, err = m.GetAllSEP41Pairs(ctx, tx)
+		require.NoError(t, err)
+	})
+
+	require.Len(t, pairs, 1, "SAC token must be excluded from SEP-41 bootstrap")
+	assert.Equal(t, sep41Contract, pairs[0].ContractAddress)
+	assert.Equal(t, holder, pairs[0].AccountAddress)
+}
+
+func TestBalanceModel_GetAllSEP41Pairs_EmptyStateChanges(t *testing.T) {
+	ctx, pool, m, cleanup := newBalancesFixture(t)
+	defer cleanup()
+	_ = pool
+
+	var pairs []sep41.BalancePair
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		var err error
+		pairs, err = m.GetAllSEP41Pairs(ctx, tx)
+		require.NoError(t, err)
+	})
+
+	assert.Empty(t, pairs)
 }

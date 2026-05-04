@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -66,9 +67,11 @@ type BalanceModelInterface interface {
 	// whose new balance is zero are swept in the same batch.
 	BatchUpsertAbsolute(ctx context.Context, dbTx pgx.Tx, balances []Balance) error
 	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error
-	// GetAllSEP41Pairs returns every (account, contract) pair currently
-	// recorded in sep41_balances joined to contract_tokens of type='sep41'.
-	// Used once at handoff to refresh existing rows via RPC.
+	// GetAllSEP41Pairs returns every (account, contract) pair that has ever
+	// touched a SEP-41 token, sourced from `state_changes` (the
+	// history-migration's authoritative output). Used once at handoff to
+	// fetch authoritative balances for every known holder via RPC, including
+	// quiet accounts that don't have a fresh event in live mode.
 	GetAllSEP41Pairs(ctx context.Context, dbTx pgx.Tx) ([]BalancePair, error)
 }
 
@@ -203,39 +206,103 @@ func (m *BalanceModel) BatchUpsertAbsolute(ctx context.Context, dbTx pgx.Tx, bal
 	return nil
 }
 
-// GetAllSEP41Pairs enumerates every (account, contract) pair currently in
-// sep41_balances joined to a contract_tokens row of type='sep41'. The bootstrap
-// path uses this to refresh stale (delta-derived) rows with authoritative
-// values via RPC. The set is small relative to the indexed range — at most one
-// row per holder per token — so a single scan is fine.
+// GetAllSEP41Pairs enumerates every (account, contract) pair that has ever
+// touched a SEP-41 token according to `state_changes` — i.e., the canonical
+// output of `protocol-migrate history` plus all live SEP-41 events ingested
+// since. The handoff bootstrap uses this to refresh authoritative balances
+// for every known holder via RPC.
+//
+// Implementation is a two-pass join in Go because state_changes uses BYTEA
+// for account_id/token_id while contract_tokens uses C-strkey TEXT, and we
+// don't have a Postgres-side strkey UDF to bridge them in SQL.
+//
+//  1. Scan state_changes for distinct (account_id, token_id) pairs in
+//     state_change_category='BALANCE'. types.AddressBytea.Scan handles the
+//     BYTEA-to-strkey decode automatically.
+//  2. Load every SEP-41 contract_tokens row into a map keyed by C-strkey.
+//  3. Filter the pairs by membership in the SEP-41 map, dropping tokens
+//     that turn out to be SAC or some other type.
+//
+// This runs once per deploy at handoff and may scan a large hypertable;
+// callers should expect a long-ish transaction for very busy networks.
 func (m *BalanceModel) GetAllSEP41Pairs(ctx context.Context, dbTx pgx.Tx) ([]BalancePair, error) {
-	const query = `
-		SELECT b.account_address, b.contract_id, ct.contract_id
-		FROM sep41_balances b
-		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
-		WHERE ct.type = 'sep41'`
+	type rawPair struct {
+		Account types.AddressBytea
+		Token   types.AddressBytea
+	}
+
+	// Pass 1: distinct (account, token) BYTEA pairs from balance-category state changes.
+	const pairsQuery = `
+		SELECT DISTINCT account_id, token_id
+		FROM state_changes
+		WHERE token_id IS NOT NULL
+		  AND state_change_category = 'BALANCE'`
 
 	start := time.Now()
-	rows, err := dbTx.Query(ctx, query)
+	rows, err := dbTx.Query(ctx, pairsQuery)
 	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAllSEP41Pairs", "sep41_balances").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAllSEP41Pairs", "sep41_balances").Inc()
+	m.Metrics.QueryDuration.WithLabelValues("GetAllSEP41Pairs", "state_changes").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetAllSEP41Pairs", "state_changes").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAllSEP41Pairs", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("enumerating SEP-41 balance pairs: %w", err)
+		m.Metrics.QueryErrors.WithLabelValues("GetAllSEP41Pairs", "state_changes", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("enumerating SEP-41 balance pairs from state_changes: %w", err)
 	}
-	defer rows.Close()
 
-	var pairs []BalancePair
+	var raws []rawPair
 	for rows.Next() {
-		var p BalancePair
-		if err := rows.Scan(&p.AccountAddress, &p.ContractID, &p.ContractAddress); err != nil {
-			return nil, fmt.Errorf("scanning SEP-41 pair: %w", err)
+		var p rawPair
+		if err := rows.Scan(&p.Account, &p.Token); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning state_changes pair: %w", err)
 		}
-		pairs = append(pairs, p)
+		raws = append(raws, p)
 	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating SEP-41 pairs: %w", err)
+		return nil, fmt.Errorf("iterating state_changes pairs: %w", err)
+	}
+	if len(raws) == 0 {
+		return nil, nil
+	}
+
+	// Pass 2: load SEP-41 contract_tokens into a strkey→UUID map.
+	const sep41Query = `SELECT id, contract_id FROM contract_tokens WHERE type = 'sep41'`
+
+	ctRows, err := dbTx.Query(ctx, sep41Query)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetAllSEP41Pairs", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("loading SEP-41 contract_tokens: %w", err)
+	}
+	sep41 := map[string]uuid.UUID{}
+	for ctRows.Next() {
+		var (
+			id      uuid.UUID
+			strkey1 string
+		)
+		if err := ctRows.Scan(&id, &strkey1); err != nil {
+			ctRows.Close()
+			return nil, fmt.Errorf("scanning contract_tokens row: %w", err)
+		}
+		sep41[strkey1] = id
+	}
+	ctRows.Close()
+	if err := ctRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating contract_tokens rows: %w", err)
+	}
+
+	// Filter the BYTEA pairs by SEP-41 membership.
+	pairs := make([]BalancePair, 0, len(raws))
+	for _, r := range raws {
+		tokenStrkey := r.Token.String()
+		id, ok := sep41[tokenStrkey]
+		if !ok {
+			continue // not SEP-41 (likely SAC or unknown)
+		}
+		pairs = append(pairs, BalancePair{
+			AccountAddress:  r.Account.String(),
+			ContractID:      id,
+			ContractAddress: tokenStrkey,
+		})
 	}
 	return pairs, nil
 }

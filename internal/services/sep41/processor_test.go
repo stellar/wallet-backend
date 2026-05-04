@@ -407,11 +407,15 @@ func TestProcessor_PersistCurrentState_SkipsArchivedPair(t *testing.T) {
 	require.NoError(t, p.PersistCurrentState(context.Background(), nil))
 }
 
-func TestProcessor_LoadCurrentState_BootstrapsFromExistingPairs(t *testing.T) {
-	// The bootstrap (called inside the handoff transaction) must enumerate
-	// existing sep41_balances pairs and overwrite each row with the
-	// authoritative balance from RPC. This is what fixes the broken
-	// delta-derived rows from the prior implementation.
+func TestProcessor_LoadCurrentState_BootstrapsFromHistory(t *testing.T) {
+	// The bootstrap (called inside the handoff transaction) enumerates
+	// (account, contract) pairs from `state_changes` — the canonical output
+	// of `protocol-migrate history` — and writes an authoritative balance
+	// for each via RPC. After a fresh history migration `sep41_balances` is
+	// empty, so this is the only path that populates pre-migration holders
+	// (especially quiet accounts that won't surface a fresh event in live
+	// mode). The data layer's GetAllSEP41Pairs is what reads state_changes;
+	// here we mock that boundary and assert the handoff-time RPC fan-out.
 	balancesMock := sep41data.NewBalanceModelMock(t)
 	contractsMock := data.NewContractModelMock(t)
 

@@ -385,15 +385,17 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 
 // LoadCurrentState is called inside the transaction of the first successful
 // CAS advance of the current_state_cursor (handoff from migration to live
-// ingestion). It rebuilds every existing sep41_balances row from the
-// authoritative `balance(addr)` view function. This wipes any incorrect
-// values left over from prior delta-based math (the bug this whole change
-// addresses) and replaces them with values matching the on-chain truth.
+// ingestion). It enumerates every (account, contract) pair that ever touched
+// a SEP-41 token from the `state_changes` table — the canonical output of
+// `protocol-migrate history` — and refreshes each row in `sep41_balances`
+// from the contract's `balance(addr)` view function. This is what populates
+// pre-migration holders, including quiet accounts that wouldn't otherwise
+// surface a fresh event in live mode.
 //
 // Scaling note: this runs inside the handoff transaction, so a deployment
-// with many existing pairs can hold the transaction open for the duration
-// of the RPC sweep. Concurrency is bounded by balanceFetchBatchSize. New
-// pairs introduced after handoff are populated incrementally by
+// with many holders can hold the transaction open for the duration of the
+// RPC sweep. Concurrency is bounded by balanceFetchBatchSize. New pairs
+// introduced after handoff are populated incrementally by
 // PersistCurrentState as their owning contracts emit events.
 func (p *processor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	if p.balances == nil || p.balanceFetcher == nil {
@@ -408,8 +410,10 @@ func (p *processor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 		return fmt.Errorf("enumerating SEP-41 pairs for bootstrap: %w", err)
 	}
 	if len(pairs) == 0 {
+		log.Ctx(ctx).Info("sep41 bootstrap found no holders in state_changes; nothing to refresh (likely a fresh deployment with no history migrated)")
 		return nil
 	}
+	log.Ctx(ctx).Infof("sep41 bootstrap refreshing %d (account, contract) pairs from state_changes", len(pairs))
 
 	keys := make([]balanceKey, 0, len(pairs))
 	idByAddress := make(map[string]uuid.UUID, len(pairs))
