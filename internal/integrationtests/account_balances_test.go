@@ -176,6 +176,67 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	}
 }
 
+// TestCheckpoint_Account1_ForwardPagination exercises the SDK's forward
+// pagination round-trip. Pre-fix the SDK ignored caller-supplied first/after
+// args (issue #608); this test guards against any regression that drops
+// them again. Account1 has 3 balances, so first=1 plus a follow-up call
+// using the returned EndCursor must return a different edge.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_ForwardPagination() {
+	pageSize := int32(1)
+	address := suite.testEnv.BalanceTestAccount1KP.Address()
+
+	page1, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		&pageSize, nil, nil, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page1)
+	suite.Require().Len(page1.Edges, 1, "Expected exactly 1 edge on the first page when first=1")
+	suite.Require().NotNil(page1.PageInfo)
+	suite.Require().True(page1.PageInfo.HasNextPage, "HasNextPage should be true with 3 balances and first=1")
+	suite.Require().NotNil(page1.PageInfo.EndCursor, "EndCursor should be populated when HasNextPage is true")
+
+	page2, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		&pageSize, nil, page1.PageInfo.EndCursor, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page2)
+	suite.Require().Len(page2.Edges, 1, "Expected exactly 1 edge on the second page when first=1")
+	suite.Require().NotEqual(page1.Edges[0].Cursor, page2.Edges[0].Cursor,
+		"Second page must return a different edge than the first; equal cursors imply the after arg was ignored")
+}
+
+// TestCheckpoint_Account1_BackwardPagination exercises the SDK's backward
+// pagination round-trip. The pre-fix SDK query string did not declare
+// $last or $before at all, so a forward-only test would not catch a
+// regression where these args are silently dropped.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_BackwardPagination() {
+	pageSize := int32(1)
+	address := suite.testEnv.BalanceTestAccount1KP.Address()
+
+	lastPage, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		nil, &pageSize, nil, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(lastPage)
+	suite.Require().Len(lastPage.Edges, 1, "Expected exactly 1 edge on the last page when last=1")
+	suite.Require().NotNil(lastPage.PageInfo)
+	suite.Require().True(lastPage.PageInfo.HasPreviousPage, "HasPreviousPage should be true with 3 balances and last=1")
+	suite.Require().NotNil(lastPage.PageInfo.StartCursor, "StartCursor should be populated when HasPreviousPage is true")
+
+	prevPage, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		nil, &pageSize, nil, lastPage.PageInfo.StartCursor,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(prevPage)
+	suite.Require().Len(prevPage.Edges, 1, "Expected exactly 1 edge on the page before the last")
+	suite.Require().NotEqual(lastPage.Edges[0].Cursor, prevPage.Edges[0].Cursor,
+		"Previous page must return a different edge than the last; equal cursors imply the before arg was ignored")
+}
+
 // AccountBalancesAfterLiveIngestionTestSuite validates that balances are correctly calculated
 // after fixture transactions are submitted and processed by the live ingestion pipeline. These new transactions
 // will lead to new tokens being inserted into the token cache and new balances being calculated.
