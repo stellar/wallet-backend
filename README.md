@@ -1332,26 +1332,47 @@ The integration test framework employs several sophisticated design patterns:
 This section covers deployment and CI/CD configuration for the wallet-backend.
 
 **In this section:**
-- [Docker Hub Publishing](#docker-hub-publishing)
+- [Releases](#releases)
+- [Continuous builds (dev / stg)](#continuous-builds-dev--stg)
 
-### Docker Hub Publishing
+### Releases
 
-The CI/CD workflow, defined in [`publish_to_docker_hub.yaml`](./.github/workflows/publish_to_docker_hub.yaml) automates the process of building and publishing Docker images to Docker Hub. This workflow is triggered under two conditions:
+Releases follow a two-step prerelease → promote flow. Both steps run in GitHub Actions; you trigger each with `gh workflow run`.
 
-#### Push to `develop`
+#### 1. Cut a prerelease
 
-Whenever updates are made to the `develop` branch, the workflow creates and uploads a Docker image with two specific tags:
+```bash
+gh workflow run publish-prerelease.yml \
+  -f version=v1.2.3-rc.1
+```
 
-- `testing`
-- `testing-{DATE}-{SHA}`
+This builds a Docker image from the current `main` HEAD, pushes it to the `stg/wallet-backend` namespace of the internal ECR registry tagged `v1.2.3-rc.1`, and creates a GitHub prerelease at the same commit.
 
-#### GitHub Release
+#### 2. Test the prerelease in staging
 
-When a new release is published on GitHub, the workflow generates and uploads a Docker image with the following tags:
+Deploy the staging image to your staging cluster and validate.
 
-- The release tag, e.g. `x.y.z`
-- `latest` (applied only if the release is not marked as a pre-release)
+#### 3. Promote to a release
 
-#### Pre-release
+```bash
+gh workflow run promote-release.yml \
+  -f prerelease_tag=v1.2.3-rc.1 \
+  -f release_version=v1.2.3
+```
 
-When a pre-release is published on GitHub, the workflow generates and uploads a Docker image with the pre-release tag preceded by `rc-`, e.g. `rc-x.y.z`
+This re-tags the existing staging image into the `prd/wallet-backend` namespace (preserving the image digest — no rebuild) and creates a non-prerelease GitHub release.
+
+#### Tag format
+
+- Releases: `vMAJOR.MINOR.PATCH` (e.g., `v1.2.3`)
+- Prereleases: `vMAJOR.MINOR.PATCH-rc.N` (e.g., `v1.2.3-rc.1`)
+
+The workflows enforce these formats — anything else is rejected before any side effect.
+
+#### Hot-fixes / cherry-picked releases
+
+Out of scope for the current setup. All releases are cut from `main`. If you need to release a fix without including newer `main` changes, revert the unwanted commits on `main` first and cut from there.
+
+### Continuous builds (dev / stg)
+
+Independent of the release flow, every push to `main` produces a SHA-tagged image at `${ecr-registry}/stg/wallet-backend:${sha}` ([`build-stg.yml`](./.github/workflows/build-stg.yml)). On-demand dev images can be built via [`build-dev.yml`](./.github/workflows/build-dev.yml).
