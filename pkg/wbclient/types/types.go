@@ -319,8 +319,7 @@ func (e *BalanceEdge) UnmarshalJSON(data []byte) error {
 	e.Cursor = temp.Cursor
 
 	if len(temp.Node) == 0 || string(temp.Node) == "null" {
-		e.Node = nil
-		return nil
+		return fmt.Errorf("balance edge missing required node (cursor=%q): the GraphQL schema declares Balance as non-null", temp.Cursor)
 	}
 
 	node, err := UnmarshalBalance(temp.Node)
@@ -336,4 +335,22 @@ func (e *BalanceEdge) UnmarshalJSON(data []byte) error {
 type BalanceConnection struct {
 	Edges    []*BalanceEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo      `json:"pageInfo"`
+}
+
+// Balances returns the connection's balance nodes as a flat slice.
+// Returns nil if the receiver is nil or has no edges. Combined with the
+// strict UnmarshalJSON on BalanceEdge, callers using this helper can
+// trust that every returned Balance is non-nil.
+func (c *BalanceConnection) Balances() []Balance {
+	if c == nil || len(c.Edges) == 0 {
+		return nil
+	}
+	balances := make([]Balance, 0, len(c.Edges))
+	for _, edge := range c.Edges {
+		if edge == nil {
+			continue
+		}
+		balances = append(balances, edge.Node)
+	}
+	return balances
 }
