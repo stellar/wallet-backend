@@ -529,21 +529,20 @@ func (c *Client) GetAccountBalances(ctx context.Context, address string, first, 
 
 // GetAllAccountBalances returns every balance for the given address by
 // driving GetAccountBalances forward through the cursor sequence in
-// fixed-size pages. Use this when you want a flat list of balances for
-// an account; use GetAccountBalances directly when you need explicit
+// fixed-size pages. Returns a non-nil empty slice when the account has
+// no balances. Use this when you want a flat list of balances for an
+// account; use GetAccountBalances directly when you need explicit
 // control over page size or position.
 func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
 	first := int32(100)
 
-	var (
-		after    *string
-		balances []types.Balance
-	)
+	var after *string
+	balances := make([]types.Balance, 0)
 
 	for {
 		connection, err := c.GetAccountBalances(ctx, address, &first, nil, after, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting account balances page: %w", err)
 		}
 		if connection == nil {
 			break
