@@ -295,3 +295,45 @@ type StateChangeConnection struct {
 	Edges    []*StateChangeEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`
 }
+
+// BalanceEdge represents an edge in the balance connection
+type BalanceEdge struct {
+	Node   Balance `json:"node,omitempty"`
+	Cursor string  `json:"cursor"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for BalanceEdge
+// to properly handle polymorphic balance types (NativeBalance,
+// TrustlineBalance, SACBalance) discriminated by __typename.
+func (e *BalanceEdge) UnmarshalJSON(data []byte) error {
+	type tempEdge struct {
+		Node   json.RawMessage `json:"node,omitempty"`
+		Cursor string          `json:"cursor"`
+	}
+
+	var temp tempEdge
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return fmt.Errorf("unmarshaling balance edge: %w", err)
+	}
+
+	e.Cursor = temp.Cursor
+
+	if len(temp.Node) == 0 || string(temp.Node) == "null" {
+		e.Node = nil
+		return nil
+	}
+
+	node, err := UnmarshalBalance(temp.Node)
+	if err != nil {
+		return err
+	}
+
+	e.Node = node
+	return nil
+}
+
+// BalanceConnection represents a paginated list of balances
+type BalanceConnection struct {
+	Edges    []*BalanceEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo      `json:"pageInfo"`
+}
