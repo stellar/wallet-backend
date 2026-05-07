@@ -32,6 +32,12 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
+// fetchAllBalancesPageSize is the explicit `first` arg used by tests that
+// expect every fixture balance to fit in a single page. The server defaults
+// to 50 when pagination args are omitted (internal/serve/graphql/utils.go),
+// so we set a larger value to keep these tests robust as fixtures grow.
+const fetchAllBalancesPageSize int32 = 100
+
 // AccountBalancesAfterCheckpointTestSuite validates that balances are correctly calculated
 // using tokens populated from the checkpoint ledger before any fixture transactions are submitted.
 //
@@ -48,18 +54,20 @@ type AccountBalancesAfterCheckpointTestSuite struct {
 // - USDC trustline (100)
 // - EURC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC trustline, EURC trustline")
+	suite.Require().Equal(3, len(connection.Edges), "Expected 3 balances: native XLM, USDC trustline, EURC trustline")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.NativeBalance:
 			suite.Require().Equal("10000.0000000", b.GetBalance())
 			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
@@ -87,7 +95,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 			}
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }
@@ -97,18 +105,20 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 // - Native XLM (~10000)
 // - USDC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and USDC trustline")
+	suite.Require().Equal(2, len(connection.Edges), "Expected 2 balances: native XLM and USDC trustline")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.NativeBalance:
 			suite.Require().Equal("10000.0000000", b.GetBalance())
 			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
@@ -129,7 +139,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }
@@ -138,18 +148,20 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 // has the expected initial balances from checkpoint setup:
 // - USDC SAC tokens (200)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(1, len(balances), "Expected 1 balance: USDC SAC")
+	suite.Require().Equal(1, len(connection.Edges), "Expected 1 balance: USDC SAC")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.SACBalance:
 			suite.Require().Equal("200.0000000", b.GetBalance())
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -159,7 +171,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 			suite.Require().Equal(int32(7), b.Decimals)
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }
@@ -181,18 +193,20 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
+	suite.Require().Equal(3, len(connection.Edges), "Expected 3 balances: native XLM, USDC, and EURC")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.NativeBalance:
 			parsedBalance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
@@ -222,7 +236,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 			}
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }
@@ -233,18 +247,20 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - USDC trustline (100) - unchanged
 // - EURC trustline (75) - NEW from trustline creation and payment
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
+	suite.Require().Equal(3, len(connection.Edges), "Expected 3 balances: native XLM, USDC, and EURC")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.NativeBalance:
 			parsedBalance, err := strconv.ParseFloat(b.GetBalance(), 64)
 			suite.Require().NoError(err)
@@ -274,7 +290,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 			}
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }
@@ -284,18 +300,20 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - USDC SAC tokens (200) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	first := fetchAllBalancesPageSize
+	connection, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
+		&first, nil, nil, nil,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
+	suite.Require().NotNil(connection)
+	suite.Require().NotEmpty(connection.Edges)
 
-	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and EURC SAC")
+	suite.Require().Equal(2, len(connection.Edges), "Expected 2 balances: USDC SAC and EURC SAC")
 
-	for _, balance := range balances {
-		switch b := balance.(type) {
+	for _, edge := range connection.Edges {
+		switch b := edge.Node.(type) {
 		case *types.SACBalance:
 			suite.Require().Equal(types.TokenTypeSAC, b.GetTokenType())
 			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
@@ -313,7 +331,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 			}
 
 		default:
-			suite.Fail("Unexpected balance type: %T", balance)
+			suite.Fail("Unexpected balance type: %T", edge.Node)
 		}
 	}
 }

@@ -92,12 +92,7 @@ type OperationStateChangesData struct {
 
 type AccountBalancesData struct {
 	AccountByAddress struct {
-		Balances struct {
-			Edges []struct {
-				Node json.RawMessage `json:"node"`
-			} `json:"edges"`
-			PageInfo *types.PageInfo `json:"pageInfo"`
-		} `json:"balances"`
+		Balances *types.BalanceConnection `json:"balances"`
 	} `json:"accountByAddress"`
 }
 
@@ -513,42 +508,23 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
-	const pageSize int32 = 100
-
-	var (
-		after    *string
-		balances []types.Balance
-	)
-
-	for {
-		variables := map[string]any{
-			"address": address,
-			"first":   pageSize,
-			"after":   after,
-		}
-
-		data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
-		if err != nil {
-			return nil, err
-		}
-
-		for i, edge := range data.AccountByAddress.Balances.Edges {
-			balance, unmarshalErr := types.UnmarshalBalance(edge.Node)
-			if unmarshalErr != nil {
-				return nil, fmt.Errorf("unmarshaling balance %d: %w", len(balances)+i, unmarshalErr)
-			}
-			balances = append(balances, balance)
-		}
-
-		pageInfo := data.AccountByAddress.Balances.PageInfo
-		if pageInfo == nil || !pageInfo.HasNextPage || pageInfo.EndCursor == nil {
-			break
-		}
-		after = pageInfo.EndCursor
+func (c *Client) GetAccountBalances(ctx context.Context, address string, first, last *int32, after, before *string) (*types.BalanceConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
-	return balances, nil
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		paginationVars,
+	)
+
+	data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.AccountByAddress.Balances, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
