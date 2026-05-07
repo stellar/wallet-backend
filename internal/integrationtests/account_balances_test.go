@@ -176,11 +176,11 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	}
 }
 
-// TestCheckpoint_Account1_ForwardPagination exercises the SDK's forward
-// pagination round-trip. Pre-fix the SDK ignored caller-supplied first/after
-// args (issue #608); this test guards against any regression that drops
-// them again. Account1 has 3 balances, so first=1 plus a follow-up call
-// using the returned EndCursor must return a different edge.
+// TestCheckpoint_Account1_ForwardPagination verifies that GetAccountBalances
+// honors the first and after pagination args. Account1 has 3 balances at
+// checkpoint, so calling with first=1 must return a single edge with
+// HasNextPage=true; passing the returned EndCursor as after on the next
+// call must return a different edge.
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_ForwardPagination() {
 	pageSize := int32(1)
 	address := suite.testEnv.BalanceTestAccount1KP.Address()
@@ -207,10 +207,11 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Fo
 		"Second page must return a different edge than the first; equal cursors imply the after arg was ignored")
 }
 
-// TestCheckpoint_Account1_BackwardPagination exercises the SDK's backward
-// pagination round-trip. The pre-fix SDK query string did not declare
-// $last or $before at all, so a forward-only test would not catch a
-// regression where these args are silently dropped.
+// TestCheckpoint_Account1_BackwardPagination verifies that GetAccountBalances
+// honors the last and before pagination args. Account1 has 3 balances at
+// checkpoint, so calling with last=1 must return a single edge with
+// HasPreviousPage=true; passing the returned StartCursor as before on the
+// next call must return a different edge.
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_BackwardPagination() {
 	pageSize := int32(1)
 	address := suite.testEnv.BalanceTestAccount1KP.Address()
