@@ -1,0 +1,88 @@
+# ABOUTME: Builds and pushes a prerelease Docker image to staging ECR from main HEAD,
+# ABOUTME: then creates a corresponding GitHub prerelease tagged at that commit.
+name: Publish Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Prerelease version to tag (e.g., v1.2.3-rc.1)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish-prerelease:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: '$VERSION'. Expected vMAJOR.MINOR.PATCH-rc.N (e.g., v1.2.3-rc.1)."
+            exit 1
+          fi
+          echo "Version format OK: $VERSION"
+
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve commit SHA
+        id: resolve_sha
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "Resolved main -> $SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not exist
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+            echo "::error::Tag '$VERSION' already exists on origin."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag '$VERSION' already exists locally."
+            exit 1
+          fi
+          echo "Tag '$VERSION' does not exist. Proceeding."
+
+      - name: ECR login via OIDC
+        id: ecr_login
+        uses: stellar/actions/sdf-ecr-login@main
+
+      - name: Build and push prerelease image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr_login.outputs.ecr-registry }}
+          VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
+        run: |
+          export TAG="${ECR_REGISTRY}/stg/wallet-backend:${VERSION}"
+          export LABEL="${COMMIT_SHA}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export BUILD_DATE
+          echo "Building $TAG (LABEL=$LABEL BUILD_DATE=$BUILD_DATE)"
+          make docker-build
+          echo "Pushing $TAG"
+          make docker-push
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
+        run: |
+          gh release create "$VERSION" \
+            --prerelease \
+            --target "$COMMIT_SHA" \
+            --title "$VERSION" \
+            --generate-notes
