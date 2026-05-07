@@ -1,0 +1,127 @@
+# ABOUTME: Promotes an existing prerelease image from staging ECR to production ECR by re-tagging
+# ABOUTME: (no rebuild — preserves byte digest) and creates a non-prerelease GitHub release.
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease_tag:
+        description: "Prerelease tag to promote (e.g., v1.2.3-rc.1)"
+        required: true
+        type: string
+      release_version:
+        description: "Release version to publish (e.g., v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate input formats and base-version match
+        env:
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if [[ ! "$PRERELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "::error::Invalid prerelease_tag '$PRERELEASE_TAG'. Expected vMAJOR.MINOR.PATCH-rc.N."
+            exit 1
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release_version '$RELEASE_VERSION'. Expected vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          BASE="${PRERELEASE_TAG%-rc.*}"
+          if [[ "$BASE" != "$RELEASE_VERSION" ]]; then
+            echo "::error::Base version mismatch: prerelease '$PRERELEASE_TAG' (base: $BASE) does not match release '$RELEASE_VERSION'."
+            exit 1
+          fi
+          echo "Inputs OK: $PRERELEASE_TAG -> $RELEASE_VERSION"
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify prerelease GitHub release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+        run: |
+          if ! IS_PRE=$(gh release view "$PRERELEASE_TAG" --json isPrerelease --jq '.isPrerelease' 2>/dev/null); then
+            echo "::error::GitHub release '$PRERELEASE_TAG' not found."
+            exit 1
+          fi
+          if [[ "$IS_PRE" != "true" ]]; then
+            echo "::error::GitHub release '$PRERELEASE_TAG' exists but is not a prerelease."
+            exit 1
+          fi
+
+      - name: Verify release_version does not already exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "::error::GitHub release '$RELEASE_VERSION' already exists."
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/$RELEASE_VERSION" | grep -q .; then
+            echo "::error::Tag '$RELEASE_VERSION' already exists on origin."
+            exit 1
+          fi
+          echo "Release version '$RELEASE_VERSION' is available."
+
+      - name: Resolve commit SHA from prerelease tag
+        id: resolve_sha
+        env:
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+        run: |
+          SHA=$(git rev-list -n1 "$PRERELEASE_TAG")
+          if [[ -z "$SHA" ]]; then
+            echo "::error::Could not resolve commit SHA for tag '$PRERELEASE_TAG'."
+            exit 1
+          fi
+          echo "Tag $PRERELEASE_TAG -> $SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: ECR login via OIDC
+        id: ecr_login
+        uses: stellar/actions/sdf-ecr-login@main
+
+      - name: Re-tag image from staging to production ECR
+        env:
+          ECR_REGISTRY: ${{ steps.ecr_login.outputs.ecr-registry }}
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          STG_TAG="${ECR_REGISTRY}/stg/wallet-backend:${PRERELEASE_TAG}"
+          PRD_TAG="${ECR_REGISTRY}/prd/wallet-backend:${RELEASE_VERSION}"
+          echo "Re-tagging $STG_TAG -> $PRD_TAG"
+          docker buildx imagetools create --prefer-index=false --tag "$PRD_TAG" "$STG_TAG"
+          echo "Verifying digests match..."
+          STG_DIGEST=$(docker buildx imagetools inspect "$STG_TAG" --format '{{.Manifest.Digest}}')
+          PRD_DIGEST=$(docker buildx imagetools inspect "$PRD_TAG" --format '{{.Manifest.Digest}}')
+          echo "STG digest: $STG_DIGEST"
+          echo "PRD digest: $PRD_DIGEST"
+          if [[ "$STG_DIGEST" != "$PRD_DIGEST" ]]; then
+            echo "::error::Digest mismatch after re-tag: '$STG_DIGEST' vs '$PRD_DIGEST'."
+            exit 1
+          fi
+          echo "Promotion successful — bytes preserved."
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            --target "$COMMIT_SHA" \
+            --title "$RELEASE_VERSION" \
+            --generate-notes
