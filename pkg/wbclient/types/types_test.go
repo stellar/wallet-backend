@@ -99,3 +99,56 @@ func Test_BalanceConnection_Balances(t *testing.T) {
 		})
 	}
 }
+
+func Test_BalanceConnection_UnmarshalJSON_RejectsNullEdge(t *testing.T) {
+	payload := []byte(`{
+		"edges": [
+			{
+				"cursor": "c1",
+				"node": {
+					"__typename": "NativeBalance",
+					"balance": "1",
+					"tokenId": "native",
+					"tokenType": "NATIVE"
+				}
+			},
+			null
+		],
+		"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+	}`)
+
+	var conn BalanceConnection
+	err := json.Unmarshal(payload, &conn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "edge at index 1 is null")
+}
+
+func Test_BalanceConnection_UnmarshalJSON_DecodesValidConnection(t *testing.T) {
+	payload := []byte(`{
+		"edges": [
+			{
+				"cursor": "c1",
+				"node": {
+					"__typename": "NativeBalance",
+					"balance": "100",
+					"tokenId": "native",
+					"tokenType": "NATIVE"
+				}
+			}
+		],
+		"pageInfo": {"hasNextPage": true, "hasPreviousPage": false, "endCursor": "c1"}
+	}`)
+
+	var conn BalanceConnection
+	err := json.Unmarshal(payload, &conn)
+	require.NoError(t, err)
+	require.Len(t, conn.Edges, 1)
+	require.NotNil(t, conn.Edges[0])
+	require.NotNil(t, conn.Edges[0].Node)
+	assert.Equal(t, "c1", conn.Edges[0].Cursor)
+
+	require.NotNil(t, conn.PageInfo)
+	assert.True(t, conn.PageInfo.HasNextPage)
+	require.NotNil(t, conn.PageInfo.EndCursor)
+	assert.Equal(t, "c1", *conn.PageInfo.EndCursor)
+}

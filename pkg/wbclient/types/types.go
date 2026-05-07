@@ -337,10 +337,44 @@ type BalanceConnection struct {
 	PageInfo *PageInfo      `json:"pageInfo"`
 }
 
+// UnmarshalJSON implements custom JSON unmarshaling for BalanceConnection
+// to reject null entries in the edges array. The GraphQL schema declares
+// edges as [BalanceEdge!]!, so a null edge is a server bug; failing fast
+// at decode time surfaces it instead of silently dropping data downstream.
+//
+// Null nodes inside an edge are caught by BalanceEdge.UnmarshalJSON;
+// this method covers the array-element case that the standard library
+// never routes through that decoder.
+func (c *BalanceConnection) UnmarshalJSON(data []byte) error {
+	type tempConnection struct {
+		Edges    []*BalanceEdge `json:"edges,omitempty"`
+		PageInfo *PageInfo      `json:"pageInfo"`
+	}
+
+	var temp tempConnection
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return fmt.Errorf("unmarshaling balance connection: %w", err)
+	}
+
+	for i, edge := range temp.Edges {
+		if edge == nil {
+			return fmt.Errorf("balance connection edge at index %d is null: the GraphQL schema declares BalanceEdge as non-null", i)
+		}
+	}
+
+	c.Edges = temp.Edges
+	c.PageInfo = temp.PageInfo
+	return nil
+}
+
 // Balances returns the connection's balance nodes as a flat slice.
 // Returns nil if the receiver is nil or has no edges. Combined with the
-// strict UnmarshalJSON on BalanceEdge, callers using this helper can
-// trust that every returned Balance is non-nil.
+// strict UnmarshalJSON on BalanceEdge and BalanceConnection, callers
+// using this helper can trust that every returned Balance is non-nil.
+//
+// The defensive nil-edge skip protects against connections constructed
+// directly in Go code (not via JSON decode); JSON-derived connections
+// never reach this branch because UnmarshalJSON rejects null edges.
 func (c *BalanceConnection) Balances() []Balance {
 	if c == nil || len(c.Edges) == 0 {
 		return nil
