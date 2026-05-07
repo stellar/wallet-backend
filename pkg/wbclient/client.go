@@ -527,6 +527,37 @@ func (c *Client) GetAccountBalances(ctx context.Context, address string, first, 
 	return data.AccountByAddress.Balances, nil
 }
 
+// GetAllAccountBalances returns every balance for the given address by
+// driving GetAccountBalances forward through the cursor sequence in
+// fixed-size pages. Use this when you want a flat list of balances for
+// an account; use GetAccountBalances directly when you need explicit
+// control over page size or position.
+func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
+	first := int32(100)
+
+	var (
+		after    *string
+		balances []types.Balance
+	)
+
+	for {
+		connection, err := c.GetAccountBalances(ctx, address, &first, nil, after, nil)
+		if err != nil {
+			return nil, err
+		}
+		if connection == nil {
+			break
+		}
+		balances = append(balances, connection.Balances()...)
+		if connection.PageInfo == nil || !connection.PageInfo.HasNextPage || connection.PageInfo.EndCursor == nil {
+			break
+		}
+		after = connection.PageInfo.EndCursor
+	}
+
+	return balances, nil
+}
+
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
 	reqBody, err := json.Marshal(bodyObj)
 	if err != nil {
