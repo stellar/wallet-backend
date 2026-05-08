@@ -92,12 +92,7 @@ type OperationStateChangesData struct {
 
 type AccountBalancesData struct {
 	AccountByAddress struct {
-		Balances struct {
-			Edges []struct {
-				Node json.RawMessage `json:"node"`
-			} `json:"edges"`
-			PageInfo *types.PageInfo `json:"pageInfo"`
-		} `json:"balances"`
+		Balances *types.BalanceConnection `json:"balances"`
 	} `json:"accountByAddress"`
 }
 
@@ -513,39 +508,50 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
-	const pageSize int32 = 100
+func (c *Client) GetAccountBalances(ctx context.Context, address string, first, last *int32, after, before *string) (*types.BalanceConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
 
-	var (
-		after    *string
-		balances []types.Balance
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		paginationVars,
 	)
 
+	data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.AccountByAddress.Balances, nil
+}
+
+// GetAllAccountBalances returns every balance for the given address by
+// driving GetAccountBalances forward through the cursor sequence in
+// fixed-size pages. Returns a non-nil empty slice when the account has
+// no balances. Use this when you want a flat list of balances for an
+// account; use GetAccountBalances directly when you need explicit
+// control over page size or position.
+func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
+	first := int32(100)
+
+	var after *string
+	balances := make([]types.Balance, 0)
+
 	for {
-		variables := map[string]any{
-			"address": address,
-			"first":   pageSize,
-			"after":   after,
-		}
-
-		data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+		connection, err := c.GetAccountBalances(ctx, address, &first, nil, after, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting account balances page: %w", err)
 		}
-
-		for i, edge := range data.AccountByAddress.Balances.Edges {
-			balance, unmarshalErr := types.UnmarshalBalance(edge.Node)
-			if unmarshalErr != nil {
-				return nil, fmt.Errorf("unmarshaling balance %d: %w", len(balances)+i, unmarshalErr)
-			}
-			balances = append(balances, balance)
-		}
-
-		pageInfo := data.AccountByAddress.Balances.PageInfo
-		if pageInfo == nil || !pageInfo.HasNextPage || pageInfo.EndCursor == nil {
+		if connection == nil {
 			break
 		}
-		after = pageInfo.EndCursor
+		balances = append(balances, connection.Balances()...)
+		if connection.PageInfo == nil || !connection.PageInfo.HasNextPage || connection.PageInfo.EndCursor == nil {
+			break
+		}
+		after = connection.PageInfo.EndCursor
 	}
 
 	return balances, nil
