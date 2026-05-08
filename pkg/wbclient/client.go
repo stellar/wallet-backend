@@ -533,6 +533,11 @@ func (c *Client) GetAccountBalances(ctx context.Context, address string, first, 
 // no balances. Use this when you want a flat list of balances for an
 // account; use GetAccountBalances directly when you need explicit
 // control over page size or position.
+//
+// Returns an error if the server's pagination response is internally
+// inconsistent — HasNextPage=true with a missing EndCursor, or the same
+// EndCursor returned on two consecutive pages (which would otherwise loop
+// forever). Both indicate a server-side pagination bug.
 func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
 	first := int32(100)
 
@@ -548,9 +553,19 @@ func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]t
 			break
 		}
 		balances = append(balances, connection.Balances()...)
-		if connection.PageInfo == nil || !connection.PageInfo.HasNextPage || connection.PageInfo.EndCursor == nil {
+
+		if connection.PageInfo == nil || !connection.PageInfo.HasNextPage {
 			break
 		}
+
+		if connection.PageInfo.EndCursor == nil {
+			return nil, fmt.Errorf("paginating account balances: server reported HasNextPage=true but did not return an EndCursor")
+		}
+
+		if after != nil && *after == *connection.PageInfo.EndCursor {
+			return nil, fmt.Errorf("paginating account balances: server returned the same EndCursor (%q) on two consecutive pages; pagination is not advancing", *connection.PageInfo.EndCursor)
+		}
+
 		after = connection.PageInfo.EndCursor
 	}
 
