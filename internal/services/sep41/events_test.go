@@ -163,6 +163,23 @@ func TestParseMintEvent_RejectsUnsupportedTopicCount(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestParseMintEvent_Rejects3TopicWithNonAddressAdmin rejects a 3-topic shape where
+// the middle (admin) topic isn't an Address — this isn't the legacy SEP-41 mint
+// shape, so we shouldn't silently accept it just because the last topic happens
+// to be an address.
+func TestParseMintEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventMint),
+			symScVal("not_an_address"),        // wrong type in admin slot
+			mustAddressScVal(t, testAccountB), // valid recipient
+		},
+		i128ScVal(42),
+	)
+	_, err := ParseMintEvent(event)
+	assert.Error(t, err)
+}
+
 func TestParseBurnEvent(t *testing.T) {
 	event := contractEvent(
 		[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
@@ -200,6 +217,21 @@ func TestParseClawbackEvent_LegacyAdminTopic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testAccountA, got.From)
 	assert.Equal(t, big.NewInt(77), got.Amount)
+}
+
+// TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin mirrors the mint guard:
+// 3-topic clawback events whose admin slot isn't an Address are rejected.
+func TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventClawback),
+			symScVal("not_an_address"),
+			mustAddressScVal(t, testAccountA),
+		},
+		i128ScVal(11),
+	)
+	_, err := ParseClawbackEvent(event)
+	assert.Error(t, err)
 }
 
 func TestParseApproveEvent(t *testing.T) {
