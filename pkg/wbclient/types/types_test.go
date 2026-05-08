@@ -100,6 +100,42 @@ func Test_BalanceConnection_Balances(t *testing.T) {
 	}
 }
 
+func Test_BalanceConnection_UnmarshalJSON_RejectsMissingEdgesField(t *testing.T) {
+	payload := []byte(`{
+		"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+	}`)
+
+	var conn BalanceConnection
+	err := json.Unmarshal(payload, &conn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing required edges field")
+}
+
+func Test_BalanceConnection_UnmarshalJSON_RejectsNullEdgesField(t *testing.T) {
+	payload := []byte(`{
+		"edges": null,
+		"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+	}`)
+
+	var conn BalanceConnection
+	err := json.Unmarshal(payload, &conn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing required edges field")
+}
+
+func Test_BalanceConnection_UnmarshalJSON_AcceptsEmptyEdgesArray(t *testing.T) {
+	payload := []byte(`{
+		"edges": [],
+		"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+	}`)
+
+	var conn BalanceConnection
+	err := json.Unmarshal(payload, &conn)
+	require.NoError(t, err)
+	require.NotNil(t, conn.Edges)
+	assert.Empty(t, conn.Edges)
+}
+
 func Test_BalanceConnection_UnmarshalJSON_RejectsNullEdge(t *testing.T) {
 	payload := []byte(`{
 		"edges": [
