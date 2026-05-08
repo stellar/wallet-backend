@@ -339,10 +339,11 @@ type BalanceConnection struct {
 
 // UnmarshalJSON implements custom JSON unmarshaling for BalanceConnection
 // and enforces the schema's non-null guarantees. The GraphQL schema declares
-// edges as [BalanceEdge!]! — both the field itself and each element are
-// non-null — so each of the following is a server bug and is rejected here:
+// edges as [BalanceEdge!]! and pageInfo as PageInfo!, so each of the
+// following is a server bug and is rejected here:
 //   - a missing or null edges field on the connection
 //   - a null entry within the edges array
+//   - a missing or null pageInfo field on the connection
 //
 // Null nodes inside an edge object are caught separately by
 // BalanceEdge.UnmarshalJSON.
@@ -365,6 +366,10 @@ func (c *BalanceConnection) UnmarshalJSON(data []byte) error {
 		if edge == nil {
 			return fmt.Errorf("balance connection edge at index %d is null: the GraphQL schema declares BalanceEdge as non-null", i)
 		}
+	}
+
+	if temp.PageInfo == nil {
+		return fmt.Errorf("balance connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
 	}
 
 	c.Edges = temp.Edges
