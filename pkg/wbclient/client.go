@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
+
+// ErrAccountNotFound is returned by account-scoped queries when the
+// GraphQL server reports the account does not exist (accountByAddress
+// returned null). Distinct from schema/pagination failures so callers
+// can classify it as an address-scoped error rather than a systemic
+// upstream failure. Use errors.Is(err, wbclient.ErrAccountNotFound).
+var ErrAccountNotFound = errors.New("account not found")
 
 type GraphQLRequest struct {
 	Query     string                 `json:"query"`
@@ -91,7 +99,7 @@ type OperationStateChangesData struct {
 }
 
 type AccountBalancesData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		Balances *types.BalanceConnection `json:"balances"`
 	} `json:"accountByAddress"`
 }
@@ -524,6 +532,13 @@ func (c *Client) GetAccountBalances(ctx context.Context, address string, first, 
 		return nil, err
 	}
 
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+	if data.AccountByAddress.Balances == nil {
+		return nil, fmt.Errorf("account balances response missing required balances field for address %s", address)
+	}
+
 	return data.AccountByAddress.Balances, nil
 }
 
@@ -550,11 +565,15 @@ func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]t
 			return nil, fmt.Errorf("getting account balances page: %w", err)
 		}
 		if connection == nil {
-			break
+			return nil, fmt.Errorf("getting account balances page: missing required balances connection")
 		}
+		if connection.PageInfo == nil {
+			return nil, fmt.Errorf("getting account balances page: missing required pageInfo")
+		}
+
 		balances = append(balances, connection.Balances()...)
 
-		if connection.PageInfo == nil || !connection.PageInfo.HasNextPage {
+		if !connection.PageInfo.HasNextPage {
 			break
 		}
 
