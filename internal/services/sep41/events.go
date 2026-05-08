@@ -70,7 +70,7 @@ func ContractIDString(event xdr.ContractEvent) (string, error) {
 // Topics: [sym("transfer"), from: Address, to: Address] — data = i128 amount (classic)
 // or map { amount: i128, to_muxed_id: u64 } (CAP-67).
 func ParseTransferEvent(event xdr.ContractEvent) (*TransferEvent, error) {
-	topics, err := eventTopics(event, 3, EventTransfer)
+	topics, err := eventTopics(event, EventTransfer, 3)
 	if err != nil {
 		return nil, err
 	}
@@ -90,13 +90,26 @@ func ParseTransferEvent(event xdr.ContractEvent) (*TransferEvent, error) {
 	return &TransferEvent{From: from, To: to, Amount: amt, ToMuxedID: muxedID}, nil
 }
 
-// ParseMintEvent decodes a SEP-41 mint event: [sym("mint"), to: Address] with i128 or map data.
+// ParseMintEvent decodes a SEP-41 mint ContractEvent. Two topic shapes are accepted:
+//   - normalized (soroban-sdk 25.x+): [sym("mint"), to: Address]
+//   - legacy (soroban-sdk <=24.x, Stellar Asset Contract, Aqua AMM, DeFindex): [sym("mint"), admin: Address, to: Address]
+//
+// `to` is always the last address topic. The admin topic in the legacy shape is
+// not used downstream, but its type is still validated so we don't accept
+// arbitrary 3-topic events that just happen to start with `mint` and end with
+// an Address.
 func ParseMintEvent(event xdr.ContractEvent) (*MintEvent, error) {
-	topics, err := eventTopics(event, 2, EventMint)
+	topics, err := eventTopics(event, EventMint, 2, 3)
 	if err != nil {
 		return nil, err
 	}
-	to, err := extractAddressFromScVal(topics[1])
+	if len(topics) == 3 {
+		// Validate the legacy admin slot is an Address; discard the value.
+		if _, err := extractAddressFromScVal(topics[1]); err != nil {
+			return nil, fmt.Errorf("decoding mint.admin: %w", err)
+		}
+	}
+	to, err := extractAddressFromScVal(topics[len(topics)-1])
 	if err != nil {
 		return nil, fmt.Errorf("decoding mint.to: %w", err)
 	}
@@ -109,7 +122,7 @@ func ParseMintEvent(event xdr.ContractEvent) (*MintEvent, error) {
 
 // ParseBurnEvent decodes a SEP-41 burn event: [sym("burn"), from: Address], data = i128.
 func ParseBurnEvent(event xdr.ContractEvent) (*BurnEvent, error) {
-	topics, err := eventTopics(event, 2, EventBurn)
+	topics, err := eventTopics(event, EventBurn, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -124,13 +137,25 @@ func ParseBurnEvent(event xdr.ContractEvent) (*BurnEvent, error) {
 	return &BurnEvent{From: from, Amount: amt}, nil
 }
 
-// ParseClawbackEvent decodes a SEP-41 clawback event: [sym("clawback"), from: Address], data = i128.
+// ParseClawbackEvent decodes a SEP-41 clawback ContractEvent. Two topic shapes are accepted:
+//   - 2-topic [sym("clawback"), from: Address]
+//   - legacy 3-topic [sym("clawback"), admin: Address, from: Address] — emitted by the
+//     Stellar Asset Contract reference and by tokens built against soroban-sdk <=24.x.
+//
+// `from` is always the last address topic. As with ParseMintEvent, the admin
+// topic in the legacy shape is unused but still type-checked so a 3-topic
+// `clawback` event with a non-Address middle topic is rejected.
 func ParseClawbackEvent(event xdr.ContractEvent) (*ClawbackEvent, error) {
-	topics, err := eventTopics(event, 2, EventClawback)
+	topics, err := eventTopics(event, EventClawback, 2, 3)
 	if err != nil {
 		return nil, err
 	}
-	from, err := extractAddressFromScVal(topics[1])
+	if len(topics) == 3 {
+		if _, err := extractAddressFromScVal(topics[1]); err != nil {
+			return nil, fmt.Errorf("decoding clawback.admin: %w", err)
+		}
+	}
+	from, err := extractAddressFromScVal(topics[len(topics)-1])
 	if err != nil {
 		return nil, fmt.Errorf("decoding clawback.from: %w", err)
 	}
@@ -145,7 +170,7 @@ func ParseClawbackEvent(event xdr.ContractEvent) (*ClawbackEvent, error) {
 // topics: [sym("approve"), from: Address, spender: Address]
 // data:   [ i128 amount, u32 live_until_ledger ]  (ScVec of 2 elements)
 func ParseApproveEvent(event xdr.ContractEvent) (*ApproveEvent, error) {
-	topics, err := eventTopics(event, 3, EventApprove)
+	topics, err := eventTopics(event, EventApprove, 3)
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +209,11 @@ func ParseApproveEvent(event xdr.ContractEvent) (*ApproveEvent, error) {
 	}, nil
 }
 
-// eventTopics validates a contract event's shape and returns its topics slice when it starts with symName.
-func eventTopics(event xdr.ContractEvent, wantTopics int, symName string) ([]xdr.ScVal, error) {
+// eventTopics validates a contract event's shape and returns its topics slice when it
+// starts with symName. wantTopics lists every acceptable topic count — mint and clawback
+// pass both 2 and 3 because the legacy Soroban Token Interface emits the longer form
+// ([sym, admin, addr]) while the normalized SEP-41 form ([sym, addr]) emits the shorter.
+func eventTopics(event xdr.ContractEvent, symName string, wantTopics ...int) ([]xdr.ScVal, error) {
 	if event.Type != xdr.ContractEventTypeContract {
 		return nil, fmt.Errorf("event type must be Contract, got %v", event.Type)
 	}
@@ -193,8 +221,15 @@ func eventTopics(event xdr.ContractEvent, wantTopics int, symName string) ([]xdr
 		return nil, fmt.Errorf("unsupported event body version %d", event.Body.V)
 	}
 	topics := event.Body.V0.Topics
-	if len(topics) != wantTopics {
-		return nil, fmt.Errorf("expected %d topics for %s, got %d", wantTopics, symName, len(topics))
+	matched := false
+	for _, want := range wantTopics {
+		if len(topics) == want {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf("expected one of %v topics for %s, got %d", wantTopics, symName, len(topics))
 	}
 	sym, ok := topics[0].GetSym()
 	if !ok || string(sym) != symName {

@@ -123,7 +123,8 @@ func TestParseTransferEvent_CAP67Map(t *testing.T) {
 	assert.Equal(t, uint64(7), *got.ToMuxedID)
 }
 
-func TestParseMintEvent(t *testing.T) {
+// TestParseMintEvent_Normalized covers the soroban-sdk 25.x topic shape: [sym, to].
+func TestParseMintEvent_Normalized(t *testing.T) {
 	event := contractEvent(
 		[]xdr.ScVal{symScVal(EventMint), mustAddressScVal(t, testAccountB)},
 		i128ScVal(999),
@@ -132,6 +133,51 @@ func TestParseMintEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testAccountB, got.To)
 	assert.Equal(t, big.NewInt(999), got.Amount)
+}
+
+// TestParseMintEvent_LegacyAdminTopic covers the legacy SAC / soroban-sdk <=24.x shape
+// `[sym("mint"), admin: Address, to: Address]`. `to` must be read from the last topic.
+func TestParseMintEvent_LegacyAdminTopic(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventMint),
+			mustAddressScVal(t, testAccountA), // admin (ignored)
+			mustAddressScVal(t, testAccountB), // to
+		},
+		i128ScVal(1_234_567),
+	)
+	got, err := ParseMintEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, testAccountB, got.To)
+	assert.Equal(t, big.NewInt(1_234_567), got.Amount)
+}
+
+// TestParseMintEvent_RejectsUnsupportedTopicCount guards the parser from accepting
+// shapes it doesn't actually understand (e.g., a single-topic emit).
+func TestParseMintEvent_RejectsUnsupportedTopicCount(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{symScVal(EventMint)},
+		i128ScVal(1),
+	)
+	_, err := ParseMintEvent(event)
+	assert.Error(t, err)
+}
+
+// TestParseMintEvent_Rejects3TopicWithNonAddressAdmin rejects a 3-topic shape where
+// the middle (admin) topic isn't an Address — this isn't the legacy SEP-41 mint
+// shape, so we shouldn't silently accept it just because the last topic happens
+// to be an address.
+func TestParseMintEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventMint),
+			symScVal("not_an_address"),        // wrong type in admin slot
+			mustAddressScVal(t, testAccountB), // valid recipient
+		},
+		i128ScVal(42),
+	)
+	_, err := ParseMintEvent(event)
+	assert.Error(t, err)
 }
 
 func TestParseBurnEvent(t *testing.T) {
@@ -145,7 +191,7 @@ func TestParseBurnEvent(t *testing.T) {
 	assert.Equal(t, big.NewInt(50), got.Amount)
 }
 
-func TestParseClawbackEvent(t *testing.T) {
+func TestParseClawbackEvent_Normalized(t *testing.T) {
 	event := contractEvent(
 		[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
 		i128ScVal(25),
@@ -154,6 +200,38 @@ func TestParseClawbackEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testAccountA, got.From)
 	assert.Equal(t, big.NewInt(25), got.Amount)
+}
+
+// TestParseClawbackEvent_LegacyAdminTopic covers the legacy 3-topic shape
+// `[sym("clawback"), admin: Address, from: Address]`. `from` must be the last topic.
+func TestParseClawbackEvent_LegacyAdminTopic(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventClawback),
+			mustAddressScVal(t, testAccountB), // admin (ignored)
+			mustAddressScVal(t, testAccountA), // from
+		},
+		i128ScVal(77),
+	)
+	got, err := ParseClawbackEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, testAccountA, got.From)
+	assert.Equal(t, big.NewInt(77), got.Amount)
+}
+
+// TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin mirrors the mint guard:
+// 3-topic clawback events whose admin slot isn't an Address are rejected.
+func TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
+	event := contractEvent(
+		[]xdr.ScVal{
+			symScVal(EventClawback),
+			symScVal("not_an_address"),
+			mustAddressScVal(t, testAccountA),
+		},
+		i128ScVal(11),
+	)
+	_, err := ParseClawbackEvent(event)
+	assert.Error(t, err)
 }
 
 func TestParseApproveEvent(t *testing.T) {
