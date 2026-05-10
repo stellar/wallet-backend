@@ -109,7 +109,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc', 'datastore' (default), or 'streaming-loadtest' (dev-only, reads from named pipe)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
 			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
@@ -122,6 +122,23 @@ func (c *ingestCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.DatastoreConfigPath,
 			FlagDefault: "config/datastore-pubnet.toml",
 			Required:    false,
+		},
+		{
+			Name:        "loadtest-meta-pipe-path",
+			Usage:       "Filesystem path of the named pipe (FIFO) for streaming-loadtest backend. Required when ledger-backend-type is 'streaming-loadtest'.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.MetaPipePath,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:           "loadtest-ledger-close-duration",
+			Usage:          "Minimum duration between ledger emits in streaming-loadtest mode. Accepts Go duration syntax (e.g., 1s, 200ms, 0 = uncapped). Only used with streaming-loadtest backend.",
+			OptType:        types.String,
+			ConfigKey:      &cfg.LedgerCloseDuration,
+			FlagDefault:    "0s",
+			Required:       false,
+			CustomSetValue: utils.SetConfigOptionDuration,
 		},
 		{
 			Name:        "chunk-interval",
@@ -188,8 +205,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			case string(ingest.LedgerBackendTypeStreamingLoadtest):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeStreamingLoadtest
 			default:
-				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
+				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc', 'datastore', or 'streaming-loadtest'", ledgerBackendType)
 			}
 
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)

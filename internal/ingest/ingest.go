@@ -39,6 +39,9 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeStreamingLoadtest reads stream-framed XDR LedgerCloseMeta
+	// from a named pipe fed by stellar-core apply-load. Dev-only.
+	LedgerBackendTypeStreamingLoadtest LedgerBackendType = "streaming-loadtest"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
@@ -100,6 +103,14 @@ type Configs struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+	// Streaming-loadtest backend options.
+	// MetaPipePath is the filesystem path of the named pipe (FIFO) that carries
+	// stream-framed XDR LedgerCloseMeta from stellar-core apply-load. Only consulted
+	// when LedgerBackendType == LedgerBackendTypeStreamingLoadtest.
+	MetaPipePath string
+	// LedgerCloseDuration paces the streaming-loadtest backend: GetLedger sleeps
+	// until this duration has elapsed since the previous emit. 0 = uncapped.
+	LedgerCloseDuration time.Duration
 }
 
 func (c Configs) BuildPoolConfig() db.PoolConfig {
