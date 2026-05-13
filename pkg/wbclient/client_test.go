@@ -26,128 +26,137 @@ func graphqlServer(t *testing.T, dataJSON string) *httptest.Server {
 	}))
 }
 
-func TestGetAccountTransactions_AccountNotFound(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": null}`)
-	defer srv.Close()
+func TestGetAccountTransactions(t *testing.T) {
+	ctx := context.Background()
 
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountTransactions(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	assert.Nil(t, conn)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
-}
+	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
 
-func TestGetAccountTransactions_NullConnectionPassesThrough(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"transactions": null}}`)
-	defer srv.Close()
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
+	})
 
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountTransactions(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	assert.Nil(t, conn, "schema permits null transactions on existing account")
-}
+	t.Run("passes through null transactions connection on existing account", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"transactions": null}}`)
+		defer srv.Close()
 
-func TestGetAccountTransactions_EmptyEdgesReturnsConnection(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"transactions": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountTransactions(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Empty(t, conn.Edges)
-	require.NotNil(t, conn.PageInfo)
-}
-
-func TestGetAccountOperations_AccountNotFound(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": null}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountOperations(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	assert.Nil(t, conn)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
-}
-
-func TestGetAccountOperations_NullConnectionPassesThrough(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"operations": null}}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountOperations(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	assert.Nil(t, conn, "schema permits null operations on existing account")
-}
-
-func TestGetAccountOperations_EmptyEdgesReturnsConnection(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"operations": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountOperations(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Empty(t, conn.Edges)
-	require.NotNil(t, conn.PageInfo)
-}
-
-func TestGetAccountStateChanges_AccountNotFound(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": null}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountStateChanges(context.Background(), "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	assert.Nil(t, conn)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
-}
-
-func TestGetAccountStateChanges_NullConnectionPassesThrough(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"stateChanges": null}}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountStateChanges(context.Background(), "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	assert.Nil(t, conn, "schema permits null stateChanges on existing account")
-}
-
-func TestGetAccountStateChanges_EmptyEdgesReturnsConnection(t *testing.T) {
-	srv := graphqlServer(t, `{"accountByAddress": {"stateChanges": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
-	defer srv.Close()
-
-	c := NewClient(srv.URL, nil)
-	conn, err := c.GetAccountStateChanges(context.Background(), "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Empty(t, conn.Edges)
-	require.NotNil(t, conn.PageInfo)
-}
-
-// Sanity check that the request body is well-formed GraphQL JSON. The
-// account-not-found path is the same regardless of arguments, so we only
-// verify the body shape on one method.
-func TestGetAccountTransactions_SendsGraphQLRequest(t *testing.T) {
-	type gqlReq struct {
-		Query     string         `json:"query"`
-		Variables map[string]any `json:"variables"`
-	}
-
-	var received gqlReq
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		err := json.NewDecoder(r.Body).Decode(&received)
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
-		w.Header().Set("Content-Type", "application/json")
-		_, err = w.Write([]byte(`{"data":{"accountByAddress": null}}`))
+		assert.Nil(t, conn, "schema permits null transactions on existing account")
+	})
+
+	t.Run("returns connection with empty edges when account has no transactions", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"transactions": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
-	}))
-	defer srv.Close()
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
 
-	c := NewClient(srv.URL, nil)
-	_, err := c.GetAccountTransactions(context.Background(), "GABC", nil, nil, nil, nil, nil, nil)
-	require.ErrorIs(t, err, ErrAccountNotFound)
+	t.Run("sends well-formed GraphQL request body", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
 
-	assert.Contains(t, received.Query, "accountByAddress")
-	assert.Equal(t, "GABC", received.Variables["address"])
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"accountByAddress": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.ErrorIs(t, err, ErrAccountNotFound)
+
+		assert.Contains(t, received.Query, "accountByAddress")
+		assert.Equal(t, "GABC", received.Variables["address"])
+	})
+}
+
+func TestGetAccountOperations(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
+	})
+
+	t.Run("passes through null operations connection on existing account", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"operations": null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, conn, "schema permits null operations on existing account")
+	})
+
+	t.Run("returns connection with empty edges when account has no operations", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"operations": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
+}
+
+func TestGetAccountStateChanges(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
+	})
+
+	t.Run("passes through null stateChanges connection on existing account", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"stateChanges": null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, conn, "schema permits null stateChanges on existing account")
+	})
+
+	t.Run("returns connection with empty edges when account has no state changes", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"stateChanges": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
 }
