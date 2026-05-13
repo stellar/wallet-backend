@@ -8,7 +8,7 @@ LABEL ?= $(shell git rev-parse --short HEAD)$(and $(shell git status -s),-dirty-
 TAG ?= stellar/wallet-backend:$(LABEL)
 
 # https://github.com/opencontainers/image-spec/blob/master/annotations.md
-BUILD_DATE := $(shell date -u +%FT%TZ)
+BUILD_DATE ?= $(shell date -u +%FT%TZ)
 
 # Version of Stellar Core to be installed. Choose from jammy builds at https://apt.stellar.org/pool/stable/s/stellar-core/
 STELLAR_CORE_VERSION ?= 21.0.0-1872.c6f474133.jammy
