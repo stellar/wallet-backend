@@ -68,7 +68,8 @@ type IndexerBuffer struct {
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
-	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms
+	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
+	wasmBytecodesByHash            map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
 	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
 }
 
@@ -87,6 +88,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
+		wasmBytecodesByHash:            make(map[string][]byte),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 	}
 }
@@ -489,6 +491,13 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		}
 	}
 
+	// Merge wasm bytecodes (first-write wins; bytecode for a given hash is content-addressed and immutable)
+	for hash, code := range otherBuffer.wasmBytecodesByHash {
+		if _, exists := b.wasmBytecodesByHash[hash]; !exists {
+			b.wasmBytecodesByHash[hash] = code
+		}
+	}
+
 	// Merge protocol contracts (last-write-wins: otherBuffer has later ledger data)
 	maps.Copy(b.protocolContractsByID, otherBuffer.protocolContractsByID)
 }
@@ -509,6 +518,7 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.trustlineChangesByTrustlineKey)
 	clear(b.sacContractsByID)
 	clear(b.protocolWasmsByHash)
+	clear(b.wasmBytecodesByHash)
 	clear(b.protocolContractsByID)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
@@ -552,7 +562,9 @@ func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
 	return maps.Clone(b.sacContractsByID)
 }
 
-// PushProtocolWasm adds a protocol WASM to the buffer with deduplication (first-write-wins).
+// PushProtocolWasm adds a protocol WASM record to the buffer (deduplicated by
+// hash; first-write wins). The record's ProtocolID is left for the
+// classification dispatcher to populate at persistence time.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 	b.mu.Lock()
@@ -564,6 +576,20 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 	}
 }
 
+// PushProtocolWasmBytecode stores raw WASM bytecode keyed by hash. Used by the
+// classification dispatcher in PersistLedgerData to extract specs and run
+// per-protocol validators. Bytecode is content-addressed by hash, so
+// first-write wins is safe.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushProtocolWasmBytecode(wasmHash string, bytecode []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.wasmBytecodesByHash[wasmHash]; !exists {
+		b.wasmBytecodesByHash[wasmHash] = bytecode
+	}
+}
+
 // GetProtocolWasms returns a clone of the protocol WASMs map.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
@@ -571,6 +597,19 @@ func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
 	defer b.mu.RUnlock()
 
 	return maps.Clone(b.protocolWasmsByHash)
+}
+
+// GetProtocolWasmBytecodes returns a clone of the wasmHash → bytecode map.
+// The map is a shallow copy: the returned []byte values alias the buffer's
+// internal storage and MUST be treated as read-only by callers. Bytecode is
+// content-addressed by wasmHash and immutable by construction; mutating a
+// returned slice would corrupt the buffer's encapsulated state.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetProtocolWasmBytecodes() map[string][]byte {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.wasmBytecodesByHash)
 }
 
 // PushProtocolContracts adds a protocol contract to the buffer with deduplication (last-write-wins).

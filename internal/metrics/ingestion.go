@@ -50,6 +50,12 @@ type IngestionMetrics struct {
 	ProtocolStateProcessingDuration *prometheus.HistogramVec
 	ProtocolContractCacheAccess     *prometheus.CounterVec
 	ProtocolContractCacheRefresh    prometheus.Histogram
+	// WasmClassificationFailuresTotal counts live-ingest WASM classification
+	// errors (genuine internal failures, not legitimate non-matches), labeled
+	// by protocol_id and reason. The affected row is recorded with
+	// protocol_id = NULL; recover by re-running the protocol-setup CLI.
+	// PromQL: rate(wallet_ingestion_wasm_classification_failures_total[5m]) > 0
+	WasmClassificationFailuresTotal *prometheus.CounterVec
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -133,6 +139,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Help:    "Duration of protocol contract cache refresh queries.",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		}),
+		WasmClassificationFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_ingestion_wasm_classification_failures_total",
+			Help: "Live-ingest WASM classification failures by protocol_id and reason. The row is recorded with protocol_id = NULL; recover by re-running the protocol-setup CLI.",
+		}, []string{"protocol_id", "reason"}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -153,6 +163,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.ProtocolStateProcessingDuration,
 		m.ProtocolContractCacheAccess,
 		m.ProtocolContractCacheRefresh,
+		m.WasmClassificationFailuresTotal,
 	)
 	return m
 }

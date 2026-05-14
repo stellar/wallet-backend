@@ -173,6 +173,13 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	}, nil
 }
 
+// Sep41Allowances is the resolver for the sep41Allowances field. The underlying
+// SQL page is keyset-paginated and the expiration filter is applied server-side;
+// getSEP41Allowances does the heavy lifting (see account_sep41.go).
+func (r *accountResolver) Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.SEP41AllowanceConnection, error) {
+	return r.getSEP41Allowances(ctx, string(obj.StellarAddress), first, after, last, before)
+}
+
 // Account returns graphql1.AccountResolver implementation.
 func (r *Resolver) Account() graphql1.AccountResolver { return &accountResolver{r} }
 

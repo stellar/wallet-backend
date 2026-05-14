@@ -27,4 +27,9 @@ type Account{
     since: Time, until: Time
     first: Int, after: String, last: Int, before: String
   ):   StateChangeConnection
+
+  # Active SEP-41 allowances granted by this account (as owner). Allowances whose
+  # expiration_ledger is below the latest ingested ledger are filtered out server-side.
+  # Relay-paginated with a max page size of 100.
+  sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
 }

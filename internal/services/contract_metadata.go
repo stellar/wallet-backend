@@ -22,6 +22,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// errors / strings imports above already cover everything the retry helpers need.
+
 const (
 	// simulateTransactionBatchSize is the number of contracts to process in parallel
 	// when fetching metadata via RPC simulation.
@@ -31,8 +33,55 @@ const (
 	batchSleepDuration = 2 * time.Second
 )
 
-// ContractMetadataService handles fetching metadata (name, symbol, decimals)
-// for SAC token contracts via RPC simulation.
+// simulateMaxAttempts is the upper bound on retries for transient RPC failures
+// inside a single FetchSingleField call. Permanent errors bail on the first
+// attempt; transient errors retry with exponential backoff. Declared as a var
+// (rather than const) so tests can override to 1 to keep mock-call expectations
+// readable.
+var simulateMaxAttempts = 3
+
+// simulateInitialBackoff is the first sleep between retries; subsequent retries
+// double it (200ms, 400ms in the worst case before giving up).
+var simulateInitialBackoff = 200 * time.Millisecond
+
+// transientSimulateErrorSubstrings are case-insensitive markers we treat as
+// transient when surfaced from the RPC. Adding to this list is the supported
+// way to widen retry coverage — keep it small and well-justified.
+var transientSimulateErrorSubstrings = []string{
+	"latency",                 // public RPC: "latency since last known ledger closed is too high"
+	"timeout",                 // generic timeout
+	"connection refused",      // local/temporary network failure
+	"connection reset",        // transient TCP reset
+	"i/o timeout",             // Go net read/write deadline
+	"temporarily unavailable", // 503-style RPC backpressure
+	"too many requests",       // 429
+}
+
+// isTransientSimulateErr reports whether an error from SimulateTransaction is
+// worth retrying. Net-level failures and known-transient RPC error strings
+// retry; everything else (bad inputs, missing functions, contract errors)
+// bails on the first attempt to avoid masking real problems.
+func isTransientSimulateErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false // caller cancelled — don't retry past their deadline
+	}
+	msg := strings.ToLower(err.Error())
+	for _, s := range transientSimulateErrorSubstrings {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContractMetadataService handles fetching metadata for Stellar Asset Contract
+// (SAC) tokens via RPC simulation. Protocol-specific metadata (e.g. SEP-41
+// name/symbol/decimals) lives inside the per-protocol package — this surface
+// is intentionally limited to SAC (a Stellar primitive) plus the
+// FetchSingleField primitive that any per-protocol validator can compose on.
 type ContractMetadataService interface {
 	// FetchSACMetadata fetches metadata for SAC contracts by calling name() via RPC.
 	// SAC name() returns "code:issuer" format (or "native" for XLM).
@@ -220,19 +269,45 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 		return xdr.ScVal{}, fmt.Errorf("encoding transaction: %w", err)
 	}
 
-	// Simulate transaction
-	result, err := s.rpcService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("simulating transaction: %w", err)
-	}
+	// Simulate the transaction with bounded retries on transient RPC errors
+	// (e.g., public-RPC stale-ledger/latency complaints). Permanent errors —
+	// missing function, malformed args, contract reverts — bail on the first
+	// attempt so we don't mask real problems behind retries.
+	backoff := simulateInitialBackoff
+	var lastErr error
+	for attempt := 1; attempt <= simulateMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
+		}
 
-	if result.Error != "" {
-		return xdr.ScVal{}, fmt.Errorf("simulation failed: %s", result.Error)
-	}
+		result, err := s.rpcService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+		if err != nil {
+			if !isTransientSimulateErr(err) {
+				return xdr.ScVal{}, fmt.Errorf("simulating transaction: %w", err)
+			}
+			lastErr = fmt.Errorf("simulating transaction: %w", err)
+		} else if result.Error != "" {
+			simErr := fmt.Errorf("simulation failed: %s", result.Error)
+			if !isTransientSimulateErr(simErr) {
+				return xdr.ScVal{}, simErr
+			}
+			lastErr = simErr
+		} else if len(result.Results) == 0 {
+			// Empty results aren't classified as transient — surface immediately.
+			return xdr.ScVal{}, fmt.Errorf("no simulation results returned")
+		} else {
+			return result.Results[0].XDR, nil
+		}
 
-	if len(result.Results) == 0 {
-		return xdr.ScVal{}, fmt.Errorf("no simulation results returned")
+		if attempt < simulateMaxAttempts {
+			log.Ctx(ctx).Debugf("simulate %s.%s transient err (attempt %d/%d): %v", contractAddress, functionName, attempt, simulateMaxAttempts, lastErr)
+			select {
+			case <-ctx.Done():
+				return xdr.ScVal{}, fmt.Errorf("context error: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
 	}
-
-	return result.Results[0].XDR, nil
+	return xdr.ScVal{}, fmt.Errorf("simulate %s.%s after %d attempts: %w", contractAddress, functionName, simulateMaxAttempts, lastErr)
 }

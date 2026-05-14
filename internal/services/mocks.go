@@ -329,37 +329,6 @@ func NewChangeReaderMock(t interface {
 	return mock
 }
 
-// ProtocolValidatorMock is a mock implementation of the ProtocolValidator interface
-type ProtocolValidatorMock struct {
-	mock.Mock
-}
-
-var _ ProtocolValidator = (*ProtocolValidatorMock)(nil)
-
-func (m *ProtocolValidatorMock) ProtocolID() string {
-	args := m.Called()
-	return args.String(0)
-}
-
-func (m *ProtocolValidatorMock) Validate(specEntries []xdr.ScSpecEntry) bool {
-	args := m.Called(specEntries)
-	return args.Bool(0)
-}
-
-// NewProtocolValidatorMock creates a new instance of ProtocolValidatorMock.
-func NewProtocolValidatorMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *ProtocolValidatorMock {
-	mock := &ProtocolValidatorMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
 // WasmSpecExtractorMock is a mock implementation of the WasmSpecExtractor interface
 type WasmSpecExtractorMock struct {
 	mock.Mock

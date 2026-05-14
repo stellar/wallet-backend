@@ -1,197 +1,88 @@
-package services
+package sep41
 
 import (
+	"context"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	indexerTypes "github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/services"
 )
-
-// Shared XDR test helpers for creating contract spec entries.
-
-func createScSpecFunctionEntry(name string, inputs []xdr.ScSpecFunctionInputV0, outputs []xdr.ScSpecTypeDef) xdr.ScSpecEntry {
-	funcName := xdr.ScSymbol(name)
-	funcV0 := &xdr.ScSpecFunctionV0{
-		Name:    funcName,
-		Inputs:  inputs,
-		Outputs: outputs,
-	}
-	return xdr.ScSpecEntry{
-		Kind:       xdr.ScSpecEntryKindScSpecEntryFunctionV0,
-		FunctionV0: funcV0,
-	}
-}
-
-func createFunctionInput(name string, typeDef xdr.ScSpecTypeDef) xdr.ScSpecFunctionInputV0 {
-	return xdr.ScSpecFunctionInputV0{
-		Name: name,
-		Type: typeDef,
-	}
-}
-
-func createScSpecTypeDef(scType xdr.ScSpecType) xdr.ScSpecTypeDef {
-	return xdr.ScSpecTypeDef{
-		Type: scType,
-	}
-}
-
-func createSEP41ContractSpec() []xdr.ScSpecEntry {
-	addressType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeAddress)
-	i128Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeI128)
-	u32Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeU32)
-	stringType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeString)
-
-	return []xdr.ScSpecEntry{
-		createScSpecFunctionEntry("balance",
-			[]xdr.ScSpecFunctionInputV0{createFunctionInput("id", addressType)},
-			[]xdr.ScSpecTypeDef{i128Type},
-		),
-		createScSpecFunctionEntry("allowance",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("from", addressType),
-				createFunctionInput("spender", addressType),
-			},
-			[]xdr.ScSpecTypeDef{i128Type},
-		),
-		createScSpecFunctionEntry("decimals",
-			[]xdr.ScSpecFunctionInputV0{},
-			[]xdr.ScSpecTypeDef{u32Type},
-		),
-		createScSpecFunctionEntry("name",
-			[]xdr.ScSpecFunctionInputV0{},
-			[]xdr.ScSpecTypeDef{stringType},
-		),
-		createScSpecFunctionEntry("symbol",
-			[]xdr.ScSpecFunctionInputV0{},
-			[]xdr.ScSpecTypeDef{stringType},
-		),
-		createScSpecFunctionEntry("approve",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("from", addressType),
-				createFunctionInput("spender", addressType),
-				createFunctionInput("amount", i128Type),
-				createFunctionInput("expiration_ledger", u32Type),
-			},
-			[]xdr.ScSpecTypeDef{},
-		),
-		createScSpecFunctionEntry("transfer",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("from", addressType),
-				createFunctionInput("to", addressType),
-				createFunctionInput("amount", i128Type),
-			},
-			[]xdr.ScSpecTypeDef{},
-		),
-		createScSpecFunctionEntry("transfer_from",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("spender", addressType),
-				createFunctionInput("from", addressType),
-				createFunctionInput("to", addressType),
-				createFunctionInput("amount", i128Type),
-			},
-			[]xdr.ScSpecTypeDef{},
-		),
-		createScSpecFunctionEntry("burn",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("from", addressType),
-				createFunctionInput("amount", i128Type),
-			},
-			[]xdr.ScSpecTypeDef{},
-		),
-		createScSpecFunctionEntry("burn_from",
-			[]xdr.ScSpecFunctionInputV0{
-				createFunctionInput("spender", addressType),
-				createFunctionInput("from", addressType),
-				createFunctionInput("amount", i128Type),
-			},
-			[]xdr.ScSpecTypeDef{},
-		),
-	}
-}
-
-func createPartialSEP41Spec(missingFunctions []string) []xdr.ScSpecEntry {
-	fullSpec := createSEP41ContractSpec()
-	missingSet := make(map[string]bool, len(missingFunctions))
-	for _, f := range missingFunctions {
-		missingSet[f] = true
-	}
-
-	var result []xdr.ScSpecEntry
-	for _, entry := range fullSpec {
-		if entry.FunctionV0 != nil {
-			funcName := string(entry.FunctionV0.Name)
-			if !missingSet[funcName] {
-				result = append(result, entry)
-			}
-		}
-	}
-	return result
-}
 
 func TestIsContractCodeSEP41(t *testing.T) {
 	t.Run("returns true for complete SEP-41 contract", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 
 	t.Run("returns false when missing balance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing allowance function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"allowance"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing decimals function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"decimals"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing name function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"name"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing symbol function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"symbol"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing approve function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"approve"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing transfer_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer_from"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false when missing burn_from function", func(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"burn_from"})
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -199,17 +90,15 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		addressType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeAddress)
 		i128Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeI128)
 
-		// Create balance function with wrong input name (should be "id", not "address")
 		balanceFunc := createScSpecFunctionEntry("balance",
 			[]xdr.ScSpecFunctionInputV0{createFunctionInput("address", addressType)},
 			[]xdr.ScSpecTypeDef{i128Type},
 		)
 
-		// Create all other functions correctly
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -217,7 +106,6 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		u32Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeU32)
 		i128Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeI128)
 
-		// Create balance function with wrong input type (should be Address, not u32)
 		balanceFunc := createScSpecFunctionEntry("balance",
 			[]xdr.ScSpecFunctionInputV0{createFunctionInput("id", u32Type)},
 			[]xdr.ScSpecTypeDef{i128Type},
@@ -226,7 +114,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -234,7 +122,6 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		addressType := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeAddress)
 		u32Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeU32)
 
-		// Create balance function with wrong output type (should be i128, not u32)
 		balanceFunc := createScSpecFunctionEntry("balance",
 			[]xdr.ScSpecFunctionInputV0{createFunctionInput("id", addressType)},
 			[]xdr.ScSpecTypeDef{u32Type},
@@ -243,7 +130,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -263,7 +150,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"transfer"})
 		spec = append(spec, transferFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
@@ -279,20 +166,19 @@ func TestIsContractCodeSEP41(t *testing.T) {
 		spec := createPartialSEP41Spec([]string{"balance"})
 		spec = append(spec, balanceFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns false for empty contract spec", func(t *testing.T) {
 		spec := []xdr.ScSpecEntry{}
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.False(t, result)
 	})
 
 	t.Run("returns true with extra non-SEP-41 functions", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
 
-		// Add extra custom functions but all SEP-41 functions should be present
 		u32Type := createScSpecTypeDef(xdr.ScSpecTypeScSpecTypeU32)
 		customFunc := createScSpecFunctionEntry("custom_function",
 			[]xdr.ScSpecFunctionInputV0{createFunctionInput("value", u32Type)},
@@ -301,14 +187,13 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, customFunc)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 
 	t.Run("skips non-function spec entries", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
 
-		// Add a non-function entry (UDT struct)
 		udtEntry := xdr.ScSpecEntry{
 			Kind: xdr.ScSpecEntryKindScSpecEntryUdtStructV0,
 			UdtStructV0: &xdr.ScSpecUdtStructV0{
@@ -321,7 +206,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 
 		spec = append(spec, udtEntry)
 
-		result := NewSEP41ProtocolValidator().Validate(spec)
+		result := matchSEP41Spec(spec)
 		assert.True(t, result)
 	})
 }
@@ -507,4 +392,86 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		result := validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
+}
+
+// wasmTestdataDir returns the absolute path to the shared WASM testdata directory.
+func wasmTestdataDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..", "integrationtests", "infrastructure", "testdata")
+}
+
+func loadTestWasm(t *testing.T, filename string) []byte {
+	t.Helper()
+	wasmBytes, err := os.ReadFile(filepath.Join(wasmTestdataDir(), filename))
+	require.NoError(t, err, "reading test WASM file %s", filename)
+	return wasmBytes
+}
+
+func TestValidator_RealWasm(t *testing.T) {
+	ctx := context.Background()
+	extractor := services.NewWasmSpecExtractor()
+	defer func() { require.NoError(t, extractor.Close(ctx)) }()
+
+	validator := NewValidator()
+
+	t.Run("token contract validates as SEP-41", func(t *testing.T) {
+		wasmBytes := loadTestWasm(t, "soroban_token_contract.wasm")
+		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
+		require.NoError(t, err)
+
+		assert.True(t, matchSEP41Spec(specs), "token contract should validate as SEP-41")
+		assert.Equal(t, "SEP41", validator.ProtocolID())
+	})
+
+	t.Run("increment contract does not validate as SEP-41", func(t *testing.T) {
+		wasmBytes := loadTestWasm(t, "soroban_increment_contract.wasm")
+		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
+		require.NoError(t, err)
+
+		assert.False(t, matchSEP41Spec(specs), "increment contract should not validate as SEP-41")
+	})
+}
+
+// TestValidator_NoMatch covers the case where the signature check rejects the
+// candidate spec. No contract_tokens writes happen and no matches are
+// returned.
+func TestValidator_NoMatch(t *testing.T) {
+	v := NewValidator()
+	hash := indexerTypes.HashBytea("aabb")
+	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
+		Candidates: []services.WasmCandidate{
+			{Hash: hash, SpecEntries: []xdr.ScSpecEntry{{Kind: xdr.ScSpecEntryKindScSpecEntryFunctionV0}}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.MatchedWasms)
+}
+
+// TestValidator_KnownContractEnrichmentRunsWithoutCandidate verifies that the
+// validator enriches contracts whose wasm hash was classified as SEP-41 in a
+// prior batch (KnownProtocolID = "SEP41") even when the wasm itself is not
+// in this batch's Candidates.
+func TestValidator_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
+	contractsMock := data.NewContractModelMock(t)
+	models := &data.Models{Contract: contractsMock}
+
+	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*data.Contract) bool {
+		return len(cs) == 1 && cs[0].Type == contractTokenType
+	})).Return(nil).Once()
+
+	v := NewValidator()
+
+	contractAddr := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	rawAddr, err := strkey.Decode(strkey.VersionByteContract, contractAddr)
+	require.NoError(t, err)
+	contractID := indexerTypes.HashBytea(hex.EncodeToString(rawAddr))
+
+	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
+		Contracts: []services.ContractCandidate{
+			{ContractID: contractID, WasmHash: indexerTypes.HashBytea("aabb"), KnownProtocolID: ProtocolID},
+		},
+		Models: models,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.MatchedWasms, "no in-batch candidates → no match returned")
 }

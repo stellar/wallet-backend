@@ -42,6 +42,7 @@ CREATE TABLE state_changes (
     trustline_limit_new TEXT,
     flags SMALLINT,
     key_value JSONB,
+    to_muxed_id TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (to_id, operation_id, state_change_id, ledger_created_at)
 ) WITH (
