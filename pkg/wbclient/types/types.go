@@ -241,7 +241,7 @@ type TransactionEdge struct {
 // connection.Edges must nil-check edge.Node.
 func (e *TransactionEdge) UnmarshalJSON(data []byte) error {
 	type tempEdge struct {
-		Node   json.RawMessage `json:"node,omitempty"`
+		Node   json.RawMessage `json:"node"`
 		Cursor string          `json:"cursor"`
 	}
 
@@ -318,7 +318,7 @@ type OperationEdge struct {
 // connection.Edges must nil-check edge.Node.
 func (e *OperationEdge) UnmarshalJSON(data []byte) error {
 	type tempEdge struct {
-		Node   json.RawMessage `json:"node,omitempty"`
+		Node   json.RawMessage `json:"node"`
 		Cursor string          `json:"cursor"`
 	}
 
@@ -397,7 +397,7 @@ type StateChangeEdge struct {
 func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 	// Create a temporary struct to unmarshal the edge structure
 	type tempEdge struct {
-		Node   json.RawMessage `json:"node,omitempty"`
+		Node   json.RawMessage `json:"node"`
 		Cursor string          `json:"cursor"`
 	}
 
@@ -475,7 +475,7 @@ type BalanceEdge struct {
 // TrustlineBalance, SACBalance) discriminated by __typename.
 func (e *BalanceEdge) UnmarshalJSON(data []byte) error {
 	type tempEdge struct {
-		Node   json.RawMessage `json:"node,omitempty"`
+		Node   json.RawMessage `json:"node"`
 		Cursor string          `json:"cursor"`
 	}
 

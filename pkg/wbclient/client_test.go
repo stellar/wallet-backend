@@ -122,6 +122,30 @@ func TestGetAccountOperations(t *testing.T) {
 		assert.Empty(t, conn.Edges)
 		require.NotNil(t, conn.PageInfo)
 	})
+
+	t.Run("sends well-formed GraphQL request body", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"accountByAddress": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.ErrorIs(t, err, ErrAccountNotFound)
+
+		assert.Contains(t, received.Query, "accountByAddress")
+		assert.Equal(t, "GABC", received.Variables["address"])
+	})
 }
 
 func TestGetAccountStateChanges(t *testing.T) {
@@ -158,5 +182,36 @@ func TestGetAccountStateChanges(t *testing.T) {
 		require.NotNil(t, conn)
 		assert.Empty(t, conn.Edges)
 		require.NotNil(t, conn.PageInfo)
+	})
+
+	t.Run("sends well-formed GraphQL request body with filter variables", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"accountByAddress": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		txHash := "deadbeef"
+		category := "CREDIT"
+		_, err := c.GetAccountStateChanges(ctx, "GABC", &txHash, nil, &category, nil, nil, nil, nil, nil, nil, nil)
+		require.ErrorIs(t, err, ErrAccountNotFound)
+
+		assert.Contains(t, received.Query, "accountByAddress")
+		assert.Equal(t, "GABC", received.Variables["address"])
+
+		filter, ok := received.Variables["filter"].(map[string]any)
+		require.True(t, ok, "expected filter to be encoded as a JSON object, got %T", received.Variables["filter"])
+		assert.Equal(t, "deadbeef", filter["transactionHash"])
+		assert.Equal(t, "CREDIT", filter["category"])
 	})
 }
