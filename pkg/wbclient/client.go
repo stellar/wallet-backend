@@ -63,19 +63,19 @@ type StateChangesData struct {
 }
 
 type AccountTransactionsData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		Transactions *types.TransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
 }
 
 type AccountOperationsData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		Operations *types.OperationConnection `json:"operations"`
 	} `json:"accountByAddress"`
 }
 
 type AccountStateChangesData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"accountByAddress"`
 }
@@ -376,6 +376,10 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 		return nil, err
 	}
 
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+
 	return data.AccountByAddress.Transactions, nil
 }
 
@@ -404,6 +408,10 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, since
 	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
 
 	return data.AccountByAddress.Operations, nil
@@ -449,6 +457,10 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, tra
 	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
 
 	return data.AccountByAddress.StateChanges, nil
