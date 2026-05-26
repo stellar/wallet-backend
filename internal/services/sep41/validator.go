@@ -41,9 +41,8 @@ const contractTokenType = "sep41"
 // transaction and across re-runs (e.g. ledger transaction rolling back and
 // replaying).
 type Validator struct {
-	fetcher  *metadataFetcher
-	pool     pond.Pool
-	ownsPool bool
+	fetcher *metadataFetcher
+	pool    pond.Pool
 }
 
 var _ services.ProtocolValidator = (*Validator)(nil)
@@ -65,7 +64,6 @@ func newValidator(deps services.ProtocolDeps) *Validator {
 		// Owned worker pool — capped here to keep the public RPC endpoint
 		// happy under bursts.
 		v.pool = pond.NewPool(0)
-		v.ownsPool = true
 		v.fetcher = newMetadataFetcher(deps.ContractMetadataService, v.pool)
 	}
 	return v
@@ -109,7 +107,7 @@ func (v *Validator) Close() {
 	if v == nil {
 		return
 	}
-	if v.ownsPool && v.pool != nil {
+	if v.pool != nil {
 		v.pool.StopAndWait()
 	}
 }
