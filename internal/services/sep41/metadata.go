@@ -25,16 +25,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-const (
-	// metadataBatchSize is the number of contracts processed in parallel per
-	// RPC simulation batch. Tuned the same as the previous generic
-	// simulateTransactionBatchSize so behavior is preserved verbatim.
-	metadataBatchSize = 20
-
-	// metadataBatchSleep is the delay between batches to avoid overwhelming
-	// the RPC.
+// metadataBatchSize is the number of contracts processed in parallel per RPC
+// simulation batch. metadataBatchSleep is the delay between batches to avoid
+// overwhelming the RPC. Declared as vars (not consts) so tests can shorten
+// them — mirrors simulateMaxAttempts / simulateInitialBackoff in
+// contract_metadata.go.
+var (
+	metadataBatchSize  = 20
 	metadataBatchSleep = 2 * time.Second
+)
 
+const (
 	// maxTokenDecimals caps SEP-41 decimals() at a realistic upper bound. Real
 	// tokens use ≤ 18; this also keeps the value inside Postgres INTEGER range,
 	// since SEP-41 technically permits a u32 that exceeds INT32_MAX. A contract
