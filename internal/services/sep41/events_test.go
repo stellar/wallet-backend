@@ -84,100 +84,121 @@ func contractEvent(topics []xdr.ScVal, data xdr.ScVal) xdr.ContractEvent {
 
 // tests -----------------------------------------------------------------------
 
-func TestParseTransferEvent_Classic(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventTransfer),
-			mustAddressScVal(t, testAccountA),
-			mustAddressScVal(t, testAccountB),
-		},
-		i128ScVal(1_000_000),
-	)
+func TestParseTransferEvent(t *testing.T) {
+	t.Run("parses a classic 3-topic [sym, from, to] transfer with int128 amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			i128ScVal(1_000_000),
+		)
 
-	got, err := ParseTransferEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountA, got.From)
-	assert.Equal(t, testAccountB, got.To)
-	assert.Equal(t, big.NewInt(1_000_000), got.Amount)
-	assert.Nil(t, got.ToMuxedID)
+		got, err := ParseTransferEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, testAccountB, got.To)
+		assert.Equal(t, big.NewInt(1_000_000), got.Amount)
+		assert.Nil(t, got.ToMuxedID)
+	})
+
+	t.Run("parses a CAP-67 map data payload with amount and to_muxed_id", func(t *testing.T) {
+		dataMap := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
+			xdr.ScMapEntry{Key: symScVal("to_muxed_id"), Val: u64ScVal(7)},
+		)
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			dataMap,
+		)
+
+		got, err := ParseTransferEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, big.NewInt(42), got.Amount)
+		require.NotNil(t, got.ToMuxedID)
+		assert.Equal(t, uint64(7), *got.ToMuxedID)
+	})
+
+	t.Run("rejects a transfer event whose topic count is not 3", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountA)},
+			i128ScVal(1),
+		)
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
+
+	t.Run("rejects an event whose leading topic is not the transfer symbol", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal("not_transfer"),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			i128ScVal(1),
+		)
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
 }
 
-func TestParseTransferEvent_CAP67Map(t *testing.T) {
-	dataMap := mapScVal(
-		xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
-		xdr.ScMapEntry{Key: symScVal("to_muxed_id"), Val: u64ScVal(7)},
-	)
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventTransfer),
-			mustAddressScVal(t, testAccountA),
-			mustAddressScVal(t, testAccountB),
-		},
-		dataMap,
-	)
+func TestParseMintEvent(t *testing.T) {
+	t.Run("parses the soroban-sdk 25.x [sym, to] topic shape", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventMint), mustAddressScVal(t, testAccountB)},
+			i128ScVal(999),
+		)
+		got, err := ParseMintEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountB, got.To)
+		assert.Equal(t, big.NewInt(999), got.Amount)
+	})
 
-	got, err := ParseTransferEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, big.NewInt(42), got.Amount)
-	require.NotNil(t, got.ToMuxedID)
-	assert.Equal(t, uint64(7), *got.ToMuxedID)
-}
+	t.Run("parses the legacy SAC [sym, admin, to] topic shape with the admin slot ignored", func(t *testing.T) {
+		// Legacy SAC / soroban-sdk <=24.x shape `[sym("mint"), admin: Address, to: Address]`;
+		// `to` must be read from the last topic.
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventMint),
+				mustAddressScVal(t, testAccountA), // admin (ignored)
+				mustAddressScVal(t, testAccountB), // to
+			},
+			i128ScVal(1_234_567),
+		)
+		got, err := ParseMintEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountB, got.To)
+		assert.Equal(t, big.NewInt(1_234_567), got.Amount)
+	})
 
-// TestParseMintEvent_Normalized covers the soroban-sdk 25.x topic shape: [sym, to].
-func TestParseMintEvent_Normalized(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{symScVal(EventMint), mustAddressScVal(t, testAccountB)},
-		i128ScVal(999),
-	)
-	got, err := ParseMintEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountB, got.To)
-	assert.Equal(t, big.NewInt(999), got.Amount)
-}
+	t.Run("rejects a single-topic emit with no recipient", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventMint)},
+			i128ScVal(1),
+		)
+		_, err := ParseMintEvent(event)
+		assert.Error(t, err)
+	})
 
-// TestParseMintEvent_LegacyAdminTopic covers the legacy SAC / soroban-sdk <=24.x shape
-// `[sym("mint"), admin: Address, to: Address]`. `to` must be read from the last topic.
-func TestParseMintEvent_LegacyAdminTopic(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventMint),
-			mustAddressScVal(t, testAccountA), // admin (ignored)
-			mustAddressScVal(t, testAccountB), // to
-		},
-		i128ScVal(1_234_567),
-	)
-	got, err := ParseMintEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountB, got.To)
-	assert.Equal(t, big.NewInt(1_234_567), got.Amount)
-}
-
-// TestParseMintEvent_RejectsUnsupportedTopicCount guards the parser from accepting
-// shapes it doesn't actually understand (e.g., a single-topic emit).
-func TestParseMintEvent_RejectsUnsupportedTopicCount(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{symScVal(EventMint)},
-		i128ScVal(1),
-	)
-	_, err := ParseMintEvent(event)
-	assert.Error(t, err)
-}
-
-// TestParseMintEvent_Rejects3TopicWithNonAddressAdmin rejects a 3-topic shape where
-// the middle (admin) topic isn't an Address — this isn't the legacy SEP-41 mint
-// shape, so we shouldn't silently accept it just because the last topic happens
-// to be an address.
-func TestParseMintEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventMint),
-			symScVal("not_an_address"),        // wrong type in admin slot
-			mustAddressScVal(t, testAccountB), // valid recipient
-		},
-		i128ScVal(42),
-	)
-	_, err := ParseMintEvent(event)
-	assert.Error(t, err)
+	t.Run("rejects a 3-topic shape whose admin slot is not an Address", func(t *testing.T) {
+		// Not the legacy SEP-41 mint shape, so we shouldn't silently accept it just
+		// because the last topic happens to be an address.
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventMint),
+				symScVal("not_an_address"),        // wrong type in admin slot
+				mustAddressScVal(t, testAccountB), // valid recipient
+			},
+			i128ScVal(42),
+		)
+		_, err := ParseMintEvent(event)
+		assert.Error(t, err)
+	})
 }
 
 func TestParseBurnEvent(t *testing.T) {
@@ -191,47 +212,49 @@ func TestParseBurnEvent(t *testing.T) {
 	assert.Equal(t, big.NewInt(50), got.Amount)
 }
 
-func TestParseClawbackEvent_Normalized(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
-		i128ScVal(25),
-	)
-	got, err := ParseClawbackEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountA, got.From)
-	assert.Equal(t, big.NewInt(25), got.Amount)
-}
+func TestParseClawbackEvent(t *testing.T) {
+	t.Run("parses the soroban-sdk 25.x [sym, from] topic shape", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
+			i128ScVal(25),
+		)
+		got, err := ParseClawbackEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, big.NewInt(25), got.Amount)
+	})
 
-// TestParseClawbackEvent_LegacyAdminTopic covers the legacy 3-topic shape
-// `[sym("clawback"), admin: Address, from: Address]`. `from` must be the last topic.
-func TestParseClawbackEvent_LegacyAdminTopic(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventClawback),
-			mustAddressScVal(t, testAccountB), // admin (ignored)
-			mustAddressScVal(t, testAccountA), // from
-		},
-		i128ScVal(77),
-	)
-	got, err := ParseClawbackEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountA, got.From)
-	assert.Equal(t, big.NewInt(77), got.Amount)
-}
+	t.Run("parses the legacy SAC [sym, admin, from] topic shape with the admin slot ignored", func(t *testing.T) {
+		// Legacy 3-topic shape `[sym("clawback"), admin: Address, from: Address]`;
+		// `from` must be read from the last topic.
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventClawback),
+				mustAddressScVal(t, testAccountB), // admin (ignored)
+				mustAddressScVal(t, testAccountA), // from
+			},
+			i128ScVal(77),
+		)
+		got, err := ParseClawbackEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, big.NewInt(77), got.Amount)
+	})
 
-// TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin mirrors the mint guard:
-// 3-topic clawback events whose admin slot isn't an Address are rejected.
-func TestParseClawbackEvent_Rejects3TopicWithNonAddressAdmin(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventClawback),
-			symScVal("not_an_address"),
-			mustAddressScVal(t, testAccountA),
-		},
-		i128ScVal(11),
-	)
-	_, err := ParseClawbackEvent(event)
-	assert.Error(t, err)
+	t.Run("rejects a 3-topic shape whose admin slot is not an Address", func(t *testing.T) {
+		// Mirrors the mint guard: a 3-topic clawback whose admin slot isn't an Address
+		// isn't the legacy shape and must be rejected.
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventClawback),
+				symScVal("not_an_address"),
+				mustAddressScVal(t, testAccountA),
+			},
+			i128ScVal(11),
+		)
+		_, err := ParseClawbackEvent(event)
+		assert.Error(t, err)
+	})
 }
 
 func TestParseApproveEvent(t *testing.T) {
@@ -250,28 +273,6 @@ func TestParseApproveEvent(t *testing.T) {
 	assert.Equal(t, testAccountB, got.Spender)
 	assert.Equal(t, big.NewInt(500), got.Amount)
 	assert.Equal(t, uint32(1234), got.LiveUntilLedger)
-}
-
-func TestParseTransferEvent_WrongTopicCount(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountA)},
-		i128ScVal(1),
-	)
-	_, err := ParseTransferEvent(event)
-	assert.Error(t, err)
-}
-
-func TestParseTransferEvent_WrongSymbol(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal("not_transfer"),
-			mustAddressScVal(t, testAccountA),
-			mustAddressScVal(t, testAccountB),
-		},
-		i128ScVal(1),
-	)
-	_, err := ParseTransferEvent(event)
-	assert.Error(t, err)
 }
 
 func TestContractIDString(t *testing.T) {
