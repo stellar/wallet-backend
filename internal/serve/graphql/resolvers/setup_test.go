@@ -7,9 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	godbtest "github.com/stellar/go-stellar-sdk/support/db/dbtest"
+	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 var (
@@ -37,4 +39,25 @@ func TestMain(m *testing.M) {
 	testDBT.Close()
 
 	os.Exit(code)
+}
+
+// execTestDB runs a raw SQL exec against the shared test pool. Used by tests
+// that seed fixtures without going through the data-layer interfaces.
+func execTestDB(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	_, err := testDBConnectionPool.Exec(testCtx, sql, args...)
+	require.NoError(t, err)
+}
+
+// mustAddressBytes returns the 33-byte BYTEA encoding of a Stellar strkey
+// address, matching the types.AddressBytea.Value serialization. Used to build
+// the bytes for ad-hoc SQL inserts in tests.
+func mustAddressBytes(t *testing.T, addr string) []byte {
+	t.Helper()
+	a := types.AddressBytea(addr)
+	v, err := a.Value()
+	require.NoError(t, err)
+	b, ok := v.([]byte)
+	require.True(t, ok)
+	return b
 }
