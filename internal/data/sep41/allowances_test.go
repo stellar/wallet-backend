@@ -3,6 +3,7 @@
 package sep41_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sort"
@@ -19,8 +20,24 @@ import (
 	"github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// sortStrkeysByBytea sorts strkey addresses by their 33-byte BYTEA encoding,
+// matching the ordering Postgres uses for the bytea column.
+func sortStrkeysByBytea(t *testing.T, addrs []string) {
+	t.Helper()
+	encoded := make(map[string][]byte, len(addrs))
+	for _, a := range addrs {
+		raw, err := types.AddressBytea(a).Value()
+		require.NoError(t, err)
+		encoded[a] = raw.([]byte)
+	}
+	sort.Slice(addrs, func(i, j int) bool {
+		return bytes.Compare(encoded[addrs[i]], encoded[addrs[j]]) < 0
+	})
+}
 
 func newAllowancesFixture(t *testing.T) (context.Context, *pgxpool.Pool, *sep41.AllowanceModel, func()) {
 	t.Helper()
@@ -47,9 +64,9 @@ func seedAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner,
 	t.Helper()
 	cid := insertContractToken(t, ctx, pool, contractAddr)
 	_, err := pool.Exec(ctx, `
-		INSERT INTO sep41_allowances (owner_address, spender_address, contract_id, amount, expiration_ledger, last_modified_ledger)
+		INSERT INTO sep41_allowances (owner_id, spender_id, contract_id, amount, expiration_ledger, last_modified_ledger)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, owner, spender, cid, "100", expirationLedger, uint32(1))
+	`, types.AddressBytea(owner), types.AddressBytea(spender), cid, "100", expirationLedger, uint32(1))
 	require.NoError(t, err)
 }
 
@@ -60,8 +77,8 @@ func readAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner,
 	err := pool.QueryRow(ctx, `
 		SELECT amount, expiration_ledger, last_modified_ledger
 		FROM sep41_allowances
-		WHERE owner_address = $1 AND spender_address = $2 AND contract_id = $3
-	`, owner, spender, contractID).Scan(&amount, &expirationLedger, &lastModifiedLedger)
+		WHERE owner_id = $1 AND spender_id = $2 AND contract_id = $3
+	`, types.AddressBytea(owner), types.AddressBytea(spender), contractID).Scan(&amount, &expirationLedger, &lastModifiedLedger)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", 0, 0, false
 	}
@@ -97,9 +114,9 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 
 		// ASC ordering by (spender_address, contract_id). Mirror the expected order.
 		sortedSpenders := append([]string(nil), spenders...)
-		sort.Strings(sortedSpenders)
-		assert.Equal(t, sortedSpenders[0], page1[0].SpenderAddress)
-		assert.Equal(t, sortedSpenders[1], page1[1].SpenderAddress)
+		sortStrkeysByBytea(t, sortedSpenders)
+		assert.Equal(t, sortedSpenders[0], page1[0].SpenderID.String())
+		assert.Equal(t, sortedSpenders[1], page1[1].SpenderID.String())
 	})
 
 	t.Run("continues a keyset walk from the cursor of the previous page", func(t *testing.T) {
@@ -113,24 +130,24 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 			spenders = append(spenders, sp)
 			seedAllowance(t, ctx, pool, owner, sp, contract, currentLedger+100)
 		}
-		sort.Strings(spenders)
+		sortStrkeysByBytea(t, spenders)
 
 		page1, err := m.GetByOwner(ctx, owner, currentLedger, 2, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page1, 2)
-		assert.Equal(t, spenders[0], page1[0].SpenderAddress)
-		assert.Equal(t, spenders[1], page1[1].SpenderAddress)
+		assert.Equal(t, spenders[0], page1[0].SpenderID.String())
+		assert.Equal(t, spenders[1], page1[1].SpenderID.String())
 
 		// Feed the last row back as a cursor; should return rows [2:4].
 		cursor := &sep41.AllowanceCursor{
-			SpenderAddress: page1[1].SpenderAddress,
-			ContractID:     page1[1].ContractID,
+			SpenderID:  page1[1].SpenderID,
+			ContractID: page1[1].ContractID,
 		}
 		page2, err := m.GetByOwner(ctx, owner, currentLedger, 2, cursor, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page2, 2)
-		assert.Equal(t, spenders[2], page2[0].SpenderAddress)
-		assert.Equal(t, spenders[3], page2[1].SpenderAddress)
+		assert.Equal(t, spenders[2], page2[0].SpenderID.String())
+		assert.Equal(t, spenders[3], page2[1].SpenderID.String())
 	})
 
 	t.Run("returns rows in descending order when SortDESC is given", func(t *testing.T) {
@@ -144,14 +161,14 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 			spenders = append(spenders, sp)
 			seedAllowance(t, ctx, pool, owner, sp, contract, currentLedger+100)
 		}
-		sort.Strings(spenders)
+		sortStrkeysByBytea(t, spenders)
 
 		page, err := m.GetByOwner(ctx, owner, currentLedger, 10, nil, sep41.SortDESC)
 		require.NoError(t, err)
 		require.Len(t, page, 3)
-		assert.Equal(t, spenders[2], page[0].SpenderAddress)
-		assert.Equal(t, spenders[1], page[1].SpenderAddress)
-		assert.Equal(t, spenders[0], page[2].SpenderAddress)
+		assert.Equal(t, spenders[2], page[0].SpenderID.String())
+		assert.Equal(t, spenders[1], page[1].SpenderID.String())
+		assert.Equal(t, spenders[0], page[2].SpenderID.String())
 	})
 
 	t.Run("filters out allowances whose expiration_ledger is below currentLedger", func(t *testing.T) {
@@ -196,8 +213,8 @@ func TestAllowanceModel_BatchUpsert(t *testing.T) {
 		// First ledger: insert two grants via UNNEST upsert path.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsert(ctx, tx, []sep41.Allowance{
-				{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidA, Amount: "100", ExpirationLedger: 5100, LedgerNumber: 5000},
-				{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidB, Amount: "200", ExpirationLedger: 5200, LedgerNumber: 5000},
+				{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cidA, Amount: "100", ExpirationLedger: 5100, LedgerNumber: 5000},
+				{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cidB, Amount: "200", ExpirationLedger: 5200, LedgerNumber: 5000},
 			}, nil))
 		})
 
@@ -210,8 +227,8 @@ func TestAllowanceModel_BatchUpsert(t *testing.T) {
 		// Second ledger: update grant A and revoke (delete) grant B.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsert(ctx, tx,
-				[]sep41.Allowance{{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidA, Amount: "300", ExpirationLedger: 6100, LedgerNumber: 5001}},
-				[]sep41.Allowance{{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidB}},
+				[]sep41.Allowance{{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cidA, Amount: "300", ExpirationLedger: 6100, LedgerNumber: 5001}},
+				[]sep41.Allowance{{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cidB}},
 			))
 		})
 
@@ -234,7 +251,7 @@ func TestAllowanceModel_BatchUpsert(t *testing.T) {
 		// Upsert-only path (deletes nil) must not error or touch the delete branch.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsert(ctx, tx, []sep41.Allowance{
-				{OwnerAddress: owner, SpenderAddress: spender, ContractID: cid, Amount: "42", ExpirationLedger: 5100, LedgerNumber: 5000},
+				{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cid, Amount: "42", ExpirationLedger: 5100, LedgerNumber: 5000},
 			}, nil))
 		})
 		_, _, _, found := readAllowance(t, ctx, pool, owner, spender, cid)
@@ -243,7 +260,7 @@ func TestAllowanceModel_BatchUpsert(t *testing.T) {
 		// Delete-only path (upserts nil) must not error or touch the insert branch.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsert(ctx, tx, nil, []sep41.Allowance{
-				{OwnerAddress: owner, SpenderAddress: spender, ContractID: cid},
+				{OwnerID: types.AddressBytea(owner), SpenderID: types.AddressBytea(spender), ContractID: cid},
 			}))
 		})
 		_, _, _, found = readAllowance(t, ctx, pool, owner, spender, cid)

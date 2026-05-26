@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -74,7 +75,7 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			err := m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct,
+				AccountID: types.AddressBytea(acct),
 				ContractID:     cid,
 				Balance:        "1000",
 				LedgerNumber:   42,
@@ -101,21 +102,21 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 		// Ledger 42: balance = 1000.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct, ContractID: cid, Balance: "1000", LedgerNumber: 42,
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1000", LedgerNumber: 42,
 			}}))
 		})
 
 		// Ledger 43: -250 → 750.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct, ContractID: cid, Balance: "-250", LedgerNumber: 43,
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-250", LedgerNumber: 43,
 			}}))
 		})
 
 		// Ledger 44: +50 → 800.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct, ContractID: cid, Balance: "50", LedgerNumber: 44,
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "50", LedgerNumber: 44,
 			}}))
 		})
 
@@ -137,9 +138,9 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
-				{AccountAddress: acctA, ContractID: cid1, Balance: "100", LedgerNumber: 50},
-				{AccountAddress: acctA, ContractID: cid2, Balance: "200", LedgerNumber: 50},
-				{AccountAddress: acctB, ContractID: cid1, Balance: "300", LedgerNumber: 50},
+				{AccountID: types.AddressBytea(acctA), ContractID: cid1, Balance: "100", LedgerNumber: 50},
+				{AccountID: types.AddressBytea(acctA), ContractID: cid2, Balance: "200", LedgerNumber: 50},
+				{AccountID: types.AddressBytea(acctB), ContractID: cid1, Balance: "300", LedgerNumber: 50},
 			}))
 		})
 
@@ -168,13 +169,13 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct, ContractID: cid, Balance: "500", LedgerNumber: 10,
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "500", LedgerNumber: 10,
 			}}))
 		})
 		// Burn the entire balance.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountAddress: acct, ContractID: cid, Balance: "-500", LedgerNumber: 11,
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-500", LedgerNumber: 11,
 			}}))
 		})
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -27,9 +28,9 @@ const (
 //
 //	base64("v1:<spender>:<contract_uuid>")
 //
-// (spender_address, contract_id) is unique inside a single owner's allowance
-// list (owner+spender+contract_id is the table primary key), so that pair is a
-// valid keyset cursor.
+// (spender_id, contract_id) is unique inside a single owner's allowance list
+// (owner_id+spender_id+contract_id is the table primary key), so that pair is
+// a valid keyset cursor.
 type allowanceCursor struct {
 	SpenderAddress string
 	ContractID     uuid.UUID
@@ -84,7 +85,7 @@ func parseAllowanceCursor(cursor *string) (*allowanceCursor, error) {
 // encodeAllowanceCursorID produces the inner cursor payload for an allowance row.
 // The outer base64 wrapping is applied by NewConnectionWithRelayPagination.
 func encodeAllowanceCursorID(a sep41data.Allowance) string {
-	return fmt.Sprintf("%s:%s:%s", allowanceCursorPrefix, a.SpenderAddress, a.ContractID)
+	return fmt.Sprintf("%s:%s:%s", allowanceCursorPrefix, a.SpenderID, a.ContractID)
 }
 
 // getSEP41Allowances is the main implementation for Account.sep41Allowances.
@@ -124,8 +125,8 @@ func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first
 	var cursor *sep41data.AllowanceCursor
 	if inner != nil {
 		cursor = &sep41data.AllowanceCursor{
-			SpenderAddress: inner.SpenderAddress,
-			ContractID:     inner.ContractID,
+			SpenderID:  types.AddressBytea(inner.SpenderAddress),
+			ContractID: inner.ContractID,
 		}
 	}
 
@@ -142,8 +143,8 @@ func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first
 	for i, edge := range conn.Edges {
 		edges[i] = &graphql1.SEP41AllowanceEdge{
 			Node: &graphql1.SEP41Allowance{
-				Owner:              edge.Node.OwnerAddress,
-				Spender:            edge.Node.SpenderAddress,
+				Owner:              edge.Node.OwnerID.String(),
+				Spender:            edge.Node.SpenderID.String(),
 				TokenID:            edge.Node.TokenID,
 				Amount:             edge.Node.Amount,
 				ExpirationLedger:   edge.Node.ExpirationLedger,

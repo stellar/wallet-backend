@@ -25,14 +25,14 @@ import (
 
 // balanceKey uniquely identifies a (account, contract) balance row.
 type balanceKey struct {
-	Account    string
+	Account    types.AddressBytea
 	ContractID string // C... strkey
 }
 
 // allowanceKey uniquely identifies an owner/spender/contract allowance row.
 type allowanceKey struct {
-	Owner      string
-	Spender    string
+	Owner      types.AddressBytea
+	Spender    types.AddressBytea
 	ContractID string // C... strkey
 }
 
@@ -194,8 +194,8 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
-		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
+		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
 			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 		if decoded.ToMuxedID != nil {
@@ -212,7 +212,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.To, contractStr, decoded.Amount)
+		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
 			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 		if decoded.ToMuxedID != nil {
@@ -225,7 +225,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
+		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
 				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
@@ -236,7 +236,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(decoded.From, contractStr, new(big.Int).Neg(decoded.Amount))
+		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
 		// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
 		p.stagedStateChanges = append(p.stagedStateChanges,
 			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
@@ -248,7 +248,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		key := allowanceKey{Owner: decoded.From, Spender: decoded.Spender, ContractID: contractStr}
+		key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
 		p.stagedAllowances[key] = stagedAllowance{
 			Amount:           new(big.Int).Set(decoded.Amount),
 			ExpirationLedger: decoded.LiveUntilLedger,
@@ -277,7 +277,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	return nil
 }
 
-func (p *processor) applyBalanceDelta(account, contractStr string, delta *big.Int) {
+func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr string, delta *big.Int) {
 	key := balanceKey{Account: account, ContractID: contractStr}
 	existing, ok := p.stagedBalanceDelta[key]
 	if !ok {
@@ -338,10 +338,10 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
 	for key, delta := range p.stagedBalanceDelta {
 		deltas = append(deltas, sep41data.Balance{
-			AccountAddress: key.Account,
-			ContractID:     data.DeterministicContractID(key.ContractID),
-			Balance:        delta.String(),
-			LedgerNumber:   p.ledgerNumber,
+			AccountID:    key.Account,
+			ContractID:   data.DeterministicContractID(key.ContractID),
+			Balance:      delta.String(),
+			LedgerNumber: p.ledgerNumber,
 		})
 	}
 	if err := p.balances.BatchApplyDeltas(ctx, dbTx, deltas); err != nil {
@@ -353,8 +353,8 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	var allowanceDeletes []sep41data.Allowance
 	for key, staged := range p.stagedAllowances {
 		row := sep41data.Allowance{
-			OwnerAddress:     key.Owner,
-			SpenderAddress:   key.Spender,
+			OwnerID:          key.Owner,
+			SpenderID:        key.Spender,
 			ContractID:       data.DeterministicContractID(key.ContractID),
 			Amount:           staged.Amount.String(),
 			ExpirationLedger: staged.ExpirationLedger,

@@ -336,7 +336,7 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 		}
 		deltaByAccount := map[string]string{}
 		for _, d := range deltas {
-			deltaByAccount[d.AccountAddress] = d.Balance
+			deltaByAccount[d.AccountID.String()] = d.Balance
 		}
 		return deltaByAccount[testAccountA] == "-500" && deltaByAccount[testAccountB] == "500"
 	})).Return(nil).Once()

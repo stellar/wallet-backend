@@ -5,11 +5,11 @@
 -- SAC balances are tracked separately in sac_balances / trustline_balances.
 -- Storage parameters tuned for heavy UPSERT/DELETE during ledger ingestion, mirroring sac_balances.
 CREATE TABLE sep41_balances (
-    account_address TEXT NOT NULL,
+    account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
     balance TEXT NOT NULL DEFAULT '0',
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (account_address, contract_id),
+    PRIMARY KEY (account_id, contract_id),
     CONSTRAINT fk_sep41_contract_token
         FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
         DEFERRABLE INITIALLY DEFERRED

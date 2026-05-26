@@ -1,6 +1,7 @@
 package resolvers
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,13 +40,13 @@ func TestAccountResolver_SEP41BalancesReturnedByBalancesConnection(t *testing.T)
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, symbol = EXCLUDED.symbol, decimals = EXCLUDED.decimals
 	`, cid, contractAddr, "sep41", name, symbol, 7)
 	t.Cleanup(func() {
-		execTestDB(t, `DELETE FROM sep41_balances WHERE account_address = $1`, acct)
+		execTestDB(t, `DELETE FROM sep41_balances WHERE account_id = $1`, types.AddressBytea(acct))
 	})
 
 	execTestDB(t, `
-		INSERT INTO sep41_balances (account_address, contract_id, balance, last_modified_ledger)
+		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
 		VALUES ($1, $2, $3, $4)
-	`, acct, cid, "123456789", uint32(9999))
+	`, types.AddressBytea(acct), cid, "123456789", uint32(9999))
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	rpcMock := services.NewRPCServiceMock(t)
@@ -175,18 +176,18 @@ func TestAccountResolver_SEP41AllowancesFiltersExpired(t *testing.T) {
 		expiredCID, expiredContract, "sep41", 7)
 
 	t.Cleanup(func() {
-		execTestDB(t, `DELETE FROM sep41_allowances WHERE owner_address = $1`, acct)
+		execTestDB(t, `DELETE FROM sep41_allowances WHERE owner_id = $1`, types.AddressBytea(acct))
 	})
 
 	const currentLedger uint32 = 5000
 	execTestDB(t, `
-		INSERT INTO sep41_allowances (owner_address, spender_address, contract_id, amount, expiration_ledger, last_modified_ledger)
+		INSERT INTO sep41_allowances (owner_id, spender_id, contract_id, amount, expiration_ledger, last_modified_ledger)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, acct, spender, activeCID, "100", currentLedger+100, currentLedger-10)
+	`, types.AddressBytea(acct), types.AddressBytea(spender), activeCID, "100", currentLedger+100, currentLedger-10)
 	execTestDB(t, `
-		INSERT INTO sep41_allowances (owner_address, spender_address, contract_id, amount, expiration_ledger, last_modified_ledger)
+		INSERT INTO sep41_allowances (owner_id, spender_id, contract_id, amount, expiration_ledger, last_modified_ledger)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, acct, spender, expiredCID, "50", currentLedger-5, currentLedger-50)
+	`, types.AddressBytea(acct), types.AddressBytea(spender), expiredCID, "50", currentLedger-5, currentLedger-50)
 
 	// Seed the ingest_store latest_ingest_ledger value the resolver reads.
 	execTestDB(t,
@@ -240,7 +241,7 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 		`INSERT INTO contract_tokens (id, contract_id, type, decimals) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
 		cid, contractAddr, "sep41", 7)
 	t.Cleanup(func() {
-		execTestDB(t, `DELETE FROM sep41_allowances WHERE owner_address = $1`, acct)
+		execTestDB(t, `DELETE FROM sep41_allowances WHERE owner_id = $1`, types.AddressBytea(acct))
 	})
 
 	const currentLedger uint32 = 5000
@@ -249,9 +250,9 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 		spender := keypair.MustRandom().Address()
 		spenders = append(spenders, spender)
 		execTestDB(t, `
-			INSERT INTO sep41_allowances (owner_address, spender_address, contract_id, amount, expiration_ledger, last_modified_ledger)
+			INSERT INTO sep41_allowances (owner_id, spender_id, contract_id, amount, expiration_ledger, last_modified_ledger)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, acct, spender, cid, "100", currentLedger+100, currentLedger-10)
+		`, types.AddressBytea(acct), types.AddressBytea(spender), cid, "100", currentLedger+100, currentLedger-10)
 	}
 
 	execTestDB(t,
@@ -300,7 +301,7 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 		page2.Edges[0].Node.Spender, page2.Edges[1].Node.Spender,
 	}
 	sortedSpenders := append([]string(nil), spenders...)
-	sortStrings(sortedSpenders)
+	sortStrkeysByBytea(t, sortedSpenders)
 	assert.Equal(t, sortedSpenders, seen, "forward walk should return spenders in ASC order")
 
 	// Backward walk from the end: last:2 with no cursor gives the final two,
@@ -360,11 +361,21 @@ func TestParseAllowanceCursor(t *testing.T) {
 	})
 }
 
-// sortStrings is a tiny in-package helper so the test doesn't need to import sort.
-func sortStrings(ss []string) {
-	for i := 1; i < len(ss); i++ {
-		for j := i; j > 0 && ss[j-1] > ss[j]; j-- {
-			ss[j-1], ss[j] = ss[j], ss[j-1]
+// sortStrkeysByBytea sorts strkey addresses by their 33-byte BYTEA encoding,
+// matching the ordering Postgres uses for the bytea columns. Used to compute
+// the expected page order for sep41_allowances tests where the DB orders by
+// (spender_id::bytea, contract_id).
+func sortStrkeysByBytea(t *testing.T, addrs []string) {
+	t.Helper()
+	encoded := make(map[string][]byte, len(addrs))
+	for _, a := range addrs {
+		raw, err := types.AddressBytea(a).Value()
+		require.NoError(t, err)
+		encoded[a] = raw.([]byte)
+	}
+	for i := 1; i < len(addrs); i++ {
+		for j := i; j > 0 && bytes.Compare(encoded[addrs[j-1]], encoded[addrs[j]]) > 0; j-- {
+			addrs[j-1], addrs[j] = addrs[j], addrs[j-1]
 		}
 	}
 }

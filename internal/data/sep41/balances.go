@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -29,10 +30,10 @@ const (
 // Balance contains a holder balance for a SEP-41 token contract.
 // Metadata (code, name, symbol, decimals) is read from contract_tokens on demand.
 type Balance struct {
-	AccountAddress string
-	ContractID     uuid.UUID
-	Balance        string // i128 stored as decimal string
-	LedgerNumber   uint32
+	AccountID    types.AddressBytea
+	ContractID   uuid.UUID
+	Balance      string // i128 stored as decimal string
+	LedgerNumber uint32
 
 	// Metadata populated by GetByAccount JOIN with contract_tokens.
 	TokenID  string  // C... address
@@ -76,8 +77,8 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 			ct.contract_id AS token_id, ct.name, ct.symbol, ct.decimals
 		FROM sep41_balances b
 		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
-		WHERE b.account_address = $1`
-	args := []interface{}{accountAddress}
+		WHERE b.account_id = $1`
+	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
 
 	if cursor != nil {
@@ -121,7 +122,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 		); err != nil {
 			return nil, fmt.Errorf("scanning SEP-41 balance: %w", err)
 		}
-		bal.AccountAddress = accountAddress
+		bal.AccountID = types.AddressBytea(accountAddress)
 		balances = append(balances, bal)
 	}
 	if err := rows.Err(); err != nil {
@@ -134,7 +135,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 // BatchApplyDeltas accumulates signed balance deltas server-side (balance := existing + delta)
 // and removes rows that settle to zero. Each input Balance.Balance is a decimal string delta.
 //
-// Callers must supply key-disjoint deltas: each (account_address, contract_id) tuple may
+// Callers must supply key-disjoint deltas: each (account_id, contract_id) tuple may
 // appear at most once per call. Today this holds because the upstream SEP-41 processor
 // sums into a single Go map keyed by that tuple (stagedBalanceDelta in
 // internal/services/sep41/processor.go) before materializing the slice. The UNNEST upsert
@@ -151,12 +152,20 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 
 	start := time.Now()
 
-	accountAddresses := make([]string, len(deltas))
+	accountIDs := make([][]byte, len(deltas))
 	contractIDs := make([]uuid.UUID, len(deltas))
 	balances := make([]string, len(deltas))
 	ledgers := make([]int32, len(deltas))
 	for i, d := range deltas {
-		accountAddresses[i] = d.AccountAddress
+		raw, err := d.AccountID.Value()
+		if err != nil {
+			return fmt.Errorf("converting account id to bytes for upsert: %w", err)
+		}
+		rawBytes, ok := raw.([]byte)
+		if !ok {
+			return fmt.Errorf("converting account id to bytes for upsert: expected []byte, got %T", raw)
+		}
+		accountIDs[i] = rawBytes
 		contractIDs[i] = d.ContractID
 		balances[i] = d.Balance
 		ledgers[i] = int32(d.LedgerNumber)
@@ -165,12 +174,12 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	// Sum in SQL: existing + delta. The TEXT columns are cast to numeric for arithmetic
 	// and back to text for storage so the column type stays TEXT (preserves full i128 range).
 	const upsertQuery = `
-		INSERT INTO sep41_balances (account_address, contract_id, balance, last_modified_ledger)
-		SELECT * FROM UNNEST($1::text[], $2::uuid[], $3::text[], $4::integer[])
-		ON CONFLICT (account_address, contract_id) DO UPDATE SET
+		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
+		SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::integer[])
+		ON CONFLICT (account_id, contract_id) DO UPDATE SET
 			balance              = (sep41_balances.balance::numeric + EXCLUDED.balance::numeric)::text,
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
-	if _, err := dbTx.Exec(ctx, upsertQuery, accountAddresses, contractIDs, balances, ledgers); err != nil {
+	if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 	}
@@ -178,10 +187,10 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	const deleteZeroesQuery = `
 		DELETE FROM sep41_balances
 		WHERE balance::numeric = 0
-		  AND (account_address, contract_id) IN (
-		      SELECT * FROM UNNEST($1::text[], $2::uuid[])
+		  AND (account_id, contract_id) IN (
+		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
 		  )`
-	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountAddresses, contractIDs); err != nil {
+	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountIDs, contractIDs); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("sweeping zero SEP-41 balances: %w", err)
 	}

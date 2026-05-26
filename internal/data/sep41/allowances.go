@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -18,8 +19,8 @@ const expiredAllowanceSweepLimit = 1000
 // Allowance represents a SEP-41 approve() grant: owner allows spender to move up to amount
 // until expiration_ledger. The pair (owner, spender, contract_id) is unique.
 type Allowance struct {
-	OwnerAddress     string
-	SpenderAddress   string
+	OwnerID          types.AddressBytea
+	SpenderID        types.AddressBytea
 	ContractID       uuid.UUID
 	Amount           string // i128 decimal string
 	ExpirationLedger uint32
@@ -28,11 +29,11 @@ type Allowance struct {
 }
 
 // AllowanceCursor is a keyset cursor into a single owner's allowance list,
-// ordered by (spender_address, contract_id). Those two columns together with
-// owner_address form the primary key, so the pair is unique per page.
+// ordered by (spender_id, contract_id). Those two columns together with
+// owner_id form the primary key, so the pair is unique per page.
 type AllowanceCursor struct {
-	SpenderAddress string
-	ContractID     uuid.UUID
+	SpenderID  types.AddressBytea
+	ContractID uuid.UUID
 }
 
 // AllowanceModelInterface exposes SEP-41 allowance storage operations.
@@ -57,7 +58,7 @@ type AllowanceModel struct {
 var _ AllowanceModelInterface = (*AllowanceModel)(nil)
 
 // GetByOwner returns active allowances (expiration_ledger >= currentLedger), keyset-paginated
-// by (spender_address, contract_id). The PK on (owner_address, spender_address, contract_id)
+// by (spender_id, contract_id). The PK on (owner_id, spender_id, contract_id)
 // backs the ordering + keyset predicate without an extra index.
 func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
 	if ownerAddress == "" {
@@ -69,12 +70,12 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 
 	query := `
 		SELECT
-			a.spender_address, a.contract_id, a.amount, a.expiration_ledger, a.last_modified_ledger,
+			a.spender_id, a.contract_id, a.amount, a.expiration_ledger, a.last_modified_ledger,
 			ct.contract_id AS token_id
 		FROM sep41_allowances a
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
-		WHERE a.owner_address = $1 AND a.expiration_ledger >= $2`
-	args := []interface{}{ownerAddress, currentLedger}
+		WHERE a.owner_id = $1 AND a.expiration_ledger >= $2`
+	args := []interface{}{types.AddressBytea(ownerAddress), currentLedger}
 	argIndex := 3
 
 	if cursor != nil {
@@ -82,15 +83,15 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 		if sortOrder == SortDESC {
 			op = "<"
 		}
-		query += fmt.Sprintf(" AND (a.spender_address, a.contract_id) %s ($%d, $%d)", op, argIndex, argIndex+1)
-		args = append(args, cursor.SpenderAddress, cursor.ContractID)
+		query += fmt.Sprintf(" AND (a.spender_id, a.contract_id) %s ($%d, $%d)", op, argIndex, argIndex+1)
+		args = append(args, cursor.SpenderID, cursor.ContractID)
 		argIndex += 2
 	}
 
 	if sortOrder == SortDESC {
-		query += " ORDER BY a.spender_address DESC, a.contract_id DESC"
+		query += " ORDER BY a.spender_id DESC, a.contract_id DESC"
 	} else {
-		query += " ORDER BY a.spender_address ASC, a.contract_id ASC"
+		query += " ORDER BY a.spender_id ASC, a.contract_id ASC"
 	}
 
 	query += fmt.Sprintf(" LIMIT $%d", argIndex)
@@ -111,12 +112,12 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 	for rows.Next() {
 		var a Allowance
 		if err := rows.Scan(
-			&a.SpenderAddress, &a.ContractID, &a.Amount, &a.ExpirationLedger, &a.LedgerNumber,
+			&a.SpenderID, &a.ContractID, &a.Amount, &a.ExpirationLedger, &a.LedgerNumber,
 			&a.TokenID,
 		); err != nil {
 			return nil, fmt.Errorf("scanning SEP-41 allowance: %w", err)
 		}
-		a.OwnerAddress = ownerAddress
+		a.OwnerID = types.AddressBytea(ownerAddress)
 		allowances = append(allowances, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -128,8 +129,8 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 
 // BatchUpsert applies approve-style writes and deletes inside the given transaction.
 //
-// Callers must supply key-disjoint inputs: each (owner_address, spender_address,
-// contract_id) tuple may appear at most once across upserts and deletes combined.
+// Callers must supply key-disjoint inputs: each (owner_id, spender_id, contract_id)
+// tuple may appear at most once across upserts and deletes combined.
 // Today this holds because the upstream SEP-41 processor builds both slices from
 // a single Go map keyed by that tuple (see internal/services/sep41/processor.go).
 // The UNNEST upsert below relies on the precondition — a duplicate key inside
@@ -143,15 +144,31 @@ func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts [
 	start := time.Now()
 
 	if len(upserts) > 0 {
-		owners := make([]string, len(upserts))
-		spenders := make([]string, len(upserts))
+		owners := make([][]byte, len(upserts))
+		spenders := make([][]byte, len(upserts))
 		contractIDs := make([]uuid.UUID, len(upserts))
 		amounts := make([]string, len(upserts))
 		expirations := make([]int32, len(upserts))
 		ledgers := make([]int32, len(upserts))
 		for i, a := range upserts {
-			owners[i] = a.OwnerAddress
-			spenders[i] = a.SpenderAddress
+			ownerRaw, err := a.OwnerID.Value()
+			if err != nil {
+				return fmt.Errorf("converting owner id to bytes for upsert: %w", err)
+			}
+			ownerBytes, ok := ownerRaw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting owner id to bytes for upsert: expected []byte, got %T", ownerRaw)
+			}
+			spenderRaw, err := a.SpenderID.Value()
+			if err != nil {
+				return fmt.Errorf("converting spender id to bytes for upsert: %w", err)
+			}
+			spenderBytes, ok := spenderRaw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting spender id to bytes for upsert: expected []byte, got %T", spenderRaw)
+			}
+			owners[i] = ownerBytes
+			spenders[i] = spenderBytes
 			contractIDs[i] = a.ContractID
 			amounts[i] = a.Amount
 			expirations[i] = int32(a.ExpirationLedger)
@@ -160,14 +177,14 @@ func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts [
 
 		const upsertQuery = `
 			INSERT INTO sep41_allowances (
-				owner_address, spender_address, contract_id,
+				owner_id, spender_id, contract_id,
 				amount, expiration_ledger, last_modified_ledger
 			)
 			SELECT * FROM UNNEST(
-				$1::text[], $2::text[], $3::uuid[],
+				$1::bytea[], $2::bytea[], $3::uuid[],
 				$4::text[], $5::integer[], $6::integer[]
 			)
-			ON CONFLICT (owner_address, spender_address, contract_id) DO UPDATE SET
+			ON CONFLICT (owner_id, spender_id, contract_id) DO UPDATE SET
 				amount               = EXCLUDED.amount,
 				expiration_ledger    = EXCLUDED.expiration_ledger,
 				last_modified_ledger = EXCLUDED.last_modified_ledger`
@@ -178,19 +195,35 @@ func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts [
 	}
 
 	if len(deletes) > 0 {
-		owners := make([]string, len(deletes))
-		spenders := make([]string, len(deletes))
+		owners := make([][]byte, len(deletes))
+		spenders := make([][]byte, len(deletes))
 		contractIDs := make([]uuid.UUID, len(deletes))
 		for i, a := range deletes {
-			owners[i] = a.OwnerAddress
-			spenders[i] = a.SpenderAddress
+			ownerRaw, err := a.OwnerID.Value()
+			if err != nil {
+				return fmt.Errorf("converting owner id to bytes for delete: %w", err)
+			}
+			ownerBytes, ok := ownerRaw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting owner id to bytes for delete: expected []byte, got %T", ownerRaw)
+			}
+			spenderRaw, err := a.SpenderID.Value()
+			if err != nil {
+				return fmt.Errorf("converting spender id to bytes for delete: %w", err)
+			}
+			spenderBytes, ok := spenderRaw.([]byte)
+			if !ok {
+				return fmt.Errorf("converting spender id to bytes for delete: expected []byte, got %T", spenderRaw)
+			}
+			owners[i] = ownerBytes
+			spenders[i] = spenderBytes
 			contractIDs[i] = a.ContractID
 		}
 
 		const deleteQuery = `
 			DELETE FROM sep41_allowances
-			WHERE (owner_address, spender_address, contract_id) IN (
-				SELECT * FROM UNNEST($1::text[], $2::text[], $3::uuid[])
+			WHERE (owner_id, spender_id, contract_id) IN (
+				SELECT * FROM UNNEST($1::bytea[], $2::bytea[], $3::uuid[])
 			)`
 		if _, err := dbTx.Exec(ctx, deleteQuery, owners, spenders, contractIDs); err != nil {
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sep41_allowances", utils.GetDBErrorType(err)).Inc()
