@@ -3,29 +3,31 @@ package services
 import (
 	"fmt"
 	"sort"
-	"sync"
 )
-
-// processorRegistryMu guards concurrent access to processorRegistry.
-var processorRegistryMu sync.RWMutex
 
 // processorRegistry holds factory functions keyed by protocol ID. Factories
 // receive a ProtocolDeps so per-protocol packages can avoid package-level
 // mutable state — no SetDependencies pattern required.
+//
+// Writes happen only from per-protocol package init() functions; reads happen
+// only after main() starts. Adding a new protocol requires a binary rebuild +
+// restart — there is no runtime registration path. Go's init() machinery
+// serializes all init writes on a single goroutine completing before main(),
+// which is what makes access here safe without synchronization. If a runtime
+// registration path is ever introduced (plugin.Open, admin endpoint, etc.),
+// reintroduce synchronization here and reconsider the snapshot held by
+// ingestService.protocolProcessors (which is built once at startup and never
+// re-reads the registry).
 var processorRegistry = map[string]func(ProtocolDeps) ProtocolProcessor{}
 
 // RegisterProcessor registers a processor factory for a protocol ID. Called
 // from per-protocol package init() functions.
 func RegisterProcessor(protocolID string, factory func(ProtocolDeps) ProtocolProcessor) {
-	processorRegistryMu.Lock()
-	defer processorRegistryMu.Unlock()
 	processorRegistry[protocolID] = factory
 }
 
 // GetProcessor returns the processor factory for a protocol ID, if registered.
 func GetProcessor(protocolID string) (func(ProtocolDeps) ProtocolProcessor, bool) {
-	processorRegistryMu.RLock()
-	defer processorRegistryMu.RUnlock()
 	factory, ok := processorRegistry[protocolID]
 	return factory, ok
 }
@@ -33,8 +35,6 @@ func GetProcessor(protocolID string) (func(ProtocolDeps) ProtocolProcessor, bool
 // GetAllProcessorIDs returns the registered protocol IDs in sorted order so
 // callers that iterate the full set get deterministic ordering.
 func GetAllProcessorIDs() []string {
-	processorRegistryMu.RLock()
-	defer processorRegistryMu.RUnlock()
 	ids := make([]string, 0, len(processorRegistry))
 	for id := range processorRegistry {
 		ids = append(ids, id)
@@ -59,12 +59,4 @@ func BuildProcessors(deps ProtocolDeps, protocolIDs []string) ([]ProtocolProcess
 		out = append(out, p)
 	}
 	return out, nil
-}
-
-// resetProcessorRegistry replaces the registry map while holding the write
-// lock. Intended for tests only.
-func resetProcessorRegistry(m map[string]func(ProtocolDeps) ProtocolProcessor) {
-	processorRegistryMu.Lock()
-	defer processorRegistryMu.Unlock()
-	processorRegistry = m
 }

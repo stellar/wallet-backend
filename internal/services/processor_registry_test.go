@@ -1,8 +1,6 @@
 package services
 
 import (
-	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,11 +9,9 @@ import (
 
 func withCleanProcessorRegistry(t *testing.T) {
 	t.Helper()
-	processorRegistryMu.RLock()
 	original := processorRegistry
-	processorRegistryMu.RUnlock()
-	resetProcessorRegistry(map[string]func(ProtocolDeps) ProtocolProcessor{})
-	t.Cleanup(func() { resetProcessorRegistry(original) })
+	processorRegistry = map[string]func(ProtocolDeps) ProtocolProcessor{}
+	t.Cleanup(func() { processorRegistry = original })
 }
 
 func TestRegisterProcessor(t *testing.T) {
@@ -65,27 +61,5 @@ func TestRegisterProcessor(t *testing.T) {
 
 		ids := GetAllProcessorIDs()
 		assert.Equal(t, []string{"A", "B"}, ids)
-	})
-
-	t.Run("concurrent register and get does not race", func(t *testing.T) {
-		withCleanProcessorRegistry(t)
-
-		const n = 50
-		var wg sync.WaitGroup
-		wg.Add(n * 2)
-
-		for i := range n {
-			id := fmt.Sprintf("PROTO_%d", i)
-			go func() {
-				defer wg.Done()
-				RegisterProcessor(id, func(ProtocolDeps) ProtocolProcessor { return nil })
-			}()
-			go func() {
-				defer wg.Done()
-				GetProcessor(id)
-			}()
-		}
-
-		wg.Wait()
 	})
 }
