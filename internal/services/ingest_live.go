@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"time"
 
@@ -179,11 +178,26 @@ func (m *ingestService) persistLedgerData(
 			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
 		}
 		if ledgerMeta != nil && len(m.eligibleProtocolProcessors) > 0 {
-			if produceErr := m.produceProtocolStateForProcessors(
-				ctx, ledgerMeta.LedgerCloseTime(), buffer.GetContractEvents(),
-				ledgerSeq, m.eligibleProtocolProcessors, bufferedContracts, classification,
-			); produceErr != nil {
-				return fmt.Errorf("producing protocol state for ledger %d: %w", ledgerSeq, produceErr)
+			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
+			contractEvents := buffer.GetContractEvents()
+			for protocolID, target := range m.eligibleProtocolProcessors {
+				contracts, contractsErr := m.getEffectiveProtocolContracts(ctx, protocolID, ledgerSeq, bufferedContracts, classification)
+				if contractsErr != nil {
+					return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, contractsErr)
+				}
+				input := ProtocolProcessorInput{
+					LedgerSequence:    ledgerSeq,
+					LedgerCloseTime:   ledgerCloseTime,
+					ContractEvents:    contractEvents,
+					ProtocolContracts: contracts,
+					NetworkPassphrase: m.networkPassphrase,
+				}
+				start := time.Now()
+				processErr := target.processor.ProcessLedger(ctx, input)
+				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
+				if processErr != nil {
+					return fmt.Errorf("processing ledger %d for protocol %s: %w", ledgerSeq, protocolID, processErr)
+				}
 			}
 		}
 
@@ -457,40 +471,6 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-func (m *ingestService) produceProtocolStateForProcessors(
-	ctx context.Context,
-	ledgerCloseTime int64,
-	contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent,
-	ledgerSeq uint32,
-	targets map[string]protocolProductionTarget,
-	bufferedContracts map[string]data.ProtocolContracts,
-	classification classificationOutcome,
-) error {
-	if len(targets) == 0 {
-		return nil
-	}
-	for protocolID, target := range targets {
-		contracts, err := m.getEffectiveProtocolContracts(ctx, protocolID, ledgerSeq, bufferedContracts, classification)
-		if err != nil {
-			return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, err)
-		}
-		input := ProtocolProcessorInput{
-			LedgerSequence:    ledgerSeq,
-			LedgerCloseTime:   ledgerCloseTime,
-			ContractEvents:    contractEvents,
-			ProtocolContracts: contracts,
-			NetworkPassphrase: m.networkPassphrase,
-		}
-		start := time.Now()
-		if err := target.processor.ProcessLedger(ctx, input); err != nil {
-			m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
-			return fmt.Errorf("processing ledger %d for protocol %s: %w", ledgerSeq, protocolID, err)
-		}
-		m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
-	}
-	return nil
-}
-
 func (m *ingestService) getEffectiveProtocolContracts(
 	ctx context.Context,
 	protocolID string,
@@ -514,14 +494,7 @@ func (m *ingestService) getEffectiveProtocolContracts(
 		out = append(out, contract)
 	}
 
-	contractIDs := make([]string, 0, len(bufferedContracts))
-	for contractID := range bufferedContracts {
-		contractIDs = append(contractIDs, contractID)
-	}
-	sort.Strings(contractIDs)
-
-	for _, contractID := range contractIDs {
-		contract := bufferedContracts[contractID]
+	for _, contract := range bufferedContracts {
 		if classification.protocolIDForWasm(contract.WasmHash) != protocolID {
 			continue
 		}
