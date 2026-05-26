@@ -135,13 +135,13 @@ func (m *MockProtocolContractsProcessor) Name() string {
 }
 
 var (
-	_ ParticipantsProcessorInterface                = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface               = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface                   = &MockOperationProcessor{}
-	_ LedgerChangeProcessor[types.TrustlineChange]  = &MockTrustlinesProcessor{}
-	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
-	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
-	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
+	_ ParticipantsProcessorInterface                            = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface                           = &MockTokenTransferProcessor{}
+	_ OperationProcessorInterface                               = &MockOperationProcessor{}
+	_ LedgerChangeProcessor[types.TrustlineChange]              = &MockTrustlinesProcessor{}
+	_ LedgerChangeProcessor[types.AccountChange]                = &MockAccountsProcessor{}
+	_ LedgerChangeProcessor[types.SACBalanceChange]             = &MockSACBalancesProcessor{}
+	_ LedgerChangeProcessor[*data.Contract]                     = &MockSACInstancesProcessor{}
 	_ LedgerChangeProcessor[processors.ProtocolWasmObservation] = &MockProtocolWasmsProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolContracts] = &MockProtocolContractsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolContracts]             = &MockProtocolContractsProcessor{}
 )

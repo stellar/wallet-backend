@@ -25,15 +25,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// currentLedger is the ingest watermark seeded by seedIngestLedger and used as
+// the reference point for seeding active/expired allowances across these tests.
+const currentLedger uint32 = 5000
+
 // seedIngestLedger writes the latest_ingest_ledger cursor row that GetByOwner
 // reads via its inline subquery. Without this, the COALESCE in the SQL defaults
 // to 0 and the expiration filter is effectively disabled.
-func seedIngestLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ledger uint32) {
+func seedIngestLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-	`, "latest_ingest_ledger", strconv.FormatUint(uint64(ledger), 10))
+	`, "latest_ingest_ledger", strconv.FormatUint(uint64(currentLedger), 10))
 	require.NoError(t, err)
 }
 
@@ -105,8 +109,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 
 	t.Run("caps result count at the requested limit and orders ASC by (spender, contract_id)", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
-		const currentLedger uint32 = 5000
-		seedIngestLedger(t, ctx, pool, currentLedger)
+		seedIngestLedger(t, ctx, pool)
 
 		// Seed 3 distinct contracts × a fresh spender each so (spender, contract_id) is the page key.
 		contracts := []string{
@@ -135,8 +138,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 
 	t.Run("continues a keyset walk from the cursor of the previous page", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
-		const currentLedger uint32 = 5000
-		seedIngestLedger(t, ctx, pool, currentLedger)
+		seedIngestLedger(t, ctx, pool)
 
 		spenders := make([]string, 0, 4)
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
@@ -167,8 +169,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 
 	t.Run("returns rows in descending order when SortDESC is given", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
-		const currentLedger uint32 = 5000
-		seedIngestLedger(t, ctx, pool, currentLedger)
+		seedIngestLedger(t, ctx, pool)
 
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		spenders := make([]string, 0, 3)
@@ -190,8 +191,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 	t.Run("filters out allowances whose expiration_ledger is below the ingest watermark", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
 		spender := keypair.MustRandom().Address()
-		const currentLedger uint32 = 5000
-		seedIngestLedger(t, ctx, pool, currentLedger)
+		seedIngestLedger(t, ctx, pool)
 
 		activeContract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		expiredContract := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
@@ -293,8 +293,7 @@ func TestAllowanceModel_DeleteExpiredBefore(t *testing.T) {
 		ownerExpired := keypair.MustRandom().Address()
 		ownerActive := keypair.MustRandom().Address()
 		spender := keypair.MustRandom().Address()
-		const currentLedger uint32 = 5000
-		seedIngestLedger(t, ctx, pool, currentLedger)
+		seedIngestLedger(t, ctx, pool)
 
 		expiredContract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		activeContract := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"

@@ -136,9 +136,6 @@ func (m *ingestService) persistLedgerData(
 	cursorName string,
 ) (int, int, error) {
 	var numTxs, numOps int
-	// Track protocols that persisted current state in this transaction attempt
-	// so we can reset their cache-loaded flag on rollback.
-	var currentStatePersistedProtocols []string
 	var invalidateProtocolContractCache bool
 
 	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
@@ -269,24 +266,6 @@ func (m *ingestService) persistLedgerData(
 					case casErr != nil:
 						return fmt.Errorf("CAS current state cursor for %s: %w", protocolID, casErr)
 					case swapped:
-						// On first CAS success (handoff from migration), load current state
-						// from DB into processor memory. Subsequent ledgers use the in-memory
-						// state maintained by PersistCurrentState (write-through cache).
-						if !m.protocolCurrentStateLoaded[protocolID] {
-							loadStart := time.Now()
-							if loadErr := target.processor.LoadCurrentState(ctx, dbTx); loadErr != nil {
-								return fmt.Errorf("loading current state for %s at ledger %d: %w", protocolID, ledgerSeq, loadErr)
-							}
-							m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "load_current_state").Observe(time.Since(loadStart).Seconds())
-							m.protocolCurrentStateLoaded[protocolID] = true
-						}
-
-						// Any rollback after a successful current-state CAS can leave the
-						// processor's in-memory cache ahead of committed DB state, either
-						// because we just loaded it for handoff or because PersistCurrentState
-						// mutates the write-through cache before a later transactional failure.
-						currentStatePersistedProtocols = append(currentStatePersistedProtocols, protocolID)
-
 						start := time.Now()
 						persistErr := target.processor.PersistCurrentState(ctx, dbTx)
 						m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_current_state").Observe(time.Since(start).Seconds())
@@ -306,12 +285,6 @@ func (m *ingestService) persistLedgerData(
 		return nil
 	})
 	if err != nil {
-		// Transaction rolled back — processor in-memory state loaded inside the
-		// rolled-back transaction may not match the committed DB state. Reset
-		// loaded flags to force a DB reload on the next successful CAS attempt.
-		for _, pid := range currentStatePersistedProtocols {
-			m.protocolCurrentStateLoaded[pid] = false
-		}
 		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
 	}
 	if invalidateProtocolContractCache && m.protocolContractCache != nil {

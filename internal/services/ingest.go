@@ -142,13 +142,6 @@ type ingestService struct {
 	// entry — see protocolProductionTarget. Only accessed from the single-threaded
 	// live ingestion loop.
 	eligibleProtocolProcessors map[string]protocolProductionTarget
-	// protocolCurrentStateLoaded tracks which protocols have had their current
-	// state loaded into processor memory via LoadCurrentState. On the first
-	// successful CAS advance of the current_state_cursor (handoff from migration),
-	// LoadCurrentState reads state from DB; subsequent ledgers use the in-memory
-	// state maintained by PersistCurrentState. Reset on transaction failure to
-	// force a reload. Only accessed from the single-threaded live ingestion loop.
-	protocolCurrentStateLoaded map[string]bool
 	// protocolCursorInitPending tracks which protocols we've already warned about
 	// having no cursor rows (waiting on protocol-setup / protocol-migrate). Used
 	// to log once per protocol per ingest-process instead of per-ledger. Cleared
@@ -192,33 +185,32 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 
 	return &ingestService{
-		ingestionMode:              cfg.IngestionMode,
-		models:                     cfg.Models,
-		oldestLedgerCursorName:     cfg.OldestLedgerCursorName,
-		advisoryLockID:             generateAdvisoryLockID(cfg.Network),
-		appTracker:                 cfg.AppTracker,
-		rpcService:                 cfg.RPCService,
-		ledgerBackend:              cfg.LedgerBackend,
-		ledgerBackendFactory:       cfg.LedgerBackendFactory,
-		tokenIngestionService:      cfg.TokenIngestionService,
-		checkpointService:          cfg.CheckpointService,
-		appMetrics:                 cfg.Metrics,
-		networkPassphrase:          cfg.NetworkPassphrase,
-		getLedgersLimit:            cfg.GetLedgersLimit,
-		ledgerIndexer:              indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		contractMetadataService:    cfg.ContractMetadataService,
-		protocolValidators:         cfg.ProtocolValidators,
-		wasmSpecExtractor:          cfg.WasmSpecExtractor,
-		archive:                    cfg.Archive,
-		backfillPool:               backfillPool,
-		backfillBatchSize:          uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize:  uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:           uint32(cfg.CatchupThreshold),
-		knownContractIDs:           set.NewSet[string](),
-		protocolProcessors:         ppMap,
-		protocolContractCache:      ppCache,
-		protocolCurrentStateLoaded: make(map[string]bool),
-		protocolCursorInitPending:  make(map[string]bool),
+		ingestionMode:             cfg.IngestionMode,
+		models:                    cfg.Models,
+		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
+		appTracker:                cfg.AppTracker,
+		rpcService:                cfg.RPCService,
+		ledgerBackend:             cfg.LedgerBackend,
+		ledgerBackendFactory:      cfg.LedgerBackendFactory,
+		tokenIngestionService:     cfg.TokenIngestionService,
+		checkpointService:         cfg.CheckpointService,
+		appMetrics:                cfg.Metrics,
+		networkPassphrase:         cfg.NetworkPassphrase,
+		getLedgersLimit:           cfg.GetLedgersLimit,
+		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		contractMetadataService:   cfg.ContractMetadataService,
+		protocolValidators:        cfg.ProtocolValidators,
+		wasmSpecExtractor:         cfg.WasmSpecExtractor,
+		archive:                   cfg.Archive,
+		backfillPool:              backfillPool,
+		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
+		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
+		catchupThreshold:          uint32(cfg.CatchupThreshold),
+		knownContractIDs:          set.NewSet[string](),
+		protocolProcessors:        ppMap,
+		protocolContractCache:     ppCache,
+		protocolCursorInitPending: make(map[string]bool),
 	}, nil
 }
 

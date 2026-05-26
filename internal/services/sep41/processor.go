@@ -340,14 +340,6 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	return nil
 }
 
-// LoadCurrentState is called inside the transaction of the first successful CAS advance of
-// the current_state_cursor (handoff from migration to live ingestion). Because
-// PersistCurrentState now applies deltas in SQL via existing + delta, the processor needs
-// no preloaded in-memory state — correctness on restart is guaranteed by the CAS gate.
-func (p *processor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-	return nil
-}
-
 // ensureContractTokens inserts a contract_tokens row for every contract touched this ledger,
 // if not already present. For newly inserted rows, metadata (name/symbol/decimals) is fetched
 // via RPC inline; per-contract RPC failures fall back to default values (decimals=0, nil

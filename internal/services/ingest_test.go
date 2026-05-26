@@ -2472,14 +2472,12 @@ func Test_ingestService_processBackfillBatchesParallel_BothModes(t *testing.T) {
 // values into ingest_store within the DB transaction, proving PersistHistory
 // and PersistCurrentState were called and committed atomically.
 type testProtocolProcessor struct {
-	id                         string
-	processLedgerCalls         int
-	processedLedger            uint32
-	ingestStore                *data.IngestStoreModel
-	loadCurrentStateCalls      int
-	persistCurrentStateCalls   int
-	failPersistCurrentStateAt  uint32
-	persistCurrentStateVersion int
+	id                        string
+	processLedgerCalls        int
+	processedLedger           uint32
+	ingestStore               *data.IngestStoreModel
+	persistCurrentStateCalls  int
+	failPersistCurrentStateAt uint32
 }
 
 func (p *testProtocolProcessor) ProtocolID() string { return p.id }
@@ -2496,16 +2494,10 @@ func (p *testProtocolProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx)
 
 func (p *testProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.persistCurrentStateCalls++
-	p.persistCurrentStateVersion++
 	if p.failPersistCurrentStateAt != 0 && p.processedLedger == p.failPersistCurrentStateAt {
 		return fmt.Errorf("simulated current state persist failure at ledger %d", p.processedLedger)
 	}
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_written", p.id), p.processedLedger)
-}
-
-func (p *testProtocolProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) error {
-	p.loadCurrentStateCalls++
-	return nil
 }
 
 // setupProtocolCursors inserts protocol cursors into ingest_store.
@@ -2746,8 +2738,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), histSentinel)
 
-		// Current-state CAS was skipped: row still absent, persist not called,
-		// load not called.
+		// Current-state CAS was skipped: row still absent, persist not called.
 		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(0), csCursor)
@@ -2756,7 +2747,6 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(0), csSentinel)
 
-		assert.Equal(t, 0, processor.loadCurrentStateCalls)
 		assert.Equal(t, 0, processor.persistCurrentStateCalls)
 	})
 
@@ -2779,7 +2769,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		_, _, err = svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
 
-		// Current-state CAS succeeded; LoadCurrentState ran on handoff.
+		// Current-state CAS succeeded.
 		csCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), csCursor)
@@ -2787,7 +2777,6 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		csSentinel, err := models.IngestStore.Get(ctx, "test_testproto_current_state_written")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), csSentinel)
-		assert.Equal(t, 1, processor.loadCurrentStateCalls)
 
 		// History CAS was skipped: row still absent, persist not called.
 		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
@@ -2814,71 +2803,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		assert.Equal(t, uint32(100), mainCursor)
 	})
 
-	t.Run("F: first CAS success calls LoadCurrentState", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
-		processor.ingestStore = models.IngestStore
-		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
-		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, 99, 99)
-
-		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
-		require.NoError(t, err)
-
-		// LoadCurrentState should be called exactly once on the handoff ledger
-		assert.Equal(t, 1, processor.loadCurrentStateCalls)
-		// protocolCurrentStateLoaded should be set
-		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
-	})
-
-	t.Run("G: subsequent CAS success skips LoadCurrentState", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
-		processor.ingestStore = models.IngestStore
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
-		setupDBCursors(t, ctx, pool, 99, 99)
-		setupProtocolCursors(t, ctx, pool, 99, 99)
-
-		// First ledger — triggers LoadCurrentState
-		processor.processedLedger = 100
-		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
-		require.NoError(t, err)
-		assert.Equal(t, 1, processor.loadCurrentStateCalls)
-
-		// Second ledger — should NOT call LoadCurrentState again
-		processor.processedLedger = 101
-		buffer = indexer.NewIndexerBuffer()
-		_, _, err = svc.PersistLedgerData(ctx, 101, buffer, "latest_ledger_cursor")
-		require.NoError(t, err)
-		assert.Equal(t, 1, processor.loadCurrentStateCalls) // still 1, not 2
-	})
-
-	t.Run("H: CAS lose does not trigger LoadCurrentState", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
-		processor.ingestStore = models.IngestStore
-		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
-		setupDBCursors(t, ctx, pool, 99, 99)
-		// Current state cursor already at 100 — CAS will fail
-		setupProtocolCursors(t, ctx, pool, 99, 100)
-
-		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
-		require.NoError(t, err)
-
-		// LoadCurrentState should NOT be called since current state CAS failed
-		assert.Equal(t, 0, processor.loadCurrentStateCalls)
-		assert.False(t, svc.protocolCurrentStateLoaded["testproto"])
-	})
-
-	t.Run("I: rollback after later PersistCurrentState failure clears loaded flag for retry", func(t *testing.T) {
+	t.Run("F: PersistCurrentState failure rolls back the cursor and a retry succeeds", func(t *testing.T) {
 		processor := &testProtocolProcessor{id: "testproto", failPersistCurrentStateAt: 101}
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
@@ -2887,31 +2812,30 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
 
-		// First ledger succeeds and establishes the in-memory cache handoff.
+		// First ledger succeeds and advances the current-state cursor to 100.
 		processor.processedLedger = 100
 		_, _, err := svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
-		assert.Equal(t, 1, processor.loadCurrentStateCalls)
-		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
 
-		// Later ledger mutates in-memory state during PersistCurrentState, then fails.
+		// Next ledger fails inside PersistCurrentState, rolling back the whole
+		// transaction — the current-state cursor must stay at 100.
 		processor.processedLedger = 101
 		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.Error(t, err)
-		assert.Equal(t, 2, processor.persistCurrentStateVersion)
-		assert.False(t, svc.protocolCurrentStateLoaded["testproto"])
 
 		currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), currentStateCursor)
 
-		// Retrying the same ledger should reload current state because the flag was reset.
+		// Retrying the same ledger succeeds and advances the cursor.
 		processor.failPersistCurrentStateAt = 0
 		processor.processedLedger = 101
 		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
-		assert.Equal(t, 2, processor.loadCurrentStateCalls)
-		assert.True(t, svc.protocolCurrentStateLoaded["testproto"])
+
+		currentStateCursor, err = models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(101), currentStateCursor)
 	})
 }
 

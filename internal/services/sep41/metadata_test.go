@@ -17,8 +17,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-const testContractA = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-const testContractB = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+const (
+	testContractA = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+	testContractB = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+)
 
 // expectMetadataFetch wires up the three FetchSingleField calls (name, symbol,
 // decimals) that fetchOne makes for a single contract. It returns the mock so

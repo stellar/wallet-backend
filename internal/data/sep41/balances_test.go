@@ -75,10 +75,10 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			err := m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-				AccountID: types.AddressBytea(acct),
-				ContractID:     cid,
-				Balance:        "1000",
-				LedgerNumber:   42,
+				AccountID:    types.AddressBytea(acct),
+				ContractID:   cid,
+				Balance:      "1000",
+				LedgerNumber: 42,
 			}})
 			require.NoError(t, err)
 		})
