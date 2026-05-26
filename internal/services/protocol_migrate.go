@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -257,6 +258,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 		}
 
+		// Extract contract events once per ledger; all trackers below share the
+		// same map. This is the migration-side analogue of the live-ingest path
+		// where buffer.GetContractEvents() is computed once per ledger.
+		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ctx, s.networkPassphrase, ledgerMeta)
+		if eventsErr != nil {
+			return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract events for ledger %d: %w", seq, eventsErr)
+		}
+		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
+
 		for _, t := range trackers {
 			if t.handedOff || t.cursorValue >= seq {
 				continue
@@ -265,7 +275,8 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			contracts := contractsByProtocol[t.protocolID]
 			input := ProtocolProcessorInput{
 				LedgerSequence:    seq,
-				LedgerCloseMeta:   ledgerMeta,
+				LedgerCloseTime:   ledgerCloseTime,
+				ContractEvents:    ledgerEvents,
 				ProtocolContracts: contracts,
 				NetworkPassphrase: s.networkPassphrase,
 			}

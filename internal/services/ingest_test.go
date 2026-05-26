@@ -3090,7 +3090,7 @@ func Test_ingestService_produceProtocolStateForProcessors_SkipsFilteredProtocols
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 123, map[string]protocolProductionTarget{
 		"selected": {processor: selectedProcessor, historyEligible: true, currentStateEligible: true},
 	}, nil, classificationOutcome{})
 	require.NoError(t, err)
@@ -3124,7 +3124,7 @@ func Test_ingestService_produceProtocolState_RecordsMetrics(t *testing.T) {
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 123, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
 	}, nil, classificationOutcome{})
 	require.NoError(t, err)
@@ -3158,7 +3158,7 @@ func Test_ingestService_produceProtocolStateForProcessors_IncludesSameLedgerMatc
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 123, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
 	}, map[string]data.ProtocolContracts{
 		string(currentLedgerContract.ContractID): currentLedgerContract,
@@ -3195,7 +3195,7 @@ func Test_ingestService_produceProtocolStateForProcessors_IncludesSameLedgerKnow
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 123, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
 	}, map[string]data.ProtocolContracts{
 		string(currentLedgerContract.ContractID): currentLedgerContract,
@@ -3234,7 +3234,7 @@ func Test_ingestService_produceProtocolStateForProcessors_RemovesContractsUpgrad
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 123, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 123, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
 	}, map[string]data.ProtocolContracts{
 		string(upgradedContract.ContractID): upgradedContract,
@@ -3371,7 +3371,7 @@ func Test_ingestService_produceProtocolStateForProcessors_FirstRefreshFailure_Fa
 		},
 	}
 
-	err := svc.produceProtocolStateForProcessors(ctx, xdr.LedgerCloseMeta{}, 200, map[string]protocolProductionTarget{
+	err := svc.produceProtocolStateForProcessors(ctx, 0, nil, 200, map[string]protocolProductionTarget{
 		"testproto": {processor: processor, historyEligible: true, currentStateEligible: true},
 	}, nil, classificationOutcome{})
 	require.Error(t, err)

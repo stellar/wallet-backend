@@ -3,14 +3,11 @@ package sep41
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"math/big"
 
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
-	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -92,9 +89,13 @@ var _ services.ProtocolProcessor = (*processor)(nil)
 
 func (p *processor) ProtocolID() string { return ProtocolID }
 
-// ProcessLedger walks the ledger's transactions and extracts SEP-41 events from classified contracts.
+// ProcessLedger consumes contract events that the indexer (or
+// ExtractContractEventsForLedger in the migration path) has already
+// extracted into the buffer. The processor never touches LedgerCloseMeta —
+// events are pre-filtered to successful transactions only by the
+// indexer/migration helper, so no per-tx success check is needed here.
 // See services.ProtocolProcessor godoc — must be deterministic across retries.
-func (p *processor) ProcessLedger(ctx context.Context, input services.ProtocolProcessorInput) error {
+func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProcessorInput) error {
 	p.resetStaged(input.LedgerSequence)
 	p.indexContracts(input.ProtocolContracts)
 
@@ -102,63 +103,25 @@ func (p *processor) ProcessLedger(ctx context.Context, input services.ProtocolPr
 		return nil
 	}
 
-	txReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(p.networkPassphrase, input.LedgerCloseMeta)
-	if err != nil {
-		return fmt.Errorf("creating ledger transaction reader for ledger %d: %w", input.LedgerSequence, err)
-	}
-	defer func() {
-		if closeErr := txReader.Close(); closeErr != nil {
-			log.Ctx(ctx).Warnf("closing ledger transaction reader: %v", closeErr)
-		}
-	}()
-
-	ledgerCloseTime := input.LedgerCloseMeta.LedgerCloseTime()
-
-	for {
-		tx, readErr := txReader.Read()
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			return fmt.Errorf("reading transaction in ledger %d: %w", input.LedgerSequence, readErr)
-		}
-		if !tx.Result.Successful() {
-			continue
-		}
-
-		if err := p.processTransaction(tx, input.LedgerSequence, ledgerCloseTime); err != nil {
-			return fmt.Errorf("processing transaction %s: %w",
-				tx.Result.TransactionHash.HexString(), err)
-		}
-	}
-
-	return nil
-}
-
-func (p *processor) processTransaction(tx ingest.LedgerTransaction, ledgerSeq uint32, ledgerCloseTime int64) error {
-	txID := tx.ID()
-	builder := processors.NewStateChangeBuilder(ledgerSeq, ledgerCloseTime, txID, nil)
-
-	for opIdx, op := range tx.Envelope.Operations() {
-		if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
-			continue
-		}
-		events, err := tx.GetContractEventsForOperation(uint32(opIdx))
-		if err != nil {
-			return fmt.Errorf("getting contract events for op %d: %w", opIdx, err)
-		}
-		opID := toid.New(int32(ledgerSeq), int32(tx.Index), int32(opIdx+1)).ToInt64()
-		opBuilder := builder.Clone().WithOperationID(opID)
+	for key, events := range input.ContractEvents {
+		// tx.ID() in stellar/go is toid.New(ledgerSeq, txIdx, 0); recompute it
+		// here so PersistHistory's state-change rows carry the same txID a full
+		// tx walk would have produced.
+		txID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), 0).ToInt64()
+		opID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), int32(key.OpIdx+1)).ToInt64()
+		opBuilder := processors.NewStateChangeBuilder(input.LedgerSequence, input.LedgerCloseTime, txID, nil).
+			WithOperationID(opID)
 
 		for _, event := range events {
 			if err := p.processEvent(event, opBuilder); err != nil {
 				// Log and continue — a malformed event must not abort the whole ledger.
-				log.Debugf("sep41: skipping malformed event in tx %s op %d: %v",
-					tx.Result.TransactionHash.HexString(), opIdx, err)
+				log.Debugf("sep41: skipping malformed event at tx=%d op=%d: %v",
+					key.TxIdx, key.OpIdx, err)
 				continue
 			}
 		}
 	}
+
 	return nil
 }
 

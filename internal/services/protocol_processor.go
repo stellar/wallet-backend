@@ -7,6 +7,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
 // ProtocolProcessor produces and persists protocol-specific state for a ledger.
@@ -51,9 +52,16 @@ type ProtocolProcessor interface {
 }
 
 // ProtocolProcessorInput contains the data needed by a processor to analyze a ledger.
+//
+// ContractEvents is keyed by (txIdx, opIdx) and contains events only from
+// successful transactions — the indexer filters at extraction time
+// (internal/indexer/indexer.go in processTransaction). Each protocol processor
+// is expected to iterate the map and apply its own contract filter
+// (e.g. SEP-41 ignores events from contracts it doesn't track).
 type ProtocolProcessorInput struct {
 	LedgerSequence    uint32
-	LedgerCloseMeta   xdr.LedgerCloseMeta
+	LedgerCloseTime   int64
+	ContractEvents    map[indexer.ContractEventKey][]xdr.ContractEvent
 	ProtocolContracts []data.ProtocolContracts
 	NetworkPassphrase string
 }

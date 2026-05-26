@@ -183,7 +183,8 @@ func (m *ingestService) persistLedgerData(
 		}
 		if ledgerMeta != nil && len(m.eligibleProtocolProcessors) > 0 {
 			if produceErr := m.produceProtocolStateForProcessors(
-				ctx, *ledgerMeta, ledgerSeq, m.eligibleProtocolProcessors, bufferedContracts, classification,
+				ctx, ledgerMeta.LedgerCloseTime(), buffer.GetContractEvents(),
+				ledgerSeq, m.eligibleProtocolProcessors, bufferedContracts, classification,
 			); produceErr != nil {
 				return fmt.Errorf("producing protocol state for ledger %d: %w", ledgerSeq, produceErr)
 			}
@@ -485,7 +486,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 func (m *ingestService) produceProtocolStateForProcessors(
 	ctx context.Context,
-	ledgerMeta xdr.LedgerCloseMeta,
+	ledgerCloseTime int64,
+	contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent,
 	ledgerSeq uint32,
 	targets map[string]protocolProductionTarget,
 	bufferedContracts map[string]data.ProtocolContracts,
@@ -501,7 +503,8 @@ func (m *ingestService) produceProtocolStateForProcessors(
 		}
 		input := ProtocolProcessorInput{
 			LedgerSequence:    ledgerSeq,
-			LedgerCloseMeta:   ledgerMeta,
+			LedgerCloseTime:   ledgerCloseTime,
+			ContractEvents:    contractEvents,
 			ProtocolContracts: contracts,
 			NetworkPassphrase: m.networkPassphrase,
 		}
