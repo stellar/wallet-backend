@@ -48,8 +48,6 @@ type IngestionMetrics struct {
 	StateChangesTotal             *prometheus.CounterVec
 	// Protocol state production metrics
 	ProtocolStateProcessingDuration *prometheus.HistogramVec
-	ProtocolContractCacheAccess     *prometheus.CounterVec
-	ProtocolContractCacheRefresh    prometheus.Histogram
 	// WasmClassificationFailuresTotal counts WASM classification failures —
 	// genuine internal errors, not legitimate non-matches. The protocol_id
 	// label is the validator that was attempted (e.g. "sep41"), or "unknown"
@@ -134,15 +132,6 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Help:    "Duration of protocol state persistence by protocol ID and phase (process_ledger, load_current_state, persist_history, persist_current_state).",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		}, []string{"protocol_id", "phase"}),
-		ProtocolContractCacheAccess: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "wallet_ingestion_protocol_contract_cache_access_total",
-			Help: "Protocol contract cache accesses by protocol ID and result (hit, miss, refresh).",
-		}, []string{"protocol_id", "result"}),
-		ProtocolContractCacheRefresh: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "wallet_ingestion_protocol_contract_cache_refresh_duration_seconds",
-			Help:    "Duration of protocol contract cache refresh queries.",
-			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
-		}),
 		WasmClassificationFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_ingestion_wasm_classification_failures_total",
 			Help: "WASM classification failures by attempted validator (protocol_id label; \"unknown\" if spec extraction failed) and reason. The corresponding protocol_wasms.protocol_id column is left NULL; recover via the protocol-setup CLI.",
@@ -165,8 +154,6 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.StateChangeProcessingDuration,
 		m.StateChangesTotal,
 		m.ProtocolStateProcessingDuration,
-		m.ProtocolContractCacheAccess,
-		m.ProtocolContractCacheRefresh,
 		m.WasmClassificationFailuresTotal,
 	)
 	return m

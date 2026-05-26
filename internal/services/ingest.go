@@ -135,7 +135,6 @@ type ingestService struct {
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
-	protocolContractCache     *protocolContractCache
 	// eligibleProtocolProcessors is set by ingestLiveLedgers before each retry
 	// sequence, scoping protocol processing and the CAS loop to processors that
 	// may persist the current ledger. Per-cursor eligibility is encoded in each
@@ -177,13 +176,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
-	var ppCache *protocolContractCache
-	if len(ppMap) > 0 {
-		ppCache = &protocolContractCache{
-			contractsByProtocol: make(map[string][]data.ProtocolContracts),
-		}
-	}
-
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
@@ -209,7 +201,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
-		protocolContractCache:     ppCache,
 		protocolCursorInitPending: make(map[string]bool),
 	}, nil
 }
