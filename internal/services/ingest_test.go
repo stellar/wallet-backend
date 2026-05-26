@@ -1711,7 +1711,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Call ingestProcessedDataWithRetry - should succeed
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, buffer)
 
 		// Verify success
 		require.NoError(t, err)
@@ -1791,7 +1791,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Call ingestProcessedDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
+		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -1879,7 +1879,7 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Call ingestProcessedDataWithRetry - should succeed after retry
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, buffer)
+		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, buffer)
 
 		// Verify success after retry
 		require.NoError(t, err)

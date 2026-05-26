@@ -429,7 +429,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetryLive(ctx, currentLedger, &ledgerMeta, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -539,15 +539,11 @@ func (m *ingestService) refreshProtocolContractCache(ctx context.Context, curren
 	return nil
 }
 
-// ingestProcessedDataWithRetry wraps PersistLedgerData with retry logic.
-func (m *ingestService) ingestProcessedDataWithRetry(ctx context.Context, currentLedger uint32, buffer *indexer.IndexerBuffer) (int, int, error) {
-	return m.ingestProcessedDataWithRetryLive(ctx, currentLedger, nil, buffer)
-}
-
-func (m *ingestService) ingestProcessedDataWithRetryLive(
+// ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
+func (m *ingestService) ingestProcessedDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
-	ledgerMeta *xdr.LedgerCloseMeta,
+	ledgerMeta xdr.LedgerCloseMeta,
 	buffer *indexer.IndexerBuffer,
 ) (int, int, error) {
 	var lastErr error
@@ -558,7 +554,7 @@ func (m *ingestService) ingestProcessedDataWithRetryLive(
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, ledgerMeta, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}
