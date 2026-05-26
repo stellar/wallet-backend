@@ -74,7 +74,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 	query := `
 		SELECT
 			b.contract_id, b.balance, b.last_modified_ledger,
-			ct.contract_id, ct.name, ct.symbol, ct.decimals
+			ct.contract_id AS token_id, ct.name, ct.symbol, ct.decimals
 		FROM sep41_balances b
 		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
 		WHERE b.account_address = $1`

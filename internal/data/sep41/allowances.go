@@ -70,7 +70,7 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 	query := `
 		SELECT
 			a.spender_address, a.contract_id, a.amount, a.expiration_ledger, a.last_modified_ledger,
-			ct.contract_id
+			ct.contract_id AS token_id
 		FROM sep41_allowances a
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
 		WHERE a.owner_address = $1 AND a.expiration_ledger >= $2`
