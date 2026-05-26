@@ -122,6 +122,7 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 		models,
 		specExtractor,
 		validators,
+		nil,
 	)
 
 	s.Require().NoError(svc.Run(ctx, []string{sep41ProtocolID}))

@@ -142,6 +142,7 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		models,
 		specExtractor,
 		validators,
+		m.Ingestion.WasmClassificationFailuresTotal,
 	)
 
 	if err := service.Run(ctx, protocolIDs); err != nil {

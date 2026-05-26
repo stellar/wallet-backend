@@ -50,10 +50,14 @@ type IngestionMetrics struct {
 	ProtocolStateProcessingDuration *prometheus.HistogramVec
 	ProtocolContractCacheAccess     *prometheus.CounterVec
 	ProtocolContractCacheRefresh    prometheus.Histogram
-	// WasmClassificationFailuresTotal counts live-ingest WASM classification
-	// errors (genuine internal failures, not legitimate non-matches), labeled
-	// by protocol_id and reason. The affected row is recorded with
-	// protocol_id = NULL; recover by re-running the protocol-setup CLI.
+	// WasmClassificationFailuresTotal counts WASM classification failures —
+	// genuine internal errors, not legitimate non-matches. The protocol_id
+	// label is the validator that was attempted (e.g. "sep41"), or "unknown"
+	// when spec extraction failed before any validator ran; it is never NULL.
+	// The reason label distinguishes spec_extraction_error from
+	// validate_error. Independently of this metric, the protocol_wasms row
+	// for the affected WASM is left with its protocol_id column NULL; recover
+	// by re-running the protocol-setup CLI.
 	// PromQL: rate(wallet_ingestion_wasm_classification_failures_total[5m]) > 0
 	WasmClassificationFailuresTotal *prometheus.CounterVec
 }
@@ -141,7 +145,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}),
 		WasmClassificationFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_ingestion_wasm_classification_failures_total",
-			Help: "Live-ingest WASM classification failures by protocol_id and reason. The row is recorded with protocol_id = NULL; recover by re-running the protocol-setup CLI.",
+			Help: "WASM classification failures by attempted validator (protocol_id label; \"unknown\" if spec extraction failed) and reason. The corresponding protocol_wasms.protocol_id column is left NULL; recover via the protocol-setup CLI.",
 		}, []string{"protocol_id", "reason"}),
 	}
 	reg.MustRegister(

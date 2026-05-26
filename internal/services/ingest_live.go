@@ -694,6 +694,7 @@ func (m *ingestService) runClassification(
 	matches, err := DispatchClassification(
 		ctx, dbTx, m.wasmSpecExtractor, m.protocolValidators,
 		rawWasms, bufferedContracts, m.rpcService, m.models, known,
+		m.appMetrics.Ingestion.WasmClassificationFailuresTotal,
 	)
 	if err != nil {
 		return out, fmt.Errorf("dispatching classification: %w", err)

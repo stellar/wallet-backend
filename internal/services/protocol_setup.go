@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -26,36 +27,42 @@ type ProtocolSetupService interface {
 }
 
 type protocolSetupService struct {
-	db                     *pgxpool.Pool
-	rpcService             RPCService
-	models                 *data.Models
-	protocolModel          data.ProtocolsModelInterface
-	protocolWasmModel      data.ProtocolWasmsModelInterface
-	protocolContractsModel data.ProtocolContractsModelInterface
-	specExtractor          WasmSpecExtractor
-	validators             []ProtocolValidator
+	db                              *pgxpool.Pool
+	rpcService                      RPCService
+	models                          *data.Models
+	protocolModel                   data.ProtocolsModelInterface
+	protocolWasmModel               data.ProtocolWasmsModelInterface
+	protocolContractsModel          data.ProtocolContractsModelInterface
+	specExtractor                   WasmSpecExtractor
+	validators                      []ProtocolValidator
+	wasmClassificationFailuresTotal *prometheus.CounterVec
 }
 
 // NewProtocolSetupService creates a new ProtocolSetupService. validators must
 // be in the desired first-match-wins priority order; pass the result of
 // services.BuildValidators with protocol IDs sorted (or call
-// services.GetAllValidatorIDs).
+// services.GetAllValidatorIDs). wasmClassificationFailuresTotal may be nil;
+// when set, it is incremented at each WASM classification failure inside
+// DispatchClassification so operator-driven setup runs surface the same signal
+// as live ingest.
 func NewProtocolSetupService(
 	dbPool *pgxpool.Pool,
 	rpcService RPCService,
 	models *data.Models,
 	specExtractor WasmSpecExtractor,
 	validators []ProtocolValidator,
+	wasmClassificationFailuresTotal *prometheus.CounterVec,
 ) *protocolSetupService {
 	return &protocolSetupService{
-		db:                     dbPool,
-		rpcService:             rpcService,
-		models:                 models,
-		protocolModel:          models.Protocols,
-		protocolWasmModel:      models.ProtocolWasms,
-		protocolContractsModel: models.ProtocolContracts,
-		specExtractor:          specExtractor,
-		validators:             validators,
+		db:                              dbPool,
+		rpcService:                      rpcService,
+		models:                          models,
+		protocolModel:                   models.Protocols,
+		protocolWasmModel:               models.ProtocolWasms,
+		protocolContractsModel:          models.ProtocolContracts,
+		specExtractor:                   specExtractor,
+		validators:                      validators,
+		wasmClassificationFailuresTotal: wasmClassificationFailuresTotal,
 	}
 }
 
@@ -219,6 +226,7 @@ func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms 
 		matches, dispatchErr = DispatchClassification(
 			ctx, dbTx, s.specExtractor, s.validators,
 			rawWasms, contracts, s.rpcService, s.models, knownByHash,
+			s.wasmClassificationFailuresTotal,
 		)
 		if dispatchErr != nil {
 			return fmt.Errorf("dispatching: %w", dispatchErr)

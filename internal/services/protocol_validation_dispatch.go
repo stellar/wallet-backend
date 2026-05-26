@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -46,6 +47,7 @@ func DispatchClassification(
 	rpc RPCService,
 	models *data.Models,
 	knownByHash map[types.HashBytea]string,
+	failureCounter *prometheus.CounterVec,
 ) (map[types.HashBytea]string, error) {
 	if len(rawWasms) == 0 && len(contracts) == 0 {
 		return nil, nil
@@ -60,6 +62,9 @@ func DispatchClassification(
 		specs, err := extractor.ExtractSpec(ctx, w.Bytecode)
 		if err != nil {
 			log.Ctx(ctx).Warnf("validation dispatch: spec extraction failed for wasm %s: %v", w.Hash, err)
+			if failureCounter != nil {
+				failureCounter.WithLabelValues("unknown", "spec_extraction_error").Inc()
+			}
 			candidates = append(candidates, WasmCandidate{Hash: w.Hash, Bytecode: w.Bytecode})
 			continue
 		}
@@ -83,6 +88,9 @@ func DispatchClassification(
 		result, err := safeValidate(ctx, v, dbTx, input)
 		if err != nil {
 			log.Ctx(ctx).Warnf("validation dispatch: protocol %s Validate returned error, treating as no-match: %v", v.ProtocolID(), err)
+			if failureCounter != nil {
+				failureCounter.WithLabelValues(v.ProtocolID(), "validate_error").Inc()
+			}
 			continue
 		}
 		for _, hash := range result.MatchedWasms {
