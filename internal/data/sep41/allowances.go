@@ -127,51 +127,75 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 }
 
 // BatchUpsert applies approve-style writes and deletes inside the given transaction.
+//
+// Callers must supply key-disjoint inputs: each (owner_address, spender_address,
+// contract_id) tuple may appear at most once across upserts and deletes combined.
+// Today this holds because the upstream SEP-41 processor builds both slices from
+// a single Go map keyed by that tuple (see internal/services/sep41/processor.go).
+// The UNNEST upsert below relies on the precondition — a duplicate key inside
+// `upserts` would trip Postgres's "ON CONFLICT DO UPDATE command cannot affect
+// row a second time" guard.
 func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Allowance, deletes []Allowance) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
 
-	const upsertQuery = `
-		INSERT INTO sep41_allowances (
-			owner_address, spender_address, contract_id, amount, expiration_ledger, last_modified_ledger
-		) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (owner_address, spender_address, contract_id) DO UPDATE SET
-			amount = EXCLUDED.amount,
-			expiration_ledger = EXCLUDED.expiration_ledger,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+	if len(upserts) > 0 {
+		owners := make([]string, len(upserts))
+		spenders := make([]string, len(upserts))
+		contractIDs := make([]uuid.UUID, len(upserts))
+		amounts := make([]string, len(upserts))
+		expirations := make([]int32, len(upserts))
+		ledgers := make([]int32, len(upserts))
+		for i, a := range upserts {
+			owners[i] = a.OwnerAddress
+			spenders[i] = a.SpenderAddress
+			contractIDs[i] = a.ContractID
+			amounts[i] = a.Amount
+			expirations[i] = int32(a.ExpirationLedger)
+			ledgers[i] = int32(a.LedgerNumber)
+		}
 
-	for _, a := range upserts {
-		batch.Queue(upsertQuery,
-			a.OwnerAddress, a.SpenderAddress, a.ContractID,
-			a.Amount, a.ExpirationLedger, a.LedgerNumber,
-		)
-	}
-
-	const deleteQuery = `
-		DELETE FROM sep41_allowances
-		WHERE owner_address = $1 AND spender_address = $2 AND contract_id = $3`
-	for _, a := range deletes {
-		batch.Queue(deleteQuery, a.OwnerAddress, a.SpenderAddress, a.ContractID)
-	}
-
-	if batch.Len() == 0 {
-		return nil
-	}
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
+		const upsertQuery = `
+			INSERT INTO sep41_allowances (
+				owner_address, spender_address, contract_id,
+				amount, expiration_ledger, last_modified_ledger
+			)
+			SELECT * FROM UNNEST(
+				$1::text[], $2::text[], $3::uuid[],
+				$4::text[], $5::integer[], $6::integer[]
+			)
+			ON CONFLICT (owner_address, spender_address, contract_id) DO UPDATE SET
+				amount               = EXCLUDED.amount,
+				expiration_ledger    = EXCLUDED.expiration_ledger,
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
+		if _, err := dbTx.Exec(ctx, upsertQuery, owners, spenders, contractIDs, amounts, expirations, ledgers); err != nil {
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sep41_allowances", utils.GetDBErrorType(err)).Inc()
 			return fmt.Errorf("upserting SEP-41 allowances: %w", err)
 		}
 	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("closing SEP-41 allowance batch: %w", err)
+
+	if len(deletes) > 0 {
+		owners := make([]string, len(deletes))
+		spenders := make([]string, len(deletes))
+		contractIDs := make([]uuid.UUID, len(deletes))
+		for i, a := range deletes {
+			owners[i] = a.OwnerAddress
+			spenders[i] = a.SpenderAddress
+			contractIDs[i] = a.ContractID
+		}
+
+		const deleteQuery = `
+			DELETE FROM sep41_allowances
+			WHERE (owner_address, spender_address, contract_id) IN (
+				SELECT * FROM UNNEST($1::text[], $2::text[], $3::uuid[])
+			)`
+		if _, err := dbTx.Exec(ctx, deleteQuery, owners, spenders, contractIDs); err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sep41_allowances", utils.GetDBErrorType(err)).Inc()
+			return fmt.Errorf("deleting SEP-41 allowances: %w", err)
+		}
 	}
 
 	duration := time.Since(start).Seconds()

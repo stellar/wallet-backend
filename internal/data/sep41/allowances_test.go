@@ -4,9 +4,11 @@ package sep41_test
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -166,6 +168,101 @@ func TestAllowanceModel_GetByOwner_RejectsNonPositiveLimit(t *testing.T) {
 
 	_, err := m.GetByOwner(ctx, keypair.MustRandom().Address(), 0, 0, nil, sep41.SortASC)
 	require.Error(t, err)
+}
+
+func TestAllowanceModel_BatchUpsert_EmptyInputsIsNoOp(t *testing.T) {
+	ctx, _, m, cleanup := newAllowancesFixture(t)
+	defer cleanup()
+
+	// Must not Begin a tx or touch the DB when both sides are empty.
+	require.NoError(t, m.BatchUpsert(ctx, nil, nil, nil))
+}
+
+// readAllowance fetches the current row for (owner, spender, contract) directly via SQL.
+// Used to exercise BatchUpsert end-to-end without depending on the GetByOwner expiration filter.
+func readAllowance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, spender string, contractID uuid.UUID) (amount string, expirationLedger uint32, lastModifiedLedger uint32, found bool) {
+	t.Helper()
+	err := pool.QueryRow(ctx, `
+		SELECT amount, expiration_ledger, last_modified_ledger
+		FROM sep41_allowances
+		WHERE owner_address = $1 AND spender_address = $2 AND contract_id = $3
+	`, owner, spender, contractID).Scan(&amount, &expirationLedger, &lastModifiedLedger)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", 0, 0, false
+	}
+	require.NoError(t, err)
+	return amount, expirationLedger, lastModifiedLedger, true
+}
+
+func TestAllowanceModel_BatchUpsert_InsertsThenUpdatesThenDeletes(t *testing.T) {
+	ctx, pool, m, cleanup := newAllowancesFixture(t)
+	defer cleanup()
+
+	owner := keypair.MustRandom().Address()
+	spender := keypair.MustRandom().Address()
+	contractA := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	contractB := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
+	cidA := insertContractToken(t, ctx, pool, contractA)
+	cidB := insertContractToken(t, ctx, pool, contractB)
+
+	// First ledger: insert two grants via UNNEST upsert path.
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []sep41.Allowance{
+			{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidA, Amount: "100", ExpirationLedger: 5100, LedgerNumber: 5000},
+			{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidB, Amount: "200", ExpirationLedger: 5200, LedgerNumber: 5000},
+		}, nil))
+	})
+
+	amount, exp, ledger, found := readAllowance(t, ctx, pool, owner, spender, cidA)
+	require.True(t, found)
+	assert.Equal(t, "100", amount)
+	assert.Equal(t, uint32(5100), exp)
+	assert.Equal(t, uint32(5000), ledger)
+
+	// Second ledger: update grant A and revoke (delete) grant B.
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx,
+			[]sep41.Allowance{{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidA, Amount: "300", ExpirationLedger: 6100, LedgerNumber: 5001}},
+			[]sep41.Allowance{{OwnerAddress: owner, SpenderAddress: spender, ContractID: cidB}},
+		))
+	})
+
+	amount, exp, ledger, found = readAllowance(t, ctx, pool, owner, spender, cidA)
+	require.True(t, found, "updated grant should still be present")
+	assert.Equal(t, "300", amount)
+	assert.Equal(t, uint32(6100), exp)
+	assert.Equal(t, uint32(5001), ledger)
+
+	_, _, _, found = readAllowance(t, ctx, pool, owner, spender, cidB)
+	assert.False(t, found, "revoked grant should be removed by the UNNEST delete")
+}
+
+func TestAllowanceModel_BatchUpsert_UpsertOnlyAndDeleteOnly(t *testing.T) {
+	ctx, pool, m, cleanup := newAllowancesFixture(t)
+	defer cleanup()
+
+	owner := keypair.MustRandom().Address()
+	spender := keypair.MustRandom().Address()
+	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	cid := insertContractToken(t, ctx, pool, contract)
+
+	// Upsert-only path (deletes nil) must not error or touch the delete branch.
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []sep41.Allowance{
+			{OwnerAddress: owner, SpenderAddress: spender, ContractID: cid, Amount: "42", ExpirationLedger: 5100, LedgerNumber: 5000},
+		}, nil))
+	})
+	_, _, _, found := readAllowance(t, ctx, pool, owner, spender, cid)
+	require.True(t, found)
+
+	// Delete-only path (upserts nil) must not error or touch the insert branch.
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, nil, []sep41.Allowance{
+			{OwnerAddress: owner, SpenderAddress: spender, ContractID: cid},
+		}))
+	})
+	_, _, _, found = readAllowance(t, ctx, pool, owner, spender, cid)
+	assert.False(t, found)
 }
 
 func TestAllowanceModel_DeleteExpiredBefore_RemovesOnlyExpiredRows(t *testing.T) {
