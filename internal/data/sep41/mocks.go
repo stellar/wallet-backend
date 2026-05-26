@@ -40,11 +40,6 @@ func (m *BalanceModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, de
 	return args.Error(0)
 }
 
-func (m *BalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error {
-	args := m.Called(ctx, dbTx, balances)
-	return args.Error(0)
-}
-
 // AllowanceModelMock mocks AllowanceModelInterface.
 type AllowanceModelMock struct {
 	mock.Mock

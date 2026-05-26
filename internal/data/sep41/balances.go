@@ -53,7 +53,6 @@ type BalanceModelInterface interface {
 	// the absolute new balance. This avoids needing to preload state from DB
 	// into memory at the cost of per-ledger SQL arithmetic on TEXT→numeric.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
-	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error
 }
 
 type BalanceModel struct {
@@ -194,34 +193,3 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	return nil
 }
 
-// BatchCopy bulk-loads balances via the COPY protocol. Intended for checkpoint/bootstrap paths.
-func (m *BalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []Balance) error {
-	if len(balances) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	copyCount, err := dbTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"sep41_balances"},
-		[]string{"account_address", "contract_id", "balance", "last_modified_ledger"},
-		pgx.CopyFromSlice(len(balances), func(i int) ([]any, error) {
-			bal := balances[i]
-			return []any{bal.AccountAddress, bal.ContractID, bal.Balance, bal.LedgerNumber}, nil
-		}),
-	)
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("batch inserting SEP-41 balances via COPY: %w", err)
-	}
-	if int(copyCount) != len(balances) {
-		return fmt.Errorf("expected %d rows copied, got %d", len(balances), copyCount)
-	}
-
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "sep41_balances").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "sep41_balances").Inc()
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "sep41_balances").Observe(float64(len(balances)))
-	return nil
-}
