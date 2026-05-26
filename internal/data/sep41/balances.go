@@ -135,53 +135,56 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 // BatchApplyDeltas accumulates signed balance deltas server-side (balance := existing + delta)
 // and removes rows that settle to zero. Each input Balance.Balance is a decimal string delta.
 //
-// The per-delta upsert runs within the caller's transaction so retries re-apply the same
-// ledger's deltas exactly once (guarded by the CAS cursor). Zero-balance cleanup is a single
-// DELETE sweep at the end, scoped to the (account, contract) pairs we just touched.
+// Callers must supply key-disjoint deltas: each (account_address, contract_id) tuple may
+// appear at most once per call. Today this holds because the upstream SEP-41 processor
+// sums into a single Go map keyed by that tuple (stagedBalanceDelta in
+// internal/services/sep41/processor.go) before materializing the slice. The UNNEST upsert
+// below relies on the precondition — a duplicate key would trip Postgres's "ON CONFLICT
+// DO UPDATE command cannot affect row a second time" guard.
+//
+// The upsert and zero-sweep run within the caller's transaction so retries re-apply the
+// same ledger's deltas exactly once (guarded by the CAS cursor). The DELETE is scoped to
+// the (account, contract) pairs we just touched.
 func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error {
 	if len(deltas) == 0 {
 		return nil
 	}
 
 	start := time.Now()
-	batch := &pgx.Batch{}
+
+	accountAddresses := make([]string, len(deltas))
+	contractIDs := make([]uuid.UUID, len(deltas))
+	balances := make([]string, len(deltas))
+	ledgers := make([]int32, len(deltas))
+	for i, d := range deltas {
+		accountAddresses[i] = d.AccountAddress
+		contractIDs[i] = d.ContractID
+		balances[i] = d.Balance
+		ledgers[i] = int32(d.LedgerNumber)
+	}
 
 	// Sum in SQL: existing + delta. The TEXT columns are cast to numeric for arithmetic
 	// and back to text for storage so the column type stays TEXT (preserves full i128 range).
 	const upsertQuery = `
 		INSERT INTO sep41_balances (account_address, contract_id, balance, last_modified_ledger)
-		VALUES ($1, $2, $3, $4)
+		SELECT * FROM UNNEST($1::text[], $2::uuid[], $3::text[], $4::integer[])
 		ON CONFLICT (account_address, contract_id) DO UPDATE SET
-			balance = (sep41_balances.balance::numeric + EXCLUDED.balance::numeric)::text,
+			balance              = (sep41_balances.balance::numeric + EXCLUDED.balance::numeric)::text,
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
-
-	accountAddresses := make([]string, 0, len(deltas))
-	contractIDs := make([]uuid.UUID, 0, len(deltas))
-	for _, d := range deltas {
-		batch.Queue(upsertQuery, d.AccountAddress, d.ContractID, d.Balance, d.LedgerNumber)
-		accountAddresses = append(accountAddresses, d.AccountAddress)
-		contractIDs = append(contractIDs, d.ContractID)
+	if _, err := dbTx.Exec(ctx, upsertQuery, accountAddresses, contractIDs, balances, ledgers); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 	}
 
-	// Single DELETE sweep for any (account, contract) that settled to zero this batch.
 	const deleteZeroesQuery = `
 		DELETE FROM sep41_balances
 		WHERE balance::numeric = 0
 		  AND (account_address, contract_id) IN (
 		      SELECT * FROM UNNEST($1::text[], $2::uuid[])
 		  )`
-	batch.Queue(deleteZeroesQuery, accountAddresses, contractIDs)
-
-	br := dbTx.SendBatch(ctx, batch)
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close() //nolint:errcheck // cleanup on error path
-			m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-			return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
-		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("closing SEP-41 balance batch: %w", err)
+	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountAddresses, contractIDs); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("sweeping zero SEP-41 balances: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()

@@ -90,32 +90,75 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 	})
 
 	t.Run("sums deltas with the existing balance rather than overwriting", func(t *testing.T) {
-		// Regression test for the restart-overwrite bug: a second application of a
+		// Regression test for the restart-overwrite bug: a subsequent application of a
 		// delta on a (account, contract) that already has a balance must sum, not overwrite.
+		// Each call supplies a single delta — the upstream processor dedupes per ledger,
+		// so the data layer never sees the same (account, contract) twice per call.
 		acct := keypair.MustRandom().Address()
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		cid := insertContractToken(t, ctx, pool, contract)
 
-		// Pre-populate balance = 1000.
+		// Ledger 42: balance = 1000.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
 				AccountAddress: acct, ContractID: cid, Balance: "1000", LedgerNumber: 42,
 			}}))
 		})
 
-		// Apply -250 and +50 in a second ledger. Should sum to 800.
+		// Ledger 43: -250 → 750.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
-			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
-				{AccountAddress: acct, ContractID: cid, Balance: "-250", LedgerNumber: 43},
-				{AccountAddress: acct, ContractID: cid, Balance: "50", LedgerNumber: 43},
-			}))
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct, ContractID: cid, Balance: "-250", LedgerNumber: 43,
+			}}))
+		})
+
+		// Ledger 44: +50 → 800.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct, ContractID: cid, Balance: "50", LedgerNumber: 44,
+			}}))
 		})
 
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 		assert.Equal(t, "800", balances[0].Balance)
-		assert.Equal(t, uint32(43), balances[0].LedgerNumber)
+		assert.Equal(t, uint32(44), balances[0].LedgerNumber)
+	})
+
+	t.Run("applies multiple distinct (account, contract) rows in a single UNNEST upsert", func(t *testing.T) {
+		// Exercises the multi-row UNNEST path: distinct keys must all land in one call.
+		acctA := keypair.MustRandom().Address()
+		acctB := keypair.MustRandom().Address()
+		contract1 := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		contract2 := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
+		cid1 := insertContractToken(t, ctx, pool, contract1)
+		cid2 := insertContractToken(t, ctx, pool, contract2)
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+				{AccountAddress: acctA, ContractID: cid1, Balance: "100", LedgerNumber: 50},
+				{AccountAddress: acctA, ContractID: cid2, Balance: "200", LedgerNumber: 50},
+				{AccountAddress: acctB, ContractID: cid1, Balance: "300", LedgerNumber: 50},
+			}))
+		})
+
+		balancesA, err := m.GetByAccount(ctx, acctA, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balancesA, 2)
+		gotA := map[uuid.UUID]string{}
+		for _, b := range balancesA {
+			gotA[b.ContractID] = b.Balance
+			assert.Equal(t, uint32(50), b.LedgerNumber)
+		}
+		assert.Equal(t, "100", gotA[cid1])
+		assert.Equal(t, "200", gotA[cid2])
+
+		balancesB, err := m.GetByAccount(ctx, acctB, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balancesB, 1)
+		assert.Equal(t, "300", balancesB[0].Balance)
+		assert.Equal(t, uint32(50), balancesB[0].LedgerNumber)
 	})
 
 	t.Run("deletes the row when a delta settles the balance to zero", func(t *testing.T) {
