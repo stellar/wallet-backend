@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,6 +24,18 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// seedIngestLedger writes the latest_ingest_ledger cursor row that GetByOwner
+// reads via its inline subquery. Without this, the COALESCE in the SQL defaults
+// to 0 and the expiration filter is effectively disabled.
+func seedIngestLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ledger uint32) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`, "latest_ingest_ledger", strconv.FormatUint(uint64(ledger), 10))
+	require.NoError(t, err)
+}
 
 // sortStrkeysByBytea sorts strkey addresses by their 33-byte BYTEA encoding,
 // matching the ordering Postgres uses for the bytea column.
@@ -93,6 +106,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 	t.Run("caps result count at the requested limit and orders ASC by (spender, contract_id)", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
 		const currentLedger uint32 = 5000
+		seedIngestLedger(t, ctx, pool, currentLedger)
 
 		// Seed 3 distinct contracts × a fresh spender each so (spender, contract_id) is the page key.
 		contracts := []string{
@@ -108,7 +122,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 		}
 
 		// Unbounded limit would exceed 3 — LIMIT 2 must cap the result at 2.
-		page1, err := m.GetByOwner(ctx, owner, currentLedger, 2, nil, sep41.SortASC)
+		page1, err := m.GetByOwner(ctx, owner, 2, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page1, 2, "limit must cap the result set")
 
@@ -122,6 +136,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 	t.Run("continues a keyset walk from the cursor of the previous page", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
 		const currentLedger uint32 = 5000
+		seedIngestLedger(t, ctx, pool, currentLedger)
 
 		spenders := make([]string, 0, 4)
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
@@ -132,7 +147,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 		}
 		sortStrkeysByBytea(t, spenders)
 
-		page1, err := m.GetByOwner(ctx, owner, currentLedger, 2, nil, sep41.SortASC)
+		page1, err := m.GetByOwner(ctx, owner, 2, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page1, 2)
 		assert.Equal(t, spenders[0], page1[0].SpenderID.String())
@@ -143,7 +158,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 			SpenderID:  page1[1].SpenderID,
 			ContractID: page1[1].ContractID,
 		}
-		page2, err := m.GetByOwner(ctx, owner, currentLedger, 2, cursor, sep41.SortASC)
+		page2, err := m.GetByOwner(ctx, owner, 2, cursor, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page2, 2)
 		assert.Equal(t, spenders[2], page2[0].SpenderID.String())
@@ -153,6 +168,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 	t.Run("returns rows in descending order when SortDESC is given", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
 		const currentLedger uint32 = 5000
+		seedIngestLedger(t, ctx, pool, currentLedger)
 
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		spenders := make([]string, 0, 3)
@@ -163,7 +179,7 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 		}
 		sortStrkeysByBytea(t, spenders)
 
-		page, err := m.GetByOwner(ctx, owner, currentLedger, 10, nil, sep41.SortDESC)
+		page, err := m.GetByOwner(ctx, owner, 10, nil, sep41.SortDESC)
 		require.NoError(t, err)
 		require.Len(t, page, 3)
 		assert.Equal(t, spenders[2], page[0].SpenderID.String())
@@ -171,24 +187,25 @@ func TestAllowanceModel_GetByOwner(t *testing.T) {
 		assert.Equal(t, spenders[0], page[2].SpenderID.String())
 	})
 
-	t.Run("filters out allowances whose expiration_ledger is below currentLedger", func(t *testing.T) {
+	t.Run("filters out allowances whose expiration_ledger is below the ingest watermark", func(t *testing.T) {
 		owner := keypair.MustRandom().Address()
 		spender := keypair.MustRandom().Address()
 		const currentLedger uint32 = 5000
+		seedIngestLedger(t, ctx, pool, currentLedger)
 
 		activeContract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		expiredContract := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
 		seedAllowance(t, ctx, pool, owner, spender, activeContract, currentLedger+1)
 		seedAllowance(t, ctx, pool, owner, spender, expiredContract, currentLedger-1)
 
-		page, err := m.GetByOwner(ctx, owner, currentLedger, 10, nil, sep41.SortASC)
+		page, err := m.GetByOwner(ctx, owner, 10, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, page, 1, "expired allowance should be filtered server-side")
 		assert.Equal(t, activeContract, page[0].TokenID)
 	})
 
 	t.Run("rejects a non-positive limit with an error", func(t *testing.T) {
-		_, err := m.GetByOwner(ctx, keypair.MustRandom().Address(), 0, 0, nil, sep41.SortASC)
+		_, err := m.GetByOwner(ctx, keypair.MustRandom().Address(), 0, nil, sep41.SortASC)
 		require.Error(t, err)
 	})
 }
@@ -277,6 +294,7 @@ func TestAllowanceModel_DeleteExpiredBefore(t *testing.T) {
 		ownerActive := keypair.MustRandom().Address()
 		spender := keypair.MustRandom().Address()
 		const currentLedger uint32 = 5000
+		seedIngestLedger(t, ctx, pool, currentLedger)
 
 		expiredContract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		activeContract := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
@@ -295,11 +313,11 @@ func TestAllowanceModel_DeleteExpiredBefore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 2, remaining)
 
-		expiredPage, err := m.GetByOwner(ctx, ownerExpired, currentLedger, 10, nil, sep41.SortASC)
+		expiredPage, err := m.GetByOwner(ctx, ownerExpired, 10, nil, sep41.SortASC)
 		require.NoError(t, err)
 		assert.Empty(t, expiredPage)
 
-		activePage, err := m.GetByOwner(ctx, ownerActive, currentLedger, 10, nil, sep41.SortASC)
+		activePage, err := m.GetByOwner(ctx, ownerActive, 10, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, activePage, 2)
 	})

@@ -16,6 +16,11 @@ import (
 
 const expiredAllowanceSweepLimit = 1000
 
+// latestIngestLedgerCursor mirrors data.LatestLedgerCursorName. It is duplicated
+// here because internal/data depends on this package, so an import in the
+// opposite direction would be circular. The string must stay in sync.
+const latestIngestLedgerCursor = "latest_ingest_ledger"
+
 // Allowance represents a SEP-41 approve() grant: owner allows spender to move up to amount
 // until expiration_ledger. The pair (owner, spender, contract_id) is unique.
 type Allowance struct {
@@ -38,10 +43,14 @@ type AllowanceCursor struct {
 
 // AllowanceModelInterface exposes SEP-41 allowance storage operations.
 type AllowanceModelInterface interface {
-	// GetByOwner returns non-expired allowances owned by the given account, filtered by ledger.
-	// An allowance is considered active while expiration_ledger >= currentLedger. Results are
-	// keyset-paginated by (spender_address, contract_id); pass a nil cursor for the first page.
-	GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error)
+	// GetByOwner returns non-expired allowances owned by the given account.
+	// The expiration threshold is read atomically from ingest_store inside the
+	// same SQL statement (statement-level MVCC), so the filter is always
+	// consistent with the live high-watermark — there is no separate ledger
+	// parameter. If ingest_store has no row yet, the threshold defaults to 0
+	// and no rows are filtered. Results are keyset-paginated by
+	// (spender_address, contract_id); pass a nil cursor for the first page.
+	GetByOwner(ctx context.Context, ownerAddress string, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error)
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []Allowance, deletes []Allowance) error
 	// DeleteExpiredBefore removes a bounded batch of allowances whose expiration_ledger is
 	// strictly below currentLedger. Callers should invoke it from the current-state
@@ -57,10 +66,13 @@ type AllowanceModel struct {
 
 var _ AllowanceModelInterface = (*AllowanceModel)(nil)
 
-// GetByOwner returns active allowances (expiration_ledger >= currentLedger), keyset-paginated
-// by (spender_id, contract_id). The PK on (owner_id, spender_id, contract_id)
-// backs the ordering + keyset predicate without an extra index.
-func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
+// GetByOwner returns active allowances (expiration_ledger >= ingest watermark),
+// keyset-paginated by (spender_id, contract_id). The PK on
+// (owner_id, spender_id, contract_id) backs the ordering + keyset predicate
+// without an extra index. The expiration threshold is read inline via a
+// subquery against ingest_store so both reads share a single statement-level
+// MVCC snapshot.
+func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
 	if ownerAddress == "" {
 		return nil, fmt.Errorf("empty owner address")
 	}
@@ -74,8 +86,12 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, cu
 			ct.contract_id AS token_id
 		FROM sep41_allowances a
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
-		WHERE a.owner_id = $1 AND a.expiration_ledger >= $2`
-	args := []interface{}{types.AddressBytea(ownerAddress), currentLedger}
+		WHERE a.owner_id = $1
+		  AND a.expiration_ledger >= COALESCE(
+		      (SELECT value::integer FROM ingest_store WHERE key = $2),
+		      0
+		  )`
+	args := []interface{}{types.AddressBytea(ownerAddress), latestIngestLedgerCursor}
 	argIndex := 3
 
 	if cursor != nil {

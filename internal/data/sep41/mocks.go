@@ -58,8 +58,8 @@ func NewAllowanceModelMock(t interface {
 	return m
 }
 
-func (m *AllowanceModelMock) GetByOwner(ctx context.Context, ownerAddress string, currentLedger uint32, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
-	args := m.Called(ctx, ownerAddress, currentLedger, limit, cursor, sortOrder)
+func (m *AllowanceModelMock) GetByOwner(ctx context.Context, ownerAddress string, limit int32, cursor *AllowanceCursor, sortOrder SortOrder) ([]Allowance, error) {
+	args := m.Called(ctx, ownerAddress, limit, cursor, sortOrder)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

@@ -92,10 +92,11 @@ func encodeAllowanceCursorID(a sep41data.Allowance) string {
 // It fetches a single keyset-paginated page from the DB, filters expired rows at
 // the SQL level, and builds a Relay connection around the result.
 //
-// The "current ledger" used to filter expired allowances is the live ingestion
-// high-watermark read from ingest_store. If ingestion hasn't advanced yet
-// (fresh install) we pass 0, which returns allowances with any future
-// expiration_ledger; this is the safest behavior for a brand-new database.
+// The expiration filter uses the live ingestion high-watermark read from
+// ingest_store inline (as a subquery in the data layer), so the cursor read and
+// the row read share a single statement-level MVCC snapshot. If ingestion
+// hasn't advanced yet (fresh install) the threshold defaults to 0, which
+// returns allowances with any future expiration_ledger.
 func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first *int32, after *string, last *int32, before *string) (*graphql1.SEP41AllowanceConnection, error) {
 	if address == "" {
 		return nil, balanceBadUserInputError("account has no address")
@@ -109,12 +110,6 @@ func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first
 	inner, err := parseAllowanceCursor(params.StringCursor)
 	if err != nil {
 		return nil, err
-	}
-
-	currentLedger, err := r.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
-	if err != nil {
-		log.Ctx(ctx).Errorf("failed to read latest ingested ledger for sep41Allowances: %v", err)
-		return nil, balanceInternalError()
 	}
 
 	sep41Sort := sep41data.SortASC
@@ -131,7 +126,7 @@ func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first
 	}
 
 	queryLimit := *params.Limit + 1
-	allowances, err := r.balanceReader.GetSEP41Allowances(ctx, address, currentLedger, queryLimit, cursor, sep41Sort)
+	allowances, err := r.balanceReader.GetSEP41Allowances(ctx, address, queryLimit, cursor, sep41Sort)
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get SEP-41 allowances for %s: %v", address, err)
 		return nil, balanceInternalError()
