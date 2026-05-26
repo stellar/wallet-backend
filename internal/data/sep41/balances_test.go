@@ -63,92 +63,85 @@ func runInTx(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn func(pgx.
 	require.NoError(t, tx.Commit(ctx))
 }
 
-func TestBalanceModel_BatchApplyDeltas_InsertsFreshRow(t *testing.T) {
+func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 	ctx, pool, m, cleanup := newBalancesFixture(t)
 	defer cleanup()
 
-	acct := keypair.MustRandom().Address()
-	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	cid := insertContractToken(t, ctx, pool, contract)
+	t.Run("inserts a fresh row when no balance exists for (account, contract)", func(t *testing.T) {
+		acct := keypair.MustRandom().Address()
+		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		cid := insertContractToken(t, ctx, pool, contract)
 
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		err := m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-			AccountAddress: acct,
-			ContractID:     cid,
-			Balance:        "1000",
-			LedgerNumber:   42,
-		}})
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			err := m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct,
+				ContractID:     cid,
+				Balance:        "1000",
+				LedgerNumber:   42,
+			}})
+			require.NoError(t, err)
+		})
+
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
+		require.Len(t, balances, 1)
+		assert.Equal(t, "1000", balances[0].Balance)
+		assert.Equal(t, uint32(42), balances[0].LedgerNumber)
 	})
 
-	balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	require.Len(t, balances, 1)
-	assert.Equal(t, "1000", balances[0].Balance)
-	assert.Equal(t, uint32(42), balances[0].LedgerNumber)
-}
+	t.Run("sums deltas with the existing balance rather than overwriting", func(t *testing.T) {
+		// Regression test for the restart-overwrite bug: a second application of a
+		// delta on a (account, contract) that already has a balance must sum, not overwrite.
+		acct := keypair.MustRandom().Address()
+		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		cid := insertContractToken(t, ctx, pool, contract)
 
-func TestBalanceModel_BatchApplyDeltas_SumsWithExistingRow(t *testing.T) {
-	// This is the regression test for the restart-overwrite bug: a second application of a
-	// delta on a (account, contract) that already has a balance must sum, not overwrite.
-	ctx, pool, m, cleanup := newBalancesFixture(t)
-	defer cleanup()
+		// Pre-populate balance = 1000.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct, ContractID: cid, Balance: "1000", LedgerNumber: 42,
+			}}))
+		})
 
-	acct := keypair.MustRandom().Address()
-	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	cid := insertContractToken(t, ctx, pool, contract)
+		// Apply -250 and +50 in a second ledger. Should sum to 800.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+				{AccountAddress: acct, ContractID: cid, Balance: "-250", LedgerNumber: 43},
+				{AccountAddress: acct, ContractID: cid, Balance: "50", LedgerNumber: 43},
+			}))
+		})
 
-	// Pre-populate balance = 1000.
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-			AccountAddress: acct, ContractID: cid, Balance: "1000", LedgerNumber: 42,
-		}}))
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balances, 1)
+		assert.Equal(t, "800", balances[0].Balance)
+		assert.Equal(t, uint32(43), balances[0].LedgerNumber)
 	})
 
-	// Apply -250 and +50 in a second ledger. Should sum to 800.
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
-			{AccountAddress: acct, ContractID: cid, Balance: "-250", LedgerNumber: 43},
-			{AccountAddress: acct, ContractID: cid, Balance: "50", LedgerNumber: 43},
-		}))
+	t.Run("deletes the row when a delta settles the balance to zero", func(t *testing.T) {
+		acct := keypair.MustRandom().Address()
+		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		cid := insertContractToken(t, ctx, pool, contract)
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct, ContractID: cid, Balance: "500", LedgerNumber: 10,
+			}}))
+		})
+		// Burn the entire balance.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountAddress: acct, ContractID: cid, Balance: "-500", LedgerNumber: 11,
+			}}))
+		})
+
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		assert.Empty(t, balances, "zero-balance row should be swept")
 	})
 
-	balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	require.Len(t, balances, 1)
-	assert.Equal(t, "800", balances[0].Balance)
-	assert.Equal(t, uint32(43), balances[0].LedgerNumber)
-}
-
-func TestBalanceModel_BatchApplyDeltas_DeletesWhenBalanceSettlesToZero(t *testing.T) {
-	ctx, pool, m, cleanup := newBalancesFixture(t)
-	defer cleanup()
-
-	acct := keypair.MustRandom().Address()
-	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	cid := insertContractToken(t, ctx, pool, contract)
-
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-			AccountAddress: acct, ContractID: cid, Balance: "500", LedgerNumber: 10,
-		}}))
+	t.Run("is a no-op when no deltas are staged", func(t *testing.T) {
+		// Must not fail when no deltas are staged.
+		require.NoError(t, m.BatchApplyDeltas(ctx, nil, nil))
 	})
-	// Burn the entire balance.
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
-			AccountAddress: acct, ContractID: cid, Balance: "-500", LedgerNumber: 11,
-		}}))
-	})
-
-	balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	assert.Empty(t, balances, "zero-balance row should be swept")
-}
-
-func TestBalanceModel_BatchApplyDeltas_EmptyInputNoOp(t *testing.T) {
-	ctx, _, m, cleanup := newBalancesFixture(t)
-	defer cleanup()
-
-	// Must not fail when no deltas are staged.
-	require.NoError(t, m.BatchApplyDeltas(ctx, nil, nil))
 }
