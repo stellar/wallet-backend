@@ -34,18 +34,6 @@ type protocolContractCache struct {
 	lastRefreshLedger   uint32
 }
 
-type classificationOutcome struct {
-	matches     map[types.HashBytea]string
-	knownByHash map[types.HashBytea]string
-}
-
-func (o classificationOutcome) protocolIDForWasm(hash types.HashBytea) string {
-	if pid, ok := o.matches[hash]; ok {
-		return pid
-	}
-	return o.knownByHash[hash]
-}
-
 func protocolStateCursorReady(cursorValue, ledgerSeq uint32) bool {
 	if ledgerSeq == 0 {
 		return true
@@ -204,7 +192,7 @@ func (m *ingestService) persistLedgerData(
 		if len(bufferedWasms) > 0 {
 			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
 			for hash, wasm := range bufferedWasms {
-				if pid, ok := classification.matches[types.HashBytea(hash)]; ok {
+				if pid, ok := classification[types.HashBytea(hash)]; ok {
 					stamped := pid
 					wasm.ProtocolID = &stamped
 				}
@@ -476,7 +464,7 @@ func (m *ingestService) getEffectiveProtocolContracts(
 	protocolID string,
 	currentLedger uint32,
 	bufferedContracts map[string]data.ProtocolContracts,
-	classification classificationOutcome,
+	classification map[types.HashBytea]string,
 ) ([]data.ProtocolContracts, error) {
 	baseContracts, err := m.getProtocolContracts(ctx, protocolID, currentLedger)
 	if err != nil {
@@ -495,7 +483,7 @@ func (m *ingestService) getEffectiveProtocolContracts(
 	}
 
 	for _, contract := range bufferedContracts {
-		if classification.protocolIDForWasm(contract.WasmHash) != protocolID {
+		if classification[contract.WasmHash] != protocolID {
 			continue
 		}
 		out = append(out, contract)
@@ -600,10 +588,10 @@ func (m *ingestService) ingestProcessedDataWithRetryLive(
 
 // runClassification builds a ValidationInput from this ledger's buffered
 // raw WASMs and contracts and dispatches to each registered ProtocolValidator
-// in priority order. The returned outcome carries both new wasm matches for
-// this batch and previously-known protocol IDs for buffered contract hashes,
-// so live ProcessLedger can reason about same-ledger deploy/upgrade events
-// before protocol_contracts is committed.
+// in priority order. It returns a wasm hash → protocol_id map covering both
+// previously-committed classifications and this-ledger matches, so live
+// ProcessLedger can reason about same-ledger deploy/upgrade events before
+// protocol_contracts is committed.
 //
 // Validator side effects (e.g. SEP-41 contract_tokens metadata writes) happen
 // inside dbTx via the validators themselves and commit atomically with the
@@ -614,10 +602,9 @@ func (m *ingestService) runClassification(
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
 	bufferedContracts []data.ProtocolContracts,
-) (classificationOutcome, error) {
-	out := classificationOutcome{}
+) (map[types.HashBytea]string, error) {
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
-		return out, nil
+		return nil, nil
 	}
 
 	rawWasms := make([]RawWasm, 0, len(bufferedWasms))
@@ -633,11 +620,19 @@ func (m *ingestService) runClassification(
 
 	known, err := ResolveKnownProtocols(ctx, dbTx, bufferedContracts, thisBatch)
 	if err != nil {
-		return out, fmt.Errorf("resolving known protocol classifications: %w", err)
+		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}
-	out.knownByHash = known
+
+	// protocolByWasm answers "what protocol owns this wasm hash?": previously
+	// committed classifications overlaid with this-ledger matches. The two key
+	// sets are disjoint (ResolveKnownProtocols excludes thisBatch), so the
+	// overlay never actually collides.
+	protocolByWasm := make(map[types.HashBytea]string, len(known))
+	for hash, pid := range known {
+		protocolByWasm[hash] = pid
+	}
 	if len(m.protocolValidators) == 0 {
-		return out, nil
+		return protocolByWasm, nil
 	}
 
 	matches, err := DispatchClassification(
@@ -646,10 +641,12 @@ func (m *ingestService) runClassification(
 		m.appMetrics.Ingestion.WasmClassificationFailuresTotal,
 	)
 	if err != nil {
-		return out, fmt.Errorf("dispatching classification: %w", err)
+		return nil, fmt.Errorf("dispatching classification: %w", err)
 	}
-	out.matches = matches
-	return out, nil
+	for hash, pid := range matches {
+		protocolByWasm[hash] = pid
+	}
+	return protocolByWasm, nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.

@@ -3006,12 +3006,12 @@ func Test_ingestService_getEffectiveProtocolContracts_ReturnsCachedContracts(t *
 		},
 	}
 
-	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 123, nil, classificationOutcome{})
+	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 123, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, expectedContracts, contracts)
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_IncludesSameLedgerMatchedContracts(t *testing.T) {
+func Test_ingestService_getEffectiveProtocolContracts_MergesBufferedContractWithBaseContracts(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3033,16 +3033,14 @@ func Test_ingestService_getEffectiveProtocolContracts_IncludesSameLedgerMatchedC
 
 	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 123, map[string]data.ProtocolContracts{
 		string(currentLedgerContract.ContractID): currentLedgerContract,
-	}, classificationOutcome{
-		matches: map[types.HashBytea]string{
-			currentLedgerContract.WasmHash: "testproto",
-		},
+	}, map[types.HashBytea]string{
+		currentLedgerContract.WasmHash: "testproto",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, expectedContracts, contracts)
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_IncludesSameLedgerKnownContracts(t *testing.T) {
+func Test_ingestService_getEffectiveProtocolContracts_IncludesBufferedContractWhenBaseEmpty(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3061,10 +3059,8 @@ func Test_ingestService_getEffectiveProtocolContracts_IncludesSameLedgerKnownCon
 
 	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 123, map[string]data.ProtocolContracts{
 		string(currentLedgerContract.ContractID): currentLedgerContract,
-	}, classificationOutcome{
-		knownByHash: map[types.HashBytea]string{
-			currentLedgerContract.WasmHash: "testproto",
-		},
+	}, map[types.HashBytea]string{
+		currentLedgerContract.WasmHash: "testproto",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, expectedContracts, contracts)
@@ -3091,7 +3087,7 @@ func Test_ingestService_getEffectiveProtocolContracts_RemovesContractsUpgradedAw
 
 	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 123, map[string]data.ProtocolContracts{
 		string(upgradedContract.ContractID): upgradedContract,
-	}, classificationOutcome{})
+	}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, contracts)
 }
@@ -3222,7 +3218,7 @@ func Test_ingestService_getEffectiveProtocolContracts_FirstRefreshFailure_FailsL
 
 	// First-load refresh failure must surface as an error so the caller fails the
 	// ledger loudly instead of producing protocol state from empty contracts.
-	_, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 200, nil, classificationOutcome{})
+	_, err := svc.getEffectiveProtocolContracts(ctx, "testproto", 200, nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, uint32(0), svc.protocolContractCache.lastRefreshLedger)
 }
