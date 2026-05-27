@@ -108,7 +108,9 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		svcModels := *models
 		svcModels.Protocols = protocolModelMock
 		svcModels.ProtocolWasms = protocolWasmModelMock
-		svcModels.ProtocolContracts = data.NewProtocolContractsModelMock(t)
+		contractsMock := data.NewProtocolContractsModelMock(t)
+		contractsMock.On("GetByWasmHashes", ctx, []types.HashBytea{types.HashBytea(testWasmHex)}).Return([]data.ProtocolContracts{}, nil)
+		svcModels.ProtocolContracts = contractsMock
 		svc := &protocolSetupService{
 			db:            dbConnectionPool,
 			rpcService:    rpcMock,

@@ -186,8 +186,13 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	}
 
 	// Pull protocol_contracts referencing these unclassified wasm hashes so
-	// validators can enrich them inside the same dbTx.
-	contracts, err := s.contractsForWasmHashes(ctx, rawWasms)
+	// validators can enrich them inside the same dbTx. rawWasms hashes are
+	// unique by construction (built from a map keyed by hash).
+	wasmHashes := make([]types.HashBytea, len(rawWasms))
+	for i, w := range rawWasms {
+		wasmHashes[i] = w.Hash
+	}
+	contracts, err := s.models.ProtocolContracts.GetByWasmHashes(ctx, wasmHashes)
 	if err != nil {
 		return fmt.Errorf("loading protocol_contracts for unclassified wasms: %w", err)
 	}
@@ -236,50 +241,6 @@ func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms 
 		return nil, fmt.Errorf("running protocol classification transaction: %w", err)
 	}
 	return matches, nil
-}
-
-// contractsForWasmHashes returns protocol_contracts rows whose wasm_hash is
-// in the candidate set. Uses a single tx-less query through the connection
-// pool since this read is not part of a CAS-guarded write.
-func (s *protocolSetupService) contractsForWasmHashes(ctx context.Context, rawWasms []RawWasm) ([]data.ProtocolContracts, error) {
-	if len(rawWasms) == 0 {
-		return nil, nil
-	}
-	hashes := make([][]byte, 0, len(rawWasms))
-	seen := make(map[types.HashBytea]struct{}, len(rawWasms))
-	for _, w := range rawWasms {
-		if _, dup := seen[w.Hash]; dup {
-			continue
-		}
-		seen[w.Hash] = struct{}{}
-		val, err := w.Hash.Value()
-		if err != nil {
-			log.Ctx(ctx).Debugf("contractsForWasmHashes: skipping invalid hash %q: %v", w.Hash, err)
-			continue
-		}
-		hashes = append(hashes, val.([]byte))
-	}
-	if len(hashes) == 0 {
-		return nil, nil
-	}
-	rows, err := s.db.Query(ctx,
-		`SELECT contract_id, wasm_hash, name, created_at FROM protocol_contracts WHERE wasm_hash = ANY($1::bytea[])`, hashes)
-	if err != nil {
-		return nil, fmt.Errorf("querying protocol_contracts: %w", err)
-	}
-	defer rows.Close()
-	var out []data.ProtocolContracts
-	for rows.Next() {
-		var c data.ProtocolContracts
-		if err := rows.Scan(&c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scanning protocol_contracts row: %w", err)
-		}
-		out = append(out, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating protocol_contracts rows: %w", err)
-	}
-	return out, nil
 }
 
 // bucketByProtocol groups matched wasm hashes by protocol id.
