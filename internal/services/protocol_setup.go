@@ -101,7 +101,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		return fmt.Errorf("setting classification status to in_progress: %w", err)
 	}
 
-	if err := s.classify(ctx, protocolIDs); err != nil {
+	if err := s.classify(ctx); err != nil {
 		// Use a fresh context for best-effort cleanup, since ctx may be cancelled.
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -155,7 +155,7 @@ func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, proto
 // own everything that happens during classification — signature checks plus
 // any side writes (e.g. SEP-41 contract_tokens metadata). The framework
 // only persists protocol_wasms.protocol_id from the matches.
-func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []string) error {
+func (s *protocolSetupService) classify(ctx context.Context) error {
 	unclassifiedWasms, err := s.models.ProtocolWasms.GetUnclassified(ctx)
 	if err != nil {
 		return fmt.Errorf("getting unclassified wasm hashes: %w", err)
@@ -208,7 +208,6 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	for pid, hashes := range byProtocol {
 		log.Ctx(ctx).Infof("Protocol %s: matched %d WASMs", pid, len(hashes))
 	}
-	_ = protocolIDs // protocolIDs is used by the caller-side status updates; classify itself runs across all registered validators.
 	return nil
 }
 
