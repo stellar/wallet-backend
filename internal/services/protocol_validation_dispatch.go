@@ -89,7 +89,6 @@ func DispatchClassification(
 			}
 			matches[hash] = v.ProtocolID()
 		}
-		annotated = updateAnnotations(annotated, matches)
 	}
 	return matches, nil
 }
@@ -123,20 +122,4 @@ func annotateContracts(contracts []data.ProtocolContracts, known map[types.HashB
 		})
 	}
 	return out
-}
-
-// updateAnnotations refreshes KnownProtocolID on the contract slice given the
-// matches accumulated so far this batch. New annotations only — never
-// overwrites an existing non-empty KnownProtocolID, since first-match-wins
-// already prevented re-classification of an earlier-stamped wasm.
-func updateAnnotations(contracts []ContractCandidate, matches map[types.HashBytea]string) []ContractCandidate {
-	for i := range contracts {
-		if contracts[i].KnownProtocolID != "" {
-			continue
-		}
-		if pid, ok := matches[contracts[i].WasmHash]; ok {
-			contracts[i].KnownProtocolID = pid
-		}
-	}
-	return contracts
 }
