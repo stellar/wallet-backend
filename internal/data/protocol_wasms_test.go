@@ -201,3 +201,68 @@ func TestProtocolWasmBatchUpdateProtocolID(t *testing.T) {
 		assert.Equal(t, protocolID, *protocolID3)
 	})
 }
+
+func TestProtocolWasmGetClassifiedByHashes(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM protocol_wasms`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM protocols`)
+		require.NoError(t, err)
+	}
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		cleanUpDB()
+
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		var result map[types.HashBytea]string
+		err := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			var rErr error
+			result, rErr = model.GetClassifiedByHashes(ctx, dbTx, nil)
+			return rErr
+		})
+		require.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns only classified, requested hashes", func(t *testing.T) {
+		cleanUpDB()
+
+		model := &ProtocolWasmsModel{DB: dbConnectionPool, Metrics: dbMetrics}
+		protocolID := "test-protocol"
+		classifiedHash := types.HashBytea("0100000000000000000000000000000000000000000000000000000000000000")
+		unclassifiedHash := types.HashBytea("0200000000000000000000000000000000000000000000000000000000000000")
+		unrequestedHash := types.HashBytea("0300000000000000000000000000000000000000000000000000000000000000")
+
+		_, err = dbConnectionPool.Exec(ctx, `INSERT INTO protocols (id) VALUES ($1)`, protocolID)
+		require.NoError(t, err)
+
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.BatchInsert(ctx, dbTx, []ProtocolWasms{
+				{WasmHash: classifiedHash, ProtocolID: &protocolID},
+				{WasmHash: unclassifiedHash, ProtocolID: nil},
+				{WasmHash: unrequestedHash, ProtocolID: &protocolID},
+			})
+		})
+		require.NoError(t, err)
+
+		var result map[types.HashBytea]string
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			var rErr error
+			result, rErr = model.GetClassifiedByHashes(ctx, dbTx, []types.HashBytea{classifiedHash, unclassifiedHash})
+			return rErr
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, map[types.HashBytea]string{classifiedHash: protocolID}, result)
+	})
+}

@@ -560,15 +560,24 @@ func (m *ingestService) runClassification(
 		thisBatch[h] = struct{}{}
 	}
 
-	known, err := ResolveKnownProtocols(ctx, dbTx, bufferedContracts, thisBatch)
+	// Resolve hashes classified in earlier ledgers, skipping this-ledger
+	// uploads (thisBatch) which the dispatcher classifies below.
+	knownHashes := make([]types.HashBytea, 0, len(bufferedContracts))
+	for _, c := range bufferedContracts {
+		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
+			continue
+		}
+		knownHashes = append(knownHashes, c.WasmHash)
+	}
+	known, err := m.models.ProtocolWasms.GetClassifiedByHashes(ctx, dbTx, knownHashes)
 	if err != nil {
 		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}
 
 	// protocolByWasm answers "what protocol owns this wasm hash?": previously
 	// committed classifications overlaid with this-ledger matches. The two key
-	// sets are disjoint (ResolveKnownProtocols excludes thisBatch), so the
-	// overlay never actually collides.
+	// sets are disjoint (knownHashes excludes thisBatch), so the overlay never
+	// actually collides.
 	protocolByWasm := make(map[types.HashBytea]string, len(known))
 	for hash, pid := range known {
 		protocolByWasm[hash] = pid

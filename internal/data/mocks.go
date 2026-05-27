@@ -252,6 +252,14 @@ func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]Protoco
 	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
+func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	args := m.Called(ctx, dbTx, hashes)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[types.HashBytea]string), args.Error(1)
+}
+
 func (m *ProtocolWasmsModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
 	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
 	return args.Error(0)
