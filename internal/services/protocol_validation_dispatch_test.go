@@ -56,123 +56,137 @@ func (r *recordingValidator) Validate(_ context.Context, _ pgx.Tx, input Validat
 	return out, nil
 }
 
-func TestDispatchClassification_FirstMatchWins(t *testing.T) {
+func TestDispatchClassification(t *testing.T) {
 	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	cA := newRecordingValidator("A", hash)
-	cB := newRecordingValidator("B", hash)
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+	t.Run("nil extractor returns error", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		c := newRecordingValidator("A")
 
-	matches, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{cA, cB},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil, nil,
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "A", matches[hash])
+		matches, err := DispatchClassification(
+			ctx, nil, nil,
+			[]ProtocolValidator{c},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil, nil,
+		)
+		require.Error(t, err)
+		assert.Nil(t, matches)
+		assert.Equal(t, 0, c.calls)
+	})
 
-	// B saw filtered candidates (none, since A claimed the only one).
-	assert.Equal(t, 1, cA.calls)
-	// B is not called when there are no remaining candidates AND no contracts.
-	assert.Equal(t, 0, cB.calls)
-}
+	t.Run("no candidates and no contracts returns nil", func(t *testing.T) {
+		c := newRecordingValidator("A")
+		extractor := NewWasmSpecExtractorMock(t)
 
-func TestDispatchClassification_NoMatchLeavesEmptyMap(t *testing.T) {
-	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	c := newRecordingValidator("A") // claims nothing
+		matches, err := DispatchClassification(ctx, nil, extractor, []ProtocolValidator{c}, nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, matches)
+		assert.Equal(t, 0, c.calls)
+	})
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+	t.Run("first match wins", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		cA := newRecordingValidator("A", hash)
+		cB := newRecordingValidator("B", hash)
 
-	matches, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{c},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil, nil,
-	)
-	require.NoError(t, err)
-	assert.Empty(t, matches)
-	assert.Equal(t, 1, c.calls)
-}
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
 
-func TestDispatchClassification_SpecExtractionFailureDropsCandidate(t *testing.T) {
-	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	c := newRecordingValidator("A")
+		matches, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{cA, cB},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil, nil,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "A", matches[hash])
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return(nil, errors.New("compile fail")).Once()
+		// B saw filtered candidates (none, since A claimed the only one).
+		assert.Equal(t, 1, cA.calls)
+		// B is not called when there are no remaining candidates AND no contracts.
+		assert.Equal(t, 0, cB.calls)
+	})
 
-	matches, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{c},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil, nil,
-	)
-	require.NoError(t, err)
-	assert.Empty(t, matches)
-	// A spec-less candidate cannot match any signature-based validator, so it is
-	// dropped from the candidate set and never reaches the validator. The caller
-	// persists the underlying wasm with protocol_id = NULL (absent from matches).
-	assert.Equal(t, 0, c.calls)
-}
+	t.Run("no match leaves empty map", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		c := newRecordingValidator("A") // claims nothing
 
-func TestDispatchClassification_ValidatorErrorAbortsDispatch(t *testing.T) {
-	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	cBoom := newRecordingValidator("A")
-	cBoom.err = errors.New("boom")
-	cOK := newRecordingValidator("B", hash)
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+		matches, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{c},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil, nil,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+		assert.Equal(t, 1, c.calls)
+	})
 
-	matches, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{cBoom, cOK},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil, nil,
-	)
-	require.Error(t, err)
-	assert.Nil(t, matches)
-	assert.Equal(t, 0, cOK.calls, "later validators must not run after one aborts")
-}
+	t.Run("spec extraction failure drops candidate", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		c := newRecordingValidator("A")
 
-func TestDispatchClassification_NoCandidatesNoContractsReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	c := newRecordingValidator("A")
-	extractor := NewWasmSpecExtractorMock(t)
-	matches, err := DispatchClassification(ctx, nil, extractor, []ProtocolValidator{c}, nil, nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	assert.Nil(t, matches)
-	assert.Equal(t, 0, c.calls)
-}
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return(nil, errors.New("compile fail")).Once()
 
-func TestDispatchClassification_KnownProtocolAnnotationReachesValidator(t *testing.T) {
-	ctx := context.Background()
-	wasmHash := types.HashBytea("ccdd")
-	contractID := types.HashBytea("11")
-	cA := newRecordingValidator("A")
-	extractor := NewWasmSpecExtractorMock(t)
+		matches, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{c},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil, nil,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+		// A spec-less candidate cannot match any signature-based validator, so it is
+		// dropped from the candidate set and never reaches the validator. The caller
+		// persists the underlying wasm with protocol_id = NULL (absent from matches).
+		assert.Equal(t, 0, c.calls)
+	})
 
-	matches, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{cA},
-		nil, // no in-batch candidates
-		[]data.ProtocolContracts{{ContractID: contractID, WasmHash: wasmHash}},
-		nil, nil,
-		map[types.HashBytea]string{wasmHash: "A"},
-		nil,
-	)
-	require.NoError(t, err)
-	assert.Empty(t, matches)
-	require.Equal(t, 1, cA.calls)
-	require.Len(t, cA.lastInput.Contracts, 1)
-	assert.Equal(t, "A", cA.lastInput.Contracts[0].KnownProtocolID)
+	t.Run("validator error aborts dispatch", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		cBoom := newRecordingValidator("A")
+		cBoom.err = errors.New("boom")
+		cOK := newRecordingValidator("B", hash)
+
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+
+		matches, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{cBoom, cOK},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil, nil,
+		)
+		require.Error(t, err)
+		assert.Nil(t, matches)
+		assert.Equal(t, 0, cOK.calls, "later validators must not run after one aborts")
+	})
+
+	t.Run("known protocol annotation reaches validator", func(t *testing.T) {
+		wasmHash := types.HashBytea("ccdd")
+		contractID := types.HashBytea("11")
+		cA := newRecordingValidator("A")
+		extractor := NewWasmSpecExtractorMock(t)
+
+		matches, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{cA},
+			nil, // no in-batch candidates
+			[]data.ProtocolContracts{{ContractID: contractID, WasmHash: wasmHash}},
+			nil, nil,
+			map[types.HashBytea]string{wasmHash: "A"},
+			nil,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+		require.Equal(t, 1, cA.calls)
+		require.Len(t, cA.lastInput.Contracts, 1)
+		assert.Equal(t, "A", cA.lastInput.Contracts[0].KnownProtocolID)
+	})
 }
 
 func newFailureCounterForTest() *prometheus.CounterVec {
@@ -182,47 +196,49 @@ func newFailureCounterForTest() *prometheus.CounterVec {
 	)
 }
 
-func TestDispatchClassification_SpecExtractionFailureIncrementsCounter(t *testing.T) {
+func TestDispatchClassification_FailureCounter(t *testing.T) {
 	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	c := newRecordingValidator("A")
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return(nil, errors.New("compile fail")).Once()
+	t.Run("spec extraction failure increments counter", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		c := newRecordingValidator("A")
 
-	counter := newFailureCounterForTest()
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return(nil, errors.New("compile fail")).Once()
 
-	_, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{c},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil,
-		counter,
-	)
-	require.NoError(t, err)
-	assert.Equal(t, 1.0, testutil.ToFloat64(counter.WithLabelValues("unknown", "spec_extraction_error")))
-	assert.Equal(t, 0.0, testutil.ToFloat64(counter.WithLabelValues("A", "validate_error")))
-}
+		counter := newFailureCounterForTest()
 
-func TestDispatchClassification_ValidatorErrorIncrementsCounter(t *testing.T) {
-	ctx := context.Background()
-	hash := types.HashBytea("aabb")
-	cBoom := newRecordingValidator("sep41")
-	cBoom.err = errors.New("boom")
+		_, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{c},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil,
+			counter,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1.0, testutil.ToFloat64(counter.WithLabelValues("unknown", "spec_extraction_error")))
+		assert.Equal(t, 0.0, testutil.ToFloat64(counter.WithLabelValues("A", "validate_error")))
+	})
 
-	extractor := NewWasmSpecExtractorMock(t)
-	extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+	t.Run("validator error increments counter", func(t *testing.T) {
+		hash := types.HashBytea("aabb")
+		cBoom := newRecordingValidator("sep41")
+		cBoom.err = errors.New("boom")
 
-	counter := newFailureCounterForTest()
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
 
-	_, err := DispatchClassification(
-		ctx, nil, extractor,
-		[]ProtocolValidator{cBoom},
-		map[types.HashBytea][]byte{hash: {1, 2, 3}},
-		nil, nil, nil, nil,
-		counter,
-	)
-	require.Error(t, err)
-	assert.Equal(t, 1.0, testutil.ToFloat64(counter.WithLabelValues("sep41", "validate_error")))
-	assert.Equal(t, 0.0, testutil.ToFloat64(counter.WithLabelValues("unknown", "spec_extraction_error")))
+		counter := newFailureCounterForTest()
+
+		_, err := DispatchClassification(
+			ctx, nil, extractor,
+			[]ProtocolValidator{cBoom},
+			map[types.HashBytea][]byte{hash: {1, 2, 3}},
+			nil, nil, nil, nil,
+			counter,
+		)
+		require.Error(t, err)
+		assert.Equal(t, 1.0, testutil.ToFloat64(counter.WithLabelValues("sep41", "validate_error")))
+		assert.Equal(t, 0.0, testutil.ToFloat64(counter.WithLabelValues("unknown", "spec_extraction_error")))
+	})
 }
