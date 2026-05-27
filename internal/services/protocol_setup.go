@@ -154,7 +154,7 @@ func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, proto
 // bytecodes via RPC, and hands the batch to the dispatcher. The validators
 // own everything that happens during classification — signature checks plus
 // any side writes (e.g. SEP-41 contract_tokens metadata). The framework
-// only persists protocol_wasms.protocol_id from the returned matches.
+// only persists protocol_wasms.protocol_id from the matches.
 func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []string) error {
 	unclassifiedWasms, err := s.models.ProtocolWasms.GetUnclassified(ctx)
 	if err != nil {
@@ -200,29 +200,28 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	// Run dispatcher and persist matches inside one tx so a validator's side
 	// effects (e.g. contract_tokens metadata writes) commit atomically with
 	// the protocol_wasms.protocol_id stamp.
-	matches, err := s.dispatchAndPersist(ctx, rawWasms, contracts)
+	byProtocol, err := s.dispatchAndPersist(ctx, rawWasms, contracts)
 	if err != nil {
 		return fmt.Errorf("dispatching classification: %w", err)
 	}
 
-	for protocolID := range bucketByProtocol(matches) {
-		log.Ctx(ctx).Infof("Protocol %s: matched %d WASMs", protocolID, len(bucketByProtocol(matches)[protocolID]))
+	for pid, hashes := range byProtocol {
+		log.Ctx(ctx).Infof("Protocol %s: matched %d WASMs", pid, len(hashes))
 	}
 	_ = protocolIDs // protocolIDs is used by the caller-side status updates; classify itself runs across all registered validators.
 	return nil
 }
 
 // dispatchAndPersist runs DispatchClassification inside a single tx and
-// updates protocol_wasms.protocol_id from the returned matches. Per-protocol
-// contract_tokens writes happen inside this same tx via validator side
-// effects.
-func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms []RawWasm, contracts []data.ProtocolContracts) (map[types.HashBytea]string, error) {
-	var matches map[types.HashBytea]string
+// updates protocol_wasms.protocol_id from the matches, returning them grouped
+// per protocol. Per-protocol contract_tokens writes happen inside this same tx
+// via validator side effects.
+func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms []RawWasm, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
+	var byProtocol map[string][]types.HashBytea
 	err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		// All candidates here are unclassified, so KnownProtocolID is empty.
 		var knownByHash map[types.HashBytea]string
-		var dispatchErr error
-		matches, dispatchErr = DispatchClassification(
+		matches, dispatchErr := DispatchClassification(
 			ctx, dbTx, s.specExtractor, s.validators,
 			rawWasms, contracts, s.rpcService, s.models, knownByHash,
 			s.wasmClassificationFailuresTotal,
@@ -230,7 +229,8 @@ func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms 
 		if dispatchErr != nil {
 			return fmt.Errorf("dispatching: %w", dispatchErr)
 		}
-		for protocolID, hashes := range bucketByProtocol(matches) {
+		byProtocol = bucketByProtocol(matches)
+		for protocolID, hashes := range byProtocol {
 			if err := s.models.ProtocolWasms.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
 				return fmt.Errorf("updating protocol_id for %s: %w", protocolID, err)
 			}
@@ -240,7 +240,7 @@ func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms 
 	if err != nil {
 		return nil, fmt.Errorf("running protocol classification transaction: %w", err)
 	}
-	return matches, nil
+	return byProtocol, nil
 }
 
 // bucketByProtocol groups matched wasm hashes by protocol id.
