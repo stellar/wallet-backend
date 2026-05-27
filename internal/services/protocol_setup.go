@@ -84,15 +84,6 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 	if err := s.validateProtocolsExist(ctx, protocolIDs); err != nil {
 		return fmt.Errorf("validating protocols exist: %w", err)
 	}
-	validatorIDs := map[string]struct{}{}
-	for _, c := range s.validators {
-		validatorIDs[c.ProtocolID()] = struct{}{}
-	}
-	for _, pid := range protocolIDs {
-		if _, ok := validatorIDs[pid]; !ok {
-			return fmt.Errorf("no validator provided for protocol %q", pid)
-		}
-	}
 
 	// Set classification_status to in_progress.
 	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {

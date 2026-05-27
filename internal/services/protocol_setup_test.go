@@ -129,24 +129,6 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		assert.Contains(t, err.Error(), "no protocol validators provided")
 	})
 
-	t.Run("returns error for unmatched protocol ID", func(t *testing.T) {
-		protocolModelMock := data.NewProtocolsModelMock(t)
-		protocolModelMock.On("GetByIDs", ctx, []string{"NONEXISTENT"}).Return([]data.Protocols{{ID: "NONEXISTENT"}}, nil)
-		specExtractor := NewWasmSpecExtractorMock(t)
-		specExtractor.On("Close", ctx).Return(nil)
-		svcModels := *models
-		svcModels.Protocols = protocolModelMock
-		svc := &protocolSetupService{
-			db:            dbConnectionPool,
-			models:        &svcModels,
-			specExtractor: specExtractor,
-			validators:    []ProtocolValidator{newStubValidator()},
-		}
-		err := svc.Run(ctx, []string{"NONEXISTENT"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no validator provided for protocol")
-	})
-
 	t.Run("RPC error transitions status to failed", func(t *testing.T) {
 		rpcMock := NewRPCServiceMock(t)
 		protocolModelMock := data.NewProtocolsModelMock(t)
