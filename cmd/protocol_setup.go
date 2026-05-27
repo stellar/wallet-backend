@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -79,7 +82,8 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 }
 
 func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, protocolIDs []string) error {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Open DB connection
 	dbPool, err := db.OpenDBConnectionPool(ctx, databaseURL)
@@ -133,14 +137,10 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		return fmt.Errorf("building validators: %w", err)
 	}
 
-	// Create spec extractor — owned by the service, closed via service.Run.
-	specExtractor := services.NewWasmSpecExtractor()
-
 	service := services.NewProtocolSetupService(
 		dbPool,
 		rpcService,
 		models,
-		specExtractor,
 		validators,
 		m.Ingestion.WasmClassificationFailuresTotal,
 	)

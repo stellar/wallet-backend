@@ -85,8 +85,9 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 	}
 
 	if err := s.classify(ctx); err != nil {
-		// Use a fresh context for best-effort cleanup, since ctx may be cancelled.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// On shutdown ctx is cancelled; detach (keeping ctx values) so the
+		// failed-status write still lands and the status reaches a terminal state.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if txErr := db.RunInTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
 			return s.models.Protocols.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
