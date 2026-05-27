@@ -99,7 +99,7 @@ func TestDispatchClassification_NoMatchLeavesEmptyMap(t *testing.T) {
 	assert.Equal(t, 1, c.calls)
 }
 
-func TestDispatchClassification_SpecExtractionFailureKeepsRow(t *testing.T) {
+func TestDispatchClassification_SpecExtractionFailureDropsCandidate(t *testing.T) {
 	ctx := context.Background()
 	hash := types.HashBytea("aabb")
 	c := newRecordingValidator("A")
@@ -115,9 +115,10 @@ func TestDispatchClassification_SpecExtractionFailureKeepsRow(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Empty(t, matches)
-	// Candidate is still passed to the validator (with empty SpecEntries) so it
-	// can decide; the SEP-41 validator short-circuits on len(SpecEntries)==0.
-	assert.Equal(t, 1, c.calls)
+	// A spec-less candidate cannot match any signature-based validator, so it is
+	// dropped from the candidate set and never reaches the validator. The caller
+	// persists the underlying wasm with protocol_id = NULL (absent from matches).
+	assert.Equal(t, 0, c.calls)
 }
 
 func TestDispatchClassification_ValidatorErrorAbortsDispatch(t *testing.T) {
@@ -144,7 +145,8 @@ func TestDispatchClassification_ValidatorErrorAbortsDispatch(t *testing.T) {
 func TestDispatchClassification_NoCandidatesNoContractsReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	c := newRecordingValidator("A")
-	matches, err := DispatchClassification(ctx, nil, nil, []ProtocolValidator{c}, nil, nil, nil, nil, nil, nil)
+	extractor := NewWasmSpecExtractorMock(t)
+	matches, err := DispatchClassification(ctx, nil, extractor, []ProtocolValidator{c}, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, matches)
 	assert.Equal(t, 0, c.calls)
@@ -155,9 +157,10 @@ func TestDispatchClassification_KnownProtocolAnnotationReachesValidator(t *testi
 	wasmHash := types.HashBytea("ccdd")
 	contractID := types.HashBytea("11")
 	cA := newRecordingValidator("A")
+	extractor := NewWasmSpecExtractorMock(t)
 
 	matches, err := DispatchClassification(
-		ctx, nil, nil,
+		ctx, nil, extractor,
 		[]ProtocolValidator{cA},
 		nil, // no in-batch candidates
 		[]data.ProtocolContracts{{ContractID: contractID, WasmHash: wasmHash}},

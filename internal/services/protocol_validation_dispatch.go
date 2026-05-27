@@ -19,8 +19,10 @@ import (
 //
 // Spec extraction is performed once per candidate WASM. A candidate whose
 // spec cannot be extracted (e.g. a hostile blob that fails wazero validation)
-// is logged and skipped — it is still included in the returned set with no
-// match so the caller can persist it with protocol_id = NULL.
+// is logged, counted, and dropped from the candidate set — no signature-based
+// validator can act on a spec-less candidate. The caller still persists the
+// underlying wasm with protocol_id = NULL because it is absent from the
+// returned matches.
 //
 // A validator that returns an error (or panics) aborts classification for the
 // entire batch: the error propagates to the caller so its surrounding
@@ -40,23 +42,21 @@ func DispatchClassification(
 	knownByHash map[types.HashBytea]string,
 	failureCounter *prometheus.CounterVec,
 ) (map[types.HashBytea]string, error) {
+	if extractor == nil {
+		return nil, fmt.Errorf("dispatch: spec extractor required")
+	}
 	if len(bytecodesByHash) == 0 && len(contracts) == 0 {
 		return nil, nil
 	}
 
 	candidates := make([]WasmCandidate, 0, len(bytecodesByHash))
 	for hash, bytecode := range bytecodesByHash {
-		if extractor == nil {
-			candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode})
-			continue
-		}
 		specs, err := extractor.ExtractSpec(ctx, bytecode)
 		if err != nil {
 			log.Ctx(ctx).Warnf("validation dispatch: spec extraction failed for wasm %s: %v", hash, err)
 			if failureCounter != nil {
 				failureCounter.WithLabelValues("unknown", "spec_extraction_error").Inc()
 			}
-			candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode})
 			continue
 		}
 		candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode, SpecEntries: specs})
