@@ -19,13 +19,9 @@ import (
 
 const rpcLedgerEntryBatchSize = 200
 
-// ProtocolSetupService classifies existing contracts on the Stellar network
+// protocolSetupService classifies existing contracts on the Stellar network
 // by handing batches of unclassified WASMs to each protocol's
 // ProtocolValidator black box.
-type ProtocolSetupService interface {
-	Run(ctx context.Context, protocolIDs []string) error
-}
-
 type protocolSetupService struct {
 	db                              *pgxpool.Pool
 	rpcService                      RPCService
