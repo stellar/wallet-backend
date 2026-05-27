@@ -46,7 +46,6 @@ func NewProtocolSetupService(
 	dbPool *pgxpool.Pool,
 	rpcService RPCService,
 	models *data.Models,
-	specExtractor WasmSpecExtractor,
 	validators []ProtocolValidator,
 	wasmClassificationFailuresTotal *prometheus.CounterVec,
 ) *protocolSetupService {
@@ -54,7 +53,7 @@ func NewProtocolSetupService(
 		db:                              dbPool,
 		rpcService:                      rpcService,
 		models:                          models,
-		specExtractor:                   specExtractor,
+		specExtractor:                   NewWasmSpecExtractor(),
 		validators:                      validators,
 		wasmClassificationFailuresTotal: wasmClassificationFailuresTotal,
 	}
@@ -66,14 +65,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		return fmt.Errorf("no protocol validators provided")
 	}
 
-	if s.specExtractor == nil {
-		return fmt.Errorf("no spec extractor provided")
-	}
-
 	defer func() {
-		if s.specExtractor == nil {
-			return
-		}
 		if err := s.specExtractor.Close(ctx); err != nil {
 			log.Ctx(ctx).Errorf("error closing spec extractor: %v", err)
 		}

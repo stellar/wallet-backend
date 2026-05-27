@@ -100,8 +100,6 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 	})
 	s.Require().NoError(err)
 
-	specExtractor := services.NewWasmSpecExtractor()
-
 	metadataPool := pond.NewPool(0)
 	defer metadataPool.StopAndWait()
 	metadataService, mErr := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
@@ -120,7 +118,6 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 		pool,
 		s.testEnv.RPCService,
 		models,
-		specExtractor,
 		validators,
 		nil,
 	)
