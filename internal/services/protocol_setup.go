@@ -157,20 +157,16 @@ func (s *protocolSetupService) classify(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("Fetched %d WASM bytecodes from RPC (out of %d requested)", len(wasmBytecodes), len(hexHashes))
 
-	rawWasms := make([]RawWasm, 0, len(wasmBytecodes))
+	bytecodesByHash := make(map[types.HashBytea][]byte, len(wasmBytecodes))
 	for hexHash, bytecode := range wasmBytecodes {
-		rawWasms = append(rawWasms, RawWasm{
-			Hash:     types.HashBytea(hexHash),
-			Bytecode: bytecode,
-		})
+		bytecodesByHash[types.HashBytea(hexHash)] = bytecode
 	}
 
 	// Pull protocol_contracts referencing these unclassified wasm hashes so
-	// validators can enrich them inside the same dbTx. rawWasms hashes are
-	// unique by construction (built from a map keyed by hash).
-	wasmHashes := make([]types.HashBytea, len(rawWasms))
-	for i, w := range rawWasms {
-		wasmHashes[i] = w.Hash
+	// validators can enrich them inside the same dbTx.
+	wasmHashes := make([]types.HashBytea, 0, len(bytecodesByHash))
+	for hash := range bytecodesByHash {
+		wasmHashes = append(wasmHashes, hash)
 	}
 	contracts, err := s.models.ProtocolContracts.GetByWasmHashes(ctx, wasmHashes)
 	if err != nil {
@@ -180,7 +176,7 @@ func (s *protocolSetupService) classify(ctx context.Context) error {
 	// Run dispatcher and persist matches inside one tx so a validator's side
 	// effects (e.g. contract_tokens metadata writes) commit atomically with
 	// the protocol_wasms.protocol_id stamp.
-	byProtocol, err := s.dispatchAndPersist(ctx, rawWasms, contracts)
+	byProtocol, err := s.dispatchAndPersist(ctx, bytecodesByHash, contracts)
 	if err != nil {
 		return fmt.Errorf("dispatching classification: %w", err)
 	}
@@ -195,14 +191,14 @@ func (s *protocolSetupService) classify(ctx context.Context) error {
 // updates protocol_wasms.protocol_id from the matches, returning them grouped
 // per protocol. Per-protocol contract_tokens writes happen inside this same tx
 // via validator side effects.
-func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms []RawWasm, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
+func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, bytecodesByHash map[types.HashBytea][]byte, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
 	var byProtocol map[string][]types.HashBytea
 	err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 		// All candidates here are unclassified, so KnownProtocolID is empty.
 		var knownByHash map[types.HashBytea]string
 		matches, dispatchErr := DispatchClassification(
 			ctx, dbTx, s.specExtractor, s.validators,
-			rawWasms, contracts, s.rpcService, s.models, knownByHash,
+			bytecodesByHash, contracts, s.rpcService, s.models, knownByHash,
 			s.wasmClassificationFailuresTotal,
 		)
 		if dispatchErr != nil {

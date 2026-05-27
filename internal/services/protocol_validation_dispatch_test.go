@@ -68,7 +68,7 @@ func TestDispatchClassification_FirstMatchWins(t *testing.T) {
 	matches, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{cA, cB},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestDispatchClassification_NoMatchLeavesEmptyMap(t *testing.T) {
 	matches, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{c},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestDispatchClassification_SpecExtractionFailureKeepsRow(t *testing.T) {
 	matches, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{c},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestDispatchClassification_ValidatorErrorIsLoggedNotPropagated(t *testing.T
 	matches, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{cBoom, cOK},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestDispatchClassification_SpecExtractionFailureIncrementsCounter(t *testin
 	_, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{c},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil,
 		counter,
 	)
@@ -214,7 +214,7 @@ func TestDispatchClassification_ValidatorErrorIncrementsCounter(t *testing.T) {
 	_, err := DispatchClassification(
 		ctx, nil, extractor,
 		[]ProtocolValidator{cBoom},
-		[]RawWasm{{Hash: hash, Bytecode: []byte{1, 2, 3}}},
+		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil,
 		counter,
 	)

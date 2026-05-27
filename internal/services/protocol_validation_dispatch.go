@@ -13,15 +13,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// RawWasm is the input the dispatcher needs to assemble a WasmCandidate. It
-// keeps the on-the-wire bytecode that the caller already has in hand (live
-// ingest from the ledger meta, protocol-setup from the RPC fetch) without
-// forcing the caller to think about wazero.
-type RawWasm struct {
-	Hash     types.HashBytea
-	Bytecode []byte
-}
-
 // DispatchClassification runs each validator against the supplied batch in
 // the supplied order, enforcing first-match-wins. The caller is responsible
 // for persisting protocol_wasms / protocol_contracts based on the returned
@@ -42,33 +33,33 @@ func DispatchClassification(
 	dbTx pgx.Tx,
 	extractor WasmSpecExtractor,
 	validators []ProtocolValidator,
-	rawWasms []RawWasm,
+	bytecodesByHash map[types.HashBytea][]byte,
 	contracts []data.ProtocolContracts,
 	rpc RPCService,
 	models *data.Models,
 	knownByHash map[types.HashBytea]string,
 	failureCounter *prometheus.CounterVec,
 ) (map[types.HashBytea]string, error) {
-	if len(rawWasms) == 0 && len(contracts) == 0 {
+	if len(bytecodesByHash) == 0 && len(contracts) == 0 {
 		return nil, nil
 	}
 
-	candidates := make([]WasmCandidate, 0, len(rawWasms))
-	for _, w := range rawWasms {
+	candidates := make([]WasmCandidate, 0, len(bytecodesByHash))
+	for hash, bytecode := range bytecodesByHash {
 		if extractor == nil {
-			candidates = append(candidates, WasmCandidate{Hash: w.Hash, Bytecode: w.Bytecode})
+			candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode})
 			continue
 		}
-		specs, err := extractor.ExtractSpec(ctx, w.Bytecode)
+		specs, err := extractor.ExtractSpec(ctx, bytecode)
 		if err != nil {
-			log.Ctx(ctx).Warnf("validation dispatch: spec extraction failed for wasm %s: %v", w.Hash, err)
+			log.Ctx(ctx).Warnf("validation dispatch: spec extraction failed for wasm %s: %v", hash, err)
 			if failureCounter != nil {
 				failureCounter.WithLabelValues("unknown", "spec_extraction_error").Inc()
 			}
-			candidates = append(candidates, WasmCandidate{Hash: w.Hash, Bytecode: w.Bytecode})
+			candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode})
 			continue
 		}
-		candidates = append(candidates, WasmCandidate{Hash: w.Hash, Bytecode: w.Bytecode, SpecEntries: specs})
+		candidates = append(candidates, WasmCandidate{Hash: hash, Bytecode: bytecode, SpecEntries: specs})
 	}
 
 	annotated := annotateContracts(contracts, knownByHash)

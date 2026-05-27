@@ -552,15 +552,12 @@ func (m *ingestService) runClassification(
 		return nil, nil
 	}
 
-	rawWasms := make([]RawWasm, 0, len(bufferedWasms))
+	bytecodesByHash := make(map[types.HashBytea][]byte, len(bufferedWasms))
 	thisBatch := make(map[types.HashBytea]struct{}, len(bufferedWasms))
 	for hash := range bufferedWasms {
-		bytecode := bufferedBytecodes[hash]
-		rawWasms = append(rawWasms, RawWasm{
-			Hash:     types.HashBytea(hash),
-			Bytecode: bytecode,
-		})
-		thisBatch[types.HashBytea(hash)] = struct{}{}
+		h := types.HashBytea(hash)
+		bytecodesByHash[h] = bufferedBytecodes[hash]
+		thisBatch[h] = struct{}{}
 	}
 
 	known, err := ResolveKnownProtocols(ctx, dbTx, bufferedContracts, thisBatch)
@@ -582,7 +579,7 @@ func (m *ingestService) runClassification(
 
 	matches, err := DispatchClassification(
 		ctx, dbTx, m.wasmSpecExtractor, m.protocolValidators,
-		rawWasms, bufferedContracts, m.rpcService, m.models, known,
+		bytecodesByHash, bufferedContracts, m.rpcService, m.models, known,
 		m.appMetrics.Ingestion.WasmClassificationFailuresTotal,
 	)
 	if err != nil {
