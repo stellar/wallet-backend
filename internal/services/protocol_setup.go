@@ -30,9 +30,6 @@ type protocolSetupService struct {
 	db                              *pgxpool.Pool
 	rpcService                      RPCService
 	models                          *data.Models
-	protocolModel                   data.ProtocolsModelInterface
-	protocolWasmModel               data.ProtocolWasmsModelInterface
-	protocolContractsModel          data.ProtocolContractsModelInterface
 	specExtractor                   WasmSpecExtractor
 	validators                      []ProtocolValidator
 	wasmClassificationFailuresTotal *prometheus.CounterVec
@@ -57,9 +54,6 @@ func NewProtocolSetupService(
 		db:                              dbPool,
 		rpcService:                      rpcService,
 		models:                          models,
-		protocolModel:                   models.Protocols,
-		protocolWasmModel:               models.ProtocolWasms,
-		protocolContractsModel:          models.ProtocolContracts,
 		specExtractor:                   specExtractor,
 		validators:                      validators,
 		wasmClassificationFailuresTotal: wasmClassificationFailuresTotal,
@@ -102,7 +96,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 
 	// Set classification_status to in_progress.
 	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		return s.protocolModel.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusInProgress)
+		return s.models.Protocols.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusInProgress)
 	}); err != nil {
 		return fmt.Errorf("setting classification status to in_progress: %w", err)
 	}
@@ -112,7 +106,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if txErr := db.RunInTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
-			return s.protocolModel.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
+			return s.models.Protocols.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
 		}); txErr != nil {
 			log.Ctx(ctx).Errorf("error setting classification status to failed: %v", txErr)
 		}
@@ -120,7 +114,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 	}
 
 	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		return s.protocolModel.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusSuccess)
+		return s.models.Protocols.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusSuccess)
 	}); err != nil {
 		return fmt.Errorf("setting classification status to success: %w", err)
 	}
@@ -132,7 +126,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 // validateProtocolsExist checks that all requested protocol IDs exist in the DB.
 // Protocols are registered via SQL migration files in internal/db/migrations/protocols/.
 func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, protocolIDs []string) error {
-	found, err := s.protocolModel.GetByIDs(ctx, protocolIDs)
+	found, err := s.models.Protocols.GetByIDs(ctx, protocolIDs)
 	if err != nil {
 		return fmt.Errorf("querying protocols: %w", err)
 	}
@@ -162,7 +156,7 @@ func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, proto
 // any side writes (e.g. SEP-41 contract_tokens metadata). The framework
 // only persists protocol_wasms.protocol_id from the returned matches.
 func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []string) error {
-	unclassifiedWasms, err := s.protocolWasmModel.GetUnclassified(ctx)
+	unclassifiedWasms, err := s.models.ProtocolWasms.GetUnclassified(ctx)
 	if err != nil {
 		return fmt.Errorf("getting unclassified wasm hashes: %w", err)
 	}
@@ -232,7 +226,7 @@ func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, rawWasms 
 			return fmt.Errorf("dispatching: %w", dispatchErr)
 		}
 		for protocolID, hashes := range bucketByProtocol(matches) {
-			if err := s.protocolWasmModel.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
+			if err := s.models.ProtocolWasms.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
 				return fmt.Errorf("updating protocol_id for %s: %w", protocolID, err)
 			}
 		}

@@ -110,14 +110,11 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		svcModels.ProtocolWasms = protocolWasmModelMock
 		svcModels.ProtocolContracts = data.NewProtocolContractsModelMock(t)
 		svc := &protocolSetupService{
-			db:                     dbConnectionPool,
-			rpcService:             rpcMock,
-			models:                 &svcModels,
-			protocolModel:          protocolModelMock,
-			protocolWasmModel:      protocolWasmModelMock,
-			protocolContractsModel: svcModels.ProtocolContracts,
-			specExtractor:          specExtractor,
-			validators:             []ProtocolValidator{newStubValidator(types.HashBytea(testWasmHex))},
+			db:            dbConnectionPool,
+			rpcService:    rpcMock,
+			models:        &svcModels,
+			specExtractor: specExtractor,
+			validators:    []ProtocolValidator{newStubValidator(types.HashBytea(testWasmHex))},
 		}
 
 		require.NoError(t, svc.Run(ctx, []string{testProtocolID}))
@@ -135,9 +132,11 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		protocolModelMock.On("GetByIDs", ctx, []string{"NONEXISTENT"}).Return([]data.Protocols{{ID: "NONEXISTENT"}}, nil)
 		specExtractor := NewWasmSpecExtractorMock(t)
 		specExtractor.On("Close", ctx).Return(nil)
+		svcModels := *models
+		svcModels.Protocols = protocolModelMock
 		svc := &protocolSetupService{
 			db:            dbConnectionPool,
-			protocolModel: protocolModelMock,
+			models:        &svcModels,
 			specExtractor: specExtractor,
 			validators:    []ProtocolValidator{newStubValidator()},
 		}
@@ -164,14 +163,11 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		svcModels.ProtocolWasms = protocolWasmModelMock
 		svcModels.ProtocolContracts = data.NewProtocolContractsModelMock(t)
 		svc := &protocolSetupService{
-			db:                     dbConnectionPool,
-			rpcService:             rpcMock,
-			models:                 &svcModels,
-			protocolModel:          protocolModelMock,
-			protocolWasmModel:      protocolWasmModelMock,
-			protocolContractsModel: svcModels.ProtocolContracts,
-			specExtractor:          specExtractor,
-			validators:             []ProtocolValidator{newStubValidator()},
+			db:            dbConnectionPool,
+			rpcService:    rpcMock,
+			models:        &svcModels,
+			specExtractor: specExtractor,
+			validators:    []ProtocolValidator{newStubValidator()},
 		}
 
 		err := svc.Run(ctx, []string{testProtocolID})
@@ -194,12 +190,10 @@ func TestProtocolSetupService_Run(t *testing.T) {
 		svcModels.Protocols = protocolModelMock
 		svcModels.ProtocolWasms = protocolWasmModelMock
 		svc := &protocolSetupService{
-			db:                dbConnectionPool,
-			models:            &svcModels,
-			protocolModel:     protocolModelMock,
-			protocolWasmModel: protocolWasmModelMock,
-			specExtractor:     specExtractor,
-			validators:        []ProtocolValidator{newStubValidator()},
+			db:            dbConnectionPool,
+			models:        &svcModels,
+			specExtractor: specExtractor,
+			validators:    []ProtocolValidator{newStubValidator()},
 		}
 
 		require.NoError(t, svc.Run(ctx, []string{testProtocolID}))
