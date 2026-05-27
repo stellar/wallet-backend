@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,11 +22,12 @@ import (
 // is logged and skipped — it is still included in the returned set with no
 // match so the caller can persist it with protocol_id = NULL.
 //
-// Each call to Validate is wrapped in a panic recovery so a buggy validator
-// cannot bring down the entire ingest path. Errors from Validate are logged
-// and treated as a no-match for that protocol — classification is
-// best-effort across protocols, and the framework's invariant is "matches I
-// see are sound" rather than "I always see all possible matches."
+// A validator that returns an error (or panics) aborts classification for the
+// entire batch: the error propagates to the caller so its surrounding
+// RunInTransaction rolls back. Validators may write to the shared dbTx during
+// Validate (e.g. contract_tokens enrichment), so a failure cannot be treated
+// as a best-effort no-match — that would commit the failed validator's partial
+// writes. Any failure must roll back the whole transaction.
 func DispatchClassification(
 	ctx context.Context,
 	dbTx pgx.Tx,
@@ -76,13 +76,12 @@ func DispatchClassification(
 			RPC:        rpc,
 			Models:     models,
 		}
-		result, err := safeValidate(ctx, v, dbTx, input)
+		result, err := v.Validate(ctx, dbTx, input)
 		if err != nil {
-			log.Ctx(ctx).Warnf("validation dispatch: protocol %s Validate returned error, treating as no-match: %v", v.ProtocolID(), err)
 			if failureCounter != nil {
 				failureCounter.WithLabelValues(v.ProtocolID(), "validate_error").Inc()
 			}
-			continue
+			return nil, fmt.Errorf("validator %s: %w", v.ProtocolID(), err)
 		}
 		for _, hash := range result.MatchedWasms {
 			if _, alreadyClaimed := matches[hash]; alreadyClaimed {
@@ -93,21 +92,6 @@ func DispatchClassification(
 		annotated = updateAnnotations(annotated, matches)
 	}
 	return matches, nil
-}
-
-// safeValidate wraps a Validate call so a panic in a validator does not bring
-// down the dispatch loop.
-func safeValidate(ctx context.Context, v ProtocolValidator, dbTx pgx.Tx, input ValidationInput) (result ValidationResult, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in %s Validate: %v\n%s", v.ProtocolID(), r, debug.Stack())
-		}
-	}()
-	result, validateErr := v.Validate(ctx, dbTx, input)
-	if validateErr != nil {
-		return result, fmt.Errorf("validator %s: %w", v.ProtocolID(), validateErr)
-	}
-	return result, nil
 }
 
 // filterCandidates returns the subset of candidates whose hash is not yet

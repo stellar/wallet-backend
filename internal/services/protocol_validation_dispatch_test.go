@@ -120,7 +120,7 @@ func TestDispatchClassification_SpecExtractionFailureKeepsRow(t *testing.T) {
 	assert.Equal(t, 1, c.calls)
 }
 
-func TestDispatchClassification_ValidatorErrorIsLoggedNotPropagated(t *testing.T) {
+func TestDispatchClassification_ValidatorErrorAbortsDispatch(t *testing.T) {
 	ctx := context.Background()
 	hash := types.HashBytea("aabb")
 	cBoom := newRecordingValidator("A")
@@ -136,8 +136,9 @@ func TestDispatchClassification_ValidatorErrorIsLoggedNotPropagated(t *testing.T
 		map[types.HashBytea][]byte{hash: {1, 2, 3}},
 		nil, nil, nil, nil, nil,
 	)
-	require.NoError(t, err)
-	assert.Equal(t, "B", matches[hash])
+	require.Error(t, err)
+	assert.Nil(t, matches)
+	assert.Equal(t, 0, cOK.calls, "later validators must not run after one aborts")
 }
 
 func TestDispatchClassification_NoCandidatesNoContractsReturnsNil(t *testing.T) {
@@ -218,7 +219,7 @@ func TestDispatchClassification_ValidatorErrorIncrementsCounter(t *testing.T) {
 		nil, nil, nil, nil,
 		counter,
 	)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, 1.0, testutil.ToFloat64(counter.WithLabelValues("sep41", "validate_error")))
 	assert.Equal(t, 0.0, testutil.ToFloat64(counter.WithLabelValues("unknown", "spec_extraction_error")))
 }
