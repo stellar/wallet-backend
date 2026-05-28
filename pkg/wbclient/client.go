@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
+
+// ErrAccountNotFound is returned by account-scoped queries when the
+// GraphQL server reports the account does not exist (accountByAddress
+// returned null). Distinct from schema/pagination failures so callers
+// can classify it as an address-scoped error rather than a systemic
+// upstream failure. Use errors.Is(err, wbclient.ErrAccountNotFound).
+var ErrAccountNotFound = errors.New("account not found")
 
 type GraphQLRequest struct {
 	Query     string                 `json:"query"`
@@ -55,19 +63,19 @@ type StateChangesData struct {
 }
 
 type AccountTransactionsData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		Transactions *types.TransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
 }
 
 type AccountOperationsData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		Operations *types.OperationConnection `json:"operations"`
 	} `json:"accountByAddress"`
 }
 
 type AccountStateChangesData struct {
-	AccountByAddress struct {
+	AccountByAddress *struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"accountByAddress"`
 }
@@ -91,13 +99,8 @@ type OperationStateChangesData struct {
 }
 
 type AccountBalancesData struct {
-	AccountByAddress struct {
-		Balances struct {
-			Edges []struct {
-				Node json.RawMessage `json:"node"`
-			} `json:"edges"`
-			PageInfo *types.PageInfo `json:"pageInfo"`
-		} `json:"balances"`
+	AccountByAddress *struct {
+		Balances *types.BalanceConnection `json:"balances"`
 	} `json:"accountByAddress"`
 }
 
@@ -373,6 +376,10 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 		return nil, err
 	}
 
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+
 	return data.AccountByAddress.Transactions, nil
 }
 
@@ -401,6 +408,10 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, since
 	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
 
 	return data.AccountByAddress.Operations, nil
@@ -446,6 +457,10 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, tra
 	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
 
 	return data.AccountByAddress.StateChanges, nil
@@ -513,39 +528,76 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
-	const pageSize int32 = 100
+func (c *Client) GetAccountBalances(ctx context.Context, address string, first, last *int32, after, before *string) (*types.BalanceConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
 
-	var (
-		after    *string
-		balances []types.Balance
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		paginationVars,
 	)
 
+	data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+	if data.AccountByAddress.Balances == nil {
+		return nil, fmt.Errorf("account balances response missing required balances field for address %s", address)
+	}
+
+	return data.AccountByAddress.Balances, nil
+}
+
+// GetAllAccountBalances returns every balance for the given address by
+// driving GetAccountBalances forward through the cursor sequence in
+// fixed-size pages. Returns a non-nil empty slice when the account has
+// no balances. Use this when you want a flat list of balances for an
+// account; use GetAccountBalances directly when you need explicit
+// control over page size or position.
+//
+// Returns an error if the server's pagination response is internally
+// inconsistent — HasNextPage=true with a missing EndCursor, or the same
+// EndCursor returned on two consecutive pages (which would otherwise loop
+// forever). Both indicate a server-side pagination bug.
+func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]types.Balance, error) {
+	first := int32(100)
+
+	var after *string
+	balances := make([]types.Balance, 0)
+
 	for {
-		variables := map[string]any{
-			"address": address,
-			"first":   pageSize,
-			"after":   after,
-		}
-
-		data, err := executeGraphQL[AccountBalancesData](c, ctx, buildAccountBalancesQuery(), variables)
+		connection, err := c.GetAccountBalances(ctx, address, &first, nil, after, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting account balances page: %w", err)
+		}
+		if connection == nil {
+			return nil, fmt.Errorf("getting account balances page: missing required balances connection")
+		}
+		if connection.PageInfo == nil {
+			return nil, fmt.Errorf("getting account balances page: missing required pageInfo")
 		}
 
-		for i, edge := range data.AccountByAddress.Balances.Edges {
-			balance, unmarshalErr := types.UnmarshalBalance(edge.Node)
-			if unmarshalErr != nil {
-				return nil, fmt.Errorf("unmarshaling balance %d: %w", len(balances)+i, unmarshalErr)
-			}
-			balances = append(balances, balance)
-		}
+		balances = append(balances, connection.Balances()...)
 
-		pageInfo := data.AccountByAddress.Balances.PageInfo
-		if pageInfo == nil || !pageInfo.HasNextPage || pageInfo.EndCursor == nil {
+		if !connection.PageInfo.HasNextPage {
 			break
 		}
-		after = pageInfo.EndCursor
+
+		if connection.PageInfo.EndCursor == nil {
+			return nil, fmt.Errorf("paginating account balances: server reported HasNextPage=true but did not return an EndCursor")
+		}
+
+		if after != nil && *after == *connection.PageInfo.EndCursor {
+			return nil, fmt.Errorf("paginating account balances: server returned the same EndCursor (%q) on two consecutive pages; pagination is not advancing", *connection.PageInfo.EndCursor)
+		}
+
+		after = connection.PageInfo.EndCursor
 	}
 
 	return balances, nil

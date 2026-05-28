@@ -374,17 +374,20 @@ const balanceFragments = `
 // buildAccountBalancesQuery builds the GraphQL query for fetching account balances.
 func buildAccountBalancesQuery() string {
 	return fmt.Sprintf(`
-		query GetAccountBalances($address: String!, $first: Int, $after: String) {
+		query GetAccountBalances($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				balances(first: $first, after: $after) {
+				balances(first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
 						}
+						cursor
 					}
 					pageInfo {
+						startCursor
 						endCursor
 						hasNextPage
+						hasPreviousPage
 					}
 				}
 			}

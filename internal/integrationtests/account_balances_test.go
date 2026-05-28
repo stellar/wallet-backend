@@ -48,12 +48,11 @@ type AccountBalancesAfterCheckpointTestSuite struct {
 // - USDC trustline (100)
 // - EURC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC trustline, EURC trustline")
@@ -97,12 +96,11 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 // - Native XLM (~10000)
 // - USDC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and USDC trustline")
@@ -138,12 +136,11 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 // has the expected initial balances from checkpoint setup:
 // - USDC SAC tokens (200)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(1, len(balances), "Expected 1 balance: USDC SAC")
@@ -164,6 +161,68 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	}
 }
 
+// TestCheckpoint_Account1_ForwardPagination verifies that GetAccountBalances
+// honors the first and after pagination args. Account1 has 3 balances at
+// checkpoint, so calling with first=1 must return a single edge with
+// HasNextPage=true; passing the returned EndCursor as after on the next
+// call must return a different edge.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_ForwardPagination() {
+	pageSize := int32(1)
+	address := suite.testEnv.BalanceTestAccount1KP.Address()
+
+	page1, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		&pageSize, nil, nil, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page1)
+	suite.Require().Len(page1.Edges, 1, "Expected exactly 1 edge on the first page when first=1")
+	suite.Require().NotNil(page1.PageInfo)
+	suite.Require().True(page1.PageInfo.HasNextPage, "HasNextPage should be true with 3 balances and first=1")
+	suite.Require().NotNil(page1.PageInfo.EndCursor, "EndCursor should be populated when HasNextPage is true")
+
+	page2, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		&pageSize, nil, page1.PageInfo.EndCursor, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page2)
+	suite.Require().Len(page2.Edges, 1, "Expected exactly 1 edge on the second page when first=1")
+	suite.Require().NotEqual(page1.Edges[0].Cursor, page2.Edges[0].Cursor,
+		"Second page must return a different edge than the first; equal cursors imply the after arg was ignored")
+}
+
+// TestCheckpoint_Account1_BackwardPagination verifies that GetAccountBalances
+// honors the last and before pagination args. Account1 has 3 balances at
+// checkpoint, so calling with last=1 must return a single edge with
+// HasPreviousPage=true; passing the returned StartCursor as before on the
+// next call must return a different edge.
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_BackwardPagination() {
+	pageSize := int32(1)
+	address := suite.testEnv.BalanceTestAccount1KP.Address()
+
+	lastPage, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		nil, &pageSize, nil, nil,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(lastPage)
+	suite.Require().Len(lastPage.Edges, 1, "Expected exactly 1 edge on the last page when last=1")
+	suite.Require().NotNil(lastPage.PageInfo)
+	suite.Require().True(lastPage.PageInfo.HasPreviousPage, "HasPreviousPage should be true with 3 balances and last=1")
+	suite.Require().NotNil(lastPage.PageInfo.StartCursor, "StartCursor should be populated when HasPreviousPage is true")
+
+	prevPage, err := suite.testEnv.WBClient.GetAccountBalances(
+		context.Background(), address,
+		nil, &pageSize, nil, lastPage.PageInfo.StartCursor,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(prevPage)
+	suite.Require().Len(prevPage.Edges, 1, "Expected exactly 1 edge on the page before the last")
+	suite.Require().NotEqual(lastPage.Edges[0].Cursor, prevPage.Edges[0].Cursor,
+		"Previous page must return a different edge than the last; equal cursors imply the before arg was ignored")
+}
+
 // AccountBalancesAfterLiveIngestionTestSuite validates that balances are correctly calculated
 // after fixture transactions are submitted and processed by the live ingestion pipeline. These new transactions
 // will lead to new tokens being inserted into the token cache and new balances being calculated.
@@ -181,12 +240,11 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
@@ -233,12 +291,11 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - USDC trustline (100) - unchanged
 // - EURC trustline (75) - NEW from trustline creation and payment
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
@@ -284,12 +341,11 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - USDC SAC tokens (200) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
-	balances, err := suite.testEnv.WBClient.GetAccountBalances(
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
 		suite.testEnv.HolderContractAddress,
 	)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
 	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and EURC SAC")
