@@ -34,6 +34,50 @@ const sep41ProtocolID = "SEP41"
 type DataMigrationTestSuite struct {
 	suite.Suite
 	testEnv *infrastructure.TestEnvironment
+	// initialLatestLedger snapshots latest_ingest_ledger at the start of the
+	// suite so TearDownSuite can restore it before resuming the ingest container.
+	// Every test in this suite writes synthetic ledger sequences (latestLedger+1000,
+	// +2000) into latest_ingest_ledger, which would leave the row far ahead of the
+	// real network — the container would stall trying to fetch a ledger the
+	// network hasn't reached.
+	initialLatestLedger uint32
+}
+
+// SetupSuite pauses the wallet-backend-ingest container for the duration of
+// the suite so per-test svc.Run instances have exclusive control over
+// latest_ingest_ledger. Without this, the container's live ingest races the
+// per-test cursor updates and overwrites them mid-test — the race was
+// previously latent because suites above this one were quicker, but new
+// pagination tests in AccountBalancesAfterCheckpointTestSuite shifted the
+// timing window enough to surface it intermittently in CI.
+func (s *DataMigrationTestSuite) SetupSuite() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+
+	models := s.setupModels(pool)
+	latest, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
+	s.Require().NoError(err)
+	s.initialLatestLedger = latest
+
+	s.Require().NoError(s.testEnv.Containers.StopIngestContainer(ctx),
+		"stopping wallet-backend-ingest container before DataMigrationTestSuite")
+}
+
+// TearDownSuite restores latest_ingest_ledger to the pre-suite snapshot and
+// resumes the wallet-backend-ingest container so downstream suites (e.g.
+// DataValidationTestSuite, AccountBalancesAfterLiveIngestionTestSuite) get
+// a container that can continue ingesting real network ledgers instead of
+// stalling on a synthetic sequence written by this suite.
+func (s *DataMigrationTestSuite) TearDownSuite() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, s.initialLatestLedger)
+
+	s.Require().NoError(s.testEnv.Containers.StartIngestContainer(ctx),
+		"starting wallet-backend-ingest container after DataMigrationTestSuite")
 }
 
 func (s *DataMigrationTestSuite) SetupTest() {
