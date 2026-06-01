@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -16,13 +17,14 @@ const (
 )
 
 type OperationColumnsKey struct {
-	ToID          int64
-	AccountID     string
-	StateChangeID string
-	Columns       string
-	Limit         *int32
-	Cursor        *int64
-	SortOrder     data.SortOrder
+	ToID            int64
+	AccountID       string
+	StateChangeID   string
+	Columns         string
+	Limit           *int32
+	Cursor          *int64
+	SortOrder       data.SortOrder
+	LedgerCreatedAt time.Time // parent transaction's ledger time; pins the partition column for account-scoped loads
 }
 
 // operationsByToIDLoader creates a dataloader for fetching operations by transaction ToID.
@@ -68,6 +70,29 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
 		},
+	)
+}
+
+// accountOperationsByToIDLoader batches account-scoped operation lookups by transaction ToID.
+// A request resolves a single accountByAddress, so the whole batch shares one account — the
+// account, columns, etc. are read from keys[0], matching the existing loaders' convention for
+// batch-wide parameters.
+func accountOperationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+	return newOneToManyLoader(
+		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.Operation, error) {
+			accountID := keys[0].AccountID
+			columns := keys[0].Columns
+			toIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
+			for i, key := range keys {
+				toIDs[i] = key.ToID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
+			}
+			return models.Operations.BatchGetAccountOperationsByToIDs(ctx, accountID, toIDs, ledgerCreatedAts, columns)
+		},
+		func(item *types.Operation) int64 { return item.ID &^ 0xFFF },
+		func(key OperationColumnsKey) int64 { return key.ToID },
+		func(item *types.Operation) types.Operation { return *item },
 	)
 }
 

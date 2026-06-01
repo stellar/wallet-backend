@@ -48,6 +48,14 @@ type Dataloaders struct {
 	// TransactionByStateChangeIDLoader batches requests for transactions by state change ID
 	// Used by StateChange.transaction field resolver to prevent N+1 queries
 	TransactionByStateChangeIDLoader *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction]
+
+	// AccountOperationsByToIDLoader batches account-scoped operations by transaction ToID
+	// Used by DetailedTransactionEdge.operations
+	AccountOperationsByToIDLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
+
+	// AccountStateChangesByToIDLoader batches account-scoped state changes by transaction ToID
+	// Used by DetailedTransactionEdge.stateChanges
+	AccountStateChangesByToIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
 }
 
 // NewDataloaders creates a new instance of all dataloaders
@@ -64,6 +72,8 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByToIDLoader:             accountsByToIDLoader(models),
 		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
+		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models),
+		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models),
 	}
 }
 

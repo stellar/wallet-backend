@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -16,13 +17,14 @@ const (
 )
 
 type StateChangeColumnsKey struct {
-	ToID        int64
-	AccountID   string
-	OperationID int64
-	Columns     string
-	Limit       *int32
-	Cursor      *types.StateChangeCursor
-	SortOrder   data.SortOrder
+	ToID            int64
+	AccountID       string
+	OperationID     int64
+	Columns         string
+	Limit           *int32
+	Cursor          *types.StateChangeCursor
+	SortOrder       data.SortOrder
+	LedgerCreatedAt time.Time // parent transaction's ledger time; pins the partition column for account-scoped loads
 }
 
 // stateChangesByToIDLoader creates a dataloader for fetching state changes by to_id
@@ -101,5 +103,27 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+	)
+}
+
+// accountStateChangesByToIDLoader batches account-scoped state-change lookups by transaction ToID.
+// Like accountOperationsByToIDLoader, the batch shares one account (read from keys[0]).
+// BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection is needed here.
+func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+	return newOneToManyLoader(
+		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
+			accountID := keys[0].AccountID
+			columns := keys[0].Columns
+			toIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
+			for i, key := range keys {
+				toIDs[i] = key.ToID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
+			}
+			return models.StateChanges.BatchGetAccountStateChangesByToIDs(ctx, accountID, toIDs, ledgerCreatedAts, columns)
+		},
+		func(item *types.StateChange) int64 { return item.ToID },
+		func(key StateChangeColumnsKey) int64 { return key.ToID },
+		func(item *types.StateChange) types.StateChange { return *item },
 	)
 }
