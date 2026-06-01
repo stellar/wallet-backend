@@ -930,3 +930,56 @@ func BenchmarkStateChangeModel_BatchCopy(b *testing.B) {
 		})
 	}
 }
+
+func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	acct := keypair.MustRandom().Address()
+	other := keypair.MustRandom().Address()
+	txHash := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+	`, now, txHash)
+	require.NoError(t, err)
+
+	// to_id 4096: two state changes for acct, one for a different account.
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES
+			(4096, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(4096, 2, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(4096, 3, 'BALANCE', 'CREDIT', $1, 1, $3, 4097)
+	`, now, types.AddressBytea(acct), types.AddressBytea(other))
+	require.NoError(t, err)
+
+	t.Run("returns only the account's state changes for the transaction, full set", func(t *testing.T) {
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, acct, []int64{4096}, []time.Time{now}, "")
+		require.NoError(t, err)
+		require.Len(t, scs, 2)
+		for _, sc := range scs {
+			assert.Equal(t, int64(4096), sc.ToID)
+			assert.Equal(t, acct, sc.AccountID.String())
+		}
+		// DESC ordering: higher state_change_id first.
+		assert.Equal(t, int64(2), scs[0].StateChangeID)
+		assert.Equal(t, int64(1), scs[1].StateChangeID)
+	})
+
+	t.Run("empty when account has no state changes in the transaction", func(t *testing.T) {
+		none := keypair.MustRandom().Address()
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, none, []int64{4096}, []time.Time{now}, "")
+		require.NoError(t, err)
+		assert.Empty(t, scs)
+	})
+}

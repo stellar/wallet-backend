@@ -210,6 +210,45 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	return operations, nil
 }
 
+// BatchGetAccountOperationsByToIDs returns, for each (toID, ledgerCreatedAt) pair, all operations
+// in that transaction involving accountAddress. ledgerCreatedAt is the parent transaction's ledger
+// time (== the operation's ledger time); pinning the partition column triggers primary chunk
+// exclusion. No LIMIT: operations per tx are ≤100 by Stellar protocol. operations has no account
+// column, so scope through operations_accounts (segmentby=account_id) via the TOID band, then a PK
+// LATERAL into operations.
+func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.Operation, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(to_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT operation_id, ledger_created_at
+			FROM operations_accounts oa
+			WHERE oa.ledger_created_at = i.ledger_created_at
+			  AND oa.operation_id > i.to_id AND oa.operation_id < i.to_id + 4096
+			  AND oa.account_id = $1
+		) oa
+		CROSS JOIN LATERAL (
+			SELECT * FROM operations o
+			WHERE o.id = oa.operation_id AND o.ledger_created_at = oa.ledger_created_at
+			LIMIT 1
+		) o
+		ORDER BY o.ledger_created_at DESC, o.id DESC
+	`, columns)
+
+	start := time.Now()
+	operations, err := db.QueryManyPtrs[types.Operation](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, ledgerCreatedAts)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Observe(float64(len(toIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting account operations by to_ids: %w", err)
+	}
+	return operations, nil
+}
+
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the operations_accounts hypertable by ordering on ledger_created_at first.

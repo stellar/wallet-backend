@@ -485,6 +485,38 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	return stateChanges, nil
 }
 
+// BatchGetAccountStateChangesByToIDs returns, for each (toID, ledgerCreatedAt) pair, all state
+// changes in that transaction that belong to accountAddress. ledgerCreatedAt is the parent
+// transaction's ledger time (== the state change's ledger time, same ledger); pinning the
+// partition column triggers primary chunk exclusion. No LIMIT: an account's per-tx state
+// changes are bounded in practice. Account scoping is via the account_id column on state_changes.
+func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.StateChange, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id")
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(to_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT * FROM state_changes sc
+			WHERE sc.ledger_created_at = i.ledger_created_at
+			  AND sc.to_id = i.to_id
+			  AND sc.account_id = $1
+		) sc
+		ORDER BY sc.ledger_created_at DESC, sc.to_id DESC, sc.operation_id DESC, sc.state_change_id DESC
+	`, columns)
+
+	start := time.Now()
+	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, ledgerCreatedAts)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(float64(len(toIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting account state changes by to_ids: %w", err)
+	}
+	return stateChanges, nil
+}
+
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")

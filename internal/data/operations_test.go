@@ -742,3 +742,64 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 		})
 	}
 }
+
+func TestOperationModel_BatchGetAccountOperationsByToIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	m := &OperationModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	acct := keypair.MustRandom().Address()
+	other := keypair.MustRandom().Address()
+	txHash := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+	`, now, txHash)
+	require.NoError(t, err)
+
+	// Operations in tx 4096 (TOID band 4096 < id < 8192).
+	xdr1 := types.XDRBytea([]byte("xdr1"))
+	xdr2 := types.XDRBytea([]byte("xdr2"))
+	xdr3 := types.XDRBytea([]byte("xdr3"))
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES
+			(4097, 'PAYMENT', $2, 'op_success', true, 1, $1),
+			(4098, 'PAYMENT', $3, 'op_success', true, 1, $1),
+			(4099, 'PAYMENT', $4, 'op_success', true, 1, $1)
+	`, now, xdr1, xdr2, xdr3)
+	require.NoError(t, err)
+
+	// 4097, 4098 belong to acct; 4099 belongs to a different account.
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+		VALUES
+			($3, 4097, $1),
+			($3, 4098, $1),
+			($3, 4099, $2)
+	`, types.AddressBytea(acct), types.AddressBytea(other), now)
+	require.NoError(t, err)
+
+	t.Run("returns only the account's operations for the transaction, full set", func(t *testing.T) {
+		ops, err := m.BatchGetAccountOperationsByToIDs(ctx, acct, []int64{4096}, []time.Time{now}, "")
+		require.NoError(t, err)
+		require.Len(t, ops, 2)
+		assert.Equal(t, int64(4098), ops[0].ID)
+		assert.Equal(t, int64(4097), ops[1].ID)
+	})
+
+	t.Run("empty when account has no operations in the transaction", func(t *testing.T) {
+		none := keypair.MustRandom().Address()
+		ops, err := m.BatchGetAccountOperationsByToIDs(ctx, none, []int64{4096}, []time.Time{now}, "")
+		require.NoError(t, err)
+		assert.Empty(t, ops)
+	})
+}
