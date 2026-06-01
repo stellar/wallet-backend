@@ -2512,18 +2512,6 @@ func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	require.NoError(t, err)
 }
 
-// eligibleTargets builds a map of protocolProductionTarget with both cursors
-// flagged eligible — convenient when a test wants to exercise the CAS path in
-// PersistLedgerData independent of the protocolProcessorsEligibleForProduction
-// filter.
-func eligibleTargets(processors ...ProtocolProcessor) map[string]protocolProductionTarget {
-	out := make(map[string]protocolProductionTarget, len(processors))
-	for _, p := range processors {
-		out[p.ProtocolID()] = protocolProductionTarget{processor: p, historyEligible: true, currentStateEligible: true}
-	}
-	return out
-}
-
 func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 	// Helper to set up common test infrastructure
 	setupTest := func(t *testing.T, processors []ProtocolProcessor) (context.Context, *ingestService, *data.Models, *pgxpool.Pool) {
@@ -2572,13 +2560,12 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Set ingestStore after models are created, and simulate ProcessLedger
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Both protocol cursors should advance to 100
@@ -2605,13 +2592,12 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 100, 100)
 
 		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Cursors should stay at 100 (CAS expected 99 but found 100)
@@ -2638,13 +2624,12 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 98, 98)
 
 		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Cursors should stay at 98 (behind, so entire block is skipped)
@@ -2667,24 +2652,21 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 	})
 
 	t.Run("D: missing cursor row at CAS time — soft skip, main cursor advances", func(t *testing.T) {
-		// The eligibility check normally filters out protocols whose cursor rows
-		// don't exist (see Test_protocolProcessorsEligibleForProduction). If a row
-		// goes missing between eligibility and CAS — operational incident, not a
-		// fresh-startup case — the service layer treats ErrCASCursorMissing as a
-		// soft skip: warn + cursor_missing metric, no fatal. Live ingest must not
-		// die on a single dropped cursor row.
+		// A protocol whose cursor rows don't exist (protocol-setup / protocol-migrate
+		// hasn't run yet, or an incident dropped the row) must not kill live ingest:
+		// CompareAndSwap returns ErrCASCursorMissing, which casProtocolCursor folds
+		// into a soft skip (Debugf + the data-layer cursor_missing metric). The main
+		// cursor still advances.
 		processor := &testProtocolProcessor{id: "testproto"}
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
 		setupDBCursors(t, ctx, pool, 99, 99)
-		// No protocol cursors inserted — simulates an incident-deleted row that
-		// slipped past eligibility.
+		// No protocol cursors inserted.
 
 		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Main cursor advances; protocol persist methods were not called and
@@ -2711,19 +2693,17 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		// Eligibility says only history is ready (current-state row absent).
-		svc.eligibleProtocolProcessors = map[string]protocolProductionTarget{
-			"testproto": {processor: processor, historyEligible: true, currentStateEligible: false},
-		}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		// Insert ONLY the history cursor.
+		// Insert ONLY the history cursor; the current-state row stays absent, so its
+		// CAS returns ErrCASCursorMissing (soft skip) and only the history CAS can win.
 		_, err := pool.Exec(ctx,
 			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
 			utils.ProtocolHistoryCursorName("testproto"), "99")
 		require.NoError(t, err)
 
-		_, _, err = svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// History CAS succeeded.
@@ -2752,18 +2732,17 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
 		processor.processedLedger = 100
-		svc.eligibleProtocolProcessors = map[string]protocolProductionTarget{
-			"testproto": {processor: processor, historyEligible: false, currentStateEligible: true},
-		}
 
 		setupDBCursors(t, ctx, pool, 99, 99)
-		// Insert ONLY the current-state cursor.
+		// Insert ONLY the current-state cursor; the history row stays absent, so its
+		// CAS returns ErrCASCursorMissing (soft skip) and only the current-state CAS wins.
 		_, err := pool.Exec(ctx,
 			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
 			utils.ProtocolCurrentStateCursorName("testproto"), "99")
 		require.NoError(t, err)
 
-		_, _, err = svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Current-state CAS succeeded.
@@ -2791,7 +2770,8 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		setupDBCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
-		_, _, err := svc.PersistLedgerData(ctx, 100, buffer, "latest_ledger_cursor")
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Main cursor should advance
@@ -2804,20 +2784,20 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor := &testProtocolProcessor{id: "testproto", failPersistCurrentStateAt: 101}
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
 		processor.ingestStore = models.IngestStore
-		svc.eligibleProtocolProcessors = eligibleTargets(processor)
-
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
 
 		// First ledger succeeds and advances the current-state cursor to 100.
 		processor.processedLedger = 100
-		_, _, err := svc.PersistLedgerData(ctx, 100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		meta100 := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta100, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		// Next ledger fails inside PersistCurrentState, rolling back the whole
 		// transaction — the current-state cursor must stay at 100.
 		processor.processedLedger = 101
-		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		meta101 := dummyLedgerMeta(101)
+		_, _, err = svc.persistLedgerData(ctx, 101, &meta101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.Error(t, err)
 
 		currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2827,163 +2807,13 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Retrying the same ledger succeeds and advances the cursor.
 		processor.failPersistCurrentStateAt = 0
 		processor.processedLedger = 101
-		_, _, err = svc.PersistLedgerData(ctx, 101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		_, _, err = svc.persistLedgerData(ctx, 101, &meta101, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
 		require.NoError(t, err)
 
 		currentStateCursor, err = models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(101), currentStateCursor)
 	})
-}
-
-func Test_protocolProcessorsEligibleForProduction(t *testing.T) {
-	// The eligibility filter must distinguish "cursor row absent" from
-	// "cursor at value 0" — the former means protocol-setup / protocol-migrate
-	// hasn't run yet and the protocol must be skipped. Conflating the two with
-	// Go's zero-value caused the original fresh-startup fatal.
-	setupTest := func(t *testing.T, processors []ProtocolProcessor) (context.Context, *ingestService, *pgxpool.Pool) {
-		t.Helper()
-		dbt := dbtest.Open(t)
-		t.Cleanup(func() { dbt.Close() })
-		ctx := context.Background()
-		pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-		require.NoError(t, err)
-		t.Cleanup(func() { pool.Close() })
-
-		m := metrics.NewMetrics(prometheus.NewRegistry())
-		models, err := data.NewModels(pool, m.DB)
-		require.NoError(t, err)
-
-		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             &RPCServiceMock{},
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  NewTokenIngestionServiceMock(t),
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
-			ProtocolProcessors:     processors,
-		})
-		require.NoError(t, err)
-		return ctx, svc, pool
-	}
-
-	t.Run("no processors registered → empty map", func(t *testing.T) {
-		ctx, svc, _ := setupTest(t, nil)
-		got, err := svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		assert.Empty(t, got)
-	})
-
-	t.Run("fresh startup, both rows absent → not eligible at any ledger", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, _ := setupTest(t, []ProtocolProcessor{processor})
-
-		for _, ledgerSeq := range []uint32{0, 1, 2, 100, 1_000_000} {
-			got, err := svc.protocolProcessorsEligibleForProduction(ctx, ledgerSeq)
-			require.NoError(t, err)
-			assert.NotContains(t, got, "testproto", "ledgerSeq=%d", ledgerSeq)
-		}
-		// Pending warning is recorded so subsequent calls don't re-log.
-		assert.True(t, svc.protocolCursorInitPending["testproto"])
-	})
-
-	t.Run("only history row exists at ledgerSeq-1 → only history eligible", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, pool := setupTest(t, []ProtocolProcessor{processor})
-
-		_, err := pool.Exec(ctx,
-			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-			utils.ProtocolHistoryCursorName("testproto"), "99")
-		require.NoError(t, err)
-
-		got, err := svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		require.Contains(t, got, "testproto")
-		assert.True(t, got["testproto"].historyEligible)
-		assert.False(t, got["testproto"].currentStateEligible)
-	})
-
-	t.Run("only current_state row exists at ledgerSeq-1 → only current_state eligible", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, pool := setupTest(t, []ProtocolProcessor{processor})
-
-		_, err := pool.Exec(ctx,
-			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-			utils.ProtocolCurrentStateCursorName("testproto"), "99")
-		require.NoError(t, err)
-
-		got, err := svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		require.Contains(t, got, "testproto")
-		assert.False(t, got["testproto"].historyEligible)
-		assert.True(t, got["testproto"].currentStateEligible)
-	})
-
-	t.Run("row exists with value 0 ≠ row absent — not eligible at large ledger", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, pool := setupTest(t, []ProtocolProcessor{processor})
-
-		// Mirror the design's "current_state cursor = 0" pre-migration state.
-		_, err := pool.Exec(ctx,
-			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-			utils.ProtocolCurrentStateCursorName("testproto"), "0")
-		require.NoError(t, err)
-
-		got, err := svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		// History still absent → not eligible. Current-state at 0 < 99 → not eligible.
-		assert.NotContains(t, got, "testproto")
-	})
-
-	t.Run("transition: rows added after a pending warning clears pending state", func(t *testing.T) {
-		processor := &testProtocolProcessor{id: "testproto"}
-		ctx, svc, pool := setupTest(t, []ProtocolProcessor{processor})
-
-		// First call: rows absent. Records pending warning.
-		_, err := svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		require.True(t, svc.protocolCursorInitPending["testproto"])
-
-		// Operator runs protocol-setup/protocol-migrate; rows now exist.
-		_, err = pool.Exec(ctx,
-			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
-			utils.ProtocolHistoryCursorName("testproto"), "50")
-		require.NoError(t, err)
-
-		// Next call: pending flag cleared (row observation logs the transition).
-		_, err = svc.protocolProcessorsEligibleForProduction(ctx, 100)
-		require.NoError(t, err)
-		assert.False(t, svc.protocolCursorInitPending["testproto"])
-	})
-}
-
-func Test_protocolStateCursorReady(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name        string
-		cursorValue uint32
-		ledgerSeq   uint32
-		want        bool
-	}{
-		{name: "ledger zero", cursorValue: 0, ledgerSeq: 0, want: true},
-		{name: "cursor at previous ledger", cursorValue: 99, ledgerSeq: 100, want: true},
-		{name: "cursor ahead", cursorValue: 100, ledgerSeq: 100, want: true},
-		{name: "cursor behind", cursorValue: 98, ledgerSeq: 100, want: false},
-		{name: "missing row semantics", cursorValue: 0, ledgerSeq: 100, want: false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, protocolStateCursorReady(tc.cursorValue, tc.ledgerSeq))
-		})
-	}
 }
 
 func Test_ingestService_getEffectiveProtocolContracts_ReturnsBaseContracts(t *testing.T) {
