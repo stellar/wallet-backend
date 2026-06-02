@@ -104,6 +104,12 @@ type AccountBalancesData struct {
 	} `json:"accountByAddress"`
 }
 
+type AccountTransactionsWithDetailsData struct {
+	AccountByAddress *struct {
+		Transactions *types.DetailedTransactionConnection `json:"transactions"`
+	} `json:"accountByAddress"`
+}
+
 // QueryOptions allows clients to specify which fields to fetch for each entity type
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch
@@ -372,6 +378,37 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 	}
 
 	data, err := executeGraphQL[AccountTransactionsData](c, ctx, buildAccountTransactionsQuery(fields), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+
+	return data.AccountByAddress.Transactions, nil
+}
+
+// GetAccountTransactionsWithDetails fetches an account's transactions with that account's
+// operations and state changes embedded per transaction, in a single GraphQL call.
+func (c *Client) GetAccountTransactionsWithDetails(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.DetailedTransactionConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		paginationVars,
+	)
+	if since != nil {
+		variables["since"] = *since
+	}
+	if until != nil {
+		variables["until"] = *until
+	}
+
+	data, err := executeGraphQL[AccountTransactionsWithDetailsData](c, ctx, buildAccountTransactionsWithDetailsQuery(), variables)
 	if err != nil {
 		return nil, err
 	}

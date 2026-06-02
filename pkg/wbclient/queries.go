@@ -339,6 +339,37 @@ func buildOperationStateChangesQuery() string {
 	`, stateChangeFragments)
 }
 
+// buildAccountTransactionsWithDetailsQuery fetches an account's transactions with that account's
+// operations and state changes embedded per edge, in one call.
+func buildAccountTransactionsWithDetailsQuery() string {
+	return fmt.Sprintf(`
+		query AccountTransactionsWithDetails($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
+			accountByAddress(address: $address) {
+				transactions(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						operations {
+							%s
+						}
+						stateChanges {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, strings.TrimSpace(defaultTransactionFields), strings.TrimSpace(defaultOperationFields), stateChangeFragments)
+}
+
 // balanceFragments contains GraphQL fragments for all concrete balance types
 const balanceFragments = `
 		__typename
