@@ -96,6 +96,9 @@ gql-generate: ## Generate GraphQL code using gqlgen
 	@echo "==> Generating GraphQL code..."
 	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.88; }
 	$(shell go env GOPATH)/bin/gqlgen generate
+	@echo "==> Normalizing imports on generated code..."
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.43.0; }
+	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
 	@echo "✅ GraphQL code generated successfully"
 
 gql-validate: ## Validate GraphQL schema
