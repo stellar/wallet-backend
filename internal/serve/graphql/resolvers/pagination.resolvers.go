@@ -16,7 +16,7 @@ import (
 )
 
 // Operations is the resolver for the operations field.
-func (r *detailedTransactionEdgeResolver) Operations(ctx context.Context, obj *types.DetailedTransactionEdge) ([]*types.Operation, error) {
+func (r *accountTransactionEdgeResolver) Operations(ctx context.Context, obj *types.AccountTransactionEdge) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	operations, err := loaders.AccountOperationsByToIDLoader.Load(ctx, dataloaders.OperationColumnsKey{
@@ -32,7 +32,7 @@ func (r *detailedTransactionEdgeResolver) Operations(ctx context.Context, obj *t
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *detailedTransactionEdgeResolver) StateChanges(ctx context.Context, obj *types.DetailedTransactionEdge) ([]graphql1.BaseStateChange, error) {
+func (r *accountTransactionEdgeResolver) StateChanges(ctx context.Context, obj *types.AccountTransactionEdge) ([]graphql1.BaseStateChange, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 	stateChanges, err := loaders.AccountStateChangesByToIDLoader.Load(ctx, dataloaders.StateChangeColumnsKey{
@@ -51,9 +51,9 @@ func (r *detailedTransactionEdgeResolver) StateChanges(ctx context.Context, obj 
 	return result, nil
 }
 
-// DetailedTransactionEdge returns graphql1.DetailedTransactionEdgeResolver implementation.
-func (r *Resolver) DetailedTransactionEdge() graphql1.DetailedTransactionEdgeResolver {
-	return &detailedTransactionEdgeResolver{r}
+// AccountTransactionEdge returns graphql1.AccountTransactionEdgeResolver implementation.
+func (r *Resolver) AccountTransactionEdge() graphql1.AccountTransactionEdgeResolver {
+	return &accountTransactionEdgeResolver{r}
 }
 
-type detailedTransactionEdgeResolver struct{ *Resolver }
+type accountTransactionEdgeResolver struct{ *Resolver }

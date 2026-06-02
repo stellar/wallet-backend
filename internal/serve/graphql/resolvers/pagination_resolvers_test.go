@@ -17,7 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-func TestDetailedTransactionEdgeResolver(t *testing.T) {
+func TestAccountTransactionEdgeResolver(t *testing.T) {
 	ctx := context.Background()
 	reg := prometheus.NewRegistry()
 	m := metrics.NewMetrics(reg)
@@ -26,7 +26,7 @@ func TestDetailedTransactionEdgeResolver(t *testing.T) {
 		Operations:   &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
 	}
-	resolver := &detailedTransactionEdgeResolver{&Resolver{models: models}}
+	resolver := &accountTransactionEdgeResolver{&Resolver{models: models}}
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	acct := keypair.MustRandom().Address()
@@ -66,7 +66,7 @@ func TestDetailedTransactionEdgeResolver(t *testing.T) {
 	`, now, toID, types.AddressBytea(acct), toID+1, types.AddressBytea(other))
 	require.NoError(t, err)
 
-	edge := &types.DetailedTransactionEdge{
+	edge := &types.AccountTransactionEdge{
 		Node:           &types.Transaction{ToID: toID, LedgerCreatedAt: now},
 		AccountAddress: types.AddressBytea(acct),
 	}
@@ -92,13 +92,13 @@ func TestDetailedTransactionEdgeResolver(t *testing.T) {
 	})
 }
 
-// TestDetailedTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected drives the full path:
+// TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected drives the full path:
 // Account.transactions builds the edge from the DB, then the edge's Operations resolver loads
 // account-scoped operations. The node selection deliberately omits ledgerCreatedAt. The edge
 // resolver pins the partition column from the node's LedgerCreatedAt, so that value must be the
 // real inserted time even when unrequested; otherwise chunk exclusion prunes the nested operations
 // and they return silently empty.
-func TestDetailedTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *testing.T) {
+func TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *testing.T) {
 	ctx := context.Background()
 	reg := prometheus.NewRegistry()
 	m := metrics.NewMetrics(reg)
@@ -108,7 +108,7 @@ func TestDetailedTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *t
 		Operations:   &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
 	}
 	acctResolver := &accountResolver{&Resolver{models: models}}
-	edgeResolver := &detailedTransactionEdgeResolver{&Resolver{models: models}}
+	edgeResolver := &accountTransactionEdgeResolver{&Resolver{models: models}}
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	acct := keypair.MustRandom().Address()

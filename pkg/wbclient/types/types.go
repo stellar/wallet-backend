@@ -545,16 +545,16 @@ func (c *BalanceConnection) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// DetailedTransactionConnection is an account's transactions with that account's per-transaction
+// AccountTransactionConnection is an account's transactions with that account's per-transaction
 // operations and state changes embedded on each edge.
-type DetailedTransactionConnection struct {
-	Edges    []*DetailedTransactionEdge `json:"edges,omitempty"`
-	PageInfo *PageInfo                  `json:"pageInfo"`
+type AccountTransactionConnection struct {
+	Edges    []*AccountTransactionEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo                 `json:"pageInfo"`
 }
 
-// DetailedTransactionEdge is one transaction plus the calling account's operations and state
+// AccountTransactionEdge is one transaction plus the calling account's operations and state
 // changes within it. Operations and StateChanges are always populated (possibly empty).
-type DetailedTransactionEdge struct {
+type AccountTransactionEdge struct {
 	Node         *GraphQLTransaction `json:"node"`
 	Cursor       string              `json:"cursor"`
 	Operations   []*Operation        `json:"operations"`
@@ -566,7 +566,7 @@ type DetailedTransactionEdge struct {
 // [Operation!]!, and stateChanges as [BaseStateChange!]! — all non-null — so a missing/null node, a
 // null operations or stateChanges list, or a null element within either is a server bug and is
 // rejected.
-func (e *DetailedTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
+func (e *AccountTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 	type tempEdge struct {
 		Node         json.RawMessage   `json:"node"`
 		Cursor       string            `json:"cursor"`
@@ -616,17 +616,17 @@ func (e *DetailedTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 }
 
 // UnmarshalJSON enforces the schema's non-null guarantees, matching BalanceConnection. The
-// schema declares edges as [DetailedTransactionEdge!]! and pageInfo as PageInfo!, so each of
+// schema declares edges as [AccountTransactionEdge!]! and pageInfo as PageInfo!, so each of
 // the following is a server bug and is rejected here:
 //   - a missing or null edges field on the connection
 //   - a null entry within the edges array
 //   - a missing or null pageInfo field on the connection
 //
-// Null nodes inside an edge object are caught separately by DetailedTransactionEdge.UnmarshalJSON.
-func (c *DetailedTransactionConnection) UnmarshalJSON(dataBytes []byte) error {
+// Null nodes inside an edge object are caught separately by AccountTransactionEdge.UnmarshalJSON.
+func (c *AccountTransactionConnection) UnmarshalJSON(dataBytes []byte) error {
 	type tempConnection struct {
-		Edges    []*DetailedTransactionEdge `json:"edges"`
-		PageInfo *PageInfo                  `json:"pageInfo"`
+		Edges    []*AccountTransactionEdge `json:"edges"`
+		PageInfo *PageInfo                 `json:"pageInfo"`
 	}
 	var temp tempConnection
 	if err := json.Unmarshal(dataBytes, &temp); err != nil {
@@ -637,7 +637,7 @@ func (c *DetailedTransactionConnection) UnmarshalJSON(dataBytes []byte) error {
 	}
 	for i, edge := range temp.Edges {
 		if edge == nil {
-			return fmt.Errorf("detailed transaction connection edge at index %d is null: the GraphQL schema declares DetailedTransactionEdge as non-null", i)
+			return fmt.Errorf("detailed transaction connection edge at index %d is null: the GraphQL schema declares AccountTransactionEdge as non-null", i)
 		}
 	}
 	if temp.PageInfo == nil {

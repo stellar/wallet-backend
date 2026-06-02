@@ -19,7 +19,7 @@ type Account{
     after: String
     last: Int
     before: String
-  ): DetailedTransactionConnection
+  ): AccountTransactionConnection
 
   # All operations associated with this account
   # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at

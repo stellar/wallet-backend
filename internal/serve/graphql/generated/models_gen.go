@@ -43,6 +43,11 @@ type AccountStateChangeFilterInput struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+type AccountTransactionConnection struct {
+	Edges    []*types.AccountTransactionEdge `json:"edges"`
+	PageInfo *PageInfo                       `json:"pageInfo"`
+}
+
 type BalanceConnection struct {
 	Edges    []*BalanceEdge `json:"edges"`
 	PageInfo *PageInfo      `json:"pageInfo"`
@@ -51,11 +56,6 @@ type BalanceConnection struct {
 type BalanceEdge struct {
 	Node   Balance `json:"node"`
 	Cursor string  `json:"cursor"`
-}
-
-type DetailedTransactionConnection struct {
-	Edges    []*types.DetailedTransactionEdge `json:"edges"`
-	PageInfo *PageInfo                        `json:"pageInfo"`
 }
 
 type NativeBalance struct {

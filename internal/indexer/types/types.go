@@ -324,10 +324,10 @@ type TransactionWithCursor struct {
 	CompositeCursor
 }
 
-// DetailedTransactionEdge backs the GraphQL DetailedTransactionEdge. AccountAddress is not part of
+// AccountTransactionEdge backs the GraphQL AccountTransactionEdge. AccountAddress is not part of
 // the schema; it scopes the edge's operations/stateChanges resolvers to the account whose
 // transactions were queried (the resolver stamps it from the parent Account).
-type DetailedTransactionEdge struct {
+type AccountTransactionEdge struct {
 	Node           *Transaction
 	Cursor         string
 	AccountAddress AddressBytea

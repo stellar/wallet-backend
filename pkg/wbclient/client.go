@@ -106,7 +106,7 @@ type AccountBalancesData struct {
 
 type AccountTransactionsWithDetailsData struct {
 	AccountByAddress *struct {
-		Transactions *types.DetailedTransactionConnection `json:"transactions"`
+		Transactions *types.AccountTransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
 }
 
@@ -391,7 +391,7 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 
 // GetAccountTransactionsWithDetails fetches an account's transactions with that account's
 // operations and state changes embedded per transaction, in a single GraphQL call.
-func (c *Client) GetAccountTransactionsWithDetails(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.DetailedTransactionConnection, error) {
+func (c *Client) GetAccountTransactionsWithDetails(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.AccountTransactionConnection, error) {
 	paginationVars, err := buildPaginationVars(first, last, after, before)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)

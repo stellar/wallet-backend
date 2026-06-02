@@ -50,11 +50,11 @@ type Dataloaders struct {
 	TransactionByStateChangeIDLoader *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction]
 
 	// AccountOperationsByToIDLoader batches account-scoped operations by transaction ToID
-	// Used by DetailedTransactionEdge.operations
+	// Used by AccountTransactionEdge.operations
 	AccountOperationsByToIDLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
 
 	// AccountStateChangesByToIDLoader batches account-scoped state changes by transaction ToID
-	// Used by DetailedTransactionEdge.stateChanges
+	// Used by AccountTransactionEdge.stateChanges
 	AccountStateChangesByToIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
 }
 

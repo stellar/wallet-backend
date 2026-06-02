@@ -45,12 +45,12 @@ type PageInfo {
     hasPreviousPage: Boolean!
 }
 
-type DetailedTransactionConnection {
-  edges:    [DetailedTransactionEdge!]!
+type AccountTransactionConnection {
+  edges:    [AccountTransactionEdge!]!
   pageInfo: PageInfo!
 }
 
-type DetailedTransactionEdge {
+type AccountTransactionEdge {
   node:         Transaction!
   cursor:       String!
   operations:   [Operation!]!        @goField(forceResolver: true)

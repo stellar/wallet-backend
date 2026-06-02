@@ -31,7 +31,7 @@ func (r *accountResolver) Balances(ctx context.Context, obj *types.Account, firs
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.DetailedTransactionConnection, error) {
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.AccountTransactionConnection, error) {
 	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
@@ -53,16 +53,16 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 		return fmt.Sprintf("%d:%d", tx.CompositeCursor.LedgerCreatedAt.UnixNano(), tx.CompositeCursor.ID)
 	})
 
-	edges := make([]*types.DetailedTransactionEdge, len(conn.Edges))
+	edges := make([]*types.AccountTransactionEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &types.DetailedTransactionEdge{
+		edges[i] = &types.AccountTransactionEdge{
 			Node:           &edge.Node.Transaction,
 			Cursor:         edge.Cursor,
 			AccountAddress: obj.StellarAddress,
 		}
 	}
 
-	return &graphql1.DetailedTransactionConnection{
+	return &graphql1.AccountTransactionConnection{
 		Edges:    edges,
 		PageInfo: conn.PageInfo,
 	}, nil
