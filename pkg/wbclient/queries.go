@@ -339,11 +339,11 @@ func buildOperationStateChangesQuery() string {
 	`, stateChangeFragments)
 }
 
-// buildAccountTransactionsWithDetailsQuery fetches an account's transactions with that account's
+// buildAccountTransactionsWithOpsAndStateChangesQuery fetches an account's transactions with that account's
 // operations and state changes embedded per edge, in one call.
-func buildAccountTransactionsWithDetailsQuery() string {
+func buildAccountTransactionsWithOpsAndStateChangesQuery() string {
 	return fmt.Sprintf(`
-		query AccountTransactionsWithDetails($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountTransactionsWithOpsAndStateChanges($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
 				transactions(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {

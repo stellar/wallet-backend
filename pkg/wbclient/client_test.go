@@ -218,7 +218,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 	})
 }
 
-func TestGetAccountTransactionsWithDetails(t *testing.T) {
+func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		assert.Nil(t, conn)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 	})
@@ -240,7 +240,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		require.Len(t, conn.Edges, 1)
@@ -257,7 +257,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, conn, "schema permits null transactions on existing account")
 	})
@@ -267,7 +267,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -279,7 +279,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -291,7 +291,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -303,7 +303,7 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})

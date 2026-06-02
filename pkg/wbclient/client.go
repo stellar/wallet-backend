@@ -104,7 +104,7 @@ type AccountBalancesData struct {
 	} `json:"accountByAddress"`
 }
 
-type AccountTransactionsWithDetailsData struct {
+type AccountTransactionsWithOpsAndStateChangesData struct {
 	AccountByAddress *struct {
 		Transactions *types.AccountTransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
@@ -389,9 +389,9 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 	return data.AccountByAddress.Transactions, nil
 }
 
-// GetAccountTransactionsWithDetails fetches an account's transactions with that account's
+// GetAccountTransactionsWithOpsAndStateChanges fetches an account's transactions with that account's
 // operations and state changes embedded per transaction, in a single GraphQL call.
-func (c *Client) GetAccountTransactionsWithDetails(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.AccountTransactionConnection, error) {
+func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.AccountTransactionConnection, error) {
 	paginationVars, err := buildPaginationVars(first, last, after, before)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
@@ -408,7 +408,7 @@ func (c *Client) GetAccountTransactionsWithDetails(ctx context.Context, address 
 		variables["until"] = *until
 	}
 
-	data, err := executeGraphQL[AccountTransactionsWithDetailsData](c, ctx, buildAccountTransactionsWithDetailsQuery(), variables)
+	data, err := executeGraphQL[AccountTransactionsWithOpsAndStateChangesData](c, ctx, buildAccountTransactionsWithOpsAndStateChangesQuery(), variables)
 	if err != nil {
 		return nil, err
 	}
