@@ -164,6 +164,9 @@ models:
   Transaction:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.Transaction
+  DetailedTransactionEdge:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DetailedTransactionEdge
   Operation:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.Operation

@@ -11,11 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // Address is the resolver for the address field.
@@ -32,7 +31,7 @@ func (r *accountResolver) Balances(ctx context.Context, obj *types.Account, firs
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.DetailedTransactionConnection, error) {
 	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
@@ -54,15 +53,16 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 		return fmt.Sprintf("%d:%d", tx.CompositeCursor.LedgerCreatedAt.UnixNano(), tx.CompositeCursor.ID)
 	})
 
-	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
+	edges := make([]*types.DetailedTransactionEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.TransactionEdge{
-			Node:   &edge.Node.Transaction,
-			Cursor: edge.Cursor,
+		edges[i] = &types.DetailedTransactionEdge{
+			Node:           &edge.Node.Transaction,
+			Cursor:         edge.Cursor,
+			AccountAddress: obj.StellarAddress,
 		}
 	}
 
-	return &graphql1.TransactionConnection{
+	return &graphql1.DetailedTransactionConnection{
 		Edges:    edges,
 		PageInfo: conn.PageInfo,
 	}, nil

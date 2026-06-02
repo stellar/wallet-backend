@@ -53,6 +53,11 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
+type DetailedTransactionConnection struct {
+	Edges    []*types.DetailedTransactionEdge `json:"edges"`
+	PageInfo *PageInfo                        `json:"pageInfo"`
+}
+
 type NativeBalance struct {
 	Balance            string    `json:"balance"`
 	TokenID            string    `json:"tokenId"`
