@@ -41,10 +41,6 @@ lint: ## Run golangci-lint linter (requires: brew install golangci-lint or equiv
 	@command -v golangci-lint >/dev/null 2>&1 || { echo >&2 "ERROR: golangci-lint not found. Install it: https://golangci-lint.run/usage/install/"; exit 1; }
 	golangci-lint run ./...
 
-generate: ## Run go generate
-	@echo "==> Running go generate..."
-	go generate ./...
-
 shadow: ## Run shadow analysis to find shadowed variables
 	@echo "==> Running shadow analyzer..."
 	@if ! command -v $(shell go env GOPATH)/bin/shadow >/dev/null 2>&1; then \
@@ -86,7 +82,7 @@ goimports: ## Check import formatting and organization
 		echo "✅ All files are compliant with goimports."; \
 	fi
 
-check: tidy fmt vet lint generate shadow deadcode goimports gql-validate ## Run all checks
+check: tidy fmt vet lint shadow deadcode gql-validate fix-imports ## Run all checks
 	@echo "✅ All checks completed successfully"
 
 # ==================================================================================== #
