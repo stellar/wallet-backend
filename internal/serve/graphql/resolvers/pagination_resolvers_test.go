@@ -91,3 +91,74 @@ func TestDetailedTransactionEdgeResolver(t *testing.T) {
 		require.Len(t, scs, 1) // only acct's state change, not other's
 	})
 }
+
+// TestDetailedTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected drives the full path:
+// Account.transactions builds the edge from the DB, then the edge's Operations resolver loads
+// account-scoped operations. The node selection deliberately omits ledgerCreatedAt. The edge
+// resolver pins the partition column from the node's LedgerCreatedAt, so that value must be the
+// real inserted time even when unrequested; otherwise chunk exclusion prunes the nested operations
+// and they return silently empty.
+func TestDetailedTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *testing.T) {
+	ctx := context.Background()
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
+
+	models := &data.Models{
+		Transactions: &data.TransactionModel{DB: testDBConnectionPool, Metrics: m.DB},
+		Operations:   &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
+	}
+	acctResolver := &accountResolver{&Resolver{models: models}}
+	edgeResolver := &detailedTransactionEdgeResolver{&Resolver{models: models}}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	acct := keypair.MustRandom().Address()
+	const toID int64 = 1 << 41 // distinct from the other edge test's 1<<40 range
+
+	t.Cleanup(func() {
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations_accounts WHERE operation_id = $1`, toID+1)
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations WHERE id = $1`, toID+1)
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM transactions_accounts WHERE tx_to_id = $1`, toID)
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM transactions WHERE to_id = $1`, toID)
+	})
+
+	_, err := testDBConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($2, $3, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+	`, now, types.HashBytea("00000000000000000000000000000000000000000000000000000000000000bb"), toID)
+	require.NoError(t, err)
+
+	_, err = testDBConnectionPool.Exec(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		VALUES ($1, $2, $3)
+	`, now, toID, types.AddressBytea(acct))
+	require.NoError(t, err)
+
+	_, err = testDBConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES ($2, 'PAYMENT', $3, 'op_success', true, 1, $1)
+	`, now, toID+1, types.XDRBytea([]byte("xdr")))
+	require.NoError(t, err)
+
+	_, err = testDBConnectionPool.Exec(ctx, `
+		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+		VALUES ($1, $2, $3)
+	`, now, toID+1, types.AddressBytea(acct))
+	require.NoError(t, err)
+
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(acct)}
+
+	// Node selection omits ledgerCreatedAt; the partition pin must still come from the DB row.
+	txCtx := getTestCtx("transactions", []string{"hash"})
+	conn, err := acctResolver.Transactions(txCtx, parentAccount, nil, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, conn.Edges, 1)
+	edge := conn.Edges[0]
+	require.False(t, edge.Node.LedgerCreatedAt.IsZero(), "node must carry the real ledger_created_at for partition pinning")
+
+	loaders := dataloaders.NewDataloaders(models)
+	opCtx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+	ops, err := edgeResolver.Operations(opCtx, edge)
+	require.NoError(t, err)
+	require.Len(t, ops, 1) // nested operations resolve only when the node's partition pin is correct
+	assert.Equal(t, toID+1, ops[0].ID)
+}

@@ -90,7 +90,11 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id")
+	// ledger_created_at is always selected even when unrequested: it is the hypertable partition
+	// column, and the DetailedTransactionEdge operations/stateChanges resolvers read it from the
+	// transaction node to pin the partition for chunk exclusion. Without it the node carries a zero
+	// time and those nested lists return empty.
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
