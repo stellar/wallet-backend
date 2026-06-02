@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
