@@ -104,6 +104,42 @@ func (this SACBalance) GetBalance() string      { return this.Balance }
 func (this SACBalance) GetTokenID() string      { return this.TokenID }
 func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
 
+// SEP41Allowance represents an approve() grant issued by a SEP-41 token holder.
+type SEP41Allowance struct {
+	Owner              string `json:"owner"`
+	Spender            string `json:"spender"`
+	TokenID            string `json:"tokenId"`
+	Amount             string `json:"amount"`
+	ExpirationLedger   uint32 `json:"expirationLedger"`
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
+}
+
+type SEP41AllowanceConnection struct {
+	Edges    []*SEP41AllowanceEdge `json:"edges"`
+	PageInfo *PageInfo             `json:"pageInfo"`
+}
+
+type SEP41AllowanceEdge struct {
+	Node   *SEP41Allowance `json:"node"`
+	Cursor string          `json:"cursor"`
+}
+
+// SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder.
+type SEP41Balance struct {
+	Balance            string    `json:"balance"`
+	TokenID            string    `json:"tokenId"`
+	TokenType          TokenType `json:"tokenType"`
+	Name               *string   `json:"name,omitempty"`
+	Symbol             *string   `json:"symbol,omitempty"`
+	Decimals           int32     `json:"decimals"`
+	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+}
+
+func (SEP41Balance) IsBalance()                   {}
+func (this SEP41Balance) GetBalance() string      { return this.Balance }
+func (this SEP41Balance) GetTokenID() string      { return this.TokenID }
+func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
+
 type StateChangeConnection struct {
 	Edges    []*StateChangeEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`
@@ -150,17 +186,19 @@ const (
 	TokenTypeNative  TokenType = "NATIVE"
 	TokenTypeClassic TokenType = "CLASSIC"
 	TokenTypeSac     TokenType = "SAC"
+	TokenTypeSep41   TokenType = "SEP41"
 )
 
 var AllTokenType = []TokenType{
 	TokenTypeNative,
 	TokenTypeClassic,
 	TokenTypeSac,
+	TokenTypeSep41,
 }
 
 func (e TokenType) IsValid() bool {
 	switch e {
-	case TokenTypeNative, TokenTypeClassic, TokenTypeSac:
+	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41:
 		return true
 	}
 	return false

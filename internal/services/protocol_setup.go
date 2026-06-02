@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -19,37 +19,39 @@ import (
 
 const rpcLedgerEntryBatchSize = 200
 
-// ProtocolSetupService classifies existing contracts on the Stellar network
-// by comparing WASM bytecodes against protocol-specific interface definitions.
-type ProtocolSetupService interface {
-	Run(ctx context.Context, protocolIDs []string) error
-}
-
+// protocolSetupService classifies existing contracts on the Stellar network
+// by handing batches of unclassified WASMs to each protocol's
+// ProtocolValidator black box.
 type protocolSetupService struct {
-	db                *pgxpool.Pool
-	rpcService        RPCService
-	protocolModel     data.ProtocolsModelInterface
-	protocolWasmModel data.ProtocolWasmsModelInterface
-	specExtractor     WasmSpecExtractor
-	validators        []ProtocolValidator
+	db                              *pgxpool.Pool
+	rpcService                      RPCService
+	models                          *data.Models
+	specExtractor                   WasmSpecExtractor
+	validators                      []ProtocolValidator
+	wasmClassificationFailuresTotal *prometheus.CounterVec
 }
 
-// NewProtocolSetupService creates a new ProtocolSetupService.
+// NewProtocolSetupService creates a new ProtocolSetupService. validators must
+// be in the desired first-match-wins priority order; pass the result of
+// services.BuildValidators with protocol IDs sorted (or call
+// services.GetAllValidatorIDs). wasmClassificationFailuresTotal may be nil;
+// when set, it is incremented at each WASM classification failure inside
+// DispatchClassification so operator-driven setup runs surface the same signal
+// as live ingest.
 func NewProtocolSetupService(
 	dbPool *pgxpool.Pool,
 	rpcService RPCService,
-	protocolModel data.ProtocolsModelInterface,
-	protocolWasmModel data.ProtocolWasmsModelInterface,
-	specExtractor WasmSpecExtractor,
+	models *data.Models,
 	validators []ProtocolValidator,
+	wasmClassificationFailuresTotal *prometheus.CounterVec,
 ) *protocolSetupService {
 	return &protocolSetupService{
-		db:                dbPool,
-		rpcService:        rpcService,
-		protocolModel:     protocolModel,
-		protocolWasmModel: protocolWasmModel,
-		specExtractor:     specExtractor,
-		validators:        validators,
+		db:                              dbPool,
+		rpcService:                      rpcService,
+		models:                          models,
+		specExtractor:                   NewWasmSpecExtractor(),
+		validators:                      validators,
+		wasmClassificationFailuresTotal: wasmClassificationFailuresTotal,
 	}
 }
 
@@ -59,58 +61,40 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 		return fmt.Errorf("no protocol validators provided")
 	}
 
-	// Step 1: Validate that validators match requested protocol IDs
-	validatorsByProtocol := make(map[string]ProtocolValidator, len(s.validators))
-	for _, v := range s.validators {
-		validatorsByProtocol[v.ProtocolID()] = v
-	}
-	for _, pid := range protocolIDs {
-		if _, ok := validatorsByProtocol[pid]; !ok {
-			return fmt.Errorf("no validator found for protocol %q", pid)
-		}
-	}
-
-	if s.specExtractor == nil {
-		return fmt.Errorf("no spec extractor provided")
-	}
-
 	defer func() {
-		if s.specExtractor == nil {
-			return
-		}
 		if err := s.specExtractor.Close(ctx); err != nil {
 			log.Ctx(ctx).Errorf("error closing spec extractor: %v", err)
 		}
 	}()
 
-	// Step 2: Validate that all requested protocols exist in the DB
+	// Validate that all requested protocols exist in the DB and have a
+	// registered validator.
 	if err := s.validateProtocolsExist(ctx, protocolIDs); err != nil {
 		return fmt.Errorf("validating protocols exist: %w", err)
 	}
 
-	// Step 3: Set classification_status to in_progress
+	// Set classification_status to in_progress.
 	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		return s.protocolModel.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusInProgress)
+		return s.models.Protocols.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusInProgress)
 	}); err != nil {
 		return fmt.Errorf("setting classification status to in_progress: %w", err)
 	}
 
-	// Run classification, setting status to failed on error
-	if err := s.classify(ctx, protocolIDs, validatorsByProtocol); err != nil {
-		// Use a fresh context for best-effort cleanup, since ctx may be cancelled
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := s.classify(ctx); err != nil {
+		// On shutdown ctx is cancelled; detach (keeping ctx values) so the
+		// failed-status write still lands and the status reaches a terminal state.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if txErr := db.RunInTransaction(cleanupCtx, s.db, func(dbTx pgx.Tx) error {
-			return s.protocolModel.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
+			return s.models.Protocols.UpdateClassificationStatus(cleanupCtx, dbTx, protocolIDs, data.StatusFailed)
 		}); txErr != nil {
 			log.Ctx(ctx).Errorf("error setting classification status to failed: %v", txErr)
 		}
 		return fmt.Errorf("classifying protocols: %w", err)
 	}
 
-	// Set classification_status to success
 	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		return s.protocolModel.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusSuccess)
+		return s.models.Protocols.UpdateClassificationStatus(ctx, dbTx, protocolIDs, data.StatusSuccess)
 	}); err != nil {
 		return fmt.Errorf("setting classification status to success: %w", err)
 	}
@@ -122,7 +106,7 @@ func (s *protocolSetupService) Run(ctx context.Context, protocolIDs []string) er
 // validateProtocolsExist checks that all requested protocol IDs exist in the DB.
 // Protocols are registered via SQL migration files in internal/db/migrations/protocols/.
 func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, protocolIDs []string) error {
-	found, err := s.protocolModel.GetByIDs(ctx, protocolIDs)
+	found, err := s.models.Protocols.GetByIDs(ctx, protocolIDs)
 	if err != nil {
 		return fmt.Errorf("querying protocols: %w", err)
 	}
@@ -146,15 +130,16 @@ func (s *protocolSetupService) validateProtocolsExist(ctx context.Context, proto
 	return nil
 }
 
-// classify queries protocol_wasms for unclassified hashes, fetches bytecodes via RPC,
-// then classifies them against the provided validators.
-func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []string, validatorsByProtocol map[string]ProtocolValidator) error {
-	// Get unclassified WASM hashes from the DB
-	unclassifiedWasms, err := s.protocolWasmModel.GetUnclassified(ctx)
+// classify pulls unclassified WASMs from protocol_wasms, fetches their
+// bytecodes via RPC, and hands the batch to the dispatcher. The validators
+// own everything that happens during classification — signature checks plus
+// any side writes (e.g. SEP-41 contract_tokens metadata). The framework
+// only persists protocol_wasms.protocol_id from the matches.
+func (s *protocolSetupService) classify(ctx context.Context) error {
+	unclassifiedWasms, err := s.models.ProtocolWasms.GetUnclassified(ctx)
 	if err != nil {
 		return fmt.Errorf("getting unclassified wasm hashes: %w", err)
 	}
-
 	if len(unclassifiedWasms) == 0 {
 		log.Ctx(ctx).Info("No unclassified WASMs found, nothing to classify")
 		return nil
@@ -166,75 +151,85 @@ func (s *protocolSetupService) classify(ctx context.Context, protocolIDs []strin
 	}
 	log.Ctx(ctx).Infof("Found %d unclassified WASM hashes to classify", len(hexHashes))
 
-	// Fetch bytecodes via RPC
 	wasmBytecodes, err := s.fetchWasmBytecodes(ctx, hexHashes)
 	if err != nil {
 		return fmt.Errorf("fetching wasm bytecodes via RPC: %w", err)
 	}
 	log.Ctx(ctx).Infof("Fetched %d WASM bytecodes from RPC (out of %d requested)", len(wasmBytecodes), len(hexHashes))
 
-	// Classify each WASM with a fetched bytecode.
-	// Each iteration is isolated via recover so a single hostile blob (crafted
-	// to panic inside the WASM decoder) cannot halt the whole classification
-	// run and leave classification_status stuck at in_progress.
-	matchedHashes := make(map[string][]types.HashBytea)
-	for wasmHash, bytecode := range wasmBytecodes {
-		s.classifyOne(ctx, wasmHash, bytecode, protocolIDs, validatorsByProtocol, matchedHashes)
+	bytecodesByHash := make(map[types.HashBytea][]byte, len(wasmBytecodes))
+	for hexHash, bytecode := range wasmBytecodes {
+		bytecodesByHash[types.HashBytea(hexHash)] = bytecode
 	}
 
-	// Persist results in a single transaction
-	err = db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		for protocolID, hashes := range matchedHashes {
-			if err := s.protocolWasmModel.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
+	// Pull protocol_contracts referencing these unclassified wasm hashes so
+	// validators can enrich them inside the same dbTx.
+	wasmHashes := make([]types.HashBytea, 0, len(bytecodesByHash))
+	for hash := range bytecodesByHash {
+		wasmHashes = append(wasmHashes, hash)
+	}
+	contracts, err := s.models.ProtocolContracts.GetByWasmHashes(ctx, wasmHashes)
+	if err != nil {
+		return fmt.Errorf("loading protocol_contracts for unclassified wasms: %w", err)
+	}
+
+	// Run dispatcher and persist matches inside one tx so a validator's side
+	// effects (e.g. contract_tokens metadata writes) commit atomically with
+	// the protocol_wasms.protocol_id stamp.
+	byProtocol, err := s.dispatchAndPersist(ctx, bytecodesByHash, contracts)
+	if err != nil {
+		return fmt.Errorf("dispatching classification: %w", err)
+	}
+
+	for pid, hashes := range byProtocol {
+		log.Ctx(ctx).Infof("Protocol %s: matched %d WASMs", pid, len(hashes))
+	}
+	return nil
+}
+
+// dispatchAndPersist runs DispatchClassification inside a single tx and
+// updates protocol_wasms.protocol_id from the matches, returning them grouped
+// per protocol. Per-protocol contract_tokens writes happen inside this same tx
+// via validator side effects.
+func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, bytecodesByHash map[types.HashBytea][]byte, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
+	var byProtocol map[string][]types.HashBytea
+	err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		// All candidates here are unclassified, so KnownProtocolID is empty.
+		var knownByHash map[types.HashBytea]string
+		matches, dispatchErr := DispatchClassification(
+			ctx, dbTx, s.specExtractor, s.validators,
+			bytecodesByHash, contracts, s.rpcService, s.models, knownByHash,
+			s.wasmClassificationFailuresTotal,
+		)
+		if dispatchErr != nil {
+			return fmt.Errorf("dispatching: %w", dispatchErr)
+		}
+		byProtocol = bucketByProtocol(matches)
+		for protocolID, hashes := range byProtocol {
+			if err := s.models.ProtocolWasms.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
 				return fmt.Errorf("updating protocol_id for %s: %w", protocolID, err)
 			}
-			log.Ctx(ctx).Infof("Protocol %s: matched %d WASMs", protocolID, len(hashes))
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("persisting classification results: %w", err)
+		return nil, fmt.Errorf("running protocol classification transaction: %w", err)
 	}
-
-	return nil
+	return byProtocol, nil
 }
 
-// classifyOne runs spec extraction + validation for a single WASM, recording
-// the first matching protocol. It recovers from panics in the extractor/
-// validators so a single hostile blob cannot halt the entire classify run.
-func (s *protocolSetupService) classifyOne(
-	ctx context.Context,
-	wasmHash string,
-	bytecode []byte,
-	protocolIDs []string,
-	validatorsByProtocol map[string]ProtocolValidator,
-	matchedHashes map[string][]types.HashBytea,
-) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Ctx(ctx).Errorf("panic classifying WASM %s, skipping: %v\nstack:\n%s", wasmHash, r, debug.Stack())
-		}
-	}()
-
-	specEntries, extractErr := s.specExtractor.ExtractSpec(ctx, bytecode)
-	if extractErr != nil {
-		log.Ctx(ctx).Warnf("Failed to extract spec from WASM %s: %v", wasmHash, extractErr)
-		return
+// bucketByProtocol groups matched wasm hashes by protocol id.
+func bucketByProtocol(matches map[types.HashBytea]string) map[string][]types.HashBytea {
+	out := make(map[string][]types.HashBytea)
+	for hash, pid := range matches {
+		out[pid] = append(out[pid], hash)
 	}
-
-	for _, pid := range protocolIDs {
-		validator := validatorsByProtocol[pid]
-		if validator.Validate(specEntries) {
-			matchedHashes[pid] = append(matchedHashes[pid], types.HashBytea(wasmHash))
-			return // A WASM matches at most one protocol
-		}
-	}
+	return out
 }
 
 // fetchWasmBytecodes fetches WASM bytecodes from RPC for the given hex hashes.
 // Returns a map of hexHash -> bytecode. Hashes not found in the ledger (expired/evicted) are omitted.
 func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes []string) (map[string][]byte, error) {
-	// Build base64 ledger keys
 	base64Keys := make([]string, 0, len(hexHashes))
 
 	for _, hexHash := range hexHashes {
@@ -262,7 +257,6 @@ func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes
 		base64Keys = append(base64Keys, base64Key)
 	}
 
-	// Batch keys into groups and fetch from RPC
 	result := make(map[string][]byte, len(hexHashes))
 	foundKeys := make(map[string]struct{})
 
@@ -296,7 +290,6 @@ func (s *protocolSetupService) fetchWasmBytecodes(ctx context.Context, hexHashes
 		}
 	}
 
-	// Log warnings for hashes not found (expired/evicted)
 	for _, hexHash := range hexHashes {
 		if _, found := foundKeys[hexHash]; !found {
 			log.Ctx(ctx).Warnf("WASM hash %s not found in ledger (possibly expired/evicted)", hexHash)

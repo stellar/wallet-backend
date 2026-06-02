@@ -104,28 +104,3 @@ func TestWasmSpecExtractor_RespectsWasmCompileTimeoutConstant(t *testing.T) {
 	assert.Greater(t, wasmCompileTimeout, time.Second)
 	assert.LessOrEqual(t, wasmCompileTimeout, 30*time.Second)
 }
-
-func TestSEP41ProtocolValidator_RealWasm(t *testing.T) {
-	ctx := context.Background()
-	extractor := NewWasmSpecExtractor()
-	defer func() { require.NoError(t, extractor.Close(ctx)) }()
-
-	validator := NewSEP41ProtocolValidator()
-
-	t.Run("token contract validates as SEP-41", func(t *testing.T) {
-		wasmBytes := loadTestWasm(t, "soroban_token_contract.wasm")
-		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
-		require.NoError(t, err)
-
-		assert.True(t, validator.Validate(specs), "token contract should validate as SEP-41")
-		assert.Equal(t, "SEP41", validator.ProtocolID())
-	})
-
-	t.Run("increment contract does not validate as SEP-41", func(t *testing.T) {
-		wasmBytes := loadTestWasm(t, "soroban_increment_contract.wasm")
-		specs, err := extractor.ExtractSpec(ctx, wasmBytes)
-		require.NoError(t, err)
-
-		assert.False(t, validator.Validate(specs), "increment contract should not validate as SEP-41")
-	})
-}

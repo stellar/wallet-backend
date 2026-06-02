@@ -12,6 +12,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -56,6 +57,16 @@ type SACBalanceChangeKey struct {
 	ContractID string
 }
 
+// ContractEventKey identifies a contract-event group by transaction and
+// operation index within a single ledger. The indexer extracts contract
+// events once per InvokeHostFunction op (successful txs only) and stashes
+// them under this key so downstream protocol processors can consume them
+// without re-decoding LedgerCloseMeta.
+type ContractEventKey struct {
+	TxIdx uint32
+	OpIdx uint32
+}
+
 type IndexerBuffer struct {
 	mu                             sync.RWMutex
 	txByHash                       map[string]*types.Transaction
@@ -68,8 +79,10 @@ type IndexerBuffer struct {
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
-	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms
+	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
+	wasmBytecodesByHash            map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
 	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
+	contractEventsByKey            map[ContractEventKey][]xdr.ContractEvent
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -87,7 +100,9 @@ func NewIndexerBuffer() *IndexerBuffer {
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
+		wasmBytecodesByHash:            make(map[string][]byte),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
+		contractEventsByKey:            make(map[ContractEventKey][]xdr.ContractEvent),
 	}
 }
 
@@ -489,8 +504,25 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 		}
 	}
 
+	// Merge wasm bytecodes (first-write wins; bytecode for a given hash is content-addressed and immutable)
+	for hash, code := range otherBuffer.wasmBytecodesByHash {
+		if _, exists := b.wasmBytecodesByHash[hash]; !exists {
+			b.wasmBytecodesByHash[hash] = code
+		}
+	}
+
 	// Merge protocol contracts (last-write-wins: otherBuffer has later ledger data)
 	maps.Copy(b.protocolContractsByID, otherBuffer.protocolContractsByID)
+
+	// Merge contract events (first-write wins: each (txIdx, opIdx) key is
+	// produced by exactly one goroutine in ProcessLedgerTransactions, so
+	// collisions don't occur in normal operation. First-write keeps merges
+	// idempotent if a caller ever merges twice.)
+	for key, events := range otherBuffer.contractEventsByKey {
+		if _, exists := b.contractEventsByKey[key]; !exists {
+			b.contractEventsByKey[key] = events
+		}
+	}
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity.
@@ -509,7 +541,9 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.trustlineChangesByTrustlineKey)
 	clear(b.sacContractsByID)
 	clear(b.protocolWasmsByHash)
+	clear(b.wasmBytecodesByHash)
 	clear(b.protocolContractsByID)
+	clear(b.contractEventsByKey)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
@@ -552,7 +586,9 @@ func (b *IndexerBuffer) GetSACContracts() map[string]*data.Contract {
 	return maps.Clone(b.sacContractsByID)
 }
 
-// PushProtocolWasm adds a protocol WASM to the buffer with deduplication (first-write-wins).
+// PushProtocolWasm adds a protocol WASM record to the buffer (deduplicated by
+// hash; first-write wins). The record's ProtocolID is left for the
+// classification dispatcher to populate at persistence time.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 	b.mu.Lock()
@@ -564,6 +600,20 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 	}
 }
 
+// PushProtocolWasmBytecode stores raw WASM bytecode keyed by hash. Used by the
+// classification dispatcher in PersistLedgerData to extract specs and run
+// per-protocol validators. Bytecode is content-addressed by hash, so
+// first-write wins is safe.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushProtocolWasmBytecode(wasmHash string, bytecode []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.wasmBytecodesByHash[wasmHash]; !exists {
+		b.wasmBytecodesByHash[wasmHash] = bytecode
+	}
+}
+
 // GetProtocolWasms returns a clone of the protocol WASMs map.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
@@ -571,6 +621,19 @@ func (b *IndexerBuffer) GetProtocolWasms() map[string]data.ProtocolWasms {
 	defer b.mu.RUnlock()
 
 	return maps.Clone(b.protocolWasmsByHash)
+}
+
+// GetProtocolWasmBytecodes returns a clone of the wasmHash → bytecode map.
+// The map is a shallow copy: the returned []byte values alias the buffer's
+// internal storage and MUST be treated as read-only by callers. Bytecode is
+// content-addressed by wasmHash and immutable by construction; mutating a
+// returned slice would corrupt the buffer's encapsulated state.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetProtocolWasmBytecodes() map[string][]byte {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.wasmBytecodesByHash)
 }
 
 // PushProtocolContracts adds a protocol contract to the buffer with deduplication (last-write-wins).
@@ -589,6 +652,35 @@ func (b *IndexerBuffer) GetProtocolContracts() map[string]data.ProtocolContracts
 	defer b.mu.RUnlock()
 
 	return maps.Clone(b.protocolContractsByID)
+}
+
+// PushContractEvents stashes the contract events emitted by a single
+// InvokeHostFunction operation. The caller is expected to extract events
+// once per (txIdx, opIdx) on successful transactions only — protocol
+// processors consume from this map instead of re-decoding LedgerCloseMeta.
+// First-write wins on key collisions (which should not occur under the
+// indexer's parallel-per-tx split).
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushContractEvents(key ContractEventKey, events []xdr.ContractEvent) {
+	if len(events) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.contractEventsByKey[key]; !exists {
+		b.contractEventsByKey[key] = events
+	}
+}
+
+// GetContractEvents returns a shallow clone of the contract-events map.
+// Event slices alias buffer-owned storage and MUST be treated as read-only.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetContractEvents() map[ContractEventKey][]xdr.ContractEvent {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return maps.Clone(b.contractEventsByKey)
 }
 
 // ParseAssetString parses a "CODE:ISSUER" formatted asset string into its components.

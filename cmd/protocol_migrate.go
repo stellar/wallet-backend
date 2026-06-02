@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"go/types"
 	"io"
+	"net/http"
+	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 type protocolMigrateCmd struct{}
@@ -186,20 +190,6 @@ func runMigration(
 ) error {
 	ctx := context.Background()
 
-	// Build processors from protocol IDs using the dynamic registry
-	var processors []services.ProtocolProcessor
-	for _, pid := range opts.protocolIDs {
-		factory, ok := services.GetProcessor(pid)
-		if !ok {
-			return fmt.Errorf("unknown protocol ID %q — no processor registered", pid)
-		}
-		p := factory()
-		if p == nil {
-			return fmt.Errorf("processor factory for protocol %q returned nil", pid)
-		}
-		processors = append(processors, p)
-	}
-
 	log.Ctx(ctx).Infof("Starting protocol-migrate %s for protocols: %v", label, opts.protocolIDs)
 
 	// Open DB connection
@@ -209,11 +199,48 @@ func runMigration(
 	}
 	defer dbPool.Close()
 
-	// Create models
+	// Create models so the per-protocol processor factories (registered via
+	// services.RegisterProcessor) can pull what they need from ProtocolDeps.
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	models, err := data.NewModels(dbPool, m.DB)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
+	}
+
+	// ContractMetadataService is wired in only if an RPC URL is available; the
+	// protocol-migrate CLI does not strictly require RPC (datastore backend
+	// runs without one), but per-protocol contract metadata enrichment on
+	// first-ingest does. A nil ContractMetadataService is tolerated by
+	// processors — they fall back to defaults.
+	var metadataService services.ContractMetadataService
+	if opts.rpcURL != "" {
+		rpcService, rpcErr := services.NewRPCService(
+			opts.rpcURL,
+			opts.networkPassphrase,
+			&http.Client{Timeout: 30 * time.Second},
+			m.RPC,
+		)
+		if rpcErr != nil {
+			return fmt.Errorf("instantiating rpc service for metadata fetcher: %w", rpcErr)
+		}
+		metadataPool := pond.NewPool(0)
+		defer metadataPool.StopAndWait()
+		cms, cmsErr := services.NewContractMetadataService(rpcService, models.Contract, metadataPool)
+		if cmsErr != nil {
+			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
+		}
+		metadataService = cms
+	}
+
+	deps := services.ProtocolDeps{
+		NetworkPassphrase:       opts.networkPassphrase,
+		Models:                  models,
+		ContractMetadataService: metadataService,
+		MetricsService:          m,
+	}
+	processors, err := services.BuildProcessors(deps, opts.protocolIDs)
+	if err != nil {
+		return fmt.Errorf("building protocol processors: %w", err)
 	}
 
 	// Build a ledger backend using the same selector the ingest service uses,

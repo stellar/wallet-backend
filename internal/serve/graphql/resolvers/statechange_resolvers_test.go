@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -376,4 +377,67 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		require.NoError(t, err) // Dataloader returns nil, not error for missing data
 		assert.Nil(t, tx)
 	})
+}
+
+func TestAccountResolver_SEP41TransferSurfacesAsStandardBalanceChange(t *testing.T) {
+	// Sep-41 transfer → state_changes row with category=BALANCE, reason=CREDIT, tokenId set,
+	// amount set, and (new) to_muxed_id set. Through Account.stateChanges this should come
+	// back as a StandardBalanceChange with the expected fields.
+	acct := keypair.MustRandom().Address()
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(acct)}
+
+	contractAddr := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	// Minimal state_changes row. No FK to operations/transactions because the hypertable
+	// already removed those FKs (see migrations).
+	// Token column is BYTEA-encoded strkey via NullAddressBytea. Use pgx binding via driver.Valuer
+	// by going through the raw SQL: `encode(decode(...), 'hex')` is messy; just encode the 33-byte
+	// BYTEA directly here.
+	execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1::bytea`, mustAddressBytes(t, acct))
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1::bytea`, mustAddressBytes(t, acct))
+	})
+
+	execTestDB(t, `
+		INSERT INTO state_changes (
+			to_id, state_change_id, state_change_category, state_change_reason,
+			ledger_created_at, ledger_number, account_id, operation_id,
+			token_id, amount, to_muxed_id
+		) VALUES ($1, $2, $3, $4, NOW(), $5, $6::bytea, $7, $8::bytea, $9, $10)
+	`,
+		int64(42<<32), int64(1),
+		string(types.StateChangeCategoryBalance), string(types.StateChangeReasonCredit),
+		uint32(100), mustAddressBytes(t, acct), int64((42<<32)|1),
+		mustAddressBytes(t, contractAddr), "500",
+		"18446744073709551615", // u64 max, proves TEXT column handles >2^63
+	)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
+		},
+		metrics: m,
+	}}
+
+	ctx := getTestCtx("stateChanges", []string{
+		"type", "reason", "tokenId", "amount", "toMuxedId", "ledgerNumber",
+	})
+
+	first := int32(10)
+	conn, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &first, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	require.Len(t, conn.Edges, 1)
+
+	bc, ok := conn.Edges[0].Node.(*types.StandardBalanceStateChangeModel)
+	require.True(t, ok, "edge[0] should be StandardBalanceStateChangeModel, got %T", conn.Edges[0].Node)
+	assert.Equal(t, types.StateChangeCategoryBalance, bc.StateChangeCategory)
+	assert.Equal(t, types.StateChangeReasonCredit, bc.StateChangeReason)
+	assert.Equal(t, contractAddr, bc.TokenID.String())
+	assert.True(t, bc.Amount.Valid)
+	assert.Equal(t, "500", bc.Amount.String)
+	assert.True(t, bc.ToMuxedID.Valid)
+	assert.Equal(t, "18446744073709551615", bc.ToMuxedID.String)
 }

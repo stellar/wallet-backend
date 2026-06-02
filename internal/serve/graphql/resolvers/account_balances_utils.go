@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -37,6 +38,20 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 		SellingLiabilities: sellingLiabilitiesStr,
 		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
+}
+
+// buildSEP41BalanceFromDB constructs a SEP41Balance from SEP-41 balance rows joined with
+// contract_tokens metadata. `TokenID` is the C-address of the contract.
+func buildSEP41BalanceFromDB(bal sep41data.Balance) *graphql1.SEP41Balance {
+	return &graphql1.SEP41Balance{
+		TokenID:            bal.TokenID,
+		Balance:            bal.Balance,
+		TokenType:          graphql1.TokenTypeSep41,
+		Name:               bal.Name,
+		Symbol:             bal.Symbol,
+		Decimals:           int32(bal.Decimals),
+		LastModifiedLedger: bal.LedgerNumber,
+	}
 }
 
 // buildSACBalanceFromDB constructs a SACBalance from database SAC balance data.

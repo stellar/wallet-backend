@@ -28,6 +28,7 @@ type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
 	BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error)
+	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
 
 // ProtocolContractsModel implements ProtocolContractsModelInterface.
@@ -105,6 +106,34 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByProtocolID", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying contracts for protocol %s: %w", protocolID, err)
+	}
+	return contracts, nil
+}
+
+// GetByWasmHashes returns protocol_contracts rows whose wasm_hash is in the given set.
+func (m *ProtocolContractsModel) GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error) {
+	if len(wasmHashes) == 0 {
+		return nil, nil
+	}
+	hashBytes := make([][]byte, len(wasmHashes))
+	for i, h := range wasmHashes {
+		val, err := h.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting wasm hash to bytes: %w", err)
+		}
+		hashBytes[i] = val.([]byte)
+	}
+
+	const query = `SELECT contract_id, wasm_hash, name, created_at FROM protocol_contracts WHERE wasm_hash = ANY($1::bytea[])`
+
+	start := time.Now()
+	contracts, err := db.QueryMany[ProtocolContracts](ctx, m.DB, query, hashBytes)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByWasmHashes", "protocol_contracts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByWasmHashes", "protocol_contracts").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByWasmHashes", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying protocol_contracts by wasm hashes: %w", err)
 	}
 	return contracts, nil
 }

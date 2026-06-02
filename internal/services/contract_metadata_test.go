@@ -17,6 +17,14 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 )
 
+func init() {
+	// Disable the FetchSingleField retry loop in tests so existing mock-call
+	// expectations (.Once(), .Twice()) stay readable. Tests that exercise the
+	// retry path opt in by overriding these vars locally with t.Cleanup.
+	simulateMaxAttempts = 1
+	simulateInitialBackoff = 0
+}
+
 // Helper functions for creating test XDR values
 func ptrToScString(s string) *xdr.ScString {
 	str := xdr.ScString(s)
@@ -195,6 +203,68 @@ func TestFetchSingleField(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "context error")
+	})
+
+	t.Run("retries transient RPC errors then succeeds", func(t *testing.T) {
+		// Override retries for this test only.
+		origAttempts, origBackoff := simulateMaxAttempts, simulateInitialBackoff
+		simulateMaxAttempts, simulateInitialBackoff = 3, 0
+		t.Cleanup(func() { simulateMaxAttempts, simulateInitialBackoff = origAttempts, origBackoff })
+
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(2)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Two transient failures (a "latency" message we whitelisted) then success.
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("[-32603] latency since last known ledger closed is too high"),
+		).Twice()
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results: []entities.RPCSimulateHostFunctionResult{
+					{XDR: xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("OK")}},
+				},
+			}, nil,
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		val, err := cms.FetchSingleField(ctx, contractID, "name")
+		require.NoError(t, err)
+		s, ok := val.GetStr()
+		require.True(t, ok)
+		assert.Equal(t, "OK", string(s))
+	})
+
+	t.Run("does not retry permanent errors", func(t *testing.T) {
+		origAttempts, origBackoff := simulateMaxAttempts, simulateInitialBackoff
+		simulateMaxAttempts, simulateInitialBackoff = 3, 0
+		t.Cleanup(func() { simulateMaxAttempts, simulateInitialBackoff = origAttempts, origBackoff })
+
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(2)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// Permanent-shaped error (no transient marker) — must bail on first attempt.
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{}, errors.New("invalid contract: function not found"),
+		).Once()
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, err = cms.FetchSingleField(ctx, contractID, "name")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "function not found")
 	})
 }
 

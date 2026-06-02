@@ -1,8 +1,6 @@
 package services
 
 import (
-	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,11 +9,9 @@ import (
 
 func withCleanProcessorRegistry(t *testing.T) {
 	t.Helper()
-	processorRegistryMu.RLock()
 	original := processorRegistry
-	processorRegistryMu.RUnlock()
-	resetProcessorRegistry(map[string]func() ProtocolProcessor{})
-	t.Cleanup(func() { resetProcessorRegistry(original) })
+	processorRegistry = map[string]func(ProtocolDeps) ProtocolProcessor{}
+	t.Cleanup(func() { processorRegistry = original })
 }
 
 func TestRegisterProcessor(t *testing.T) {
@@ -23,14 +19,14 @@ func TestRegisterProcessor(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
 		called := false
-		RegisterProcessor("TEST", func() ProtocolProcessor {
+		RegisterProcessor("TEST", func(ProtocolDeps) ProtocolProcessor {
 			called = true
 			return nil
 		})
 
 		factory, ok := GetProcessor("TEST")
 		require.True(t, ok)
-		factory()
+		factory(ProtocolDeps{})
 		assert.True(t, called)
 	})
 
@@ -45,51 +41,25 @@ func TestRegisterProcessor(t *testing.T) {
 	t.Run("re-register overwrites previous factory", func(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
-		RegisterProcessor("DUP", func() ProtocolProcessor { return nil })
+		RegisterProcessor("DUP", func(ProtocolDeps) ProtocolProcessor { return nil })
 
 		mock := NewProtocolProcessorMock(t)
 		mock.On("ProtocolID").Return("DUP")
-		RegisterProcessor("DUP", func() ProtocolProcessor { return mock })
+		RegisterProcessor("DUP", func(ProtocolDeps) ProtocolProcessor { return mock })
 
 		factory, ok := GetProcessor("DUP")
 		require.True(t, ok)
-		p := factory()
+		p := factory(ProtocolDeps{})
 		assert.Equal(t, "DUP", p.ProtocolID())
 	})
 
-	t.Run("GetAllProcessors returns copy of all registered", func(t *testing.T) {
+	t.Run("GetAllProcessorIDs returns sorted protocol IDs", func(t *testing.T) {
 		withCleanProcessorRegistry(t)
 
-		RegisterProcessor("A", func() ProtocolProcessor { return nil })
-		RegisterProcessor("B", func() ProtocolProcessor { return nil })
+		RegisterProcessor("B", func(ProtocolDeps) ProtocolProcessor { return nil })
+		RegisterProcessor("A", func(ProtocolDeps) ProtocolProcessor { return nil })
 
-		all := GetAllProcessors()
-		assert.Len(t, all, 2)
-		_, hasA := all["A"]
-		_, hasB := all["B"]
-		assert.True(t, hasA)
-		assert.True(t, hasB)
-	})
-
-	t.Run("concurrent register and get does not race", func(t *testing.T) {
-		withCleanProcessorRegistry(t)
-
-		const n = 50
-		var wg sync.WaitGroup
-		wg.Add(n * 2)
-
-		for i := range n {
-			id := fmt.Sprintf("PROTO_%d", i)
-			go func() {
-				defer wg.Done()
-				RegisterProcessor(id, func() ProtocolProcessor { return nil })
-			}()
-			go func() {
-				defer wg.Done()
-				GetProcessor(id)
-			}()
-		}
-
-		wg.Wait()
+		ids := GetAllProcessorIDs()
+		assert.Equal(t, []string{"A", "B"}, ids)
 	})
 }

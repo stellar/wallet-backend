@@ -29,6 +29,23 @@ func TestIngestionMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.ErrorsTotal)
 	require.NotNil(t, m.StateChangeProcessingDuration)
 	require.NotNil(t, m.StateChangesTotal)
+	require.NotNil(t, m.WasmClassificationFailuresTotal)
+}
+
+func TestIngestionMetrics_WasmClassificationFailures(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.WasmClassificationFailuresTotal.WithLabelValues("unknown", "classify_error").Inc()
+	m.WasmClassificationFailuresTotal.WithLabelValues("unknown", "classify_error").Inc()
+	m.WasmClassificationFailuresTotal.WithLabelValues("sep41", "classify_error").Inc()
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(
+		m.WasmClassificationFailuresTotal.WithLabelValues("unknown", "classify_error"),
+	))
+	assert.Equal(t, 1.0, testutil.ToFloat64(
+		m.WasmClassificationFailuresTotal.WithLabelValues("sep41", "classify_error"),
+	))
 }
 
 func TestIngestionMetrics_Gauges(t *testing.T) {
@@ -194,6 +211,7 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 		m.LagLedgers, m.LedgerFetchDuration,
 		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
+		m.WasmClassificationFailuresTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)

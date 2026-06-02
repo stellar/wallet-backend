@@ -13,13 +13,23 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// ProtocolWasmProcessor extracts WASM hashes from ContractCode ledger entries.
-// It processes ledger changes to identify new WASM uploads for protocol tracking.
+// ProtocolWasmObservation pairs a protocol_wasms record (with NULL ProtocolID
+// at this stage) with the raw bytecode that was uploaded. Downstream
+// classification fills in ProtocolID; the bytecode is what validators consume
+// via the spec extractor.
+type ProtocolWasmObservation struct {
+	Record   data.ProtocolWasms
+	Bytecode []byte
+}
+
+// ProtocolWasmProcessor extracts WASM hashes and bytecodes from ContractCode
+// ledger entries. It does not classify on the fly — that is the job of the
+// per-batch ProtocolValidator dispatcher run inside PersistLedgerData.
 type ProtocolWasmProcessor struct {
 	metricsService *metrics.IngestionMetrics
 }
 
-// NewProtocolWasmProcessor creates a new protocol WASM processor.
+// NewProtocolWasmProcessor creates a protocol WASM processor.
 func NewProtocolWasmProcessor(metricsService *metrics.IngestionMetrics) *ProtocolWasmProcessor {
 	return &ProtocolWasmProcessor{
 		metricsService: metricsService,
@@ -31,9 +41,10 @@ func (p *ProtocolWasmProcessor) Name() string {
 	return "protocol_wasms"
 }
 
-// ProcessOperation extracts WASM hashes from an operation's ledger changes.
-// Only processes ContractCode entries that have a Post state (created or updated).
-func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]data.ProtocolWasms, error) {
+// ProcessOperation extracts WASM hashes and raw bytecode from an operation's
+// ledger changes. Only processes ContractCode entries that have a Post state
+// (created or updated).
+func (p *ProtocolWasmProcessor) ProcessOperation(_ context.Context, opWrapper *TransactionOperationWrapper) ([]ProtocolWasmObservation, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -47,17 +58,21 @@ func (p *ProtocolWasmProcessor) ProcessOperation(ctx context.Context, opWrapper 
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	var wasms []data.ProtocolWasms
+	var observations []ProtocolWasmObservation
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractCode || change.Post == nil {
 			continue
 		}
 
-		hash := change.Post.Data.MustContractCode().Hash
-		wasms = append(wasms, data.ProtocolWasms{
-			WasmHash: types.HashBytea(hex.EncodeToString(hash[:])),
+		entry := change.Post.Data.MustContractCode()
+		bytecode := append([]byte(nil), entry.Code...)
+		observations = append(observations, ProtocolWasmObservation{
+			Record: data.ProtocolWasms{
+				WasmHash: types.HashBytea(hex.EncodeToString(entry.Hash[:])),
+			},
+			Bytecode: bytecode,
 		})
 	}
 
-	return wasms, nil
+	return observations, nil
 }

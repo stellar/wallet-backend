@@ -110,9 +110,9 @@ type MockProtocolWasmsProcessor struct {
 	mock.Mock
 }
 
-func (m *MockProtocolWasmsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]data.ProtocolWasms, error) {
+func (m *MockProtocolWasmsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]processors.ProtocolWasmObservation, error) {
 	args := m.Called(ctx, opWrapper)
-	return args.Get(0).([]data.ProtocolWasms), args.Error(1)
+	return args.Get(0).([]processors.ProtocolWasmObservation), args.Error(1)
 }
 
 func (m *MockProtocolWasmsProcessor) Name() string {
@@ -135,13 +135,13 @@ func (m *MockProtocolContractsProcessor) Name() string {
 }
 
 var (
-	_ ParticipantsProcessorInterface                = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface               = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface                   = &MockOperationProcessor{}
-	_ LedgerChangeProcessor[types.TrustlineChange]  = &MockTrustlinesProcessor{}
-	_ LedgerChangeProcessor[types.AccountChange]    = &MockAccountsProcessor{}
-	_ LedgerChangeProcessor[types.SACBalanceChange] = &MockSACBalancesProcessor{}
-	_ LedgerChangeProcessor[*data.Contract]         = &MockSACInstancesProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolWasms]     = &MockProtocolWasmsProcessor{}
-	_ LedgerChangeProcessor[data.ProtocolContracts] = &MockProtocolContractsProcessor{}
+	_ ParticipantsProcessorInterface                            = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface                           = &MockTokenTransferProcessor{}
+	_ OperationProcessorInterface                               = &MockOperationProcessor{}
+	_ LedgerChangeProcessor[types.TrustlineChange]              = &MockTrustlinesProcessor{}
+	_ LedgerChangeProcessor[types.AccountChange]                = &MockAccountsProcessor{}
+	_ LedgerChangeProcessor[types.SACBalanceChange]             = &MockSACBalancesProcessor{}
+	_ LedgerChangeProcessor[*data.Contract]                     = &MockSACInstancesProcessor{}
+	_ LedgerChangeProcessor[processors.ProtocolWasmObservation] = &MockProtocolWasmsProcessor{}
+	_ LedgerChangeProcessor[data.ProtocolContracts]             = &MockProtocolContractsProcessor{}
 )
