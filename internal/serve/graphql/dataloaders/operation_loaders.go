@@ -73,26 +73,18 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 	)
 }
 
-// accountOperationsByToIDLoader batches account-scoped operation lookups by transaction ToID.
-// A request resolves a single accountByAddress, so the whole batch shares one account — the
-// account, columns, etc. are read from keys[0], matching the existing loaders' convention for
-// batch-wide parameters.
+// accountOperationsByToIDLoader batches account-scoped operation lookups by transaction ToID,
+// grouping the batch by account so a multi-account request never cross-contaminates edges (see
+// newAccountScopedLoader). Operations carry no account column, so the grouping key is derived from
+// the operation ID via TOID bit masking: tx_to_id = operation.ID &^ 0xFFF.
 func accountOperationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.Operation, error) {
-			accountID := keys[0].AccountID
-			columns := keys[0].Columns
-			toIDs := make([]int64, len(keys))
-			ledgerCreatedAts := make([]time.Time, len(keys))
-			for i, key := range keys {
-				toIDs[i] = key.ToID
-				ledgerCreatedAts[i] = key.LedgerCreatedAt
-			}
-			return models.Operations.BatchGetAccountOperationsByToIDs(ctx, accountID, toIDs, ledgerCreatedAts, columns)
-		},
-		func(item *types.Operation) int64 { return item.ID &^ 0xFFF },
+	return newAccountScopedLoader(
+		models.Operations.BatchGetAccountOperationsByToIDs,
+		func(key OperationColumnsKey) string { return key.AccountID },
+		func(key OperationColumnsKey) string { return key.Columns },
 		func(key OperationColumnsKey) int64 { return key.ToID },
-		func(item *types.Operation) types.Operation { return *item },
+		func(key OperationColumnsKey) time.Time { return key.LedgerCreatedAt },
+		func(item *types.Operation) int64 { return item.ID &^ 0xFFF },
 	)
 }
 

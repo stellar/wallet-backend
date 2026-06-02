@@ -217,6 +217,9 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 // column, so scope through operations_accounts (segmentby=account_id) via the TOID band, then a PK
 // LATERAL into operations.
 func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.Operation, error) {
+	if len(toIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
+	}
 	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
 	query := fmt.Sprintf(`
 		SELECT %s

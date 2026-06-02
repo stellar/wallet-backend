@@ -134,6 +134,65 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 	)
 }
 
+// newAccountScopedLoader creates a dataloader for account-scoped one-to-many lookups keyed by
+// transaction ToID. A single GraphQL request can alias accountByAddress for multiple accounts, so a
+// single batch may contain keys for different accounts. This groups keys by account, fetches each
+// account once (still batching that account's ToIDs into one query), and maps results back per
+// (account, ToID) — so two accounts that share a transaction never surface each other's rows on the
+// wrong edge.
+func newAccountScopedLoader[K comparable, V any](
+	fetch func(ctx context.Context, accountID string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*V, error),
+	accountID func(key K) string,
+	columns func(key K) string,
+	toID func(key K) int64,
+	ledgerCreatedAt func(key K) time.Time,
+	itemToID func(item *V) int64,
+) *dataloadgen.Loader[K, []*V] {
+	return dataloadgen.NewLoader(
+		func(ctx context.Context, keys []K) ([][]*V, []error) {
+			result := make([][]*V, len(keys))
+			errs := make([]error, len(keys))
+
+			indicesByAccount := make(map[string][]int)
+			for i, key := range keys {
+				account := accountID(key)
+				indicesByAccount[account] = append(indicesByAccount[account], i)
+			}
+
+			for account, indices := range indicesByAccount {
+				toIDs := make([]int64, len(indices))
+				ledgerCreatedAts := make([]time.Time, len(indices))
+				for j, i := range indices {
+					toIDs[j] = toID(keys[i])
+					ledgerCreatedAts[j] = ledgerCreatedAt(keys[i])
+				}
+
+				// All keys for one account in one connection request the same columns, so reading
+				// columns from the group's first key is safe.
+				items, err := fetch(ctx, account, toIDs, ledgerCreatedAts, columns(keys[indices[0]]))
+				if err != nil {
+					for _, i := range indices {
+						errs[i] = err
+					}
+					continue
+				}
+
+				itemsByToID := make(map[int64][]*V)
+				for _, item := range items {
+					itemsByToID[itemToID(item)] = append(itemsByToID[itemToID(item)], item)
+				}
+				for _, i := range indices {
+					result[i] = itemsByToID[toID(keys[i])]
+				}
+			}
+
+			return result, errs
+		},
+		dataloadgen.WithBatchCapacity(100),
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
 // newOneToOneLoader is a generic helper function that creates a dataloader for one-to-one relationships.
 // It abstracts the common pattern of fetching a single item for each key and returning them in the
 // order of the original keys. This is useful for relationships where each key maps to exactly one item.

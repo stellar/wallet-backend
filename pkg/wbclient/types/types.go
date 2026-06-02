@@ -562,8 +562,10 @@ type DetailedTransactionEdge struct {
 }
 
 // UnmarshalJSON decodes the edge, dispatching each state-change node by its __typename via
-// UnmarshalStateChangeNode. The GraphQL schema declares Transaction as non-null, so a missing
-// or null node is a server bug and is rejected.
+// UnmarshalStateChangeNode. The GraphQL schema declares node as Transaction!, operations as
+// [Operation!]!, and stateChanges as [BaseStateChange!]! — all non-null — so a missing/null node, a
+// null operations or stateChanges list, or a null element within either is a server bug and is
+// rejected.
 func (e *DetailedTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 	type tempEdge struct {
 		Node         json.RawMessage   `json:"node"`
@@ -576,7 +578,7 @@ func (e *DetailedTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 		return fmt.Errorf("unmarshaling detailed transaction edge: %w", err)
 	}
 	e.Cursor = temp.Cursor
-	e.Operations = temp.Operations
+
 	if len(temp.Node) == 0 || string(temp.Node) == "null" {
 		return fmt.Errorf("detailed transaction edge missing required node: the GraphQL schema declares Transaction as non-null")
 	}
@@ -585,8 +587,25 @@ func (e *DetailedTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 		return fmt.Errorf("decoding detailed transaction edge node: %w", err)
 	}
 	e.Node = &node
+
+	if temp.Operations == nil {
+		return fmt.Errorf("detailed transaction edge missing required operations: the GraphQL schema declares [Operation!]! as non-null")
+	}
+	for i, op := range temp.Operations {
+		if op == nil {
+			return fmt.Errorf("detailed transaction edge operation at index %d is null: the GraphQL schema declares Operation as non-null", i)
+		}
+	}
+	e.Operations = temp.Operations
+
+	if temp.StateChanges == nil {
+		return fmt.Errorf("detailed transaction edge missing required stateChanges: the GraphQL schema declares [BaseStateChange!]! as non-null")
+	}
 	e.StateChanges = make([]StateChangeNode, 0, len(temp.StateChanges))
-	for _, raw := range temp.StateChanges {
+	for i, raw := range temp.StateChanges {
+		if len(raw) == 0 || string(raw) == "null" {
+			return fmt.Errorf("detailed transaction edge state change at index %d is null: the GraphQL schema declares BaseStateChange as non-null", i)
+		}
 		sc, err := UnmarshalStateChangeNode(raw)
 		if err != nil {
 			return fmt.Errorf("decoding detailed transaction edge state change: %w", err)

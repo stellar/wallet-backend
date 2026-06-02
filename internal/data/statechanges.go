@@ -491,6 +491,9 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 // partition column triggers primary chunk exclusion. No LIMIT: an account's per-tx state
 // changes are bounded in practice. Account scoping is via the account_id column on state_changes.
 func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.StateChange, error) {
+	if len(toIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
+	}
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id")
 	query := fmt.Sprintf(`
 		SELECT %s

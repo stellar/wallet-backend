@@ -283,4 +283,28 @@ func TestGetAccountTransactionsWithDetails(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
+
+	t.Run("returns an error when an edge has a null operations list", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},"operations":null,"stateChanges":[],"cursor":"c1"}],` +
+			`"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns an error when an edge has a null stateChanges list", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},"operations":[],"stateChanges":null,"cursor":"c1"}],` +
+			`"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithDetails(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
+	})
 }

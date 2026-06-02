@@ -106,24 +106,18 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 	)
 }
 
-// accountStateChangesByToIDLoader batches account-scoped state-change lookups by transaction ToID.
-// Like accountOperationsByToIDLoader, the batch shares one account (read from keys[0]).
-// BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection is needed here.
+// accountStateChangesByToIDLoader batches account-scoped state-change lookups by transaction ToID,
+// grouping the batch by account so a multi-account request never cross-contaminates edges (see
+// newAccountScopedLoader). BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the
+// SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection
+// is needed here.
 func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
-			accountID := keys[0].AccountID
-			columns := keys[0].Columns
-			toIDs := make([]int64, len(keys))
-			ledgerCreatedAts := make([]time.Time, len(keys))
-			for i, key := range keys {
-				toIDs[i] = key.ToID
-				ledgerCreatedAts[i] = key.LedgerCreatedAt
-			}
-			return models.StateChanges.BatchGetAccountStateChangesByToIDs(ctx, accountID, toIDs, ledgerCreatedAts, columns)
-		},
-		func(item *types.StateChange) int64 { return item.ToID },
+	return newAccountScopedLoader(
+		models.StateChanges.BatchGetAccountStateChangesByToIDs,
+		func(key StateChangeColumnsKey) string { return key.AccountID },
+		func(key StateChangeColumnsKey) string { return key.Columns },
 		func(key StateChangeColumnsKey) int64 { return key.ToID },
-		func(item *types.StateChange) types.StateChange { return *item },
+		func(key StateChangeColumnsKey) time.Time { return key.LedgerCreatedAt },
+		func(item *types.StateChange) int64 { return item.ToID },
 	)
 }
