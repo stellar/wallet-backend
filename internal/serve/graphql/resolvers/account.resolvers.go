@@ -32,7 +32,7 @@ func (r *accountResolver) Balances(ctx context.Context, obj *types.Account, firs
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.DetailedTransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
+	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -71,7 +71,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
+	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -108,7 +108,7 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, si
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, filter *graphql1.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
+	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
