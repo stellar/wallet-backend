@@ -16,6 +16,7 @@ import (
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 // newTestPool returns a pond worker pool with cleanup registered, used by
@@ -53,7 +54,7 @@ func newTestOpBuilder() *processors.StateChangeBuilder {
 func TestProcessor_ProcessEvent(t *testing.T) {
 	t.Run("stages signed balance deltas and DEBIT/CREDIT state changes for a transfer", func(t *testing.T) {
 		p := newTestProcessor()
-		p.resetStaged(42)
+		p.Reset()
 
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
@@ -92,7 +93,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 	t.Run("skips events from contracts not classified as SEP-41", func(t *testing.T) {
 		p := newTestProcessor()
-		p.resetStaged(42)
+		p.Reset()
 
 		event := buildEventForContract(t, "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
 			[]xdr.ScVal{
@@ -110,7 +111,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 	t.Run("nets a mint and a burn on the same account into one balance delta", func(t *testing.T) {
 		p := newTestProcessor()
-		p.resetStaged(42)
+		p.Reset()
 
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
@@ -134,7 +135,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 	t.Run("carries the to_muxed_id onto the credit side of a CAP-67 transfer", func(t *testing.T) {
 		p := newTestProcessor()
-		p.resetStaged(42)
+		p.Reset()
 
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
@@ -164,9 +165,43 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 		assert.Equal(t, "1234567890", creditSC.ToMuxedID.String)
 	})
 
+	t.Run("history mode stages state changes but no balance deltas", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		p.stagingMode = services.StagingModeHistory
+		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		p.sep41Contracts[contractID] = struct{}{}
+		event := buildEventForContract(t, contractID, []xdr.ScVal{
+			symScVal(EventTransfer),
+			mustAddressScVal(t, testAccountA),
+			mustAddressScVal(t, testAccountB),
+		}, i128ScVal(500))
+
+		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		assert.Len(t, p.stagedStateChanges, 2)
+		assert.Empty(t, p.stagedBalanceDelta)
+	})
+
+	t.Run("current-state mode stages balance deltas but no state changes", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		p.stagingMode = services.StagingModeCurrentState
+		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		p.sep41Contracts[contractID] = struct{}{}
+		event := buildEventForContract(t, contractID, []xdr.ScVal{
+			symScVal(EventTransfer),
+			mustAddressScVal(t, testAccountA),
+			mustAddressScVal(t, testAccountB),
+		}, i128ScVal(500))
+
+		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		assert.Empty(t, p.stagedStateChanges)
+		assert.Len(t, p.stagedBalanceDelta, 2)
+	})
+
 	t.Run("records an approve as a single metadata-category state change", func(t *testing.T) {
 		p := newTestProcessor()
-		p.resetStaged(42)
+		p.Reset()
 
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
@@ -240,7 +275,7 @@ func TestProcessor_EnsureContractTokens(t *testing.T) {
 			metadataFetcher:   newMetadataFetcher(rpc, pool),
 			sep41Contracts:    map[string]struct{}{},
 		}
-		p.resetStaged(42)
+		p.Reset()
 		p.stagedContracts[contract] = struct{}{}
 
 		contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
@@ -270,7 +305,7 @@ func TestProcessor_EnsureContractTokens(t *testing.T) {
 			metadataFetcher:   newMetadataFetcher(rpc, pool),
 			sep41Contracts:    map[string]struct{}{},
 		}
-		p.resetStaged(42)
+		p.Reset()
 		p.stagedContracts[contract] = struct{}{}
 
 		contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
@@ -307,7 +342,7 @@ func TestProcessor_PersistHistory(t *testing.T) {
 	t.Run("writes the staged state changes via BatchCopy", func(t *testing.T) {
 		scMock := data.NewStateChangeWriterMock(t)
 		p := newTestProcessorWithStateChanges(scMock)
-		p.resetStaged(42)
+		p.Reset()
 
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
@@ -342,7 +377,8 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 		contractTokens:    contractsMock,
 		sep41Contracts:    map[string]struct{}{},
 	}
-	p.resetStaged(42)
+	p.Reset()
+	p.ledgerNumber = 42
 
 	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 	p.sep41Contracts[contractID] = struct{}{}
@@ -375,6 +411,24 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 	allowancesMock.On("DeleteExpiredBefore", mock.Anything, mock.Anything, uint32(42)).Return(nil).Once()
 
 	require.NoError(t, p.PersistCurrentState(context.Background(), nil))
+}
+
+func TestNewProcessor_StartsWithInitializedStagedSets(t *testing.T) {
+	// A freshly constructed processor must be ready to fold without an explicit
+	// Reset — ProcessLedger no longer self-resets, so the staged maps must already
+	// be non-nil or the first staged write would panic.
+	p := newProcessor(services.ProtocolDeps{})
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	p.sep41Contracts[contractID] = struct{}{}
+	event := buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer),
+		mustAddressScVal(t, testAccountA),
+		mustAddressScVal(t, testAccountB),
+	}, i128ScVal(500))
+	require.NotPanics(t, func() {
+		_ = p.processEvent(event, newTestOpBuilder())
+	})
+	assert.Len(t, p.stagedBalanceDelta, 2)
 }
 
 // ---- helpers ----

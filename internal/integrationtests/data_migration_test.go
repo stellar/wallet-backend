@@ -272,6 +272,9 @@ func (p *integrationTestProcessor) ProcessLedger(_ context.Context, input servic
 	return nil
 }
 
+// Reset is a no-op: ProcessLedger overwrites staged fields each ledger.
+func (p *integrationTestProcessor) Reset() {}
+
 func (p *integrationTestProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	p.persistedHistorySeqs = append(p.persistedHistorySeqs, p.processedLedger)
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_history_written", p.id), p.processedLedger)

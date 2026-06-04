@@ -33,6 +33,9 @@ type migrationStrategy struct {
 	// Label is a human-readable name for log/error messages (e.g., "history", "current state").
 	Label string
 
+	// Mode selects which staged sets processors build for this strategy.
+	Mode StagingMode
+
 	// UpdateMigrationStatus updates the migration status for the given protocol IDs.
 	UpdateMigrationStatus func(ctx context.Context, dbTx pgx.Tx, protocolIDs []string, status string) error
 
@@ -278,6 +281,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 				LedgerCloseTime:   ledgerCloseTime,
 				ContractEvents:    ledgerEvents,
 				ProtocolContracts: contracts,
+				StagingMode:       s.strategy.Mode,
 			}
 			if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
@@ -314,6 +318,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			} else {
 				t.cursorValue = seq
 			}
+			t.processor.Reset()
 		}
 
 		if seq%100 == 0 {

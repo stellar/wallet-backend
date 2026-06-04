@@ -10,29 +10,48 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
+// StagingMode tells a processor which staged sets to build. The caller stamps it
+// each ledger: the migration engine sets it from its strategy; live ingestion
+// sets StagingModeBoth. The zero value ("") behaves as Both — build everything.
+type StagingMode string
+
+const (
+	StagingModeHistory      StagingMode = "history"
+	StagingModeCurrentState StagingMode = "current_state"
+	StagingModeBoth         StagingMode = "both"
+)
+
+// NeedsHistory reports whether history rows should be staged.
+func (m StagingMode) NeedsHistory() bool { return m != StagingModeCurrentState }
+
+// NeedsCurrentState reports whether current-state (balances/allowances) should be staged.
+func (m StagingMode) NeedsCurrentState() bool { return m != StagingModeHistory }
+
 // ProtocolProcessor produces and persists protocol-specific state for a ledger.
 type ProtocolProcessor interface {
 	ProtocolID() string
-	// ProcessLedger analyzes a ledger and stages any per-ledger protocol state
-	// needed by PersistHistory/PersistCurrentState. It may be called more than
-	// once for the same ledger when persistence retries, so implementations
-	// must deterministically rebuild staged state from the provided input.
+	// ProcessLedger accumulates ("folds") this ledger's protocol state into the
+	// processor's staged sets. It does NOT reset between ledgers — the caller owns
+	// reset via Reset(). Folding a window of ledgers then calling a Persist method
+	// MUST produce the same result as processing and persisting each ledger
+	// individually (batch-equivalence): balances sum, last-write-wins values keep
+	// the newest, history rows append. A protocol that cannot meet this must be
+	// migrated with --window-size=1.
 	ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
-	// PersistHistory writes the history rows staged by ProcessLedger using the
-	// provided transaction. Called inside the ledger's DB transaction only
-	// when the history cursor CAS advances for this ledger, so writes commit
-	// atomically with the cursor update and any failure rolls back both. On
-	// rollback the next retry re-stages via ProcessLedger and calls
-	// PersistHistory again, so implementations must not depend on in-memory
-	// state surviving across invocations.
+
+	// Reset clears the staged sets after a window commits or hands off. The caller
+	// (engine per window; live ingestion per ledger) invokes it.
+	Reset()
+
+	// PersistHistory writes the history rows accumulated by ProcessLedger since the
+	// last Reset, using the provided transaction. Called inside the CAS-guarded
+	// transaction only when the cursor advances, so writes commit atomically with
+	// the cursor update and any failure rolls back both.
 	PersistHistory(ctx context.Context, dbTx pgx.Tx) error
-	// PersistCurrentState writes the protocol's current state using the
-	// provided transaction. Called inside the ledger's DB transaction only
-	// when the current_state cursor CAS advances for this ledger, so writes
-	// commit atomically with the cursor update and any failure rolls back
-	// both. On rollback the next retry re-stages via ProcessLedger and calls
-	// PersistCurrentState again, so implementations must not depend on
-	// in-memory state surviving across invocations.
+	// PersistCurrentState writes the protocol's current state accumulated by
+	// ProcessLedger since the last Reset, using the provided transaction. Called
+	// inside the CAS-guarded transaction only when the cursor advances, so writes
+	// commit atomically with the cursor update and any failure rolls back both.
 	PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
 }
 
@@ -48,4 +67,6 @@ type ProtocolProcessorInput struct {
 	LedgerCloseTime   int64
 	ContractEvents    map[indexer.ContractEventKey][]xdr.ContractEvent
 	ProtocolContracts []data.ProtocolContracts
+	// StagingMode selects which staged sets the processor builds for this ledger.
+	StagingMode StagingMode
 }

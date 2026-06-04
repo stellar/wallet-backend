@@ -52,12 +52,14 @@ type processor struct {
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
 
-	// Per-ledger staged state (rebuilt on every ProcessLedger call for determinism).
+	// Staged sets that accumulate across ProcessLedger calls within a window and are
+	// cleared by the caller via Reset().
 	ledgerNumber       uint32
+	stagingMode        services.StagingMode
 	stagedStateChanges []types.StateChange
 	stagedBalanceDelta map[balanceKey]*big.Int
 	stagedAllowances   map[allowanceKey]stagedAllowance
-	stagedContracts    map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
+	stagedContracts    map[string]struct{} // C-addrs seen this window (for contract_tokens upsert)
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
@@ -81,6 +83,7 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 		p.metadataFetcher = newMetadataFetcher(deps.ContractMetadataService, pool)
 		p.ownsMetadataPool = true
 	}
+	p.Reset()
 	return p
 }
 
@@ -94,9 +97,10 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // extracted into the buffer. The processor never touches LedgerCloseMeta —
 // events are pre-filtered to successful transactions only by the
 // indexer/migration helper, so no per-tx success check is needed here.
-// See services.ProtocolProcessor godoc — must be deterministic across retries.
+// See services.ProtocolProcessor for the folding/batch-equivalence contract.
 func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProcessorInput) error {
-	p.resetStaged(input.LedgerSequence)
+	p.ledgerNumber = input.LedgerSequence
+	p.stagingMode = input.StagingMode
 	p.indexContracts(input.ProtocolContracts)
 
 	if len(p.sep41Contracts) == 0 {
@@ -136,7 +140,9 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	if _, ok := p.sep41Contracts[contractStr]; !ok {
 		return nil // not a contract we track; silently skip
 	}
-	p.stagedContracts[contractStr] = struct{}{}
+	if p.stagingMode.NeedsCurrentState() {
+		p.stagedContracts[contractStr] = struct{}{}
+	}
 
 	topics := event.Body.V0.Topics
 	if len(topics) == 0 {
@@ -157,81 +163,101 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
-		creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
-			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
-		if decoded.ToMuxedID != nil {
-			creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		if p.stagingMode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-			creditBuilder.Build(),
-		)
+		if p.stagingMode.NeedsHistory() {
+			creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
+				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+			if decoded.ToMuxedID != nil {
+				creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
+			}
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+				creditBuilder.Build(),
+			)
+		}
 
 	case EventMint:
 		decoded, err := ParseMintEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
-		mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
-			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
-		if decoded.ToMuxedID != nil {
-			mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		if p.stagingMode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		p.stagedStateChanges = append(p.stagedStateChanges, mintBuilder.Build())
+		if p.stagingMode.NeedsHistory() {
+			mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
+				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+			if decoded.ToMuxedID != nil {
+				mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
+			}
+			p.stagedStateChanges = append(p.stagedStateChanges, mintBuilder.Build())
+		}
 
 	case EventBurn:
 		decoded, err := ParseBurnEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-		)
+		if p.stagingMode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+		}
+		if p.stagingMode.NeedsHistory() {
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+			)
+		}
 
 	case EventClawback:
 		decoded, err := ParseClawbackEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-		)
+		if p.stagingMode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+		}
+		if p.stagingMode.NeedsHistory() {
+			// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+			)
+		}
 
 	case EventApprove:
 		decoded, err := ParseApproveEvent(event)
 		if err != nil {
 			return err
 		}
-		key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
-		p.stagedAllowances[key] = stagedAllowance{
-			Amount:           new(big.Int).Set(decoded.Amount),
-			ExpirationLedger: decoded.LiveUntilLedger,
+		if p.stagingMode.NeedsCurrentState() {
+			key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
+			p.stagedAllowances[key] = stagedAllowance{
+				Amount:           new(big.Int).Set(decoded.Amount),
+				ExpirationLedger: decoded.LiveUntilLedger,
+			}
 		}
-		// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
-		// through GraphQL. StandardBalanceChange would drop those fields.
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().
-				WithCategory(types.StateChangeCategoryMetadata).
-				WithReason(types.StateChangeReasonUpdate).
-				WithAccount(decoded.From).
-				WithAmount(decoded.Amount.String()).
-				WithKeyValue(map[string]any{
-					"sep41_event":       EventApprove,
-					"spender":           decoded.Spender,
-					"amount":            decoded.Amount.String(),
-					"live_until_ledger": decoded.LiveUntilLedger,
-				}).
-				Build(),
-		)
+		if p.stagingMode.NeedsHistory() {
+			// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
+			// through GraphQL. StandardBalanceChange would drop those fields.
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().
+					WithCategory(types.StateChangeCategoryMetadata).
+					WithReason(types.StateChangeReasonUpdate).
+					WithAccount(decoded.From).
+					WithAmount(decoded.Amount.String()).
+					WithKeyValue(map[string]any{
+						"sep41_event":       EventApprove,
+						"spender":           decoded.Spender,
+						"amount":            decoded.Amount.String(),
+						"live_until_ledger": decoded.LiveUntilLedger,
+					}).
+					Build(),
+			)
+		}
 
 	default:
 		// Non-SEP-41 event on a SEP-41 contract (e.g., custom event) — ignore.
@@ -250,8 +276,9 @@ func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr st
 	existing.Add(existing, delta)
 }
 
-func (p *processor) resetStaged(ledgerSeq uint32) {
-	p.ledgerNumber = ledgerSeq
+// Reset clears the staged sets for the next window. ledgerNumber is intentionally
+// left untouched — ProcessLedger sets it each ledger.
+func (p *processor) Reset() {
 	p.stagedStateChanges = nil
 	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
@@ -290,7 +317,7 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 
 // PersistCurrentState applies staged balance deltas server-side (balance := existing + delta)
 // and writes allowance values directly (approve semantics are a set, not an add). Runs inside
-// the CAS-guarded transaction so each ledger's deltas are applied exactly once.
+// the CAS-guarded transaction so each window's accumulated deltas are applied exactly once.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	// Ensure a contract_tokens row exists for every contract we're about to reference.
 	if err := p.ensureContractTokens(ctx, dbTx); err != nil {

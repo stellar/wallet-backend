@@ -2472,6 +2472,7 @@ type testProtocolProcessor struct {
 	id                        string
 	processLedgerCalls        int
 	processedLedger           uint32
+	stagedLedgerCount         int
 	ingestStore               *data.IngestStoreModel
 	persistCurrentStateCalls  int
 	failPersistCurrentStateAt uint32
@@ -2479,8 +2480,11 @@ type testProtocolProcessor struct {
 
 func (p *testProtocolProcessor) ProtocolID() string { return p.id }
 
+func (p *testProtocolProcessor) Reset() { p.stagedLedgerCount = 0 }
+
 func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
 	p.processLedgerCalls++
+	p.stagedLedgerCount++
 	p.processedLedger = input.LedgerSequence
 	return nil
 }
@@ -2493,6 +2497,9 @@ func (p *testProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pg
 	p.persistCurrentStateCalls++
 	if p.failPersistCurrentStateAt != 0 && p.processedLedger == p.failPersistCurrentStateAt {
 		return fmt.Errorf("simulated current state persist failure at ledger %d", p.processedLedger)
+	}
+	if err := p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_staged_count", p.id), uint32(p.stagedLedgerCount)); err != nil {
+		return err
 	}
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_written", p.id), p.processedLedger)
 }
@@ -2813,6 +2820,10 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		currentStateCursor, err = models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
 		require.NoError(t, err)
 		assert.Equal(t, uint32(101), currentStateCursor)
+
+		stagedCount, err := models.IngestStore.Get(ctx, "test_testproto_staged_count")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(1), stagedCount) // retry re-staged cleanly; not doubled
 	})
 }
 

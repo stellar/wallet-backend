@@ -67,6 +67,7 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 			processors:             ppMap,
 			strategy: migrationStrategy{
 				Label:                 "history",
+				Mode:                  StagingModeHistory,
 				UpdateMigrationStatus: cfg.ProtocolsModel.UpdateHistoryMigrationStatus,
 				MigrationStatusField:  func(p *data.Protocols) string { return p.HistoryMigrationStatus },
 				CursorName:            utils.ProtocolHistoryCursorName,

@@ -163,9 +163,12 @@ type testRecordingProcessor struct {
 	persistedHistorySeqs      []uint32
 	persistedCurrentStateSeqs []uint32
 	lastProcessed             uint32
+	resetCount                int
 }
 
 func (p *testRecordingProcessor) ProtocolID() string { return p.id }
+
+func (p *testRecordingProcessor) Reset() { p.resetCount++ }
 
 func (p *testRecordingProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
 	p.processedInputs = append(p.processedInputs, input)

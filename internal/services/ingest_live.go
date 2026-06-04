@@ -125,7 +125,12 @@ func (m *ingestService) persistLedgerData(
 					LedgerCloseTime:   ledgerCloseTime,
 					ContractEvents:    contractEvents,
 					ProtocolContracts: contracts,
+					StagingMode:       StagingModeBoth,
 				}
+				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
+				// re-stages cleanly; the processor is long-lived and accumulates across
+				// ProcessLedger calls.
+				processor.Reset()
 				start := time.Now()
 				processErr := processor.ProcessLedger(ctx, input)
 				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())

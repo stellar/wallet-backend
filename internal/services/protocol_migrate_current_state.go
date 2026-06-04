@@ -66,6 +66,7 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			processors:             ppMap,
 			strategy: migrationStrategy{
 				Label:                 "current state",
+				Mode:                  StagingModeCurrentState,
 				UpdateMigrationStatus: cfg.ProtocolsModel.UpdateCurrentStateMigrationStatus,
 				MigrationStatusField:  func(p *data.Protocols) string { return p.CurrentStateMigrationStatus },
 				CursorName:            utils.ProtocolCurrentStateCursorName,
