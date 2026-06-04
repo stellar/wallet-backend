@@ -224,7 +224,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		contractsByProtocol[t.protocolID] = contracts
 	}
 
-	startLedger := minNonHandedOffCursor(trackers) + 1
+	startLedger := minCursor(trackers) + 1
 
 	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s)", startLedger, len(protocolIDs))
 
@@ -317,21 +317,17 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 	}
 }
 
-// minNonHandedOffCursor returns the smallest cursorValue among trackers that
-// have not yet been handed off. If every tracker is handed off, it returns 0.
-func minNonHandedOffCursor(trackers []*protocolTracker) uint32 {
-	var minCursor uint32
-	first := true
-	for _, t := range trackers {
-		if t.handedOff {
-			continue
-		}
-		if first || t.cursorValue < minCursor {
-			minCursor = t.cursorValue
-			first = false
+// minCursor returns the smallest cursorValue across trackers. Called once during
+// init, where trackers is non-empty (Run returns early on an empty active set)
+// and no tracker has been handed off yet.
+func minCursor(trackers []*protocolTracker) uint32 {
+	m := trackers[0].cursorValue
+	for _, t := range trackers[1:] {
+		if t.cursorValue < m {
+			m = t.cursorValue
 		}
 	}
-	return minCursor
+	return m
 }
 
 // anyTrackerNeedsLedger reports whether at least one non-handed-off tracker

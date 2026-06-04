@@ -24,6 +24,25 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+func TestMinCursor(t *testing.T) {
+	trackers := []*protocolTracker{
+		{cursorValue: 300},
+		{cursorValue: 100},
+		{cursorValue: 250},
+	}
+	assert.Equal(t, uint32(100), minCursor(trackers))
+
+	single := []*protocolTracker{{cursorValue: 7}}
+	assert.Equal(t, uint32(7), minCursor(single))
+
+	firstIsMin := []*protocolTracker{
+		{cursorValue: 5},
+		{cursorValue: 9},
+		{cursorValue: 12},
+	}
+	assert.Equal(t, uint32(5), minCursor(firstIsMin))
+}
+
 // multiLedgerBackend is a test double that serves ledger meta for a range of ledgers.
 type multiLedgerBackend struct {
 	ledgers map[uint32]xdr.LedgerCloseMeta
