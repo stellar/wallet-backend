@@ -319,7 +319,6 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		require.Len(t, processor.processedInputs, 3)
 		for i, seq := range []uint32{100, 101, 102} {
 			assert.Equal(t, seq, processor.processedInputs[i].LedgerSequence)
-			assert.Equal(t, "Test SDF Network ; September 2015", processor.processedInputs[i].NetworkPassphrase)
 		}
 		assert.Equal(t, []uint32{100, 101}, processor.persistedHistorySeqs)
 	})

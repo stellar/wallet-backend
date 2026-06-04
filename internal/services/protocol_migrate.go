@@ -278,7 +278,6 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 				LedgerCloseTime:   ledgerCloseTime,
 				ContractEvents:    ledgerEvents,
 				ProtocolContracts: contracts,
-				NetworkPassphrase: s.networkPassphrase,
 			}
 			if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)

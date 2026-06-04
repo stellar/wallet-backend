@@ -125,7 +125,6 @@ func (m *ingestService) persistLedgerData(
 					LedgerCloseTime:   ledgerCloseTime,
 					ContractEvents:    contractEvents,
 					ProtocolContracts: contracts,
-					NetworkPassphrase: m.networkPassphrase,
 				}
 				start := time.Now()
 				processErr := processor.ProcessLedger(ctx, input)

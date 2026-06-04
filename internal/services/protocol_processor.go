@@ -48,5 +48,4 @@ type ProtocolProcessorInput struct {
 	LedgerCloseTime   int64
 	ContractEvents    map[indexer.ContractEventKey][]xdr.ContractEvent
 	ProtocolContracts []data.ProtocolContracts
-	NetworkPassphrase string
 }
