@@ -289,6 +289,12 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 
 			var swapped bool
 			if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+				// Disable synchronous commit for this transaction only — safe for
+				// migration since data is re-ingestable via the CAS cursor on crash.
+				if _, execErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); execErr != nil {
+					return fmt.Errorf("setting synchronous_commit=off: %w", execErr)
+				}
+
 				var casErr error
 				swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
 				if casErr != nil {
