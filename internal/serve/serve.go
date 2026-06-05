@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -37,7 +38,10 @@ import (
 )
 
 type Configs struct {
-	Port                        int
+	Port int
+	// AdminPort, when > 0, serves pprof endpoints at /debug/pprof on a separate
+	// listener. Mirrors the ingest admin server.
+	AdminPort                   int
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
@@ -112,6 +116,24 @@ func Serve(cfg Configs) error {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
 
+	// Start separate admin server for pprof endpoints if configured.
+	// supporthttp.Run blocks below; the admin listener lives and dies with the process.
+	if cfg.AdminPort > 0 {
+		adminMux := http.NewServeMux()
+		registerAdminHandlers(adminMux)
+		adminServer := &http.Server{
+			Addr:              fmt.Sprintf(":%d", cfg.AdminPort),
+			Handler:           adminMux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			log.Infof("Starting admin server with pprof endpoints on port %d", cfg.AdminPort)
+			if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Fatalf("starting admin server on %s: %v", adminServer.Addr, err)
+			}
+		}()
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	supporthttp.Run(supporthttp.Config{
 		ListenAddr: addr,
@@ -125,6 +147,16 @@ func Serve(cfg Configs) error {
 	})
 
 	return nil
+}
+
+// registerAdminHandlers exposes pprof endpoints at /debug/pprof for profiling.
+// Mirrors the ingest admin server (internal/ingest/ingest.go).
+func registerAdminHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
