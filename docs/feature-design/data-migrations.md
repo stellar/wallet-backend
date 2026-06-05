@@ -321,7 +321,7 @@ During live ingestion, classification happens in two parts: (1) new WASM uploads
                                     └──────────────────────────┘
 ```
 
-The classifier validates WASM bytecode from ContractCode entries against protocol specifications.
+Each protocol's validator validates WASM bytecode from ContractCode entries against its protocol specification.
 This validation uses the same logic as checkpoint population:
 
 1. Compile WASM with wazero runtime

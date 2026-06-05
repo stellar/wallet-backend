@@ -21,9 +21,13 @@ const (
 )
 
 // ErrCASCursorMissing is returned by CompareAndSwap when the cursor row does
-// not exist in ingest_store. Missing rows are a correctness problem (dropped
-// row, bad restore) rather than the ordinary value-mismatch race, so callers
-// must fail loudly instead of interpreting it as a successful handoff.
+// not exist in ingest_store. The model layer keeps this distinct from the
+// ordinary value-mismatch race so callers can decide what to do — a missing
+// row may be operationally normal (cursor not yet initialized by protocol-setup
+// / protocol-migrate) or a real incident (dropped row, bad restore). The
+// service layer treats this as a soft skip: the `cursor_missing` query-error
+// metric and a per-ledger warn provide the observability signal without
+// killing live ingest. See ingest_live.go PersistLedgerData for the handling.
 var ErrCASCursorMissing = errors.New("ingest_store cursor row missing")
 
 type LedgerRange struct {

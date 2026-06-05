@@ -59,6 +59,23 @@ func (s *SharedContainers) StopIngestContainer(ctx context.Context) error {
 	return nil
 }
 
+// StartIngestContainer resumes a previously stopped ingest container so live
+// ingestion continues from its last persisted cursor. Pairs with
+// StopIngestContainer for suites that need exclusive control over
+// latest_ingest_ledger during a span of tests.
+func (s *SharedContainers) StartIngestContainer(ctx context.Context) error {
+	if s.WalletBackendContainer.Ingest == nil {
+		return fmt.Errorf("ingest container is not initialized")
+	}
+
+	if err := s.WalletBackendContainer.Ingest.Start(ctx); err != nil {
+		return fmt.Errorf("starting ingest container: %w", err)
+	}
+
+	log.Ctx(ctx).Info("▶️  Started ingest container")
+	return nil
+}
+
 // GetIngestContainerLogs returns the logs from the ingest container.
 func (s *SharedContainers) GetIngestContainerLogs(ctx context.Context) (string, error) {
 	if s.WalletBackendContainer.Ingest == nil {

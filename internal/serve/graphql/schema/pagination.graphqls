@@ -38,6 +38,16 @@ type BalanceEdge {
     cursor: String!
 }
 
+type SEP41AllowanceConnection {
+    edges: [SEP41AllowanceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type SEP41AllowanceEdge {
+    node: SEP41Allowance!
+    cursor: String!
+}
+
 type PageInfo {
     startCursor: String
     endCursor: String

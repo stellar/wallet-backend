@@ -17,6 +17,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
+	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -101,6 +102,8 @@ type handlerDeps struct {
 	TrustlineBalanceModel data.TrustlineBalanceModelInterface
 	NativeBalanceModel    data.NativeBalanceModelInterface
 	SACBalanceModel       data.SACBalanceModelInterface
+	SEP41BalanceModel     sep41data.BalanceModelInterface
+	SEP41AllowanceModel   sep41data.AllowanceModelInterface
 
 	// GraphQL
 	GraphQLComplexityLimit int
@@ -192,6 +195,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		TrustlineBalanceModel:  models.TrustlineBalance,
 		NativeBalanceModel:     models.NativeBalance,
 		SACBalanceModel:        models.SACBalance,
+		SEP41BalanceModel:      models.SEP41.Balances,
+		SEP41AllowanceModel:    models.SEP41.Allowances,
 		AppTracker:             cfg.AppTracker,
 		NetworkPassphrase:      cfg.NetworkPassphrase,
 		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
@@ -227,7 +232,7 @@ func handler(deps handlerDeps) http.Handler {
 			resolver := resolvers.NewResolver(
 				deps.Models,
 				deps.RPCService,
-				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel),
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
 			)
@@ -344,6 +349,7 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Account.StateChanges = func(childComplexity int, filter *generated.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}
+	config.Complexity.Account.Sep41Allowances = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc

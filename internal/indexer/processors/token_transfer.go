@@ -134,7 +134,17 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 
 // processNonFeeEvent routes different types of non-fee token transfer events to their specific handlers.
 // Each event type (transfer, mint, burn, clawback) requires different business logic.
+//
+// Events emitted from InvokeHostFunction operations are skipped here when the contract is not a
+// recognized SAC: SEP-41-classified contracts are owned end-to-end by sep41.Processor, and truly
+// unclassified contracts intentionally produce no state changes. SAC contracts continue to flow
+// through this processor unchanged.
 func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress string, builder *StateChangeBuilder, opID int64, operationType *xdr.OperationType, opSourceAccount string) []types.StateChange {
+	if operationType != nil && *operationType == xdr.OperationTypeInvokeHostFunction &&
+		p.getContractType(eventAsset(event), contractAddress) == types.ContractTypeUnknown {
+		return nil
+	}
+
 	builder = builder.WithOperationID(opID)
 
 	switch event := event.(type) {
@@ -148,6 +158,22 @@ func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress s
 		return p.handleClawback(event.Clawback, contractAddress, builder, operationType, opSourceAccount)
 	default:
 		log.Debugf("unknown event type: %T", event)
+		return nil
+	}
+}
+
+// eventAsset returns the asset embedded in a non-fee token transfer event, or nil for unknown types.
+func eventAsset(event any) *asset.Asset {
+	switch e := event.(type) {
+	case *ttp.TokenTransferEvent_Transfer:
+		return e.Transfer.GetAsset()
+	case *ttp.TokenTransferEvent_Mint:
+		return e.Mint.GetAsset()
+	case *ttp.TokenTransferEvent_Burn:
+		return e.Burn.GetAsset()
+	case *ttp.TokenTransferEvent_Clawback:
+		return e.Clawback.GetAsset()
+	default:
 		return nil
 	}
 }

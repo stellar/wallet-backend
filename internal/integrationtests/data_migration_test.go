@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
 const sep41ProtocolID = "SEP41"
@@ -32,6 +34,50 @@ const sep41ProtocolID = "SEP41"
 type DataMigrationTestSuite struct {
 	suite.Suite
 	testEnv *infrastructure.TestEnvironment
+	// initialLatestLedger snapshots latest_ingest_ledger at the start of the
+	// suite so TearDownSuite can restore it before resuming the ingest container.
+	// Every test in this suite writes synthetic ledger sequences (latestLedger+1000,
+	// +2000) into latest_ingest_ledger, which would leave the row far ahead of the
+	// real network — the container would stall trying to fetch a ledger the
+	// network hasn't reached.
+	initialLatestLedger uint32
+}
+
+// SetupSuite pauses the wallet-backend-ingest container for the duration of
+// the suite so per-test svc.Run instances have exclusive control over
+// latest_ingest_ledger. Without this, the container's live ingest races the
+// per-test cursor updates and overwrites them mid-test — the race was
+// previously latent because suites above this one were quicker, but new
+// pagination tests in AccountBalancesAfterCheckpointTestSuite shifted the
+// timing window enough to surface it intermittently in CI.
+func (s *DataMigrationTestSuite) SetupSuite() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+
+	models := s.setupModels(pool)
+	latest, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
+	s.Require().NoError(err)
+	s.initialLatestLedger = latest
+
+	s.Require().NoError(s.testEnv.Containers.StopIngestContainer(ctx),
+		"stopping wallet-backend-ingest container before DataMigrationTestSuite")
+}
+
+// TearDownSuite restores latest_ingest_ledger to the pre-suite snapshot and
+// resumes the wallet-backend-ingest container so downstream suites (e.g.
+// DataValidationTestSuite, AccountBalancesAfterLiveIngestionTestSuite) get
+// a container that can continue ingesting real network ledgers instead of
+// stalling on a synthetic sequence written by this suite.
+func (s *DataMigrationTestSuite) TearDownSuite() {
+	ctx := context.Background()
+	pool, cleanup := s.setupDB()
+	defer cleanup()
+
+	s.upsertIngestStoreValue(ctx, pool, data.LatestLedgerCursorName, s.initialLatestLedger)
+
+	s.Require().NoError(s.testEnv.Containers.StartIngestContainer(ctx),
+		"starting wallet-backend-ingest container after DataMigrationTestSuite")
 }
 
 func (s *DataMigrationTestSuite) SetupTest() {
@@ -98,16 +144,26 @@ func (s *DataMigrationTestSuite) runSEP41ProtocolSetup(ctx context.Context, pool
 	})
 	s.Require().NoError(err)
 
-	specExtractor := services.NewWasmSpecExtractor()
-	validator := services.NewSEP41ProtocolValidator()
+	metadataPool := pond.NewPool(0)
+	defer metadataPool.StopAndWait()
+	metadataService, mErr := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
+	s.Require().NoError(mErr)
+
+	deps := services.ProtocolDeps{
+		NetworkPassphrase:       s.testEnv.NetworkPassphrase,
+		Models:                  models,
+		RPCService:              s.testEnv.RPCService,
+		ContractMetadataService: metadataService,
+	}
+	validators, cErr := services.BuildValidators(deps, []string{sep41ProtocolID})
+	s.Require().NoError(cErr)
 
 	svc := services.NewProtocolSetupService(
 		pool,
 		s.testEnv.RPCService,
-		models.Protocols,
-		models.ProtocolWasms,
-		specExtractor,
-		[]services.ProtocolValidator{validator},
+		models,
+		validators,
+		nil,
 	)
 
 	s.Require().NoError(svc.Run(ctx, []string{sep41ProtocolID}))
@@ -224,10 +280,6 @@ func (p *integrationTestProcessor) PersistHistory(ctx context.Context, dbTx pgx.
 func (p *integrationTestProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.persistedCurrentStateSeqs = append(p.persistedCurrentStateSeqs, p.processedLedger)
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_written", p.id), p.processedLedger)
-}
-
-func (p *integrationTestProcessor) LoadCurrentState(_ context.Context, _ pgx.Tx) error {
-	return nil
 }
 
 func (s *DataMigrationTestSuite) mustLedgerCloseMeta() xdr.LedgerCloseMeta {

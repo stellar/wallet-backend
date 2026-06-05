@@ -69,6 +69,12 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	txID := opWrapper.Transaction.ID()
 
 	tx := opWrapper.Transaction
+	// TODO(events-from-buffer): The indexer already pushes contract events into
+	// IndexerBuffer for protocol processors via PushContractEvents. This call
+	// duplicates that extraction. Refactor SACEventsProcessor to consume from
+	// the buffer (or restructure as a buffer-consuming step in processTransaction)
+	// when another protocol processor lands and the refactor blast radius is
+	// already on the table.
 	contractEvents, err := tx.GetContractEventsForOperation(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract events for operation %d: %w", opWrapper.ID(), err)

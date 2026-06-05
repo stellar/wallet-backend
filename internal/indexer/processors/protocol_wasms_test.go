@@ -26,15 +26,17 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,
 		0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
 	}
+	testBytecode := []byte{0x00, 0x61, 0x73, 0x6d}
 
 	tests := []struct {
-		name          string
-		changes       xdr.LedgerEntryChanges
-		expectedCount int
-		expectedHash  types.HashBytea
+		name             string
+		changes          xdr.LedgerEntryChanges
+		expectedCount    int
+		expectedHash     types.HashBytea
+		expectedBytecode []byte
 	}{
 		{
-			name: "ContractCode created returns ProtocolWasm",
+			name: "ContractCode created returns observation with bytecode",
 			changes: xdr.LedgerEntryChanges{
 				{
 					Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
@@ -43,14 +45,15 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 							Type: xdr.LedgerEntryTypeContractCode,
 							ContractCode: &xdr.ContractCodeEntry{
 								Hash: testWasmHash,
-								Code: []byte{0x00, 0x61, 0x73, 0x6d},
+								Code: testBytecode,
 							},
 						},
 					},
 				},
 			},
-			expectedCount: 1,
-			expectedHash:  types.HashBytea(hex.EncodeToString(testWasmHash[:])),
+			expectedCount:    1,
+			expectedHash:     types.HashBytea(hex.EncodeToString(testWasmHash[:])),
+			expectedBytecode: testBytecode,
 		},
 		{
 			name: "non-ContractCode entry skipped",
@@ -77,7 +80,7 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 							Type: xdr.LedgerEntryTypeContractCode,
 							ContractCode: &xdr.ContractCodeEntry{
 								Hash: testWasmHash,
-								Code: []byte{0x00, 0x61, 0x73, 0x6d},
+								Code: testBytecode,
 							},
 						},
 					},
@@ -120,13 +123,14 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 				Network:        networkPassphrase,
 			}
 
-			wasms, err := processor.ProcessOperation(context.Background(), wrapper)
+			obs, err := processor.ProcessOperation(context.Background(), wrapper)
 			require.NoError(t, err)
-			require.Len(t, wasms, tc.expectedCount)
+			require.Len(t, obs, tc.expectedCount)
 
 			if tc.expectedCount > 0 {
-				assert.Equal(t, tc.expectedHash, wasms[0].WasmHash)
-				assert.Nil(t, wasms[0].ProtocolID)
+				assert.Equal(t, tc.expectedHash, obs[0].Record.WasmHash)
+				assert.Nil(t, obs[0].Record.ProtocolID)
+				assert.Equal(t, tc.expectedBytecode, obs[0].Bytecode)
 			}
 		})
 	}

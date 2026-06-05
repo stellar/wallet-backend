@@ -46,6 +46,35 @@ func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Error(0)
 }
 
+func (m *ContractModelMock) BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
+	args := m.Called(ctx, dbTx, contracts)
+	return args.Error(0)
+}
+
+// StateChangeWriterMock is a mock implementation of StateChangeWriter.
+type StateChangeWriterMock struct {
+	mock.Mock
+}
+
+var _ StateChangeWriter = (*StateChangeWriterMock)(nil)
+
+// NewStateChangeWriterMock creates a new instance of StateChangeWriterMock.
+func NewStateChangeWriterMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *StateChangeWriterMock {
+	m := &StateChangeWriterMock{}
+	m.Mock.Test(t)
+	t.Cleanup(func() { m.AssertExpectations(t) })
+	return m
+}
+
+func (m *StateChangeWriterMock) BatchCopy(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) (int, error) {
+	args := m.Called(ctx, pgxTx, stateChanges)
+	return args.Int(0), args.Error(1)
+}
+
 // TrustlineAssetModelMock is a mock implementation of TrustlineAssetModelInterface.
 type TrustlineAssetModelMock struct {
 	mock.Mock
@@ -223,6 +252,14 @@ func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]Protoco
 	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
+func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	args := m.Called(ctx, dbTx, hashes)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[types.HashBytea]string), args.Error(1)
+}
+
 func (m *ProtocolWasmsModelMock) BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error {
 	args := m.Called(ctx, dbTx, wasmHashes, protocolID)
 	return args.Error(0)
@@ -325,4 +362,12 @@ func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
+}
+
+func (m *ProtocolContractsModelMock) GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error) {
+	args := m.Called(ctx, wasmHashes)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ProtocolContracts), args.Error(1)
 }

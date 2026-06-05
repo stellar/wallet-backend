@@ -25,6 +25,7 @@ type ProtocolWasms struct {
 type ProtocolWasmsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error
 	GetUnclassified(ctx context.Context) ([]ProtocolWasms, error)
+	GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error)
 	BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error
 }
 
@@ -88,6 +89,46 @@ func (m *ProtocolWasmsModel) GetUnclassified(ctx context.Context) ([]ProtocolWas
 		return nil, fmt.Errorf("querying unclassified protocol wasms: %w", err)
 	}
 	return wasms, nil
+}
+
+// GetClassifiedByHashes returns wasm_hash → protocol_id for the supplied hashes
+// where protocol_id IS NOT NULL. The read runs inside the supplied dbTx so
+// callers on the live ingest path see classifications consistent with the
+// in-flight transaction.
+func (m *ProtocolWasmsModel) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
+	hashBytes := make([][]byte, len(hashes))
+	for i, h := range hashes {
+		val, err := h.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting wasm hash to bytes: %w", err)
+		}
+		hashBytes[i] = val.([]byte)
+	}
+
+	const query = `SELECT wasm_hash, protocol_id, created_at FROM protocol_wasms WHERE wasm_hash = ANY($1::bytea[]) AND protocol_id IS NOT NULL`
+
+	start := time.Now()
+	wasms, err := db.QueryMany[ProtocolWasms](ctx, dbTx, query, hashBytes)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetClassifiedByHashes", "protocol_wasms").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetClassifiedByHashes", "protocol_wasms").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetClassifiedByHashes", "protocol_wasms", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying classified protocol wasms by hashes: %w", err)
+	}
+
+	out := make(map[types.HashBytea]string, len(wasms))
+	for _, w := range wasms {
+		if w.ProtocolID == nil {
+			continue
+		}
+		out[w.WasmHash] = *w.ProtocolID
+	}
+	return out, nil
 }
 
 // BatchUpdateProtocolID updates protocol_id for the given WASM hashes.

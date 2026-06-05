@@ -40,11 +40,18 @@ type IndexerBufferInterface interface {
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
 	PushSACContract(c *data.Contract)
 	PushProtocolWasm(wasm data.ProtocolWasms)
+	PushProtocolWasmBytecode(wasmHash string, bytecode []byte)
 	PushProtocolContracts(contract data.ProtocolContracts)
+	PushContractEvents(key ContractEventKey, events []xdr.ContractEvent)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
+	// GetProtocolWasmBytecodes returns a shallow clone of the wasmHash → bytecode
+	// map. The []byte values alias buffer-owned storage and MUST be treated as
+	// read-only; bytecode is content-addressed and immutable.
+	GetProtocolWasmBytecodes() map[string][]byte
 	GetProtocolContracts() map[string]data.ProtocolContracts
+	GetContractEvents() map[ContractEventKey][]xdr.ContractEvent
 	Merge(other IndexerBufferInterface)
 	Clear()
 }
@@ -76,7 +83,7 @@ type Indexer struct {
 	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
-	protocolWasmsProcessor     LedgerChangeProcessor[data.ProtocolWasms]
+	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
@@ -84,6 +91,10 @@ type Indexer struct {
 	networkPassphrase          string
 }
 
+// NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
+// during ledger meta processing; classification is performed downstream
+// (per-batch) by services.DispatchClassification — this keeps the indexer
+// agnostic of any specific protocol or its validator shape.
 func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
 	return &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
@@ -247,7 +258,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
 		}
 		for _, wasm := range protocolWasms {
-			buffer.PushProtocolWasm(wasm)
+			buffer.PushProtocolWasm(wasm.Record)
+			if len(wasm.Bytecode) > 0 {
+				buffer.PushProtocolWasmBytecode(string(wasm.Record.WasmHash), wasm.Bytecode)
+			}
 		}
 
 		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
@@ -256,6 +270,30 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, contract := range protocolContracts {
 			buffer.PushProtocolContracts(contract)
+		}
+	}
+
+	// Stash contract events into the buffer so protocol processors can consume
+	// them without re-decoding LedgerCloseMeta. Only successful transactions are
+	// indexed — protocol processors (e.g. SEP-41) only care about successful
+	// invocations, and emitting events from failed txs would force every consumer
+	// to re-filter. SACEventsProcessor still calls GetContractEventsForOperation
+	// itself (see TODO at processors/contracts/sac.go); that consolidation is a
+	// separate cleanup.
+	if tx.Result.Successful() {
+		for _, opParticipants := range opsParticipants {
+			opWrapper := opParticipants.OpWrapper
+			if opWrapper.Operation.Body.Type != xdr.OperationTypeInvokeHostFunction {
+				continue
+			}
+			events, evErr := tx.GetContractEventsForOperation(opWrapper.Index)
+			if evErr != nil {
+				return 0, fmt.Errorf("extracting contract events for op %d: %w", opWrapper.Index, evErr)
+			}
+			if len(events) == 0 {
+				continue
+			}
+			buffer.PushContractEvents(ContractEventKey{TxIdx: tx.Index, OpIdx: opWrapper.Index}, events)
 		}
 	}
 
@@ -330,6 +368,44 @@ func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledger
 	}
 
 	return transactions, nil
+}
+
+// ExtractContractEventsForLedger walks a ledger's transactions and returns
+// the (txIdx, opIdx) → []ContractEvent map that the full indexer pipeline
+// would have pushed into the buffer. It performs no participant tracking,
+// no state-change processing, and no DB I/O — it's the minimal subset that
+// protocol-migrate needs to drive ProtocolProcessor.ProcessLedger without
+// running the full indexer.
+//
+// Only events from successful transactions are returned, matching the live
+// indexer's filter in processTransaction.
+func ExtractContractEventsForLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+
+	out := make(map[ContractEventKey][]xdr.ContractEvent)
+	for _, tx := range transactions {
+		if !tx.Result.Successful() {
+			continue
+		}
+		for opIdx, op := range tx.Envelope.Operations() {
+			if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
+				continue
+			}
+			events, evErr := tx.GetContractEventsForOperation(uint32(opIdx))
+			if evErr != nil {
+				return nil, fmt.Errorf("extracting contract events for ledger %d tx %d op %d: %w",
+					ledgerMeta.LedgerSequence(), tx.Index, opIdx, evErr)
+			}
+			if len(events) == 0 {
+				continue
+			}
+			out[ContractEventKey{TxIdx: tx.Index, OpIdx: uint32(opIdx)}] = events
+		}
+	}
+	return out, nil
 }
 
 // ProcessLedger extracts transactions from a ledger and indexes them.
