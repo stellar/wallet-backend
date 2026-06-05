@@ -136,7 +136,12 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		args = append(args, *limit)
 	}
 
-	// Close CTE and LATERAL join to fetch full transaction rows
+	// Close CTE and LATERAL join to fetch full transaction rows. The LIMIT 1 in the lateral
+	// is load-bearing: the complete primary key (to_id, ledger_created_at) is pinned, so at
+	// most one row can match, and a subquery containing LIMIT cannot be flattened into a
+	// join — the planner must keep this a per-row PK probe. Flattened, it could scan
+	// transactions (which has no segmentby column) and hash-join, which on compressed
+	// chunks means decompressing whole-network data instead of one batch per probe.
 	fmt.Fprintf(&queryBuilder, `
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
