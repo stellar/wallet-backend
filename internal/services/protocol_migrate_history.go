@@ -33,6 +33,7 @@ type ProtocolMigrateHistoryConfig struct {
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
 	OldestLedgerCursorName string
+	WindowSize             uint32
 }
 
 // NewProtocolMigrateHistoryService creates a new protocolMigrateHistoryService from the given config.
@@ -65,6 +66,7 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 			ingestStore:            cfg.IngestStore,
 			networkPassphrase:      cfg.NetworkPassphrase,
 			processors:             ppMap,
+			windowSize:             cfg.WindowSize,
 			strategy: migrationStrategy{
 				Label:                 "history",
 				Mode:                  StagingModeHistory,

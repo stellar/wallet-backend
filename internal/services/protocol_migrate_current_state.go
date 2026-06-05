@@ -33,6 +33,7 @@ type ProtocolMigrateCurrentStateConfig struct {
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
 	StartLedger            uint32
+	WindowSize             uint32
 }
 
 // NewProtocolMigrateCurrentStateService creates a new protocolMigrateCurrentStateService from the given config.
@@ -64,6 +65,7 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			ingestStore:            cfg.IngestStore,
 			networkPassphrase:      cfg.NetworkPassphrase,
 			processors:             ppMap,
+			windowSize:             cfg.WindowSize,
 			strategy: migrationStrategy{
 				Label:                 "current state",
 				Mode:                  StagingModeCurrentState,

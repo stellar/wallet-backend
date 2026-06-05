@@ -57,6 +57,7 @@ type migrationCommandOpts struct {
 	ledgerBackendType   string
 	datastoreConfigPath string
 	getLedgersLimit     int
+	windowSize          uint32
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
@@ -167,6 +168,7 @@ func buildMigrationCommand(
 	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
 		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
 	}
+	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (1 = commit every ledger)")
 
 	if addFlags != nil {
 		addFlags(cmd, &opts)
@@ -289,6 +291,7 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
 					OldestLedgerCursorName: oldestLedgerCursorName,
+					WindowSize:             opts.windowSize,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate history service: %w", err)
@@ -329,6 +332,7 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
 					StartLedger:            startLedger,
+					WindowSize:             opts.windowSize,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate current-state service: %w", err)

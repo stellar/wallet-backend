@@ -24,6 +24,8 @@ type protocolTracker struct {
 	cursorValue uint32
 	processor   ProtocolProcessor
 	handedOff   bool
+	// pending counts folded-but-uncommitted ledgers; window = [cursorValue+1, cursorValue+pending].
+	pending uint32
 }
 
 // migrationStrategy holds the injection points that differ between
@@ -62,6 +64,8 @@ type protocolMigrateEngine struct {
 	networkPassphrase      string
 	processors             map[string]ProtocolProcessor
 	strategy               migrationStrategy
+	// windowSize is the number of ledgers coalesced into one commit. 0 means 1 (commit every ledger).
+	windowSize uint32
 }
 
 // Run performs migration for the given protocol IDs using the configured strategy.
@@ -227,9 +231,14 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		contractsByProtocol[t.protocolID] = contracts
 	}
 
-	startLedger := minCursor(trackers) + 1
+	windowSize := s.windowSize
+	if windowSize == 0 {
+		windowSize = 1
+	}
 
-	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s)", startLedger, len(protocolIDs))
+	startLedger := minCursor(trackers) + 1
+	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s), window size %d",
+		startLedger, len(protocolIDs), windowSize)
 
 	prepareFn := func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerbackend.UnboundedRange(startLedger))
@@ -243,6 +252,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
 	}
 
+	var cachedTip uint32
 	for seq := startLedger; ; seq++ {
 		if err := ctx.Err(); err != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", err)
@@ -251,7 +261,24 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			return handedOffProtocolIDs(trackers), nil
 		}
 
-		// Skip if no non-handed-off tracker needs this ledger.
+		// Tip-shrink: if GetLedger(seq) would block on a not-yet-closed ledger, commit all
+		// open windows first so the migration<->live handoff stays ledger-precise (K->1 at the tip).
+		if seq > cachedTip {
+			if tip, tipErr := s.ledgerBackend.GetLatestLedgerSequence(ctx); tipErr == nil {
+				cachedTip = tip
+			}
+			if seq > cachedTip {
+				for _, t := range trackers {
+					if err := s.flushWindow(ctx, t); err != nil {
+						return handedOffProtocolIDs(trackers), err
+					}
+				}
+				if allHandedOff(trackers) {
+					return handedOffProtocolIDs(trackers), nil
+				}
+			}
+		}
+
 		if !anyTrackerNeedsLedger(trackers, seq) {
 			continue
 		}
@@ -271,60 +298,73 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 
 		for _, t := range trackers {
-			if t.handedOff || t.cursorValue >= seq {
+			if t.handedOff || t.cursorValue+t.pending >= seq {
 				continue
 			}
-
-			contracts := contractsByProtocol[t.protocolID]
 			input := ProtocolProcessorInput{
 				LedgerSequence:    seq,
 				LedgerCloseTime:   ledgerCloseTime,
 				ContractEvents:    ledgerEvents,
-				ProtocolContracts: contracts,
+				ProtocolContracts: contractsByProtocol[t.protocolID],
 				StagingMode:       s.strategy.Mode,
 			}
 			if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
 			}
-
-			// CAS + persist in a transaction
-			expected := strconv.FormatUint(uint64(seq-1), 10)
-			next := strconv.FormatUint(uint64(seq), 10)
-
-			var swapped bool
-			if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-				// Disable synchronous commit for this transaction only — safe for
-				// migration since data is re-ingestable via the CAS cursor on crash.
-				if _, execErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); execErr != nil {
-					return fmt.Errorf("setting synchronous_commit=off: %w", execErr)
+			t.pending++
+			if t.pending >= windowSize {
+				if err := s.flushWindow(ctx, t); err != nil {
+					return handedOffProtocolIDs(trackers), err
 				}
-
-				var casErr error
-				swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
-				if casErr != nil {
-					return fmt.Errorf("CAS %s cursor for %s: %w", s.strategy.Label, t.protocolID, casErr)
-				}
-				if swapped {
-					return s.strategy.Persist(ctx, dbTx, t.processor)
-				}
-				return nil
-			}); txErr != nil {
-				return handedOffProtocolIDs(trackers), fmt.Errorf("persisting ledger %d for protocol %s: %w", seq, t.protocolID, txErr)
 			}
-
-			if !swapped {
-				log.Ctx(ctx).Infof("Protocol %s: CAS failed at ledger %d, handoff to live ingestion detected", t.protocolID, seq)
-				t.handedOff = true
-			} else {
-				t.cursorValue = seq
-			}
-			t.processor.Reset()
 		}
 
 		if seq%100 == 0 {
 			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
 		}
 	}
+}
+
+// flushWindow commits a tracker's open window [cursorValue+1, cursorValue+pending] in a
+// single transaction: CAS(winStart-1 -> winEnd) then merged Persist. A failed CAS means
+// live ingestion took winStart, so the whole window is discarded and the tracker hands off.
+func (s *protocolMigrateEngine) flushWindow(ctx context.Context, t *protocolTracker) error {
+	if t.pending == 0 {
+		return nil
+	}
+	winEnd := t.cursorValue + t.pending
+	expected := strconv.FormatUint(uint64(t.cursorValue), 10) // winStart - 1
+	next := strconv.FormatUint(uint64(winEnd), 10)
+
+	var swapped bool
+	if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		// Disable synchronous commit for this transaction only — safe for migration
+		// since data is re-ingestable via the CAS cursor on crash.
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); execErr != nil {
+			return fmt.Errorf("setting synchronous_commit=off: %w", execErr)
+		}
+		var casErr error
+		swapped, casErr = s.ingestStore.CompareAndSwap(ctx, dbTx, t.cursorName, expected, next)
+		if casErr != nil {
+			return fmt.Errorf("CAS %s cursor for %s: %w", s.strategy.Label, t.protocolID, casErr)
+		}
+		if swapped {
+			return s.strategy.Persist(ctx, dbTx, t.processor)
+		}
+		return nil
+	}); txErr != nil {
+		return fmt.Errorf("persisting window [%d,%d] for protocol %s: %w", t.cursorValue+1, winEnd, t.protocolID, txErr)
+	}
+
+	t.processor.Reset()
+	if swapped {
+		t.cursorValue = winEnd
+	} else {
+		log.Ctx(ctx).Infof("Protocol %s: CAS failed at window [%d,%d], handoff to live ingestion detected", t.protocolID, t.cursorValue+1, winEnd)
+		t.handedOff = true
+	}
+	t.pending = 0
+	return nil
 }
 
 // minCursor returns the smallest cursorValue across trackers. Called once during
@@ -344,7 +384,7 @@ func minCursor(trackers []*protocolTracker) uint32 {
 // still needs to process the given ledger sequence.
 func anyTrackerNeedsLedger(trackers []*protocolTracker, seq uint32) bool {
 	for _, t := range trackers {
-		if !t.handedOff && t.cursorValue < seq {
+		if !t.handedOff && t.cursorValue+t.pending < seq {
 			return true
 		}
 	}
