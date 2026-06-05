@@ -168,7 +168,7 @@ func buildMigrationCommand(
 	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
 		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
 	}
-	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (1 = commit every ledger)")
+	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (0 or 1 = commit every ledger)")
 
 	if addFlags != nil {
 		addFlags(cmd, &opts)
