@@ -451,6 +451,41 @@ func TestProcessor_FoldsAcrossLedgersWithoutReset(t *testing.T) {
 	assert.Len(t, p.stagedStateChanges, 4)
 }
 
+func TestProcessor_StampsPerRowLastModifiedLedgerAcrossWindow(t *testing.T) {
+	// Batch-equivalence: a coalesced window must stamp each balance/allowance with the
+	// ledger that actually last touched it, not the window end — otherwise migrated rows
+	// report a different last_modified_ledger than per-ledger live ingestion. Here B and the
+	// allowance are touched only at ledger 100 while the window extends to 199, so they must
+	// keep 100; A (re-touched at 199) must advance to 199.
+	p := newTestProcessor()
+	p.Reset()
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	p.sep41Contracts[contractID] = struct{}{}
+
+	// Ledger 100: A -> B 500 (touches A and B) plus an approve A -> B.
+	p.ledgerNumber = 100
+	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer), mustAddressScVal(t, testAccountA), mustAddressScVal(t, testAccountB),
+	}, i128ScVal(500)), newTestOpBuilder(), services.StagingModeCurrentState))
+	require.NoError(t, p.processEvent(buildEventForContract(t, contractID,
+		[]xdr.ScVal{symScVal(EventApprove), mustAddressScVal(t, testAccountA), mustAddressScVal(t, testAccountB)},
+		vecScVal(i128ScVal(500), u32ScVal(9999)),
+	), newTestOpBuilder(), services.StagingModeCurrentState))
+
+	// Ledger 199: mint 300 to A (touches A only; B and the allowance are untouched).
+	p.ledgerNumber = 199
+	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventMint), mustAddressScVal(t, testAccountA),
+	}, i128ScVal(300)), newTestOpBuilder(), services.StagingModeCurrentState))
+
+	assert.Equal(t, uint32(199), p.stagedBalanceLedger[balanceKey{Account: testAccountA, ContractID: contractID}],
+		"A was last touched at ledger 199")
+	assert.Equal(t, uint32(100), p.stagedBalanceLedger[balanceKey{Account: testAccountB, ContractID: contractID}],
+		"B was last touched at ledger 100, not the window end 199")
+	assert.Equal(t, uint32(100), p.stagedAllowances[allowanceKey{Owner: testAccountA, Spender: testAccountB, ContractID: contractID}].LedgerNumber,
+		"the allowance was last modified at ledger 100, not the window end 199")
+}
+
 // ---- helpers ----
 
 //nolint:unparam // tests currently pass the same contract, but keep the param for future varied cases

@@ -37,6 +37,9 @@ type allowanceKey struct {
 type stagedAllowance struct {
 	Amount           *big.Int
 	ExpirationLedger uint32
+	// LedgerNumber is the ledger of the latest approve folded into this grant, recorded
+	// so a coalesced window stamps the row's real last-modified ledger, not the window end.
+	LedgerNumber uint32
 }
 
 // processor implements services.ProtocolProcessor for the SEP-41 token protocol.
@@ -57,8 +60,12 @@ type processor struct {
 	ledgerNumber       uint32
 	stagedStateChanges []types.StateChange
 	stagedBalanceDelta map[balanceKey]*big.Int
-	stagedAllowances   map[allowanceKey]stagedAllowance
-	stagedContracts    map[string]struct{} // C-addrs seen this window (for contract_tokens upsert)
+	// stagedBalanceLedger records the latest ledger to touch each balance key. Deltas sum
+	// across a window, but last_modified_ledger must reflect the ledger of the last touch,
+	// so a coalesced window matches per-ledger live ingestion rather than stamping the window end.
+	stagedBalanceLedger map[balanceKey]uint32
+	stagedAllowances    map[allowanceKey]stagedAllowance
+	stagedContracts     map[string]struct{} // C-addrs seen this window (for contract_tokens upsert)
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
@@ -236,6 +243,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			p.stagedAllowances[key] = stagedAllowance{
 				Amount:           new(big.Int).Set(decoded.Amount),
 				ExpirationLedger: decoded.LiveUntilLedger,
+				LedgerNumber:     p.ledgerNumber,
 			}
 		}
 		if mode.NeedsHistory() {
@@ -272,6 +280,9 @@ func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr st
 		p.stagedBalanceDelta[key] = existing
 	}
 	existing.Add(existing, delta)
+	// ledgerNumber is the ledger currently being folded; ledgers fold in ascending order,
+	// so this keeps the latest ledger that touched the balance.
+	p.stagedBalanceLedger[key] = p.ledgerNumber
 }
 
 // Reset clears the staged sets for the next window. ledgerNumber is intentionally
@@ -279,6 +290,7 @@ func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr st
 func (p *processor) Reset() {
 	p.stagedStateChanges = nil
 	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
+	p.stagedBalanceLedger = map[balanceKey]uint32{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
 	p.stagedContracts = map[string]struct{}{}
 }
@@ -329,7 +341,7 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 			AccountID:    key.Account,
 			ContractID:   data.DeterministicContractID(key.ContractID),
 			Balance:      delta.String(),
-			LedgerNumber: p.ledgerNumber,
+			LedgerNumber: p.stagedBalanceLedger[key],
 		})
 	}
 	if err := p.balances.BatchApplyDeltas(ctx, dbTx, deltas); err != nil {
@@ -346,7 +358,7 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 			ContractID:       data.DeterministicContractID(key.ContractID),
 			Amount:           staged.Amount.String(),
 			ExpirationLedger: staged.ExpirationLedger,
-			LedgerNumber:     p.ledgerNumber,
+			LedgerNumber:     staged.LedgerNumber,
 		}
 		if staged.Amount.Sign() == 0 {
 			allowanceDeletes = append(allowanceDeletes, row)
