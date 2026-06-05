@@ -431,6 +431,28 @@ func TestNewProcessor_StartsWithInitializedStagedSets(t *testing.T) {
 	assert.Len(t, p.stagedBalanceDelta, 2)
 }
 
+func TestProcessor_FoldsAcrossLedgersWithoutReset(t *testing.T) {
+	p := newTestProcessor()
+	p.Reset()
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	p.sep41Contracts[contractID] = struct{}{}
+
+	// Ledger N: A -> B 500
+	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer), mustAddressScVal(t, testAccountA), mustAddressScVal(t, testAccountB),
+	}, i128ScVal(500)), newTestOpBuilder()))
+	// Ledger N+1 (no Reset between): B -> A 200
+	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustAddressScVal(t, testAccountA),
+	}, i128ScVal(200)), newTestOpBuilder()))
+
+	// Net deltas equal the sum: A = -500 + 200 = -300, B = +500 - 200 = +300.
+	assert.Equal(t, big.NewInt(-300), p.stagedBalanceDelta[balanceKey{Account: testAccountA, ContractID: contractID}])
+	assert.Equal(t, big.NewInt(300), p.stagedBalanceDelta[balanceKey{Account: testAccountB, ContractID: contractID}])
+	// History rows append (4 = 2 per transfer).
+	assert.Len(t, p.stagedStateChanges, 4)
+}
+
 // ---- helpers ----
 
 //nolint:unparam // tests currently pass the same contract, but keep the param for future varied cases

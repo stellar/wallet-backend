@@ -1106,3 +1106,174 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		assert.Equal(t, []uint32{100}, processor.persistedHistorySeqs)
 	})
 }
+
+func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
+	t.Run("commits once per window and discards a window on handoff", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 105)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		// Advancing the cursor at 105 makes the second window's CAS fail -> handoff -> loop ends.
+		processor := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           105,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
+			103: dummyLedgerMeta(103), 104: dummyLedgerMeta(104), 105: dummyLedgerMeta(105),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 3,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
+
+		// All six ledgers folded; only the first window committed (once, at winEnd=102).
+		assert.Len(t, processor.processedInputs, 6)
+		assert.Equal(t, []uint32{102}, processor.persistedHistorySeqs)
+		// Engine owns Reset and calls it at each window boundary: commit at 102, handoff at 105.
+		assert.Equal(t, 2, processor.resetCount)
+
+		// Sentinel exists only at the window boundary 102 — not per-ledger.
+		_, ok102 := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+		assert.True(t, ok102, "window boundary 102 should be persisted")
+		for _, seq := range []uint32{100, 101, 103, 104, 105} {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
+			assert.False(t, ok, "no per-ledger sentinel expected for %d", seq)
+		}
+
+		// Cursor reflects the live-ingestion takeover (advanceAtSeq + 100).
+		assert.Equal(t, uint32(205), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+	})
+
+	t.Run("tip-shrink flushes a partial window at the live tip", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		processor := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"testproto"})) // returns => tip-shrink flushed; no hang
+
+		assert.Empty(t, processor.persistedHistorySeqs) // partial window's CAS failed -> handoff
+		assert.Equal(t, uint32(201), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+	})
+}
+
+func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
+	t.Run("each protocol folds from its own cursor position", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 104)
+		// proto2 has already processed up to 102; proto1 starts fresh from 99.
+		setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("proto2"), 102)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('proto1', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('proto2', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"proto1", "proto2"}).Return([]data.Protocols{
+			{ID: "proto1", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "proto2", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+
+		// Both processors advance at 104 (last available ledger) so both hand off,
+		// terminating the loop via tip-shrink+handoff (WindowSize=10 never fills).
+		proc1 := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "proto1", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           104,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+		proc2 := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "proto2", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           104,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
+			103: dummyLedgerMeta(103), 104: dummyLedgerMeta(104),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{proc1, proc2}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"proto1", "proto2"}))
+
+		// proto1 starts from 99+1=100; proto2 resumes from 102+1=103.
+		require.NotEmpty(t, proc1.processedInputs)
+		require.NotEmpty(t, proc2.processedInputs)
+		assert.Equal(t, uint32(100), proc1.processedInputs[0].LedgerSequence)
+		assert.Equal(t, uint32(103), proc2.processedInputs[0].LedgerSequence)
+
+		// Both hand off at 104 — cursors are advanceAtSeq + 100 = 204.
+		assert.Equal(t, uint32(204), getIngestStoreValue(t, ctx, dbPool, "protocol_proto1_history_cursor"))
+		assert.Equal(t, uint32(204), getIngestStoreValue(t, ctx, dbPool, "protocol_proto2_history_cursor"))
+	})
+}
