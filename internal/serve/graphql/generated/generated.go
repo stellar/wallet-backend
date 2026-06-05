@@ -1916,6 +1916,7 @@ type SACBalance implements Balance {
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
+
 """SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder."""
 type SEP41Balance implements Balance {
     balance: String!
