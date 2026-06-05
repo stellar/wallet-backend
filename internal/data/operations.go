@@ -213,9 +213,17 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 // BatchGetAccountOperationsByToIDs returns, for each (toID, ledgerCreatedAt) pair, all operations
 // in that transaction involving accountAddress. ledgerCreatedAt is the parent transaction's ledger
 // time (== the operation's ledger time); pinning the partition column triggers primary chunk
-// exclusion. No LIMIT: operations per tx are ≤100 by Stellar protocol. operations has no account
-// column, so scope through operations_accounts (segmentby=account_id) via the TOID band, then a PK
-// LATERAL into operations.
+// exclusion. operations has no account column, so scope through operations_accounts
+// (segmentby=account_id) via the TOID band, then a PK LATERAL into operations.
+//
+// Both LATERAL subqueries carry a LIMIT on purpose: a subquery containing LIMIT cannot be
+// flattened into a join, so the planner must execute each one as a per-pair index probe.
+// Flattened, it could instead scan the account's entire operations_accounts history (or, for
+// operations — which has no segmentby column — whole-network data) and hash-join the pairs,
+// which on compressed chunks means decompressing every batch instead of exactly one per probe.
+// The LIMIT values are invariants, not tuning: a TOID reserves 12 bits for the operation
+// index, so one transaction holds at most 4095 operations (LIMIT 4096); the operations probe
+// pins the complete primary key, so at most one row can match (LIMIT 1).
 func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.Operation, error) {
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
@@ -230,6 +238,7 @@ func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, a
 			WHERE oa.ledger_created_at = i.ledger_created_at
 			  AND oa.operation_id > i.to_id AND oa.operation_id < i.to_id + 4096
 			  AND oa.account_id = $1
+			LIMIT 4096
 		) oa
 		CROSS JOIN LATERAL (
 			SELECT * FROM operations o
