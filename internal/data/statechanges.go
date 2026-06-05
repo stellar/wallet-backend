@@ -485,30 +485,49 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	return stateChanges, nil
 }
 
-// BatchGetAccountStateChangesByToIDs returns, for each (toID, ledgerCreatedAt) pair, all state
-// changes in that transaction that belong to accountAddress. ledgerCreatedAt is the parent
-// transaction's ledger time (== the state change's ledger time, same ledger); pinning the
-// partition column triggers primary chunk exclusion. No LIMIT: an account's per-tx state
-// changes are bounded in practice. Account scoping is via the account_id column on state_changes.
+// BatchGetAccountStateChangesByToIDs returns, for each given transaction TOID, all state
+// changes in that transaction that belong to accountAddress. toIDs and ledgerCreatedAts are
+// parallel arrays; the timestamps are the parent transactions' ledger times (== the state
+// changes' ledger times, same ledger).
+//
+// The query is deliberately a single flat scan, not an UNNEST + LATERAL join: the planner
+// may flatten a joinable subquery and then choose a hash join that scans the account's
+// entire history instead of probing per transaction. A flat WHERE with to_id = ANY(...)
+// plus a ledger_created_at range leaves no join to flatten. to_id alone identifies a
+// transaction (it is unique; the pkey includes ledger_created_at only because TimescaleDB
+// requires the partition column in unique indexes). The time range exists purely for
+// pruning: compressed chunks read only the batches overlapping the page window (segmentby
+// account_id, orderby ledger_created_at); uncompressed chunks can use index range scans;
+// chunks outside the range are excluded entirely.
 func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.StateChange, error) {
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
+	if len(toIDs) == 0 {
+		return []*types.StateChange{}, nil
+	}
+	lo, hi := ledgerCreatedAts[0], ledgerCreatedAts[0]
+	for _, t := range ledgerCreatedAts[1:] {
+		if t.Before(lo) {
+			lo = t
+		}
+		if t.After(hi) {
+			hi = t
+		}
+	}
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id")
 	query := fmt.Sprintf(`
 		SELECT %s
-		FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(to_id, ledger_created_at)
-		CROSS JOIN LATERAL (
-			SELECT * FROM state_changes sc
-			WHERE sc.ledger_created_at = i.ledger_created_at
-			  AND sc.to_id = i.to_id
-			  AND sc.account_id = $1
-		) sc
+		FROM state_changes sc
+		WHERE sc.account_id = $1
+		  AND sc.to_id = ANY($2::bigint[])
+		  AND sc.ledger_created_at >= $3
+		  AND sc.ledger_created_at <= $4
 		ORDER BY sc.ledger_created_at DESC, sc.to_id DESC, sc.operation_id DESC, sc.state_change_id DESC
 	`, columns)
 
 	start := time.Now()
-	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, ledgerCreatedAts)
+	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, lo, hi)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(float64(len(toIDs)))
