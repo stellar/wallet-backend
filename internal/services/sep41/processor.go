@@ -365,7 +365,7 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	return nil
 }
 
-// ensureContractTokens inserts a contract_tokens row for every contract touched this ledger,
+// ensureContractTokens inserts a contract_tokens row for every contract touched this window,
 // if not already present. For newly inserted rows, metadata (name/symbol/decimals) is fetched
 // via RPC inline; per-contract RPC failures fall back to default values (decimals=0, nil
 // name/symbol) and are logged. No separate backfill path exists, so correctness depends on
