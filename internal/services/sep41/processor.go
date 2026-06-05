@@ -55,7 +55,6 @@ type processor struct {
 	// Staged sets that accumulate across ProcessLedger calls within a window and are
 	// cleared by the caller via Reset().
 	ledgerNumber       uint32
-	stagingMode        services.StagingMode
 	stagedStateChanges []types.StateChange
 	stagedBalanceDelta map[balanceKey]*big.Int
 	stagedAllowances   map[allowanceKey]stagedAllowance
@@ -100,7 +99,6 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // See services.ProtocolProcessor for the folding/batch-equivalence contract.
 func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProcessorInput) error {
 	p.ledgerNumber = input.LedgerSequence
-	p.stagingMode = input.StagingMode
 	p.indexContracts(input.ProtocolContracts)
 
 	if len(p.sep41Contracts) == 0 {
@@ -117,7 +115,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 			WithOperationID(opID)
 
 		for _, event := range events {
-			if err := p.processEvent(event, opBuilder); err != nil {
+			if err := p.processEvent(event, opBuilder, input.StagingMode); err != nil {
 				// Log and continue — a malformed event must not abort the whole ledger.
 				log.Debugf("sep41: skipping malformed event at tx=%d op=%d: %v",
 					key.TxIdx, key.OpIdx, err)
@@ -129,7 +127,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 	return nil
 }
 
-func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder) error {
+func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder, mode services.StagingMode) error {
 	if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
 		return fmt.Errorf("unsupported event shape")
 	}
@@ -140,7 +138,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	if _, ok := p.sep41Contracts[contractStr]; !ok {
 		return nil // not a contract we track; silently skip
 	}
-	if p.stagingMode.NeedsCurrentState() {
+	if mode.NeedsCurrentState() {
 		p.stagedContracts[contractStr] = struct{}{}
 	}
 
@@ -163,11 +161,11 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		if p.stagingMode.NeedsCurrentState() {
+		if mode.NeedsCurrentState() {
 			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
 			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		if p.stagingMode.NeedsHistory() {
+		if mode.NeedsHistory() {
 			creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
 				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 			if decoded.ToMuxedID != nil {
@@ -185,10 +183,10 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		if p.stagingMode.NeedsCurrentState() {
+		if mode.NeedsCurrentState() {
 			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		if p.stagingMode.NeedsHistory() {
+		if mode.NeedsHistory() {
 			mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
 				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 			if decoded.ToMuxedID != nil {
@@ -202,10 +200,10 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		if p.stagingMode.NeedsCurrentState() {
+		if mode.NeedsCurrentState() {
 			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
 		}
-		if p.stagingMode.NeedsHistory() {
+		if mode.NeedsHistory() {
 			p.stagedStateChanges = append(p.stagedStateChanges,
 				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
 					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
@@ -217,10 +215,10 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		if p.stagingMode.NeedsCurrentState() {
+		if mode.NeedsCurrentState() {
 			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
 		}
-		if p.stagingMode.NeedsHistory() {
+		if mode.NeedsHistory() {
 			// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
 			p.stagedStateChanges = append(p.stagedStateChanges,
 				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
@@ -233,14 +231,14 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		if p.stagingMode.NeedsCurrentState() {
+		if mode.NeedsCurrentState() {
 			key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
 			p.stagedAllowances[key] = stagedAllowance{
 				Amount:           new(big.Int).Set(decoded.Amount),
 				ExpirationLedger: decoded.LiveUntilLedger,
 			}
 		}
-		if p.stagingMode.NeedsHistory() {
+		if mode.NeedsHistory() {
 			// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
 			// through GraphQL. StandardBalanceChange would drop those fields.
 			p.stagedStateChanges = append(p.stagedStateChanges,

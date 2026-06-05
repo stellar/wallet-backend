@@ -65,7 +65,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(500))
 
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 
 		deltaA := p.stagedBalanceDelta[balanceKey{Account: testAccountA, ContractID: contractID}]
 		deltaB := p.stagedBalanceDelta[balanceKey{Account: testAccountB, ContractID: contractID}]
@@ -104,7 +104,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			i128ScVal(500),
 		)
 
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 		assert.Empty(t, p.stagedStateChanges)
 		assert.Empty(t, p.stagedBalanceDelta)
 	})
@@ -120,13 +120,13 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			symScVal(EventMint),
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(100))
-		require.NoError(t, p.processEvent(mintEvent, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(mintEvent, newTestOpBuilder(), services.StagingModeBoth))
 
 		burnEvent := buildEventForContract(t, contractID, []xdr.ScVal{
 			symScVal(EventBurn),
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(30))
-		require.NoError(t, p.processEvent(burnEvent, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(burnEvent, newTestOpBuilder(), services.StagingModeBoth))
 
 		delta := p.stagedBalanceDelta[balanceKey{Account: testAccountB, ContractID: contractID}]
 		require.NotNil(t, delta)
@@ -151,7 +151,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			mustAddressScVal(t, testAccountA),
 			mustAddressScVal(t, testAccountB),
 		}, data)
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 
 		require.Len(t, p.stagedStateChanges, 2)
 		var creditSC *types.StateChange
@@ -168,7 +168,6 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 	t.Run("history mode stages state changes but no balance deltas", func(t *testing.T) {
 		p := newTestProcessor()
 		p.Reset()
-		p.stagingMode = services.StagingModeHistory
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
 		event := buildEventForContract(t, contractID, []xdr.ScVal{
@@ -177,7 +176,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(500))
 
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeHistory))
 		assert.Len(t, p.stagedStateChanges, 2)
 		assert.Empty(t, p.stagedBalanceDelta)
 	})
@@ -185,7 +184,6 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 	t.Run("current-state mode stages balance deltas but no state changes", func(t *testing.T) {
 		p := newTestProcessor()
 		p.Reset()
-		p.stagingMode = services.StagingModeCurrentState
 		contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		p.sep41Contracts[contractID] = struct{}{}
 		event := buildEventForContract(t, contractID, []xdr.ScVal{
@@ -194,7 +192,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(500))
 
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeCurrentState))
 		assert.Empty(t, p.stagedStateChanges)
 		assert.Len(t, p.stagedBalanceDelta, 2)
 	})
@@ -214,7 +212,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 			},
 			vecScVal(i128ScVal(500), u32ScVal(1234)),
 		)
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 
 		key := allowanceKey{Owner: testAccountA, Spender: testAccountB, ContractID: contractID}
 		staged, ok := p.stagedAllowances[key]
@@ -352,7 +350,7 @@ func TestProcessor_PersistHistory(t *testing.T) {
 			mustAddressScVal(t, testAccountA),
 			mustAddressScVal(t, testAccountB),
 		}, i128ScVal(500))
-		require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+		require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 		require.Len(t, p.stagedStateChanges, 2)
 
 		scMock.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(scs []types.StateChange) bool {
@@ -389,7 +387,7 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 		mustAddressScVal(t, testAccountA),
 		mustAddressScVal(t, testAccountB),
 	}, i128ScVal(500))
-	require.NoError(t, p.processEvent(event, newTestOpBuilder()))
+	require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
 
 	// contract_tokens: none existing, expect BatchInsert of the one staged contract.
 	contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
@@ -426,7 +424,7 @@ func TestNewProcessor_StartsWithInitializedStagedSets(t *testing.T) {
 		mustAddressScVal(t, testAccountB),
 	}, i128ScVal(500))
 	require.NotPanics(t, func() {
-		_ = p.processEvent(event, newTestOpBuilder())
+		_ = p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth)
 	})
 	assert.Len(t, p.stagedBalanceDelta, 2)
 }
@@ -440,11 +438,11 @@ func TestProcessor_FoldsAcrossLedgersWithoutReset(t *testing.T) {
 	// Ledger N: A -> B 500
 	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
 		symScVal(EventTransfer), mustAddressScVal(t, testAccountA), mustAddressScVal(t, testAccountB),
-	}, i128ScVal(500)), newTestOpBuilder()))
+	}, i128ScVal(500)), newTestOpBuilder(), services.StagingModeBoth))
 	// Ledger N+1 (no Reset between): B -> A 200
 	require.NoError(t, p.processEvent(buildEventForContract(t, contractID, []xdr.ScVal{
 		symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustAddressScVal(t, testAccountA),
-	}, i128ScVal(200)), newTestOpBuilder()))
+	}, i128ScVal(200)), newTestOpBuilder(), services.StagingModeBoth))
 
 	// Net deltas equal the sum: A = -500 + 200 = -300, B = +500 - 200 = +300.
 	assert.Equal(t, big.NewInt(-300), p.stagedBalanceDelta[balanceKey{Account: testAccountA, ContractID: contractID}])
