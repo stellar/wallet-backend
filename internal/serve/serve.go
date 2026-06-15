@@ -119,8 +119,9 @@ func Serve(cfg Configs) error {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
 
-	// Start separate admin server for pprof endpoints if configured.
-	// supporthttp.Run blocks below; the admin listener lives and dies with the process.
+	// Start separate admin server for pprof endpoints if configured. It is best-effort profiling
+	// infra: supporthttp.Run blocks below, and a bind failure here is logged without taking down
+	// the main API server.
 	if cfg.AdminPort > 0 {
 		adminMux := http.NewServeMux()
 		registerAdminHandlers(adminMux)
@@ -132,7 +133,7 @@ func Serve(cfg Configs) error {
 		go func() {
 			log.Infof("Starting admin server with pprof endpoints on port %d", cfg.AdminPort)
 			if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
-				log.Fatalf("starting admin server on %s: %v", adminServer.Addr, err)
+				log.Errorf("admin server on %s stopped: %v (pprof disabled; main server unaffected)", adminServer.Addr, err)
 			}
 		}()
 	}
@@ -353,4 +354,15 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
+
+	// accounts are unpaginated resolver lists that fan out into per-account balance lookups. Price
+	// them at a default page's worth (must stay >=~20 so a deep accounts->balances traversal stays
+	// over the limit). The account-edge operations/stateChanges lists are deliberately left at the
+	// default cost: the full-detail account-history query selects ~34 fields per edge, so any
+	// multiplier there would push a first=100 page past the limit.
+	accountsListComplexityFunc := func(childComplexity int) int {
+		return childComplexity * int(graphqlutils.DefaultPageLimit)
+	}
+	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
+	config.Complexity.Operation.Accounts = accountsListComplexityFunc
 }

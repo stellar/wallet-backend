@@ -140,7 +140,7 @@ func TestGraphQLComplexityLimitRejectsLargeQueries(t *testing.T) {
 			expectedMessage: "operation has complexity 151, which exceeds the limit of 100",
 		},
 		{
-			name:  "transaction accounts can no longer bypass account pagination complexity",
+			name:  "transaction accounts carry the page-size multiplier",
 			limit: 100,
 			query: `query {
 				transactionByHash(hash: "` + complexityTestTxHash + `") {
@@ -155,7 +155,49 @@ func TestGraphQLComplexityLimitRejectsLargeQueries(t *testing.T) {
 					}
 				}
 			}`,
-			expectedMessage: "operation has complexity 152, which exceeds the limit of 100",
+			// accounts ×50 over the nested transactions page (3×50=150): 150×50, +1 for transactionByHash.
+			expectedMessage: "operation has complexity 7501, which exceeds the limit of 100",
+		},
+		{
+			name:  "operation accounts carry the page-size multiplier",
+			limit: 52,
+			query: `query {
+				transactionByHash(hash: "` + complexityTestTxHash + `") {
+					operations(first: 1) {
+						edges {
+							node {
+								accounts {
+									address
+								}
+							}
+						}
+					}
+				}
+			}`,
+			// accounts ×50 (address=1 → 50) → node 51 → edges 52 → operations(first:1) 52 → +1.
+			expectedMessage: "operation has complexity 53, which exceeds the limit of 52",
+		},
+		{
+			name:  "account-edge operations and stateChanges are not multiplied",
+			limit: 5,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					transactions(first: 1) {
+						edges {
+							operations {
+								id
+							}
+							stateChanges {
+								__typename
+							}
+						}
+					}
+				}
+			}`,
+			// Regression guard: leaving these new fields unregistered keeps the full-detail history
+			// query under the limit. operations{id}=2, stateChanges{__typename}=2 → edge 4 → edges 5 →
+			// transactions(first:1) 5 → +1. Were they multiplied ×50 this would be ~102.
+			expectedMessage: "operation has complexity 6, which exceeds the limit of 5",
 		},
 	}
 

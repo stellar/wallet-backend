@@ -97,8 +97,63 @@ func TestAccountScopedLoaders_NoCrossAccountLeakInSharedBatch(t *testing.T) {
 	})
 }
 
+// TestAccountScopedLoaders_PerColumnsFetchInSharedBatch covers a single request that aliases the
+// SAME account with different field sub-selections. Each alias produces a key with the same
+// (account, to_id) but a different Columns set, and both land in one batch. The loader must fetch
+// each column set on its own; if it grouped by account alone and reused the first key's columns, the
+// alias asking for more columns would silently receive zero-valued fields. The lean-columns key is
+// listed first so a regressed "reuse first key's columns" fetch would serve "id" to both.
+func TestAccountScopedLoaders_PerColumnsFetchInSharedBatch(t *testing.T) {
+	ctx := context.Background()
+	reg := prometheus.NewRegistry()
+	m := metrics.NewMetrics(reg)
+
+	models := &data.Models{
+		Operations: &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	acct := keypair.MustRandom().Address()
+	const toID int64 = 1 << 45 // distinct from the other tests' ranges
+
+	t.Cleanup(func() {
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations_accounts WHERE operation_id = $1`, toID+1) //nolint:errcheck
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations WHERE id = $1`, toID+1)                    //nolint:errcheck
+		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM transactions WHERE to_id = $1`, toID)                 //nolint:errcheck
+	})
+
+	_, err := testDBConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($2, $3, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+	`, now, types.HashBytea("00000000000000000000000000000000000000000000000000000000000000dd"), toID)
+	require.NoError(t, err)
+
+	_, err = testDBConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES ($2, 'PAYMENT', $3, 'op_success', true, 1, $1)
+	`, now, toID+1, types.XDRBytea([]byte("xdr")))
+	require.NoError(t, err)
+	_, err = testDBConnectionPool.Exec(ctx, `
+		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+		VALUES ($1, $2, $3)
+	`, now, toID+1, types.AddressBytea(acct))
+	require.NoError(t, err)
+
+	loaders := NewDataloaders(models)
+	results, err := loaders.AccountOperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
+		{AccountID: acct, ToID: toID, LedgerCreatedAt: now, Columns: "id"},
+		{AccountID: acct, ToID: toID, LedgerCreatedAt: now, Columns: "id, operation_type"},
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	require.Len(t, results[0], 1)
+	require.Len(t, results[1], 1)
+	assert.Empty(t, results[0][0].OperationType, "key selecting only id receives no operation_type")
+	assert.NotEmpty(t, results[1][0].OperationType, "key selecting operation_type must receive it, not the first key's narrower columns")
+}
+
 // TestAccountScopedLoaders_BatchRoutesPerToID covers a single account with multiple transactions in
-// one batch — the loader's reason to exist. It groups the batch by account, fetches that account's
+// one batch — the loader's reason to exist. It groups the batch by (account, columns), fetches that account's
 // rows once, then maps each row back to its originating to_id (itemsByToID[toID(key)]). With three
 // transactions in one batch — toIDA and toIDB each holding distinct rows, toIDC holding none — this
 // proves: (1) per-to_id routing with no A/B swap, (2) the operations ID &^ 0xFFF derivation across

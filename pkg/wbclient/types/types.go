@@ -265,6 +265,35 @@ func (e *TransactionEdge) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// unmarshalConnection decodes a Relay-style connection payload and enforces the schema's non-null
+// guarantees shared by every *Connection type: a null edge entry and a missing/null pageInfo are
+// always rejected, and a missing/null edges field is rejected when requireEdges is set (some schema
+// connections declare edges nullable). connName and edgeTypeName are woven into the error messages.
+// Per-edge decoding (node-null guards, polymorphic nodes) stays with each edge type's own
+// UnmarshalJSON, which json.Unmarshal invokes while decoding []*E.
+func unmarshalConnection[E any](data []byte, connName, edgeTypeName string, requireEdges bool) ([]*E, *PageInfo, error) {
+	type tempConnection struct {
+		Edges    []*E      `json:"edges"`
+		PageInfo *PageInfo `json:"pageInfo"`
+	}
+	var temp tempConnection
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return nil, nil, fmt.Errorf("unmarshaling %s: %w", connName, err)
+	}
+	if requireEdges && temp.Edges == nil {
+		return nil, nil, fmt.Errorf("%s missing required edges field: the GraphQL schema declares edges as non-null", connName)
+	}
+	for i, edge := range temp.Edges {
+		if edge == nil {
+			return nil, nil, fmt.Errorf("%s edge at index %d is null: the GraphQL schema declares %s as non-null", connName, i, edgeTypeName)
+		}
+	}
+	if temp.PageInfo == nil {
+		return nil, nil, fmt.Errorf("%s missing required pageInfo field: the GraphQL schema declares pageInfo as non-null", connName)
+	}
+	return temp.Edges, temp.PageInfo, nil
+}
+
 // TransactionConnection represents a paginated list of transactions
 type TransactionConnection struct {
 	Edges    []*TransactionEdge `json:"edges,omitempty"`
@@ -280,28 +309,12 @@ type TransactionConnection struct {
 // In contrast to BalanceConnection, the edges field itself is nullable in
 // the schema, so a missing or null edges field is accepted (Edges stays nil).
 func (c *TransactionConnection) UnmarshalJSON(data []byte) error {
-	type tempConnection struct {
-		Edges    []*TransactionEdge `json:"edges"`
-		PageInfo *PageInfo          `json:"pageInfo"`
+	edges, pageInfo, err := unmarshalConnection[TransactionEdge](data, "transaction connection", "TransactionEdge", false)
+	if err != nil {
+		return err
 	}
-
-	var temp tempConnection
-	if err := json.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("unmarshaling transaction connection: %w", err)
-	}
-
-	for i, edge := range temp.Edges {
-		if edge == nil {
-			return fmt.Errorf("transaction connection edge at index %d is null: the GraphQL schema declares TransactionEdge as non-null", i)
-		}
-	}
-
-	if temp.PageInfo == nil {
-		return fmt.Errorf("transaction connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
-	}
-
-	c.Edges = temp.Edges
-	c.PageInfo = temp.PageInfo
+	c.Edges = edges
+	c.PageInfo = pageInfo
 	return nil
 }
 
@@ -357,28 +370,12 @@ type OperationConnection struct {
 // In contrast to BalanceConnection, the edges field itself is nullable in
 // the schema, so a missing or null edges field is accepted (Edges stays nil).
 func (c *OperationConnection) UnmarshalJSON(data []byte) error {
-	type tempConnection struct {
-		Edges    []*OperationEdge `json:"edges"`
-		PageInfo *PageInfo        `json:"pageInfo"`
+	edges, pageInfo, err := unmarshalConnection[OperationEdge](data, "operation connection", "OperationEdge", false)
+	if err != nil {
+		return err
 	}
-
-	var temp tempConnection
-	if err := json.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("unmarshaling operation connection: %w", err)
-	}
-
-	for i, edge := range temp.Edges {
-		if edge == nil {
-			return fmt.Errorf("operation connection edge at index %d is null: the GraphQL schema declares OperationEdge as non-null", i)
-		}
-	}
-
-	if temp.PageInfo == nil {
-		return fmt.Errorf("operation connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
-	}
-
-	c.Edges = temp.Edges
-	c.PageInfo = temp.PageInfo
+	c.Edges = edges
+	c.PageInfo = pageInfo
 	return nil
 }
 
@@ -439,28 +436,12 @@ type StateChangeConnection struct {
 // In contrast to BalanceConnection, the edges field itself is nullable in
 // the schema, so a missing or null edges field is accepted (Edges stays nil).
 func (c *StateChangeConnection) UnmarshalJSON(data []byte) error {
-	type tempConnection struct {
-		Edges    []*StateChangeEdge `json:"edges"`
-		PageInfo *PageInfo          `json:"pageInfo"`
+	edges, pageInfo, err := unmarshalConnection[StateChangeEdge](data, "state change connection", "StateChangeEdge", false)
+	if err != nil {
+		return err
 	}
-
-	var temp tempConnection
-	if err := json.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("unmarshaling state change connection: %w", err)
-	}
-
-	for i, edge := range temp.Edges {
-		if edge == nil {
-			return fmt.Errorf("state change connection edge at index %d is null: the GraphQL schema declares StateChangeEdge as non-null", i)
-		}
-	}
-
-	if temp.PageInfo == nil {
-		return fmt.Errorf("state change connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
-	}
-
-	c.Edges = temp.Edges
-	c.PageInfo = temp.PageInfo
+	c.Edges = edges
+	c.PageInfo = pageInfo
 	return nil
 }
 
@@ -516,32 +497,12 @@ type BalanceConnection struct {
 // Null nodes inside an edge object are caught separately by
 // BalanceEdge.UnmarshalJSON.
 func (c *BalanceConnection) UnmarshalJSON(data []byte) error {
-	type tempConnection struct {
-		Edges    []*BalanceEdge `json:"edges"`
-		PageInfo *PageInfo      `json:"pageInfo"`
+	edges, pageInfo, err := unmarshalConnection[BalanceEdge](data, "balance connection", "BalanceEdge", true)
+	if err != nil {
+		return err
 	}
-
-	var temp tempConnection
-	if err := json.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("unmarshaling balance connection: %w", err)
-	}
-
-	if temp.Edges == nil {
-		return fmt.Errorf("balance connection missing required edges field: the GraphQL schema declares edges as non-null")
-	}
-
-	for i, edge := range temp.Edges {
-		if edge == nil {
-			return fmt.Errorf("balance connection edge at index %d is null: the GraphQL schema declares BalanceEdge as non-null", i)
-		}
-	}
-
-	if temp.PageInfo == nil {
-		return fmt.Errorf("balance connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
-	}
-
-	c.Edges = temp.Edges
-	c.PageInfo = temp.PageInfo
+	c.Edges = edges
+	c.PageInfo = pageInfo
 	return nil
 }
 
@@ -624,27 +585,12 @@ func (e *AccountTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 //
 // Null nodes inside an edge object are caught separately by AccountTransactionEdge.UnmarshalJSON.
 func (c *AccountTransactionConnection) UnmarshalJSON(dataBytes []byte) error {
-	type tempConnection struct {
-		Edges    []*AccountTransactionEdge `json:"edges"`
-		PageInfo *PageInfo                 `json:"pageInfo"`
+	edges, pageInfo, err := unmarshalConnection[AccountTransactionEdge](dataBytes, "detailed transaction connection", "AccountTransactionEdge", true)
+	if err != nil {
+		return err
 	}
-	var temp tempConnection
-	if err := json.Unmarshal(dataBytes, &temp); err != nil {
-		return fmt.Errorf("unmarshaling detailed transaction connection: %w", err)
-	}
-	if temp.Edges == nil {
-		return fmt.Errorf("detailed transaction connection missing required edges field: the GraphQL schema declares edges as non-null")
-	}
-	for i, edge := range temp.Edges {
-		if edge == nil {
-			return fmt.Errorf("detailed transaction connection edge at index %d is null: the GraphQL schema declares AccountTransactionEdge as non-null", i)
-		}
-	}
-	if temp.PageInfo == nil {
-		return fmt.Errorf("detailed transaction connection missing required pageInfo field: the GraphQL schema declares pageInfo as non-null")
-	}
-	c.Edges = temp.Edges
-	c.PageInfo = temp.PageInfo
+	c.Edges = edges
+	c.PageInfo = pageInfo
 	return nil
 }
 

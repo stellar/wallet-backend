@@ -135,11 +135,12 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 }
 
 // newAccountScopedLoader creates a dataloader for account-scoped one-to-many lookups keyed by
-// transaction ToID. A single GraphQL request can alias accountByAddress for multiple accounts, so a
-// single batch may contain keys for different accounts. This groups keys by account, fetches each
-// account once (still batching that account's ToIDs into one query), and maps results back per
+// transaction ToID. A single GraphQL request can alias accountByAddress for multiple accounts, and
+// can alias one account with differing field sub-selections, so a single batch may contain keys for
+// different accounts and/or different column sets. This groups keys by (account, columns), fetches
+// each group once (still batching that group's ToIDs into one query), and maps results back per
 // (account, ToID) — so two accounts that share a transaction never surface each other's rows on the
-// wrong edge.
+// wrong edge, and a key requesting extra columns never receives another key's narrower selection.
 func newAccountScopedLoader[K comparable, V any](
 	fetch func(ctx context.Context, accountID string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*V, error),
 	accountID func(key K) string,
@@ -153,13 +154,17 @@ func newAccountScopedLoader[K comparable, V any](
 			result := make([][]*V, len(keys))
 			errs := make([]error, len(keys))
 
-			indicesByAccount := make(map[string][]int)
+			// Group by (account, columns): one request can alias the same account with different field
+			// sub-selections, so a batch may hold same-account keys whose column sets differ. Each group
+			// fetches its own columns; grouping by account alone would serve them all the first key's columns.
+			type scopeGroup struct{ account, columns string }
+			indicesByScope := make(map[scopeGroup][]int)
 			for i, key := range keys {
-				account := accountID(key)
-				indicesByAccount[account] = append(indicesByAccount[account], i)
+				scope := scopeGroup{account: accountID(key), columns: columns(key)}
+				indicesByScope[scope] = append(indicesByScope[scope], i)
 			}
 
-			for account, indices := range indicesByAccount {
+			for scope, indices := range indicesByScope {
 				toIDs := make([]int64, len(indices))
 				ledgerCreatedAts := make([]time.Time, len(indices))
 				for j, i := range indices {
@@ -167,9 +172,7 @@ func newAccountScopedLoader[K comparable, V any](
 					ledgerCreatedAts[j] = ledgerCreatedAt(keys[i])
 				}
 
-				// All keys for one account in one connection request the same columns, so reading
-				// columns from the group's first key is safe.
-				items, err := fetch(ctx, account, toIDs, ledgerCreatedAts, columns(keys[indices[0]]))
+				items, err := fetch(ctx, scope.account, toIDs, ledgerCreatedAts, scope.columns)
 				if err != nil {
 					for _, i := range indices {
 						errs[i] = err
