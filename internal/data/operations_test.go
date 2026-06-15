@@ -802,4 +802,34 @@ func TestOperationModel_BatchGetAccountOperationsByToIDs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, ops)
 	})
+
+	t.Run("returns the union across multiple to_ids in one batch", func(t *testing.T) {
+		// Second transaction (to_id 8192, TOID band 8192 < id < 12288) with two ops for acct.
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+			VALUES ($2, 8192, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+		`, now, types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002"))
+		require.NoError(t, err)
+		xdr4 := types.XDRBytea([]byte("xdr4"))
+		_, err = dbConnectionPool.Exec(ctx, `
+			INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+			VALUES (8193, 'PAYMENT', $2, 'op_success', true, 1, $1), (8194, 'PAYMENT', $2, 'op_success', true, 1, $1)
+		`, now, xdr4)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.Exec(ctx, `
+			INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+			VALUES ($2, 8193, $1), ($2, 8194, $1)
+		`, types.AddressBytea(acct), now)
+		require.NoError(t, err)
+
+		ops, err := m.BatchGetAccountOperationsByToIDs(ctx, acct, []int64{4096, 8192}, []time.Time{now, now}, "")
+		require.NoError(t, err)
+		// acct owns 4097, 4098 (tx 4096) and 8193, 8194 (tx 8192); 4099 (other account) stays excluded.
+		require.Len(t, ops, 4)
+		// ORDER BY ledger_created_at DESC, id DESC — same ledger time, so global id DESC.
+		assert.Equal(t, int64(8194), ops[0].ID)
+		assert.Equal(t, int64(8193), ops[1].ID)
+		assert.Equal(t, int64(4098), ops[2].ID)
+		assert.Equal(t, int64(4097), ops[3].ID)
+	})
 }

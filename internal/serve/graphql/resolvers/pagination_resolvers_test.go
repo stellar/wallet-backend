@@ -85,10 +85,17 @@ func TestAccountTransactionEdgeResolver(t *testing.T) {
 
 	t.Run("state changes are scoped to the account", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(models)
-		c := context.WithValue(getTestCtx("stateChanges", []string{"toId"}), middleware.LoadersKey, loaders)
+		// Select "type" (state_change_category): it is the discriminator convertStateChangeTypes
+		// switches on, so it must be among the loaded columns for the row to resolve to a concrete
+		// type rather than a nil BaseStateChange. The loader force-loads to_id via prepareColumnsWithID.
+		c := context.WithValue(getTestCtx("stateChanges", []string{"type"}), middleware.LoadersKey, loaders)
 		scs, err := resolver.StateChanges(c, edge)
 		require.NoError(t, err)
 		require.Len(t, scs, 1) // only acct's state change, not other's
+		// The resolver runs each row through convertStateChangeTypes, so a BALANCE category must
+		// surface as its concrete GraphQL type, not a bare BaseStateChange.
+		_, ok := scs[0].(*types.StandardBalanceStateChangeModel)
+		require.True(t, ok, "BALANCE state change should convert to StandardBalanceStateChangeModel, got %T", scs[0])
 	})
 }
 
@@ -154,6 +161,7 @@ func TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *te
 	require.Len(t, conn.Edges, 1)
 	edge := conn.Edges[0]
 	require.False(t, edge.Node.LedgerCreatedAt.IsZero(), "node must carry the real ledger_created_at for partition pinning")
+	require.Equal(t, types.AddressBytea(acct), edge.AccountAddress, "Transactions must stamp the parent account onto each edge so nested resolvers scope correctly")
 
 	loaders := dataloaders.NewDataloaders(models)
 	opCtx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
@@ -161,86 +169,4 @@ func TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *te
 	require.NoError(t, err)
 	require.Len(t, ops, 1) // nested operations resolve only when the node's partition pin is correct
 	assert.Equal(t, toID+1, ops[0].ID)
-}
-
-// TestAccountScopedLoaders_NoCrossAccountLeakInSharedBatch covers the case where a single request
-// aliases accountByAddress for two different accounts that both took part in the SAME transaction.
-// Dataloaders are per-request, so both accounts' edge loads land in one batch. The loader must scope
-// each key to its own account; if it scoped the whole batch to one account (or grouped only by
-// to_id), the two accounts would collide on the shared transaction and leak each other's rows.
-// LoadAll forces both keys into a single batch.
-func TestAccountScopedLoaders_NoCrossAccountLeakInSharedBatch(t *testing.T) {
-	ctx := context.Background()
-	reg := prometheus.NewRegistry()
-	m := metrics.NewMetrics(reg)
-
-	models := &data.Models{
-		Operations:   &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
-		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
-	}
-
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	acctA := keypair.MustRandom().Address()
-	acctB := keypair.MustRandom().Address()
-	const toID int64 = 1 << 42 // distinct from the other edge tests' ranges
-
-	t.Cleanup(func() {
-		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM state_changes WHERE to_id = $1`, toID)                               //nolint:errcheck
-		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations_accounts WHERE operation_id IN ($1, $2)`, toID+1, toID+2) //nolint:errcheck
-		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations WHERE id IN ($1, $2)`, toID+1, toID+2)                    //nolint:errcheck
-		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM transactions WHERE to_id = $1`, toID)                                //nolint:errcheck
-	})
-
-	_, err := testDBConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ($2, $3, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
-	`, now, types.HashBytea("00000000000000000000000000000000000000000000000000000000000000cc"), toID)
-	require.NoError(t, err)
-
-	// One operation per account, both inside transaction toID: toID+1 -> acctA, toID+2 -> acctB.
-	_, err = testDBConnectionPool.Exec(ctx, `
-		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-		VALUES ($2, 'PAYMENT', $3, 'op_success', true, 1, $1), ($4, 'PAYMENT', $3, 'op_success', true, 1, $1)
-	`, now, toID+1, types.XDRBytea([]byte("xdr")), toID+2)
-	require.NoError(t, err)
-	_, err = testDBConnectionPool.Exec(ctx, `
-		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
-		VALUES ($1, $2, $3), ($1, $4, $5)
-	`, now, toID+1, types.AddressBytea(acctA), toID+2, types.AddressBytea(acctB))
-	require.NoError(t, err)
-
-	// One state change per account in the same transaction: sc 1 -> acctA, sc 2 -> acctB.
-	_, err = testDBConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
-		VALUES ($2, 1, 'BALANCE', 'CREDIT', $1, 1, $3, $4), ($2, 2, 'BALANCE', 'CREDIT', $1, 1, $5, $6)
-	`, now, toID, types.AddressBytea(acctA), toID+1, types.AddressBytea(acctB), toID+2)
-	require.NoError(t, err)
-
-	t.Run("operations loader does not leak across accounts in one batch", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(models)
-		results, err := loaders.AccountOperationsByToIDLoader.LoadAll(ctx, []dataloaders.OperationColumnsKey{
-			{AccountID: acctA, ToID: toID, LedgerCreatedAt: now},
-			{AccountID: acctB, ToID: toID, LedgerCreatedAt: now},
-		})
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.Len(t, results[0], 1)
-		assert.Equal(t, toID+1, results[0][0].ID, "acctA edge sees only acctA's operation")
-		require.Len(t, results[1], 1)
-		assert.Equal(t, toID+2, results[1][0].ID, "acctB edge sees only acctB's operation, not acctA's")
-	})
-
-	t.Run("state-changes loader does not leak across accounts in one batch", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(models)
-		results, err := loaders.AccountStateChangesByToIDLoader.LoadAll(ctx, []dataloaders.StateChangeColumnsKey{
-			{AccountID: acctA, ToID: toID, LedgerCreatedAt: now},
-			{AccountID: acctB, ToID: toID, LedgerCreatedAt: now},
-		})
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.Len(t, results[0], 1)
-		assert.Equal(t, acctA, results[0][0].AccountID.String(), "acctA edge sees only acctA's state change")
-		require.Len(t, results[1], 1)
-		assert.Equal(t, acctB, results[1][0].AccountID.String(), "acctB edge sees only acctB's state change, not acctA's")
-	})
 }

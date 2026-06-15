@@ -982,4 +982,30 @@ func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, scs)
 	})
+
+	t.Run("returns the union across multiple to_ids in one batch", func(t *testing.T) {
+		// Second transaction (to_id 8192) with one state change for acct.
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+			VALUES ($2, 8192, 100, 'TransactionResultCodeTxSuccess', 1, $1, false)
+		`, now, types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002"))
+		require.NoError(t, err)
+		_, err = dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+			VALUES (8192, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 8193)
+		`, now, types.AddressBytea(acct))
+		require.NoError(t, err)
+
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, acct, []int64{4096, 8192}, []time.Time{now, now}, "")
+		require.NoError(t, err)
+		// acct owns sc 1,2 (to_id 4096) and sc 1 (to_id 8192); the other account's sc stays excluded.
+		require.Len(t, scs, 3)
+		// ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC.
+		// Same ledger time -> to_id DESC: 8192 first, then 4096's two by state_change_id DESC (2, 1).
+		assert.Equal(t, int64(8192), scs[0].ToID)
+		assert.Equal(t, int64(4096), scs[1].ToID)
+		assert.Equal(t, int64(2), scs[1].StateChangeID)
+		assert.Equal(t, int64(4096), scs[2].ToID)
+		assert.Equal(t, int64(1), scs[2].StateChangeID)
+	})
 }
