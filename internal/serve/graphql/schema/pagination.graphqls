@@ -54,3 +54,15 @@ type PageInfo {
     hasNextPage: Boolean!
     hasPreviousPage: Boolean!
 }
+
+type AccountTransactionConnection {
+  edges:    [AccountTransactionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type AccountTransactionEdge {
+  node:         Transaction!
+  cursor:       String!
+  operations:   [Operation!]!        @goField(forceResolver: true)
+  stateChanges: [BaseStateChange!]!  @goField(forceResolver: true)
+}

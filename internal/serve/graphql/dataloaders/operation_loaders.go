@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -16,13 +17,14 @@ const (
 )
 
 type OperationColumnsKey struct {
-	ToID          int64
-	AccountID     string
-	StateChangeID string
-	Columns       string
-	Limit         *int32
-	Cursor        *int64
-	SortOrder     data.SortOrder
+	ToID            int64
+	AccountID       string
+	StateChangeID   string
+	Columns         string
+	Limit           *int32
+	Cursor          *int64
+	SortOrder       data.SortOrder
+	LedgerCreatedAt time.Time // parent transaction's ledger time; pins the partition column for account-scoped loads
 }
 
 // operationsByToIDLoader creates a dataloader for fetching operations by transaction ToID.
@@ -68,6 +70,21 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
 		},
+	)
+}
+
+// accountOperationsByToIDLoader batches account-scoped operation lookups by transaction ToID,
+// grouping the batch by account so a multi-account request never cross-contaminates edges (see
+// newAccountScopedLoader). Operations carry no account column, so the grouping key is derived from
+// the operation ID via TOID bit masking: tx_to_id = operation.ID &^ 0xFFF.
+func accountOperationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+	return newAccountScopedLoader(
+		models.Operations.BatchGetAccountOperationsByToIDs,
+		func(key OperationColumnsKey) string { return key.AccountID },
+		func(key OperationColumnsKey) string { return key.Columns },
+		func(key OperationColumnsKey) int64 { return key.ToID },
+		func(key OperationColumnsKey) time.Time { return key.LedgerCreatedAt },
+		func(item *types.Operation) int64 { return item.ID &^ 0xFFF },
 	)
 }
 

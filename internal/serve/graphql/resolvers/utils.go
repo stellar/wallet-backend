@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -283,6 +284,34 @@ func getColumnMap(model any) map[string]string {
 		}
 	}
 	return fieldToColumnMap
+}
+
+// maxAccountPageLimit bounds page size on the account history connections
+// (transactions/operations/stateChanges). Those fields fan out per-transaction
+// into nested operations and state-change queries, so an uncapped `first` would
+// multiply that fan-out across the whole page.
+const maxAccountPageLimit int32 = 100
+
+// badUserInputError normalizes client-correctable validation failures to the
+// GraphQL error code used elsewhere in the API for bad input.
+func badUserInputError(message string) error {
+	return &gqlerror.Error{
+		Message:    message,
+		Extensions: map[string]interface{}{"code": "BAD_USER_INPUT"},
+	}
+}
+
+// parseAccountPaginationParams caps page size for the account history connections
+// before delegating to parsePaginationParams. It mirrors parseBalancePaginationParams'
+// cap policy for the multi-source balances connection.
+func parseAccountPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
+	if first != nil && *first > maxAccountPageLimit {
+		return PaginationParams{}, badUserInputError(fmt.Sprintf("first must be less than or equal to %d", maxAccountPageLimit))
+	}
+	if last != nil && *last > maxAccountPageLimit {
+		return PaginationParams{}, badUserInputError(fmt.Sprintf("last must be less than or equal to %d", maxAccountPageLimit))
+	}
+	return parsePaginationParams(first, after, last, before, cursorType)
 }
 
 func parsePaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {

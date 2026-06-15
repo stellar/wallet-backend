@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -180,7 +181,14 @@ func prepareColumnsWithID(columns string, model any, prefix string, idColumns ..
 	for _, idColumn := range idColumns {
 		dbColumns = addIDColumn(dbColumns, prefix, idColumn)
 	}
-	return strings.Join(dbColumns.ToSlice(), ", ")
+	// Sort for a deterministic column order. The order becomes part of the SQL
+	// text, which keys pgx's global RowToStructByName field-mapping cache and
+	// the per-connection prepared statement cache: set.ToSlice() iterates a Go
+	// map, so without sorting every call mints new SQL — growing the pgx cache
+	// without bound (memory leak) and defeating prepared-statement reuse.
+	cols := dbColumns.ToSlice()
+	sort.Strings(cols)
+	return strings.Join(cols, ", ")
 }
 
 func addPrefixToColumns(columns set.Set[string], prefix string) set.Set[string] {

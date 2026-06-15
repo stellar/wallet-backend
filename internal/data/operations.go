@@ -210,6 +210,57 @@ func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, columns
 	return operations, nil
 }
 
+// BatchGetAccountOperationsByToIDs returns, for each (toID, ledgerCreatedAt) pair, all operations
+// in that transaction involving accountAddress. ledgerCreatedAt is the parent transaction's ledger
+// time (== the operation's ledger time); pinning the partition column triggers primary chunk
+// exclusion. operations has no account column, so scope through operations_accounts
+// (segmentby=account_id) via the TOID band, then a PK LATERAL into operations.
+//
+// Both LATERAL subqueries carry a LIMIT on purpose: a subquery containing LIMIT cannot be
+// flattened into a join, so the planner must execute each one as a per-pair index probe.
+// Flattened, it could instead scan the account's entire operations_accounts history (or, for
+// operations — which has no segmentby column — whole-network data) and hash-join the pairs,
+// which on compressed chunks means decompressing every batch instead of exactly one per probe.
+// The LIMIT values are invariants, not tuning: a TOID reserves 12 bits for the operation
+// index, so one transaction holds at most 4095 operations (LIMIT 4096); the operations probe
+// pins the complete primary key, so at most one row can match (LIMIT 1).
+func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.Operation, error) {
+	if len(toIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
+	}
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(to_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT operation_id, ledger_created_at
+			FROM operations_accounts oa
+			WHERE oa.ledger_created_at = i.ledger_created_at
+			  AND oa.operation_id > i.to_id AND oa.operation_id < i.to_id + 4096
+			  AND oa.account_id = $1
+			LIMIT 4096
+		) oa
+		CROSS JOIN LATERAL (
+			SELECT * FROM operations o
+			WHERE o.id = oa.operation_id AND o.ledger_created_at = oa.ledger_created_at
+			LIMIT 1
+		) o
+		ORDER BY o.ledger_created_at DESC, o.id DESC
+	`, columns)
+
+	start := time.Now()
+	operations, err := db.QueryManyPtrs[types.Operation](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, ledgerCreatedAts)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Observe(float64(len(toIDs)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetAccountOperationsByToIDs", "operations", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting account operations by to_ids: %w", err)
+	}
+	return operations, nil
+}
+
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the operations_accounts hypertable by ordering on ledger_created_at first.
@@ -256,7 +307,12 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 		args = append(args, *limit)
 	}
 
-	// Close CTE and LATERAL join to fetch full operation rows
+	// Close CTE and LATERAL join to fetch full operation rows. The LIMIT 1 in the lateral
+	// is load-bearing: the complete primary key (id, ledger_created_at) is pinned, so at
+	// most one row can match, and a subquery containing LIMIT cannot be flattened into a
+	// join — the planner must keep this a per-row PK probe. Flattened, it could scan
+	// operations (which has no segmentby column) and hash-join, which on compressed
+	// chunks means decompressing whole-network data instead of one batch per probe.
 	fmt.Fprintf(&queryBuilder, `
 		)
 		SELECT %s, o.ledger_created_at as cursor_ledger_created_at, o.id as cursor_id

@@ -89,3 +89,20 @@ func TestProtocolStateMetrics(t *testing.T) {
 		assert.Equal(t, uint64(1), phaseCounts["persist_history"])
 	})
 }
+
+// TestNewMetrics_GoRuntimeCollectors verifies the registry exposes Go runtime
+// metrics (goroutines, heap, GC). Without them, GC pressure and memory growth
+// in the serve process are invisible to Prometheus/Grafana.
+func TestNewMetrics_GoRuntimeCollectors(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	NewMetrics(reg)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	names := make(map[string]bool, len(families))
+	for _, f := range families {
+		names[f.GetName()] = true
+	}
+	assert.True(t, names["go_goroutines"], "expected go_goroutines on the registry")
+	assert.True(t, names["go_memstats_heap_inuse_bytes"], "expected go_memstats_heap_inuse_bytes on the registry")
+}
