@@ -64,13 +64,6 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
-	// Test catchup backfilling during live ingestion
-	t.Run("CatchupTestSuite", func(t *testing.T) {
-		suite.Run(t, &CatchupTestSuite{
-			testEnv: testEnv,
-		})
-	})
-
 	// Data migration tests — protocol setup plus setup-to-live protocol state production
 	t.Run("DataMigrationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataMigrationTestSuite{testEnv: testEnv})

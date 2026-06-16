@@ -89,7 +89,6 @@ type IngestServiceConfig struct {
 	BackfillWorkers           int
 	BackfillBatchSize         int
 	BackfillDBInsertBatchSize int
-	CatchupThreshold          int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -129,7 +128,6 @@ type ingestService struct {
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
-	catchupThreshold          uint32
 	knownContractIDs          set.Set[string]
 	contractMetadataService   ContractMetadataService
 	protocolProcessors        map[string]ProtocolProcessor
@@ -186,7 +184,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		catchupThreshold:          uint32(cfg.CatchupThreshold),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
 	}, nil
@@ -200,7 +197,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	case IngestionModeLive:
 		return m.startLiveIngestion(ctx)
 	case IngestionModeBackfill:
-		return m.startBackfilling(ctx, startLedger, endLedger, BackfillModeHistorical)
+		return m.startBackfilling(ctx, startLedger, endLedger)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
