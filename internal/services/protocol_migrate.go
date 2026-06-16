@@ -279,10 +279,6 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			}
 		}
 
-		if !anyTrackerNeedsLedger(trackers, seq) {
-			continue
-		}
-
 		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
 		if fetchErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
@@ -378,17 +374,6 @@ func minCursor(trackers []*protocolTracker) uint32 {
 		}
 	}
 	return m
-}
-
-// anyTrackerNeedsLedger reports whether at least one non-handed-off tracker
-// still needs to process the given ledger sequence.
-func anyTrackerNeedsLedger(trackers []*protocolTracker, seq uint32) bool {
-	for _, t := range trackers {
-		if !t.handedOff && t.cursorValue+t.pending < seq {
-			return true
-		}
-	}
-	return false
 }
 
 // allHandedOff returns true if every tracker has been handed off to live ingestion.
