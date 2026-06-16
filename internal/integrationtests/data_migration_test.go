@@ -22,7 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -405,11 +404,6 @@ func (s *DataMigrationTestSuite) TestLiveIngestionProcessesSetupClassifiedSEP41W
 
 	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: testLedger,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	ledgerBackend := &singleLedgerBackend{
@@ -496,11 +490,6 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41Witho
 
 	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: testLedger,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	ledgerBackend := &singleLedgerBackend{
@@ -574,11 +563,6 @@ func (s *DataMigrationTestSuite) TestLiveIngestionSkipsSetupClassifiedSEP41WhenP
 
 	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: testLedger,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	ledgerBackend := &singleLedgerBackend{
@@ -716,11 +700,6 @@ func (s *DataMigrationTestSuite) TestHistoryMigrationThenLiveIngestionHandoff() 
 	}
 
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: baseSeq + 3,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, m, processor)
@@ -808,11 +787,6 @@ func (s *DataMigrationTestSuite) TestLiveIngestionHistoryCursorReadyCurrentState
 
 	processor := &integrationTestProcessor{id: sep41ProtocolID, ingestStore: models.IngestStore}
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: testLedger,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	ledgerBackend := &singleLedgerBackend{
@@ -985,11 +959,6 @@ func (s *DataMigrationTestSuite) TestCurrentStateMigrationThenLiveIngestionHando
 	}
 
 	rpcService := services.NewRPCServiceMock(s.T())
-	rpcService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: baseSeq + 3,
-		OldestLedger: 1,
-	}, nil).Once()
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	liveSvc := s.newLiveRunService(models, rpcService, liveBackend, m, processor)
