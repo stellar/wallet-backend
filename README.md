@@ -1067,16 +1067,14 @@ graph TD
     B --> C[Submit Fixture Transactions to RPC]
     C --> D[Wait 5 seconds for ingestion]
     D --> E[Phase 2: Backfill Testing]
-    E --> F[Phase 3: Catchup Testing]
-    F --> G[Phase 4: Data Validation via GraphQL]
-    G --> H[Phase 5: Balance Validation After Live Ingestion]
+    E --> G[Phase 3: Data Validation via GraphQL]
+    G --> H[Phase 4: Balance Validation After Live Ingestion]
 
     style A fill:#e1f5ff
     style B fill:#f0e1ff
     style C fill:#e1ffe1
     style D fill:#ffe1e1
     style E fill:#fff4e1
-    style F fill:#fff4e1
     style G fill:#f0e1ff
     style H fill:#f0e1ff
 ```
@@ -1089,9 +1087,8 @@ graph TD
 | 1 | AccountBalancesAfterCheckpointTestSuite | Validate balances from checkpoint state | Phase 0 |
 | — | Submit Fixture Transactions | Submit test transactions directly to Stellar RPC | Phase 1 |
 | 2 | BackfillTestSuite | Test parallel live + backfill ingestion | Fixture txns + 5s wait |
-| 3 | CatchupTestSuite | Test catchup backfilling during live ingestion | Phase 2 |
-| 4 | DataValidationTestSuite | Query and validate all transaction data via GraphQL | Phase 3 |
-| 5 | AccountBalancesAfterLiveIngestionTestSuite | Validate balances after live ingestion | Phase 4 |
+| 3 | DataValidationTestSuite | Query and validate all transaction data via GraphQL | Phase 2 |
+| 4 | AccountBalancesAfterLiveIngestionTestSuite | Validate balances after live ingestion | Phase 3 |
 
 If any phase fails, all subsequent phases are skipped to prevent cascading failures and confusing error messages.
 
@@ -1185,11 +1182,7 @@ Each test suite focuses on a specific aspect of the wallet-backend functionality
 - **Purpose**: Tests parallel live and backfill ingestion
 - **Coverage**: Backfill ingestion pipeline, concurrent ingestion correctness
 
-**3. CatchupTestSuite** (`catchup_test.go`)
-- **Purpose**: Tests catchup backfilling during live ingestion
-- **Coverage**: Catchup logic, ingestion gap recovery
-
-**4. DataValidationTestSuite** (`data_validation_test.go`)
+**3. DataValidationTestSuite** (`data_validation_test.go`)
 - **Purpose**: Validates all ingested transaction data via GraphQL queries
 - **Tests**:
   - Transaction metadata (hash, ledger number, envelope XDR, result XDR, meta XDR)
@@ -1199,7 +1192,7 @@ Each test suite focuses on a specific aspect of the wallet-backend functionality
   - Pagination (forward and backward)
 - **Coverage**: GraphQL API, ingestion accuracy, ledger state parsing, XDR decoding
 
-**5. AccountBalancesAfterLiveIngestionTestSuite** (`account_balances_test.go`)
+**4. AccountBalancesAfterLiveIngestionTestSuite** (`account_balances_test.go`)
 - **Purpose**: Validates balance calculations after live ledger ingestion
 - **Tests**:
   - Balances reflect state changes from submitted transactions
