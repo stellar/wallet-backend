@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -18,15 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/services"
 )
-
-// newTestPool returns a pond worker pool with cleanup registered, used by
-// tests that need a metadataFetcher.
-func newTestPool(t *testing.T) pond.Pool {
-	t.Helper()
-	p := pond.NewPool(0)
-	t.Cleanup(p.StopAndWait)
-	return p
-}
 
 // newTestProcessor builds a bare processor for tests that don't need any
 // data-layer dependencies. We construct the struct directly rather than going
@@ -86,9 +76,6 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 		}
 		assert.True(t, debitFound, "expected a DEBIT state change")
 		assert.True(t, creditFound, "expected a CREDIT state change")
-
-		_, ok := p.stagedContracts[contractID]
-		assert.True(t, ok)
 	})
 
 	t.Run("skips events from contracts not classified as SEP-41", func(t *testing.T) {
@@ -234,92 +221,6 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 	})
 }
 
-// stubMetadataRPC implements services.ContractMetadataService well enough for
-// the SEP-41 metadata fetcher to call FetchSingleField against it. It only
-// stores per-call answers and returns the next one on each invocation.
-type stubMetadataRPC struct {
-	answers []xdr.ScVal
-	err     error
-}
-
-func (s *stubMetadataRPC) FetchSACMetadata(_ context.Context, _ []string) ([]*data.Contract, error) {
-	return nil, nil
-}
-
-func (s *stubMetadataRPC) FetchSingleField(_ context.Context, _, _ string, _ ...xdr.ScVal) (xdr.ScVal, error) {
-	if s.err != nil {
-		return xdr.ScVal{}, s.err
-	}
-	if len(s.answers) == 0 {
-		return xdr.ScVal{}, fakeRPCError{}
-	}
-	v := s.answers[0]
-	s.answers = s.answers[1:]
-	return v, nil
-}
-
-func TestProcessor_EnsureContractTokens(t *testing.T) {
-	t.Run("populates name/symbol/decimals from the metadata fetcher", func(t *testing.T) {
-		contractsMock := data.NewContractModelMock(t)
-		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-		rpc := &stubMetadataRPC{
-			answers: []xdr.ScVal{strScVal("USDC"), strScVal("USDC"), u32ScVal(7)},
-		}
-
-		pool := newTestPool(t)
-		p := &processor{
-			networkPassphrase: "Test SDF Network ; September 2015",
-			contractTokens:    contractsMock,
-			metadataFetcher:   newMetadataFetcher(rpc, pool),
-			sep41Contracts:    map[string]struct{}{},
-		}
-		p.Reset()
-		p.stagedContracts[contract] = struct{}{}
-
-		contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
-		contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*data.Contract) bool {
-			if len(cs) != 1 {
-				return false
-			}
-			c := cs[0]
-			return c.ContractID == contract &&
-				c.Name != nil && *c.Name == "USDC" &&
-				c.Symbol != nil && *c.Symbol == "USDC" &&
-				c.Decimals == 7
-		})).Return(nil).Once()
-
-		require.NoError(t, p.ensureContractTokens(context.Background(), nil))
-	})
-
-	t.Run("inserts the row with defaults when the metadata fetch fails", func(t *testing.T) {
-		contractsMock := data.NewContractModelMock(t)
-		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-		rpc := &stubMetadataRPC{err: fakeRPCError{}}
-
-		pool := newTestPool(t)
-		p := &processor{
-			networkPassphrase: "Test SDF Network ; September 2015",
-			contractTokens:    contractsMock,
-			metadataFetcher:   newMetadataFetcher(rpc, pool),
-			sep41Contracts:    map[string]struct{}{},
-		}
-		p.Reset()
-		p.stagedContracts[contract] = struct{}{}
-
-		contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
-		contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*data.Contract) bool {
-			// Metadata fetch failed — row should still be inserted, with defaults.
-			return len(cs) == 1 && cs[0].ContractID == contract && cs[0].Name == nil && cs[0].Symbol == nil && cs[0].Decimals == 0
-		})).Return(nil).Once()
-
-		require.NoError(t, p.ensureContractTokens(context.Background(), nil))
-	})
-}
-
-type fakeRPCError struct{}
-
-func (fakeRPCError) Error() string { return "rpc error" }
-
 func TestProcessor_IndexContracts(t *testing.T) {
 	p := newTestProcessor()
 	contracts := []data.ProtocolContracts{
@@ -367,12 +268,10 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 	// deltas to BatchApplyDeltas so the SQL-side add stays correct across restarts.
 	balancesMock := sep41data.NewBalanceModelMock(t)
 	allowancesMock := sep41data.NewAllowanceModelMock(t)
-	contractsMock := data.NewContractModelMock(t)
 	p := &processor{
 		networkPassphrase: "Test SDF Network ; September 2015",
 		balances:          balancesMock,
 		allowances:        allowancesMock,
-		contractTokens:    contractsMock,
 		sep41Contracts:    map[string]struct{}{},
 	}
 	p.Reset()
@@ -388,10 +287,6 @@ func TestProcessor_PersistCurrentState_PassesSignedDeltasNotAbsoluteBalances(t *
 		mustAddressScVal(t, testAccountB),
 	}, i128ScVal(500))
 	require.NoError(t, p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth))
-
-	// contract_tokens: none existing, expect BatchInsert of the one staged contract.
-	contractsMock.On("GetExisting", mock.Anything, mock.Anything, mock.Anything).Return([]string{}, nil).Once()
-	contractsMock.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	balancesMock.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(deltas []sep41data.Balance) bool {
 		if len(deltas) != 2 {

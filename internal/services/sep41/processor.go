@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -47,10 +46,7 @@ type processor struct {
 	networkPassphrase string
 	balances          sep41data.BalanceModelInterface
 	allowances        sep41data.AllowanceModelInterface
-	contractTokens    data.ContractModelInterface
 	stateChanges      data.StateChangeWriter
-	metadataFetcher   *metadataFetcher
-	ownsMetadataPool  bool
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
@@ -65,14 +61,12 @@ type processor struct {
 	// so a coalesced window matches per-ledger live ingestion rather than stamping the window end.
 	stagedBalanceLedger map[balanceKey]uint32
 	stagedAllowances    map[allowanceKey]stagedAllowance
-	stagedContracts     map[string]struct{} // C-addrs seen this window (for contract_tokens upsert)
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
-// data layer paths are pulled from deps.Models; metadata enrichment in
-// PersistCurrentState requires deps.ContractMetadataService — when nil
-// (offline migration), the processor still ingests state changes and inserts
-// contract_tokens with default values, leaving metadata for a subsequent run.
+// data layer paths are pulled from deps.Models. Token metadata is owned by the
+// SEP-41 validator (written to contract_tokens at classification time), so the
+// processor needs no RPC or metadata-fetch dependencies.
 func newProcessor(deps services.ProtocolDeps) *processor {
 	p := &processor{
 		networkPassphrase: deps.NetworkPassphrase,
@@ -81,13 +75,7 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 	if deps.Models != nil {
 		p.balances = deps.Models.SEP41.Balances
 		p.allowances = deps.Models.SEP41.Allowances
-		p.contractTokens = deps.Models.Contract
 		p.stateChanges = deps.Models.StateChanges
-	}
-	if deps.ContractMetadataService != nil {
-		pool := pond.NewPool(0)
-		p.metadataFetcher = newMetadataFetcher(deps.ContractMetadataService, pool)
-		p.ownsMetadataPool = true
 	}
 	p.Reset()
 	return p
@@ -144,9 +132,6 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	}
 	if _, ok := p.sep41Contracts[contractStr]; !ok {
 		return nil // not a contract we track; silently skip
-	}
-	if mode.NeedsCurrentState() {
-		p.stagedContracts[contractStr] = struct{}{}
 	}
 
 	topics := event.Body.V0.Topics
@@ -292,7 +277,6 @@ func (p *processor) Reset() {
 	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
 	p.stagedBalanceLedger = map[balanceKey]uint32{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
-	p.stagedContracts = map[string]struct{}{}
 }
 
 func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
@@ -329,11 +313,6 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 // and writes allowance values directly (approve semantics are a set, not an add). Runs inside
 // the CAS-guarded transaction so each window's accumulated deltas are applied exactly once.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-	// Ensure a contract_tokens row exists for every contract we're about to reference.
-	if err := p.ensureContractTokens(ctx, dbTx); err != nil {
-		return fmt.Errorf("ensuring contract_tokens rows: %w", err)
-	}
-
 	// Build delta rows directly from the staged deltas — the data layer sums and cleans up zeros.
 	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
 	for key, delta := range p.stagedBalanceDelta {
@@ -377,69 +356,3 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 	return nil
 }
 
-// ensureContractTokens inserts a contract_tokens row for every contract touched this window,
-// if not already present. For newly inserted rows, metadata (name/symbol/decimals) is fetched
-// via RPC inline; per-contract RPC failures fall back to default values (decimals=0, nil
-// name/symbol) and are logged. No separate backfill path exists, so correctness depends on
-// the RPC being reachable most of the time.
-func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error {
-	if len(p.stagedContracts) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(p.stagedContracts))
-	for addr := range p.stagedContracts {
-		ids = append(ids, addr)
-	}
-	existing, err := p.contractTokens.GetExisting(ctx, dbTx, ids)
-	if err != nil {
-		return fmt.Errorf("checking existing contract_tokens: %w", err)
-	}
-	existingSet := make(map[string]struct{}, len(existing))
-	for _, id := range existing {
-		existingSet[id] = struct{}{}
-	}
-
-	newIDs := make([]string, 0, len(ids))
-	for _, addr := range ids {
-		if _, ok := existingSet[addr]; !ok {
-			newIDs = append(newIDs, addr)
-		}
-	}
-	if len(newIDs) == 0 {
-		return nil
-	}
-
-	// Fetch metadata for new contracts; missing entries keep default (zero) values.
-	metadata := map[string]*data.Contract{}
-	if p.metadataFetcher != nil {
-		fetched, ferr := p.metadataFetcher.FetchMetadata(ctx, newIDs)
-		if ferr != nil {
-			// A fetcher-level error (context cancellation, pool failure) is worth logging
-			// but must not abort the ledger — we still insert rows with defaults so the
-			// state_changes history stays consistent with the balance movements.
-			log.Ctx(ctx).Warnf("sep41 metadata fetch batch failed: %v", ferr)
-		} else {
-			metadata = fetched
-		}
-	}
-
-	toInsert := make([]*data.Contract, 0, len(newIDs))
-	for _, addr := range newIDs {
-		c := &data.Contract{
-			ID:         data.DeterministicContractID(addr),
-			ContractID: addr,
-			Type:       contractTokenType,
-		}
-		if meta, ok := metadata[addr]; ok {
-			c.Name = meta.Name
-			c.Symbol = meta.Symbol
-			c.Decimals = meta.Decimals
-		}
-		toInsert = append(toInsert, c)
-	}
-
-	if err := p.contractTokens.BatchInsert(ctx, dbTx, toInsert); err != nil {
-		return fmt.Errorf("inserting contract_tokens: %w", err)
-	}
-	return nil
-}
