@@ -108,6 +108,22 @@ func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) 
 	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
 
+// tipUnavailableBackend wraps multiLedgerBackend and fails GetLatestLedgerSequence a
+// configurable number of times (set latestLedgerFailsLeft to a large value to always fail).
+// With the tip read failing, flushWindowsAtTip leaves cachedTip stale (0), so it flushes on
+// every iteration — exercising the degradation to per-ledger commits (effective window 1).
+type tipUnavailableBackend struct {
+	multiLedgerBackend
+	latestLedgerFailsLeft atomic.Int32
+}
+
+func (b *tipUnavailableBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
+	if b.latestLedgerFailsLeft.Add(-1) >= 0 {
+		return 0, fmt.Errorf("transient RPC error: latest ledger unavailable")
+	}
+	return b.multiLedgerBackend.GetLatestLedgerSequence(ctx)
+}
+
 func dummyLedgerMeta(seq uint32) xdr.LedgerCloseMeta {
 	return xdr.LedgerCloseMeta{
 		V: 0,
@@ -1209,6 +1225,121 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		assert.Empty(t, processor.persistedHistorySeqs) // partial window's CAS failed -> handoff
 		assert.Equal(t, uint32(201), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
 	})
+
+	t.Run("tip-shrink flushes a partial window successfully, then blocks at tip", func(t *testing.T) {
+		setupCtx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, setupCtx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, setupCtx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(setupCtx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		// GetLedger(102) blocks (102 never closes) -> ctx timeout -> run fails. No handoff
+		// happened (the partial window's CAS succeeded), so the active protocol is marked failed.
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		// Plain recording processor (no cursor advance): the partial window's CAS succeeds,
+		// so we observe a committed partial flush rather than a handoff.
+		processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+
+		// The timeout bounds only the deliberate GetLedger(102) block at the tip — the partial
+		// window for [100,101] is flushed and committed before it.
+		runCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		require.Error(t, svc.Run(runCtx, []string{"testproto"}))
+
+		// The partial window (size 2 < WindowSize 10) committed successfully at winEnd=101,
+		// advancing the cursor to the frontier — this is what arms the live-ingestion handoff.
+		val, ok := getHistorySentinel(t, setupCtx, dbPool, "testproto", 101)
+		require.True(t, ok, "partial window boundary 101 should be persisted")
+		assert.Equal(t, uint32(101), val)
+		_, ok = getHistorySentinel(t, setupCtx, dbPool, "testproto", 100)
+		assert.False(t, ok, "no per-ledger sentinel for 100 — it coalesced into the window")
+		assert.Equal(t, []uint32{101}, processor.persistedHistorySeqs)
+		assert.Equal(t, 1, processor.resetCount)
+		assert.Equal(t, uint32(101), getIngestStoreValue(t, setupCtx, dbPool, "protocol_testproto_history_cursor"))
+	})
+
+	t.Run("multiple windows commit then final window hands off", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 111)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		// Hands off only on the 4th window (at 111); the first three windows commit cleanly.
+		processor := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           111,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
+			103: dummyLedgerMeta(103), 104: dummyLedgerMeta(104), 105: dummyLedgerMeta(105),
+			106: dummyLedgerMeta(106), 107: dummyLedgerMeta(107), 108: dummyLedgerMeta(108),
+			109: dummyLedgerMeta(109), 110: dummyLedgerMeta(110), 111: dummyLedgerMeta(111),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 3,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
+
+		// Three full windows [100,102],[103,105],[106,108] commit once each at their winEnd;
+		// the fourth window [109,111] is discarded when its CAS loses to the simulated takeover.
+		assert.Equal(t, []uint32{102, 105, 108}, processor.persistedHistorySeqs)
+		for _, seq := range []uint32{102, 105, 108} {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
+			assert.True(t, ok, "window boundary %d should be persisted", seq)
+		}
+		for _, seq := range []uint32{100, 101, 103, 104, 106, 107, 109, 110, 111} {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
+			assert.False(t, ok, "no sentinel expected for non-boundary ledger %d", seq)
+		}
+		// Reset fires on every flushWindow: 3 commits + 1 discarded window = 4.
+		assert.Equal(t, 4, processor.resetCount)
+		require.Len(t, processor.processedInputs, 12)
+		assert.Equal(t, uint32(211), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+	})
 }
 
 func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
@@ -1275,5 +1406,64 @@ func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
 		// Both hand off at 104 — cursors are advanceAtSeq + 100 = 204.
 		assert.Equal(t, uint32(204), getIngestStoreValue(t, ctx, dbPool, "protocol_proto1_history_cursor"))
 		assert.Equal(t, uint32(204), getIngestStoreValue(t, ctx, dbPool, "protocol_proto2_history_cursor"))
+	})
+}
+
+func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
+	t.Run("GetLatestLedgerSequence error degrades to per-ledger commits (K=1)", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		// Hand off at 102 so the loop terminates; WindowSize=10 would coalesce all three
+		// ledgers if the tip were readable.
+		processor := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           102,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		// Tip read always fails -> cachedTip stays 0 -> flushWindowsAtTip flushes every iteration.
+		backend := &tipUnavailableBackend{multiLedgerBackend: multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
+		}}}
+		backend.latestLedgerFailsLeft.Store(1 << 30)
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
+
+		// Despite WindowSize=10, each ledger commits individually because the unreadable tip
+		// forces a flush every iteration. Per-ledger sentinels at 100 AND 101 prove K=1
+		// (with a working tip they would coalesce into one window and neither would exist).
+		for _, seq := range []uint32{100, 101} {
+			val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
+			require.True(t, ok, "per-ledger sentinel for %d should exist (K=1 degradation)", seq)
+			assert.Equal(t, seq, val)
+		}
+		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+		assert.False(t, ok, "sentinel for 102 should NOT exist (CAS failed -> handoff)")
+		assert.Equal(t, []uint32{100, 101}, processor.persistedHistorySeqs)
+		assert.Equal(t, uint32(202), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
 	})
 }

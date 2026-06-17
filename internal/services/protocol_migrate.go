@@ -325,6 +325,10 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 // first advances each cursor to the last closed ledger, arming the handoff and shrinking
 // the window to 1 at the tip.
 //
+// Termination depends on live ingestion running concurrently: migration hands off only by
+// losing a CAS at the tip, so if it always wins (e.g. live ingestion is down) it keeps
+// producing rather than handing off — the correct degraded-mode behavior, not a hang.
+//
 // The tip is cached and only re-read once seq catches up to it, sparing the bulk a
 // GetLatestLedgerSequence call per ledger; the tip is monotonic, so a stale value at worst
 // costs one extra refresh. The updated cachedTip is returned for the next iteration. A
