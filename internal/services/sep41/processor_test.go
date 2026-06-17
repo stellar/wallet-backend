@@ -424,7 +424,8 @@ func TestNewProcessor_StartsWithInitializedStagedSets(t *testing.T) {
 		mustAddressScVal(t, testAccountB),
 	}, i128ScVal(500))
 	require.NotPanics(t, func() {
-		_ = p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth)
+		err := p.processEvent(event, newTestOpBuilder(), services.StagingModeBoth)
+		require.NoError(t, err)
 	})
 	assert.Len(t, p.stagedBalanceDelta, 2)
 }
