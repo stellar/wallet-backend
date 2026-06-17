@@ -2,11 +2,14 @@
 package data
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func Test_buildDecomposedCursorCondition(t *testing.T) {
@@ -204,4 +207,24 @@ func Test_appendTimeRangeConditions(t *testing.T) {
 			assert.Equal(t, tt.wantNextIndex, gotNextIndex)
 		})
 	}
+}
+
+// prepareColumnsWithID must return a deterministic (sorted) column list. The
+// column order becomes part of the SQL text, which keys pgx's global
+// RowToStructByName field-mapping cache and the per-connection prepared
+// statement cache: a random order per call grows both without bound (the
+// 2026-06 serve OOM) and defeats statement reuse.
+func Test_prepareColumnsWithID_deterministic(t *testing.T) {
+	const columns = "ingested_at, id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at"
+
+	first := prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	for range 100 {
+		assert.Equal(t, first, prepareColumnsWithID(columns, types.Operation{}, "o", "id"))
+	}
+
+	// Sorted order is the canonical form — also stable across input orderings.
+	shuffled := "successful, ledger_number, id, ingested_at, operation_type, ledger_created_at, operation_xdr, result_code"
+	assert.Equal(t, first, prepareColumnsWithID(shuffled, types.Operation{}, "o", "id"))
+	cols := strings.Split(first, ", ")
+	assert.True(t, sort.StringsAreSorted(cols), "columns should be sorted, got: %s", first)
 }

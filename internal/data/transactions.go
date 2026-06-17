@@ -90,7 +90,11 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id")
+	// ledger_created_at is always selected even when unrequested: it is the hypertable partition
+	// column, and the AccountTransactionEdge operations/stateChanges resolvers read it from the
+	// transaction node to pin the partition for chunk exclusion. Without it the node carries a zero
+	// time and those nested lists return empty.
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
@@ -132,7 +136,12 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		args = append(args, *limit)
 	}
 
-	// Close CTE and LATERAL join to fetch full transaction rows
+	// Close CTE and LATERAL join to fetch full transaction rows. The LIMIT 1 in the lateral
+	// is load-bearing: the complete primary key (to_id, ledger_created_at) is pinned, so at
+	// most one row can match, and a subquery containing LIMIT cannot be flattened into a
+	// join — the planner must keep this a per-row PK probe. Flattened, it could scan
+	// transactions (which has no segmentby column) and hash-join, which on compressed
+	// chunks means decompressing whole-network data instead of one batch per probe.
 	fmt.Fprintf(&queryBuilder, `
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id

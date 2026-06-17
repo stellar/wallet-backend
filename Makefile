@@ -41,10 +41,6 @@ lint: ## Run golangci-lint linter (requires: brew install golangci-lint or equiv
 	@command -v golangci-lint >/dev/null 2>&1 || { echo >&2 "ERROR: golangci-lint not found. Install it: https://golangci-lint.run/usage/install/"; exit 1; }
 	golangci-lint run ./...
 
-generate: ## Run go generate
-	@echo "==> Running go generate..."
-	go generate ./...
-
 shadow: ## Run shadow analysis to find shadowed variables
 	@echo "==> Running shadow analyzer..."
 	@if ! command -v $(shell go env GOPATH)/bin/shadow >/dev/null 2>&1; then \
@@ -96,6 +92,9 @@ gql-generate: ## Generate GraphQL code using gqlgen
 	@echo "==> Generating GraphQL code..."
 	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.88; }
 	$(shell go env GOPATH)/bin/gqlgen generate
+	@echo "==> Normalizing imports on generated code..."
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.43.0; }
+	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
 	@echo "✅ GraphQL code generated successfully"
 
 gql-validate: ## Validate GraphQL schema

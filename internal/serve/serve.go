@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -38,7 +39,10 @@ import (
 )
 
 type Configs struct {
-	Port                        int
+	Port int
+	// AdminPort, when > 0, serves pprof endpoints at /debug/pprof on a separate
+	// listener. Mirrors the ingest admin server.
+	AdminPort                   int
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
@@ -115,6 +119,25 @@ func Serve(cfg Configs) error {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
 
+	// Start separate admin server for pprof endpoints if configured. It is best-effort profiling
+	// infra: supporthttp.Run blocks below, and a bind failure here is logged without taking down
+	// the main API server.
+	if cfg.AdminPort > 0 {
+		adminMux := http.NewServeMux()
+		registerAdminHandlers(adminMux)
+		adminServer := &http.Server{
+			Addr:              fmt.Sprintf(":%d", cfg.AdminPort),
+			Handler:           adminMux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			log.Infof("Starting admin server with pprof endpoints on port %d", cfg.AdminPort)
+			if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Errorf("admin server on %s stopped: %v (pprof disabled; main server unaffected)", adminServer.Addr, err)
+			}
+		}()
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	supporthttp.Run(supporthttp.Config{
 		ListenAddr: addr,
@@ -128,6 +151,16 @@ func Serve(cfg Configs) error {
 	})
 
 	return nil
+}
+
+// registerAdminHandlers exposes pprof endpoints at /debug/pprof for profiling.
+// Mirrors the ingest admin server (internal/ingest/ingest.go).
+func registerAdminHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
@@ -321,4 +354,15 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
 	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
 	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
+
+	// accounts are unpaginated resolver lists that fan out into per-account balance lookups. Price
+	// them at a default page's worth (must stay >=~20 so a deep accounts->balances traversal stays
+	// over the limit). The account-edge operations/stateChanges lists are deliberately left at the
+	// default cost: the full-detail account-history query selects ~34 fields per edge, so any
+	// multiplier there would push a first=100 page past the limit.
+	accountsListComplexityFunc := func(childComplexity int) int {
+		return childComplexity * int(graphqlutils.DefaultPageLimit)
+	}
+	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
+	config.Complexity.Operation.Accounts = accountsListComplexityFunc
 }

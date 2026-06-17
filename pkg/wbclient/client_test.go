@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 // graphqlServer returns an httptest.Server that always responds with the given
@@ -213,5 +215,96 @@ func TestGetAccountStateChanges(t *testing.T) {
 		require.True(t, ok, "expected filter to be encoded as a JSON object, got %T", received.Variables["filter"])
 		assert.Equal(t, "deadbeef", filter["transactionHash"])
 		assert.Equal(t, "CREDIT", filter["category"])
+	})
+}
+
+func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		assert.Nil(t, conn)
+		require.ErrorIs(t, err, ErrAccountNotFound)
+	})
+
+	t.Run("deserializes edges with embedded operations and state changes", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},` +
+			`"operations":[{"id":1,"operationType":"PAYMENT"}],` +
+			`"stateChanges":[{"__typename":"StandardBalanceChange","type":"BALANCE","amount":"10"}],` +
+			`"cursor":"c1"}],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		require.Len(t, conn.Edges, 1)
+		edge := conn.Edges[0]
+		assert.Equal(t, "abc", edge.Node.Hash)
+		require.Len(t, edge.Operations, 1)
+		assert.Equal(t, int64(1), edge.Operations[0].ID)
+		require.Len(t, edge.StateChanges, 1)
+		assert.Equal(t, types.StateChangeCategoryBalance, edge.StateChanges[0].GetType())
+	})
+
+	t.Run("passes through null transactions connection on existing account", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress":{"transactions":null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, conn, "schema permits null transactions on existing account")
+	})
+
+	t.Run("returns an error when edges list is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress":{"transactions":{"edges":null,"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns an error when an edge has a null node", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":null,"operations":[],"stateChanges":[],"cursor":"c1"}],` +
+			`"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns an error when an edge has a null operations list", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},"operations":null,"stateChanges":[],"cursor":"c1"}],` +
+			`"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns an error when an edge has a null stateChanges list", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},"operations":[],"stateChanges":null,"cursor":"c1"}],` +
+			`"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv := graphqlServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, conn)
 	})
 }

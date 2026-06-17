@@ -48,6 +48,14 @@ type Dataloaders struct {
 	// TransactionByStateChangeIDLoader batches requests for transactions by state change ID
 	// Used by StateChange.transaction field resolver to prevent N+1 queries
 	TransactionByStateChangeIDLoader *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction]
+
+	// AccountOperationsByToIDLoader batches account-scoped operations by transaction ToID
+	// Used by AccountTransactionEdge.operations
+	AccountOperationsByToIDLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
+
+	// AccountStateChangesByToIDLoader batches account-scoped state changes by transaction ToID
+	// Used by AccountTransactionEdge.stateChanges
+	AccountStateChangesByToIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
 }
 
 // NewDataloaders creates a new instance of all dataloaders
@@ -64,6 +72,8 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByToIDLoader:             accountsByToIDLoader(models),
 		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
+		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models),
+		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models),
 	}
 }
 
@@ -118,6 +128,68 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 			}
 
 			return result, nil
+		},
+		dataloadgen.WithBatchCapacity(100),
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
+// newAccountScopedLoader creates a dataloader for account-scoped one-to-many lookups keyed by
+// transaction ToID. A single GraphQL request can alias accountByAddress for multiple accounts, and
+// can alias one account with differing field sub-selections, so a single batch may contain keys for
+// different accounts and/or different column sets. This groups keys by (account, columns), fetches
+// each group once (still batching that group's ToIDs into one query), and maps results back per
+// (account, ToID) — so two accounts that share a transaction never surface each other's rows on the
+// wrong edge, and a key requesting extra columns never receives another key's narrower selection.
+func newAccountScopedLoader[K comparable, V any](
+	fetch func(ctx context.Context, accountID string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*V, error),
+	accountID func(key K) string,
+	columns func(key K) string,
+	toID func(key K) int64,
+	ledgerCreatedAt func(key K) time.Time,
+	itemToID func(item *V) int64,
+) *dataloadgen.Loader[K, []*V] {
+	return dataloadgen.NewLoader(
+		func(ctx context.Context, keys []K) ([][]*V, []error) {
+			result := make([][]*V, len(keys))
+			errs := make([]error, len(keys))
+
+			// Group by (account, columns): one request can alias the same account with different field
+			// sub-selections, so a batch may hold same-account keys whose column sets differ. Each group
+			// fetches its own columns; grouping by account alone would serve them all the first key's columns.
+			type scopeGroup struct{ account, columns string }
+			indicesByScope := make(map[scopeGroup][]int)
+			for i, key := range keys {
+				scope := scopeGroup{account: accountID(key), columns: columns(key)}
+				indicesByScope[scope] = append(indicesByScope[scope], i)
+			}
+
+			for scope, indices := range indicesByScope {
+				toIDs := make([]int64, len(indices))
+				ledgerCreatedAts := make([]time.Time, len(indices))
+				for j, i := range indices {
+					toIDs[j] = toID(keys[i])
+					ledgerCreatedAts[j] = ledgerCreatedAt(keys[i])
+				}
+
+				items, err := fetch(ctx, scope.account, toIDs, ledgerCreatedAts, scope.columns)
+				if err != nil {
+					for _, i := range indices {
+						errs[i] = err
+					}
+					continue
+				}
+
+				itemsByToID := make(map[int64][]*V)
+				for _, item := range items {
+					itemsByToID[itemToID(item)] = append(itemsByToID[itemToID(item)], item)
+				}
+				for _, i := range indices {
+					result[i] = itemsByToID[toID(keys[i])]
+				}
+			}
+
+			return result, errs
 		},
 		dataloadgen.WithBatchCapacity(100),
 		dataloadgen.WithWait(5*time.Millisecond),

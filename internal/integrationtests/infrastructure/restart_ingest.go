@@ -125,32 +125,3 @@ func (s *SharedContainers) WaitForNetworkAdvance(ctx context.Context, rpcService
 		}
 	}
 }
-
-// WaitForLatestLedgerToReach polls the database until the latest_ingest_ledger cursor reaches the target.
-func (s *SharedContainers) WaitForLatestLedgerToReach(ctx context.Context, targetLedger uint32, timeout time.Duration) error {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	timeoutChan := time.After(timeout)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
-		case <-timeoutChan:
-			return fmt.Errorf("latest_ingest_ledger did not reach %d within %v", targetLedger, timeout)
-		case <-ticker.C:
-			latest, err := s.GetIngestCursor(ctx, "latest_ingest_ledger")
-			if err != nil {
-				log.Ctx(ctx).Warnf("Error getting latest cursor during catchup wait: %v", err)
-				continue
-			}
-
-			log.Ctx(ctx).Infof("Catchup progress: latest=%d, target=%d", latest, targetLedger)
-
-			if latest >= targetLedger {
-				log.Ctx(ctx).Infof("Catchup completed: latest_ingest_ledger=%d reached target=%d", latest, targetLedger)
-				return nil
-			}
-		}
-	}
-}

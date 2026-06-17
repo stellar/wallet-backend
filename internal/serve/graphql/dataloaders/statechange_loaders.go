@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -16,13 +17,14 @@ const (
 )
 
 type StateChangeColumnsKey struct {
-	ToID        int64
-	AccountID   string
-	OperationID int64
-	Columns     string
-	Limit       *int32
-	Cursor      *types.StateChangeCursor
-	SortOrder   data.SortOrder
+	ToID            int64
+	AccountID       string
+	OperationID     int64
+	Columns         string
+	Limit           *int32
+	Cursor          *types.StateChangeCursor
+	SortOrder       data.SortOrder
+	LedgerCreatedAt time.Time // parent transaction's ledger time; pins the partition column for account-scoped loads
 }
 
 // stateChangesByToIDLoader creates a dataloader for fetching state changes by to_id
@@ -101,5 +103,21 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+	)
+}
+
+// accountStateChangesByToIDLoader batches account-scoped state-change lookups by transaction ToID,
+// grouping the batch by account so a multi-account request never cross-contaminates edges (see
+// newAccountScopedLoader). BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the
+// SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection
+// is needed here.
+func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+	return newAccountScopedLoader(
+		models.StateChanges.BatchGetAccountStateChangesByToIDs,
+		func(key StateChangeColumnsKey) string { return key.AccountID },
+		func(key StateChangeColumnsKey) string { return key.Columns },
+		func(key StateChangeColumnsKey) int64 { return key.ToID },
+		func(key StateChangeColumnsKey) time.Time { return key.LedgerCreatedAt },
+		func(item *types.StateChange) int64 { return item.ToID },
 	)
 }
