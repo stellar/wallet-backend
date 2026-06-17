@@ -32,7 +32,7 @@ Code changes:
   6. Models struct                (wire data model for dependency injection)
 
 Operational:
-  7. Run the 4-step migration workflow (setup -> live ingest + history + current-state)
+  7. Run the migration workflow (migrate up -> restart ingest -> protocol-setup -> history + current-state)
 ```
 
 > The framework treats each protocol's validator as a black box during classification. Inside `Validate` you are free to do anything you need (signature checks, RPC fetches, writes to your own protocol-specific tables). The only thing the framework cares about is the `MatchedWasms` slice your validator returns — that drives the generic `protocol_wasms.protocol_id` stamp.
@@ -49,7 +49,7 @@ Create a protocol migration SQL file that inserts a row into the `protocols` tab
 
 **File:** `internal/db/migrations/protocols/NNN_<protocol-name>.sql`
 
-Use the next available sequence number. The file is executed by the `protocol-setup` command.
+Use the next available sequence number. A full `migrate up` runs this file so the protocol is registered before live ingestion restarts; `protocol-setup` also re-runs it as an idempotent safeguard.
 
 ```sql
 INSERT INTO protocols (id) VALUES ('<PROTOCOL_ID>') ON CONFLICT (id) DO NOTHING;
@@ -534,37 +534,26 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 
 For full command reference with all flags and options, see [Running a Data Migration](./running-a-data-migration.md).
 
-Once the code is deployed, run the 4-step protocol onboarding workflow. Steps 2, 3a, and 3b run concurrently.
+Once the code is deployed, run the workflow below. Restart ingestion **before** `protocol-setup` so live ingestion classifies new-protocol WASMs immediately; `protocol-setup` then drains the pre-existing backlog. Steps 7.4a and 7.4b run concurrently with each other and with live ingestion.
 
 ```
-  Step 1: Setup             Steps 2, 3a, 3b: Run Concurrently
-+--------------------+     +----------------------------------------------+
-| protocol-setup     |---->| Live ingestion (restart with new processor)  |
-| --protocol-id X    |     | protocol-migrate history --protocol-id X    |
-| Classifies         |     | protocol-migrate current-state --protocol-  |
-| existing contracts |     |   id X --start-ledger N                     |
-+--------------------+     +----------------------------------------------+
+  Step 7.1         Step 7.2              Step 7.3              Step 7.4 (concurrent)
+  migrate up  ──>  restart ingestion ──> protocol-setup  ──>  protocol-migrate history
+  (schema +        (classifies new       (classifies           protocol-migrate current-state
+   registration)    WASMs inline)         existing backlog)    (converge w/ live ingestion via CAS)
 ```
 
-### Step 7.1: Protocol Setup
+### Step 7.1: Schema Migration
 
-Classifies existing contracts on the network by handing each protocol's validator the batch of unclassified WASMs:
+Apply pending schema migrations. A full `migrate up` also registers your protocol in the `protocols` table, so live ingestion can classify its WASMs as soon as it restarts:
 
 ```bash
-./wallet-backend protocol-setup --protocol-id <PROTOCOL_ID>
+./wallet-backend migrate up
 ```
-
-This:
-- Runs your protocol migration SQL (registers the protocol in the `protocols` table)
-- Fetches all unclassified WASM bytecodes via RPC
-- Calls each registered validator's `Validate` (your code) inside one DB tx
-- Stamps `protocol_wasms.protocol_id` from the returned matches and lets your validator write to its own tables in the same tx
-- Sets `classification_status = success`
-- Initializes both CAS cursors
 
 ### Step 7.2: Restart Live Ingestion
 
-Restart the ingestion service. It picks up the new processor automatically via the registry:
+Restart the ingestion service. It picks up the new processor automatically via the registry and, because the protocol is now registered, classifies new-protocol WASMs inline from the moment it restarts:
 
 ```bash
 ./wallet-backend ingest
@@ -572,7 +561,23 @@ Restart the ingestion service. It picks up the new processor automatically via t
 
 Live ingestion uses CAS cursors to coordinate with the migration subcommands. It only produces state for ledgers where the migration hasn't already written data.
 
-### Step 7.3a: History Migration
+### Step 7.3: Protocol Setup
+
+Classifies the existing unclassified WASMs already recorded in `protocol_wasms` by handing each protocol's validator the batch of unclassified bytecodes:
+
+```bash
+./wallet-backend protocol-setup --protocol-id <PROTOCOL_ID>
+```
+
+This:
+- Fetches all unclassified WASM bytecodes via RPC
+- Calls each registered validator's `Validate` (your code) inside one DB tx
+- Stamps `protocol_wasms.protocol_id` from the returned matches and lets your validator write to its own tables in the same tx
+- Sets `classification_status = success`
+- Initializes both CAS cursors
+- Re-runs your protocol registration SQL as an idempotent safeguard
+
+### Step 7.4a: History Migration
 
 Backfills historical state changes within the retention window:
 
@@ -582,7 +587,7 @@ Backfills historical state changes within the retention window:
 
 Walks forward from the oldest ingestion cursor to the latest, calling `PersistHistory` at each ledger. Converges with live ingestion via the history CAS cursor. When the migration's CAS fails (cursor already advanced by live ingestion), it sets `history_migration_status = success` and exits.
 
-### Step 7.3b: Current-State Migration(if your protocol tracks current-state data)
+### Step 7.4b: Current-State Migration (if your protocol tracks current-state data)
 
 Builds current state from a specified start ledger forward to the tip:
 
