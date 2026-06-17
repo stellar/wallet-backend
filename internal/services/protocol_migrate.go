@@ -261,22 +261,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			return handedOffProtocolIDs(trackers), nil
 		}
 
-		// Tip-shrink: if GetLedger(seq) would block on a not-yet-closed ledger, commit all
-		// open windows first so the migration<->live handoff stays ledger-precise (K->1 at the tip).
-		if seq > cachedTip {
-			if tip, tipErr := s.ledgerBackend.GetLatestLedgerSequence(ctx); tipErr == nil {
-				cachedTip = tip
-			}
-			if seq > cachedTip {
-				for _, t := range trackers {
-					if err := s.flushWindow(ctx, t); err != nil {
-						return handedOffProtocolIDs(trackers), err
-					}
-				}
-				if allHandedOff(trackers) {
-					return handedOffProtocolIDs(trackers), nil
-				}
-			}
+		// Before fetching seq, flush any open windows once we reach the live tip so the
+		// next (blocking) GetLedger never strands the cursor behind the frontier.
+		var flushErr error
+		cachedTip, flushErr = s.flushWindowsAtTip(ctx, trackers, seq, cachedTip)
+		if flushErr != nil {
+			return handedOffProtocolIDs(trackers), flushErr
+		}
+		if allHandedOff(trackers) {
+			return handedOffProtocolIDs(trackers), nil
 		}
 
 		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
@@ -319,6 +312,39 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
 		}
 	}
+}
+
+// flushWindowsAtTip flushes every tracker's open window once seq reaches the live tip,
+// so a coalescing window never straddles the migration<->live frontier.
+//
+// Below the tip it is a no-op: GetLedger(seq) returns immediately and an open window is
+// harmless, so the bulk backfill keeps committing windowSize ledgers per transaction. At
+// the tip, GetLedger(seq) blocks until the ledger closes — and a window held open across
+// that block pins the cursor behind the frontier, so live ingestion's CAS(tip-1 -> tip)
+// can never match and the handoff (hence migration termination) can never happen. Flushing
+// first advances each cursor to the last closed ledger, arming the handoff and shrinking
+// the window to 1 at the tip.
+//
+// The tip is cached and only re-read once seq catches up to it, sparing the bulk a
+// GetLatestLedgerSequence call per ledger; the tip is monotonic, so a stale value at worst
+// costs one extra refresh. The updated cachedTip is returned for the next iteration. A
+// flush can hand off the last active tracker, so callers must re-check allHandedOff after.
+func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers []*protocolTracker, seq, cachedTip uint32) (uint32, error) {
+	if seq <= cachedTip {
+		return cachedTip, nil
+	}
+	if tip, tipErr := s.ledgerBackend.GetLatestLedgerSequence(ctx); tipErr == nil {
+		cachedTip = tip
+	}
+	if seq <= cachedTip {
+		return cachedTip, nil
+	}
+	for _, t := range trackers {
+		if err := s.flushWindow(ctx, t); err != nil {
+			return cachedTip, err
+		}
+	}
+	return cachedTip, nil
 }
 
 // flushWindow commits a tracker's open window [cursorValue+1, cursorValue+pending] in a
