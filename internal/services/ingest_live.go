@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -361,6 +362,22 @@ func (m *ingestService) casProtocolCursor(ctx context.Context, dbTx pgx.Tx, curs
 		return false, fmt.Errorf("comparing and swapping protocol cursor %s: %w", cursorName, err)
 	}
 	return swapped, nil
+}
+
+// distinctEventContractIDs returns the deduplicated contract IDs that emitted events
+// this ledger, hex-encoded as HashBytea to match the protocol_contracts.contract_id
+// encoding. Events with a nil ContractId are skipped. It is protocol-agnostic —
+// membership is resolved downstream against protocol_contracts.
+func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.ContractEvent) []types.HashBytea {
+	ids := set.NewSet[types.HashBytea]()
+	for _, evs := range events {
+		for _, ev := range evs {
+			if ev.ContractId != nil {
+				ids.Add(types.HashBytea(hex.EncodeToString(ev.ContractId[:])))
+			}
+		}
+	}
+	return ids.ToSlice()
 }
 
 func (m *ingestService) getEffectiveProtocolContracts(

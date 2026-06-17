@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"testing"
@@ -2314,4 +2315,29 @@ func Test_ingestService_getEffectiveProtocolContracts_DBErrorPropagates(t *testi
 	// advances per-protocol cursors.
 	_, err := svc.getEffectiveProtocolContracts(ctx, "testproto", nil, nil)
 	require.Error(t, err)
+}
+
+func Test_distinctEventContractIDs(t *testing.T) {
+	t.Parallel()
+
+	var idA, idB xdr.ContractId
+	idA[0] = 0xAA
+	idB[0] = 0xBB
+	hexA := types.HashBytea(hex.EncodeToString(idA[:]))
+	hexB := types.HashBytea(hex.EncodeToString(idB[:]))
+
+	events := map[indexer.ContractEventKey][]xdr.ContractEvent{
+		{TxIdx: 0, OpIdx: 0}: {
+			{ContractId: &idA},
+			{ContractId: &idB},
+			{ContractId: &idA}, // duplicate within a bucket — collapsed
+			{ContractId: nil},  // missing id — skipped
+		},
+		{TxIdx: 1, OpIdx: 0}: {
+			{ContractId: &idB}, // duplicate across buckets — collapsed
+		},
+	}
+
+	got := distinctEventContractIDs(events)
+	assert.ElementsMatch(t, []types.HashBytea{hexA, hexB}, got)
 }
