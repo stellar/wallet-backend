@@ -86,7 +86,7 @@ goimports: ## Check import formatting and organization
 		echo "✅ All files are compliant with goimports."; \
 	fi
 
-check: tidy fmt vet lint generate shadow deadcode fix-imports gql-validate ## Run all checks
+check: gql-validate tidy fmt vet lint generate shadow deadcode fix-imports ## Run all checks
 	@echo "✅ All checks completed successfully"
 
 # ==================================================================================== #
