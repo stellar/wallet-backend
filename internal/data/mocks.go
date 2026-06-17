@@ -364,6 +364,14 @@ func (m *ProtocolContractsModelMock) BatchGetByProtocolIDs(ctx context.Context, 
 	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
 }
 
+func (m *ProtocolContractsModelMock) BatchGetByContractIDs(ctx context.Context, contractIDs []types.HashBytea) (map[string][]ProtocolContracts, error) {
+	args := m.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string][]ProtocolContracts), args.Error(1)
+}
+
 func (m *ProtocolContractsModelMock) GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error) {
 	args := m.Called(ctx, wasmHashes)
 	if args.Get(0) == nil {
