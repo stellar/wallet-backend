@@ -2176,145 +2176,90 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint32(1), stagedCount) // retry re-staged cleanly; not doubled
 	})
+
+	t.Run("G: contract-id lookup failure fails the ledger", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+
+		// Inject a failing contract-id lookup over the otherwise-real models.
+		contractsMock := data.NewProtocolContractsModelMock(t)
+		contractsMock.On("BatchGetByContractIDs", mock.Anything, mock.Anything).
+			Return(nil, fmt.Errorf("db boom")).Once()
+		models.ProtocolContracts = contractsMock
+
+		// A contract event makes the event-contract-id set non-empty so the lookup runs.
+		var contractID xdr.ContractId
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &contractID}},
+		)
+
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
+		require.ErrorContains(t, err, "resolving protocol contracts for ledger 100")
+
+		// The transaction rolled back: the protocol history cursor stayed at 99.
+		histCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(99), histCursor)
+	})
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_ReturnsBaseContracts(t *testing.T) {
+func Test_getEffectiveProtocolContracts_ReturnsCommittedWhenNoBuffered(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	m := metrics.NewMetrics(prometheus.NewRegistry())
+	committed := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
 
-	expectedContracts := []data.ProtocolContracts{{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}}
-
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
-		Return(map[string][]data.ProtocolContracts{"testproto": expectedContracts}, nil).Once()
-
-	svc := &ingestService{
-		appMetrics: m,
-		models:     &data.Models{ProtocolContracts: protocolContractsModel},
-		protocolProcessors: map[string]ProtocolProcessor{
-			"testproto": NewProtocolProcessorMock(t),
-		},
-	}
-
-	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, expectedContracts, contracts)
+	contracts := getEffectiveProtocolContracts("testproto", committed, nil, nil)
+	assert.Equal(t, committed, contracts)
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_MergesBufferedContractWithBaseContracts(t *testing.T) {
+func Test_getEffectiveProtocolContracts_MergesBufferedWithCommitted(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
-	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	baseContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
 	currentLedgerContract := data.ProtocolContracts{ContractID: types.HashBytea(flushTxHash3), WasmHash: types.HashBytea(flushTxHash4)}
 	expectedContracts := []data.ProtocolContracts{baseContract, currentLedgerContract}
 
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
-		Return(map[string][]data.ProtocolContracts{"testproto": {baseContract}}, nil).Once()
-
-	svc := &ingestService{
-		appMetrics: m,
-		models:     &data.Models{ProtocolContracts: protocolContractsModel},
-		protocolProcessors: map[string]ProtocolProcessor{
-			"testproto": NewProtocolProcessorMock(t),
-		},
-	}
-
-	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", map[string]data.ProtocolContracts{
-		string(currentLedgerContract.ContractID): currentLedgerContract,
-	}, map[types.HashBytea]string{
-		currentLedgerContract.WasmHash: "testproto",
-	})
-	require.NoError(t, err)
+	contracts := getEffectiveProtocolContracts("testproto",
+		[]data.ProtocolContracts{baseContract},
+		map[string]data.ProtocolContracts{string(currentLedgerContract.ContractID): currentLedgerContract},
+		map[types.HashBytea]string{currentLedgerContract.WasmHash: "testproto"},
+	)
 	assert.Equal(t, expectedContracts, contracts)
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_IncludesBufferedContractWhenBaseEmpty(t *testing.T) {
+func Test_getEffectiveProtocolContracts_IncludesBufferedWhenCommittedEmpty(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
-	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	currentLedgerContract := data.ProtocolContracts{ContractID: types.HashBytea(flushTxHash3), WasmHash: types.HashBytea(flushTxHash4)}
 	expectedContracts := []data.ProtocolContracts{currentLedgerContract}
 
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
-		Return(map[string][]data.ProtocolContracts{}, nil).Once()
-
-	svc := &ingestService{
-		appMetrics: m,
-		models:     &data.Models{ProtocolContracts: protocolContractsModel},
-		protocolProcessors: map[string]ProtocolProcessor{
-			"testproto": NewProtocolProcessorMock(t),
-		},
-	}
-
-	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", map[string]data.ProtocolContracts{
-		string(currentLedgerContract.ContractID): currentLedgerContract,
-	}, map[types.HashBytea]string{
-		currentLedgerContract.WasmHash: "testproto",
-	})
-	require.NoError(t, err)
+	contracts := getEffectiveProtocolContracts("testproto",
+		nil,
+		map[string]data.ProtocolContracts{string(currentLedgerContract.ContractID): currentLedgerContract},
+		map[types.HashBytea]string{currentLedgerContract.WasmHash: "testproto"},
+	)
 	assert.Equal(t, expectedContracts, contracts)
 }
 
-func Test_ingestService_getEffectiveProtocolContracts_RemovesContractsUpgradedAwayFromProtocol(t *testing.T) {
+func Test_getEffectiveProtocolContracts_RemovesContractsUpgradedAwayFromProtocol(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
-	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	baseContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
 	upgradedContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(flushTxHash3)}
 
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
-		Return(map[string][]data.ProtocolContracts{"testproto": {baseContract}}, nil).Once()
-
-	svc := &ingestService{
-		appMetrics: m,
-		models:     &data.Models{ProtocolContracts: protocolContractsModel},
-		protocolProcessors: map[string]ProtocolProcessor{
-			"testproto": NewProtocolProcessorMock(t),
-		},
-	}
-
-	contracts, err := svc.getEffectiveProtocolContracts(ctx, "testproto", map[string]data.ProtocolContracts{
-		string(upgradedContract.ContractID): upgradedContract,
-	}, nil)
-	require.NoError(t, err)
+	contracts := getEffectiveProtocolContracts("testproto",
+		[]data.ProtocolContracts{baseContract},
+		map[string]data.ProtocolContracts{string(upgradedContract.ContractID): upgradedContract},
+		nil,
+	)
 	assert.Empty(t, contracts)
-}
-
-func Test_ingestService_getEffectiveProtocolContracts_DBErrorPropagates(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	m := metrics.NewMetrics(prometheus.NewRegistry())
-
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("BatchGetByProtocolIDs", ctx, []string{"testproto"}).
-		Return(nil, fmt.Errorf("db error")).Once()
-
-	svc := &ingestService{
-		appMetrics: m,
-		models:     &data.Models{ProtocolContracts: protocolContractsModel},
-		protocolProcessors: map[string]ProtocolProcessor{
-			"testproto": NewProtocolProcessorMock(t),
-		},
-	}
-
-	// A DB failure must surface as an error so the caller fails the ledger loudly
-	// instead of producing protocol state from empty contracts while CAS still
-	// advances per-protocol cursors.
-	_, err := svc.getEffectiveProtocolContracts(ctx, "testproto", nil, nil)
-	require.Error(t, err)
 }
 
 func Test_distinctEventContractIDs(t *testing.T) {

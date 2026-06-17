@@ -89,15 +89,29 @@ func (m *ingestService) persistLedgerData(
 		// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
 		// run only for cursors that win the swap, so a protocol still backfilling (its
 		// cursor behind tip) costs a single CAS and a continue. This block stays above
-		// the protocol_wasms / protocol_contracts BatchInserts below, because
-		// getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
-		// committed set before those rows are inserted. It runs only at the live tip
-		// (ledgerMeta != nil); backfill and loadtest skip protocol production.
+		// the protocol_wasms / protocol_contracts BatchInserts below: per-event-contract
+		// membership is resolved once before the loop, then getEffectiveProtocolContracts
+		// overlays this-ledger buffered contracts onto that set before those rows are
+		// inserted. It runs only at the live tip (ledgerMeta != nil); backfill and
+		// loadtest skip protocol production.
 		if ledgerMeta != nil && ledgerSeq != 0 && len(m.protocolProcessors) > 0 {
 			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 			contractEvents := buffer.GetContractEvents()
 			expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 			next := strconv.FormatUint(uint64(ledgerSeq), 10)
+
+			// Resolve protocol membership once for the contracts that emitted events
+			// this ledger. One bounded query serves every protocol; ledgers with no
+			// contract events skip it entirely. The buffered overlay (below) covers
+			// contracts deployed or upgraded this ledger, which are not yet committed.
+			var committedByProtocol map[string][]data.ProtocolContracts
+			if eventContractIDs := distinctEventContractIDs(contractEvents); len(eventContractIDs) > 0 {
+				var lookupErr error
+				committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+				if lookupErr != nil {
+					return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
+				}
+			}
 
 			for protocolID, processor := range m.protocolProcessors {
 				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
@@ -117,10 +131,7 @@ func (m *ingestService) persistLedgerData(
 					continue
 				}
 
-				contracts, contractsErr := m.getEffectiveProtocolContracts(ctx, protocolID, bufferedContracts, classification)
-				if contractsErr != nil {
-					return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, contractsErr)
-				}
+				contracts := getEffectiveProtocolContracts(protocolID, committedByProtocol[protocolID], bufferedContracts, classification)
 				input := ProtocolProcessorInput{
 					LedgerSequence:    ledgerSeq,
 					LedgerCloseTime:   ledgerCloseTime,
@@ -380,48 +391,37 @@ func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.Contract
 	return ids.ToSlice()
 }
 
-func (m *ingestService) getEffectiveProtocolContracts(
-	ctx context.Context,
+// getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
+// committed contracts resolved for this protocol. committed holds the protocol's
+// contracts among those that emitted events this ledger. bufferedContracts holds
+// contracts deployed or upgraded this ledger (keyed by hex contract id); classification
+// maps this-ledger wasm hashes to their protocol. A contract whose binding changed this
+// ledger is dropped from committed and re-added only if its new classification still
+// matches the protocol.
+func getEffectiveProtocolContracts(
 	protocolID string,
+	committed []data.ProtocolContracts,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
-) ([]data.ProtocolContracts, error) {
-	baseContracts, err := m.getProtocolContracts(ctx, protocolID)
-	if err != nil {
-		return nil, err
-	}
+) []data.ProtocolContracts {
 	if len(bufferedContracts) == 0 {
-		return baseContracts, nil
+		return committed
 	}
 
-	out := make([]data.ProtocolContracts, 0, len(baseContracts)+len(bufferedContracts))
-	for _, contract := range baseContracts {
+	out := make([]data.ProtocolContracts, 0, len(committed)+len(bufferedContracts))
+	for _, contract := range committed {
 		if _, updatedThisLedger := bufferedContracts[string(contract.ContractID)]; updatedThisLedger {
 			continue
 		}
 		out = append(out, contract)
 	}
-
 	for _, contract := range bufferedContracts {
 		if classification[contract.WasmHash] != protocolID {
 			continue
 		}
 		out = append(out, contract)
 	}
-	return out, nil
-}
-
-// getProtocolContracts loads the committed protocol_contracts for a protocol
-// directly from the DB. Called once per protocol per ledger in the live loop.
-func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID string) ([]data.ProtocolContracts, error) {
-	if len(m.protocolProcessors) == 0 {
-		return nil, nil
-	}
-	byProtocol, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, []string{protocolID})
-	if err != nil {
-		return nil, fmt.Errorf("loading protocol contracts for %s: %w", protocolID, err)
-	}
-	return byProtocol[protocolID], nil
+	return out
 }
 
 // ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
