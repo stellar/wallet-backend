@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -25,6 +26,7 @@ const (
 	maxIngestProcessedDataRetries      = 5
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 	oldestLedgerSyncInterval           = 100
+	lagMetricUpdateInterval            = 1 * time.Second
 )
 
 // PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
@@ -271,11 +273,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
 	}
 
-	// Set initial lag now that the backend buffer is populated
-	if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
-		m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - startLedger))
-	}
-
 	return m.ingestLiveLedgers(ctx, startLedger)
 }
 
@@ -295,6 +292,30 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+
+	// Refresh the lag gauge off the consumer goroutine. GetLatestLedgerSequence contends on the
+	// datastore buffer's internal lock, which a download worker can hold while blocked on a full
+	// queue; calling it on this goroutine — the only one that drains that queue — would deadlock.
+	// A dedicated goroutine keeps the consumer draining, so the lock is always released promptly.
+	var latestIngested atomic.Uint32
+	latestIngested.Store(startLedger - 1)
+	lagCtx, cancelLag := context.WithCancel(ctx)
+	defer cancelLag()
+	go func() {
+		ticker := time.NewTicker(lagMetricUpdateInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-lagCtx.Done():
+				return
+			case <-ticker.C:
+				if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(lagCtx); lagErr == nil {
+					m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - latestIngested.Load()))
+				}
+			}
+		}
+	}()
+
 	for {
 		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
 			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
@@ -335,10 +356,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
 
-		// Update lag metric (non-blocking atomic read)
-		if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
-			m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - currentLedger))
-		}
+		// Publish the just-ingested ledger for the lag updater goroutine started above.
+		latestIngested.Store(currentLedger)
 
 		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs)
 		if currentLedger%oldestLedgerSyncInterval == 0 {

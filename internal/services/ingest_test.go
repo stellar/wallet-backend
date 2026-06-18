@@ -2286,3 +2286,77 @@ func Test_distinctEventContractIDs(t *testing.T) {
 	got := distinctEventContractIDs(events)
 	assert.ElementsMatch(t, []types.HashBytea{hexA, hexB}, got)
 }
+
+// Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer is a regression test for a
+// deadlock on the datastore backend: the lag-metric read (GetLatestLedgerSequence) contends on the
+// ledger buffer's internal lock, which a download worker can hold while blocked on a full queue.
+// Reading it on the consumer goroutine — the only goroutine that drains that queue — deadlocks
+// ingestion. The consumer must keep advancing even while the lag read is blocked indefinitely.
+func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	setupDBCursors(t, ctx, pool, 0, 0)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTokenChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	// GetLedger always returns an empty (tx-less) ledger, so each iteration persists only the
+	// cursor. GetLatestLedgerSequence blocks until the context is cancelled, standing in for a
+	// download worker that holds the buffer lock while blocked on a full queue.
+	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(dummyLedgerMeta(1), nil).Maybe()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).
+		Run(func(mock.Arguments) { <-ctx.Done() }).
+		Return(uint32(0), context.Canceled).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeLive,
+		Models:                 models,
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          mockBackend,
+		TokenIngestionService:  mockTokenIngestionService,
+		Metrics:                m,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	const startLedger = uint32(51) // not a multiple of oldestLedgerSyncInterval (100)
+	done := make(chan error, 1)
+	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger) }()
+
+	// The consumer must keep draining and advancing the cursor despite the blocked lag read.
+	require.Eventually(t, func() bool {
+		var s string
+		if qErr := pool.QueryRow(context.Background(),
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s); qErr != nil {
+			return false
+		}
+		v, _ := strconv.ParseUint(s, 10, 32)
+		return uint32(v) >= startLedger+2
+	}, 5*time.Second, 20*time.Millisecond, "consumer cursor should advance past the blocked lag read")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ingestLiveLedgers did not return after context cancellation")
+	}
+}
