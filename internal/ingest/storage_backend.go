@@ -249,16 +249,25 @@ func (b *optimizedStorageBackend) GetLedger(ctx context.Context, sequence uint32
 	return lcm, nil
 }
 
-// GetLatestLedgerSequence returns the upper bound of the prepared range.
-// For unbounded ranges this returns 0 (the range has no upper bound).
+// GetLatestLedgerSequence returns the highest ledger the buffer has delivered so far — its
+// prefetch frontier — mirroring the SDK BufferedStorageBackend. During bulk consumption the
+// frontier runs ahead of the consumer; at the live tip it stalls at the last available ledger.
+// Returns 0 before any batch has been delivered. This is what lets the migration's
+// flushWindowsAtTip coalesce in bulk (seq <= frontier) and flush at the tip (seq > frontier),
+// instead of flushing every ledger as it would if this returned the unbounded range's zero To().
 func (b *optimizedStorageBackend) GetLatestLedgerSequence(_ context.Context) (uint32, error) {
 	if b.closed {
 		return 0, fmt.Errorf("optimizedStorageBackend is closed")
 	}
-	if b.prepared == nil {
+	if b.prepared == nil || b.buffer == nil {
 		return 0, fmt.Errorf("optimizedStorageBackend must be prepared before calling GetLatestLedgerSequence")
 	}
-	return b.prepared.To(), nil
+	startBoundary := b.schema.GetSequenceNumberStartBoundary(b.prepared.From())
+	frontier := b.buffer.currentLedger.Load()
+	if frontier <= startBoundary {
+		return 0, nil // nothing delivered yet
+	}
+	return frontier - 1, nil
 }
 
 // IsPrepared reports whether the backend is prepared for the given range.

@@ -582,3 +582,64 @@ func TestOptimizedStorageBackend_OutOfOrderDownloadsDeliverInSequence(t *testing
 	}
 	require.NoError(t, backend.Close())
 }
+
+// TestOptimizedStorageBackend_TipReportsFrontier verifies that for an unbounded range the tip is
+// the growing delivery frontier (last available ledger), NOT a constant 0. This is what lets the
+// migration's flushWindowsAtTip coalesce in bulk instead of flushing every ledger.
+func TestOptimizedStorageBackend_TipReportsFrontier(t *testing.T) {
+	ds := &mockDataStore{}
+	schema := testSchema(1)
+
+	// Ledgers 100..104 exist; 105 is the (not-yet-closed) tip → NotExist, unbounded waits.
+	for seq := uint32(100); seq <= 104; seq++ {
+		ds.On("GetFile", mock.Anything, schema.GetObjectKeyFromSequenceNumber(seq)).
+			Return(encodeBatch(t, seq, seq), nil)
+	}
+	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
+
+	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+		BufferSize: 8,
+		NumWorkers: 4,
+		RetryWait:  5 * time.Millisecond,
+	}, ds, schema)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+
+	// Poll until the frontier reaches the last available ledger (104). The key assertion is that
+	// it is non-zero and tracks delivered ledgers — the old code returned prepared.To() == 0.
+	var tip uint32
+	require.Eventually(t, func() bool {
+		tip, err = backend.GetLatestLedgerSequence(ctx)
+		require.NoError(t, err)
+		return tip == 104
+	}, 2*time.Second, 10*time.Millisecond, "frontier should advance to last available ledger; got %d", tip)
+
+	require.NoError(t, backend.Close())
+}
+
+// TestOptimizedStorageBackend_TipZeroBeforeDelivery verifies the frontier is 0 until something is
+// delivered (mirrors the SDK's "currentLedger == from → 0").
+func TestOptimizedStorageBackend_TipZeroBeforeDelivery(t *testing.T) {
+	ds := &mockDataStore{}
+	schema := testSchema(1)
+	// No file ever exists → nothing is delivered.
+	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
+
+	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+		BufferSize: 4,
+		NumWorkers: 1,
+		RetryWait:  5 * time.Millisecond,
+	}, ds, schema)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+
+	tip, err := backend.GetLatestLedgerSequence(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), tip)
+
+	require.NoError(t, backend.Close())
+}
