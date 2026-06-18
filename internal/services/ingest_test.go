@@ -2349,7 +2349,8 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s); qErr != nil {
 			return false
 		}
-		v, _ := strconv.ParseUint(s, 10, 32)
+		v, err := strconv.ParseUint(s, 10, 32)
+		require.NoError(t, err)
 		return uint32(v) >= startLedger+2
 	}, 5*time.Second, 20*time.Millisecond, "consumer cursor should advance past the blocked lag read")
 

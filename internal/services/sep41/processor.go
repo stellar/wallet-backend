@@ -355,4 +355,3 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 
 	return nil
 }
-
