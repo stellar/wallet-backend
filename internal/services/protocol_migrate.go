@@ -185,6 +185,30 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 	return active, nil
 }
 
+// stageTimers accumulates per-stage wall-clock within a progress interval so the
+// migration loop can report where time goes: fetching a ledger, extracting its
+// contract events, folding it into the processors, or flushing a window to the DB.
+// It is reset after each progress log, so each line reflects only that interval.
+type stageTimers struct {
+	fetch   time.Duration // GetLedger
+	extract time.Duration // ExtractContractEventsForLedger
+	process time.Duration // ProcessLedger across all trackers
+	flush   time.Duration // flushWindow (CAS + Persist), including tip flushes
+}
+
+func (t stageTimers) total() time.Duration { return t.fetch + t.extract + t.process + t.flush }
+
+// breakdown renders each stage's share of the staged total as a percentage.
+func (t stageTimers) breakdown() string {
+	total := t.total()
+	if total == 0 {
+		return "fetch=0% extract=0% process=0% flush=0%"
+	}
+	pct := func(d time.Duration) float64 { return 100 * float64(d) / float64(total) }
+	return fmt.Sprintf("fetch=%.0f%% extract=%.0f%% process=%.0f%% flush=%.0f%%",
+		pct(t.fetch), pct(t.extract), pct(t.process), pct(t.flush))
+}
+
 // processAllProtocols runs migration for all protocols using ledger-first iteration.
 // Each ledger is fetched once and processed by all eligible protocols, avoiding redundant RPC calls.
 func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protocolIDs []string) ([]string, error) {
@@ -252,7 +276,12 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
 	}
 
-	var cachedTip uint32
+	var (
+		cachedTip       uint32
+		timers          stageTimers
+		intervalStart   = time.Now()
+		intervalLedgers uint32
+	)
 	for seq := startLedger; ; seq++ {
 		if err := ctx.Err(); err != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("context cancelled: %w", err)
@@ -264,7 +293,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// Before fetching seq, flush any open windows once we reach the live tip so the
 		// next (blocking) GetLedger never strands the cursor behind the frontier.
 		var flushErr error
+		tipFlushStart := time.Now()
 		cachedTip, flushErr = s.flushWindowsAtTip(ctx, trackers, seq, cachedTip)
+		timers.flush += time.Since(tipFlushStart)
 		if flushErr != nil {
 			return handedOffProtocolIDs(trackers), flushErr
 		}
@@ -272,7 +303,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			return handedOffProtocolIDs(trackers), nil
 		}
 
+		fetchStart := time.Now()
 		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
+		timers.fetch += time.Since(fetchStart)
 		if fetchErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 		}
@@ -280,7 +313,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// Extract contract events once per ledger; all trackers below share the
 		// same map. This is the migration-side analogue of the live-ingest path
 		// where buffer.GetContractEvents() is computed once per ledger.
+		extractStart := time.Now()
 		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ctx, s.networkPassphrase, ledgerMeta)
+		timers.extract += time.Since(extractStart)
 		if eventsErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract events for ledger %d: %w", seq, eventsErr)
 		}
@@ -297,19 +332,40 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 				ProtocolContracts: contractsByProtocol[t.protocolID],
 				StagingMode:       s.strategy.Mode,
 			}
-			if processErr := t.processor.ProcessLedger(ctx, input); processErr != nil {
+			processStart := time.Now()
+			processErr := t.processor.ProcessLedger(ctx, input)
+			timers.process += time.Since(processStart)
+			if processErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
 			}
 			t.pending++
 			if t.pending >= windowSize {
-				if err := s.flushWindow(ctx, t); err != nil {
-					return handedOffProtocolIDs(trackers), err
+				flushStart := time.Now()
+				flushWinErr := s.flushWindow(ctx, t)
+				timers.flush += time.Since(flushStart)
+				if flushWinErr != nil {
+					return handedOffProtocolIDs(trackers), flushWinErr
 				}
 			}
 		}
 
+		intervalLedgers++
 		if seq%windowSize == 0 {
-			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
+			wall := time.Since(intervalStart)
+			var lps float64
+			if wall > 0 {
+				lps = float64(intervalLedgers) / wall.Seconds()
+			}
+			log.Ctx(ctx).Infof(
+				"Progress: processed ledger %d | %d ledgers in %s (%.1f l/s) | fetch=%s extract=%s process=%s flush=%s | %s",
+				seq, intervalLedgers, wall.Round(time.Millisecond), lps,
+				timers.fetch.Round(time.Millisecond), timers.extract.Round(time.Millisecond),
+				timers.process.Round(time.Millisecond), timers.flush.Round(time.Millisecond),
+				timers.breakdown(),
+			)
+			timers = stageTimers{}
+			intervalLedgers = 0
+			intervalStart = time.Now()
 		}
 	}
 }
