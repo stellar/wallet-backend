@@ -219,7 +219,10 @@ func runMigration(
 		rpcService, rpcErr := services.NewRPCService(
 			opts.rpcURL,
 			opts.networkPassphrase,
-			&http.Client{Timeout: 30 * time.Second},
+			// Keep-alives disabled: a fresh connection per request sidesteps stale-connection EOFs
+			// behind intermediaries that don't support HTTP connection reuse; negligible at this
+			// command's RPC volume.
+			&http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}},
 			m.RPC,
 		)
 		if rpcErr != nil {
