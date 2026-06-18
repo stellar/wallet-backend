@@ -84,16 +84,12 @@ func (m *ingestService) persistLedgerData(
 		if classifyErr != nil {
 			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
 		}
+
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
 		// protocol cursor is the authoritative gate — exactly one of live ingestion or
 		// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
 		// run only for cursors that win the swap, so a protocol still backfilling (its
-		// cursor behind tip) costs a single CAS and a continue. This block stays above
-		// the protocol_wasms / protocol_contracts BatchInserts below: per-event-contract
-		// membership is resolved once before the loop, then getEffectiveProtocolContracts
-		// overlays this-ledger buffered contracts onto that set before those rows are
-		// inserted. It runs only at the live tip (ledgerMeta != nil); backfill and
-		// loadtest skip protocol production.
+		// cursor behind tip) costs a single CAS and a continue.
 		if ledgerMeta != nil && ledgerSeq != 0 && len(m.protocolProcessors) > 0 {
 			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 			contractEvents := buffer.GetContractEvents()
