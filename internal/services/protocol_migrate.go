@@ -308,7 +308,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			}
 		}
 
-		if seq%100 == 0 {
+		if seq%windowSize == 0 {
 			log.Ctx(ctx).Infof("Progress: processed ledger %d", seq)
 		}
 	}

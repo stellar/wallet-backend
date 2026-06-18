@@ -163,11 +163,6 @@ func buildMigrationCommand(
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
 	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
-	var deprecatedLatestLedgerCursorName string
-	cmd.Flags().StringVar(&deprecatedLatestLedgerCursorName, "latest-ledger-cursor-name", "", "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded.")
-	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
-		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
-	}
 	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (0 or 1 = commit every ledger)")
 
 	if addFlags != nil {
