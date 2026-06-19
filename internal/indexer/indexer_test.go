@@ -2,8 +2,13 @@
 package indexer
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -972,6 +977,90 @@ func TestIndexer_GetLedgerTransactions(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+// extractContractEventsViaReader is the reader-based reference implementation of
+// ExtractContractEventsForLedger, kept as the oracle for the differential
+// equivalence test. It constructs a LedgerTransactionReader (which re-hashes
+// every transaction envelope) and reads events through the resulting
+// LedgerTransaction values. The production function must produce output equal to
+// this oracle for every committed ledger fixture.
+func extractContractEventsViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+
+	out := make(map[ContractEventKey][]xdr.ContractEvent)
+	for _, tx := range transactions {
+		if !tx.Result.Successful() {
+			continue
+		}
+		for opIdx, op := range tx.Envelope.Operations() {
+			if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
+				continue
+			}
+			events, evErr := tx.GetContractEventsForOperation(uint32(opIdx))
+			if evErr != nil {
+				return nil, fmt.Errorf("extracting contract events for ledger %d tx %d op %d: %w",
+					ledgerMeta.LedgerSequence(), tx.Index, opIdx, evErr)
+			}
+			if len(events) == 0 {
+				continue
+			}
+			out[ContractEventKey{TxIdx: tx.Index, OpIdx: uint32(opIdx)}] = events
+		}
+	}
+	return out, nil
+}
+
+// loadLedgerFixture reads a gzip-compressed XDR LedgerCloseMeta from testdata/.
+//
+// Fixtures are pubnet LedgerCloseMeta captured from the public data lake
+// (config/datastore-pubnet.toml). To refresh or expand the corpus, run a small
+// program from the repo root that builds an ingest.NewLedgerBackend with
+// LedgerBackendType=datastore + NetworkPassphrase=PublicNetworkPassphrase,
+// discovers the lake tip via datastore.FindLatestLedgerSequence, then for each
+// sequence calls backend.GetLedger(seq), lcm.MarshalBinary(), gzips the bytes,
+// and writes testdata/ledger-<seq>.xdr.gz.
+func loadLedgerFixture(t *testing.T, path string) xdr.LedgerCloseMeta {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	require.NoError(t, err)
+	defer gz.Close()
+
+	raw, err := io.ReadAll(gz)
+	require.NoError(t, err)
+
+	var lcm xdr.LedgerCloseMeta
+	require.NoError(t, lcm.UnmarshalBinary(raw))
+	return lcm
+}
+
+func TestExtractContractEventsForLedger_EquivalenceOnRealLedgers(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			want, err := extractContractEventsViaReader(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+
+			got, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+
+			require.Equal(t, want, got)
 		})
 	}
 }
