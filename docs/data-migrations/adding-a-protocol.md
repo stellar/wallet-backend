@@ -217,8 +217,8 @@ type MyProtocolEntry struct {
 }
 
 // Model interface -- defines the operations your processor needs.
-// BatchUpsert and GetAll are the minimum required for the processor pattern.
-// Add additional query methods as needed for your protocol's read paths.
+// BatchUpsert is the write path used by PersistCurrentState. GetAll (and any other query
+// methods) serve your protocol's read paths and are not part of the migration fold path.
 type MyProtocolEntryModelInterface interface {
     BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []MyProtocolEntry, deletes []MyProtocolEntry) error
     GetAll(ctx context.Context, dbTx pgx.Tx) ([]MyProtocolEntry, error)
@@ -302,17 +302,29 @@ The processor is the core component that extracts protocol-specific state from e
 ```go
 type ProtocolProcessor interface {
     ProtocolID() string
+
+    // ProcessLedger folds this ledger's state into the staged sets. It does NOT reset between
+    // ledgers — the caller owns reset via Reset(). Folding a window of ledgers then persisting
+    // MUST produce the same result as processing each ledger individually (batch-equivalence).
+    // A protocol that cannot meet this must be migrated with --window-size=1.
     ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
+
+    // Reset clears the staged sets. The caller invokes it: the migration engine per window,
+    // live ingestion per ledger.
+    Reset()
+
+    // PersistHistory / PersistCurrentState write the rows staged since the last Reset, using the
+    // caller's transaction (committed atomically with the CAS cursor advance when it succeeds).
     PersistHistory(ctx context.Context, dbTx pgx.Tx) error
     PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
-    LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error
 }
 
 type ProtocolProcessorInput struct {
     LedgerSequence    uint32
-    LedgerCloseMeta   xdr.LedgerCloseMeta
+    LedgerCloseTime   int64
+    ContractEvents    map[indexer.ContractEventKey][]xdr.ContractEvent
     ProtocolContracts []data.ProtocolContracts
-    NetworkPassphrase string
+    StagingMode       StagingMode
 }
 ```
 
@@ -320,10 +332,12 @@ type ProtocolProcessorInput struct {
 
 | Method | Called By | Purpose |
 |--------|-----------|---------|
-| `ProcessLedger` | Live ingestion, history migration, current-state migration | Extract state changes from a single ledger. Buffer results in memory. |
-| `PersistHistory` | Live ingestion, history migration | Write buffered historical state change records to DB within a transaction. |
-| `PersistCurrentState` | Live ingestion, current-state migration | Write buffered current state to DB within a transaction. Update in-memory state. |
-| `LoadCurrentState` | Live ingestion (on migration handoff) | Load all current state from DB into processor memory. Called once when migration hands off to live ingestion via CAS. |
+| `ProcessLedger` | Live ingestion, history & current-state migration | Fold a single ledger's protocol state into the staged sets. Does **not** clear between ledgers — accumulates until `Reset()`. |
+| `Reset` | Migration engine (per window), live ingestion (per ledger) | Clear the staged sets after a window commits/hands off, or before the next ledger. |
+| `PersistHistory` | Live ingestion, history migration | Write the history rows staged since the last `Reset` within the caller's transaction. |
+| `PersistCurrentState` | Live ingestion, current-state migration | Write the current state staged since the last `Reset` within the caller's transaction. |
+
+`input.StagingMode` tells the processor which staged sets to build (`history`, `current_state`, or both); the migration engine sets it per strategy, live ingestion sets both.
 
 ### Model Binding
 
@@ -354,20 +368,28 @@ import (
     "github.com/stellar/wallet-backend/internal/data"
 )
 
-type MyProtocolProcessor struct {
-    // In-memory current state. Populated by LoadCurrentState, maintained by PersistCurrentState.
-    currentState map[string]string
-    entryModel   data.MyProtocolEntryModelInterface
+// stagedEntry is the latest folded write for one key within the current window. deleted
+// records that the key's final state in the window is a removal rather than an upsert.
+type stagedEntry struct {
+    entry   data.MyProtocolEntry
+    deleted bool
+}
 
-    // Per-ledger buffers, cleared after each persist call.
-    pendingUpserts []data.MyProtocolEntry
-    pendingDeletes []data.MyProtocolEntry
+type MyProtocolProcessor struct {
+    entryModel data.MyProtocolEntryModelInterface
+
+    // Staged writes that accumulate ("fold") across ProcessLedger calls within a window and are
+    // cleared only by Reset(). Keyed by the entry's primary key so repeated touches across ledgers
+    // collapse to the latest write — this is what makes a folded window equivalent to processing
+    // each ledger individually. The DB is the source of truth; the processor keeps no in-memory
+    // mirror of current state.
+    staged map[string]stagedEntry
 }
 
 func NewMyProtocolProcessor() *MyProtocolProcessor {
-    return &MyProtocolProcessor{
-        currentState: make(map[string]string),
-    }
+    p := &MyProtocolProcessor{}
+    p.Reset() // initialize staged sets
+    return p
 }
 
 var _ ProtocolProcessor = (*MyProtocolProcessor)(nil)
@@ -386,87 +408,78 @@ func (p *MyProtocolProcessor) bindModels(models *data.Models) error {
 }
 
 func (p *MyProtocolProcessor) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
-    // 1. Clear per-ledger buffers
-    p.pendingUpserts = p.pendingUpserts[:0]
-    p.pendingDeletes = p.pendingDeletes[:0]
+    // Do NOT clear staged state here. ProcessLedger folds this ledger into the window that Reset()
+    // owns; clearing per ledger would drop every ledger but the last under --window-size > 1.
 
-    // 2. Early return if no contracts to track
+    // 1. Early return if no contracts to track
     if len(input.ProtocolContracts) == 0 {
         return nil
     }
 
-    // 3. Build set of tracked contract IDs from input
+    // 2. Build the set of tracked contract IDs from input.ProtocolContracts
     trackedContracts := make(map[string]struct{}, len(input.ProtocolContracts))
     for _, pc := range input.ProtocolContracts {
         trackedContracts[string(pc.ContractID)] = struct{}{}
     }
 
-    // 4. Read transactions from the ledger using ingest.NewLedgerTransactionReaderFromLedgerCloseMeta
-    // 5. For each successful transaction, get changes
-    // 6. Filter for ContractData changes belonging to tracked contracts
-    // 7. Parse protocol-specific data from the contract entry
-    // 8. Append to pendingUpserts or pendingDeletes
+    // 3. Iterate input.ContractEvents (keyed by (txIdx, opIdx); already filtered to successful
+    //    transactions) and skip events from contracts you don't track.
+    // 4. Derive each affected entry's primary key and fold it into p.staged with last-write-wins —
+    //    a later ledger overwrites an earlier one for the same key, so the folded window matches
+    //    per-ledger processing:
+    //        key := buildKey(e) // e.g. hex.EncodeToString(e.PoolID) + ":" + e.UserAddress
+    //        p.staged[key] = stagedEntry{entry: e}                 // upsert
+    //        p.staged[key] = stagedEntry{entry: e, deleted: true}  // delete
 
     return nil
 }
 
+// Reset clears the staged window. The caller invokes it: the migration engine after each window
+// commits or hands off, and live ingestion before each ledger.
+func (p *MyProtocolProcessor) Reset() {
+    p.staged = map[string]stagedEntry{}
+}
+
 func (p *MyProtocolProcessor) PersistHistory(_ context.Context, _ pgx.Tx) error {
-    // Write historical state change records if your protocol tracks history.
-    // Return nil if not applicable.
+    // Write historical state-change rows if your protocol tracks history. Those rows accumulate in
+    // their own staged slice across ledgers (append-only — history never collapses) and are likewise
+    // cleared by Reset(). Return nil if not applicable.
     return nil
 }
 
 func (p *MyProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-    if len(p.pendingUpserts) == 0 && len(p.pendingDeletes) == 0 {
+    if len(p.staged) == 0 {
         return nil
     }
-    if err := p.entryModel.BatchUpsert(ctx, dbTx, p.pendingUpserts, p.pendingDeletes); err != nil {
+
+    upserts := make([]data.MyProtocolEntry, 0, len(p.staged))
+    deletes := make([]data.MyProtocolEntry, 0)
+    for _, s := range p.staged {
+        if s.deleted {
+            deletes = append(deletes, s.entry)
+        } else {
+            upserts = append(upserts, s.entry)
+        }
+    }
+    if err := p.entryModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
         return fmt.Errorf("persisting current state: %w", err)
     }
 
-    // Update in-memory state from buffers.
-    // Build a map key from your entry's primary key fields.
-    for _, e := range p.pendingUpserts {
-        key := buildKey(e) // e.g., hex.EncodeToString(e.PoolID) + ":" + hex.EncodeToString(e.UserAddress)
-        p.currentState[key] = "..." // store whatever value(s) you need in memory
-    }
-    for _, e := range p.pendingDeletes {
-        key := buildKey(e)
-        delete(p.currentState, key)
-    }
-
-    log.Ctx(ctx).Debugf("MY_PROTOCOL: persisted %d upserts, %d deletes", len(p.pendingUpserts), len(p.pendingDeletes))
-
-    // Clear buffers
-    p.pendingUpserts = p.pendingUpserts[:0]
-    p.pendingDeletes = p.pendingDeletes[:0]
-    return nil
-}
-
-func (p *MyProtocolProcessor) LoadCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-    entries, err := p.entryModel.GetAll(ctx, dbTx)
-    if err != nil {
-        return fmt.Errorf("loading current state: %w", err)
-    }
-
-    p.currentState = make(map[string]string, len(entries))
-    for _, e := range entries {
-        key := buildKey(e)
-        p.currentState[key] = "..." // mirror the value stored in PersistCurrentState
-    }
-
-    log.Ctx(ctx).Infof("MY_PROTOCOL: loaded %d entries into current state", len(entries))
+    // Do NOT clear p.staged here — Reset() owns clearing. Keeping it lets a failed/retried window
+    // re-persist exactly the same set, and a coalesced window commits exactly once.
+    log.Ctx(ctx).Debugf("MY_PROTOCOL: persisted %d upserts, %d deletes", len(upserts), len(deletes))
     return nil
 }
 ```
 
 ### Key Patterns
 
-- **Per-ledger buffering**: `ProcessLedger` clears and refills `pendingUpserts`/`pendingDeletes` each ledger. Buffers are cleared after each `Persist*` call.
-- **In-memory current state**: The `currentState` map is loaded once via `LoadCurrentState` (on migration-to-live handoff) and maintained incrementally by `PersistCurrentState`.
-- **Contract filtering**: Build a set of tracked contract IDs from `input.ProtocolContracts` and skip unrelated ledger entries.
-- **Graceful no-ops**: Methods return `nil` early when there's nothing to do (no pending changes, no tracked contracts).
-- **Transaction safety**: `PersistHistory` and `PersistCurrentState` receive a `pgx.Tx` and all writes happen within that transaction. The CAS cursor advance also happens in the same transaction, ensuring atomicity.
+- **Folding & batch-equivalence**: `ProcessLedger` accumulates across ledgers rather than processing one in isolation. Folding a window then persisting **must** equal processing each ledger individually: balances sum, last-write-wins values keep the newest, history rows append. Key the staged sets by primary key so repeated touches of the same row collapse. A protocol that cannot meet this must be migrated with `--window-size=1`.
+- **Caller-owned `Reset()`**: staged sets are cleared only in `Reset()` — never inside `ProcessLedger` or `Persist*`. The migration engine calls it per window (after commit/handoff), live ingestion per ledger. This keeps a failed/retried window idempotent and a coalesced window committing exactly once.
+- **Staging mode**: `input.StagingMode` selects which staged sets to build (`history`, `current_state`, or both). Gate history vs current-state staging on it so each migration strategy does only its own work.
+- **Contract filtering**: build a set of tracked contract IDs from `input.ProtocolContracts` and skip events from contracts you don't track.
+- **Graceful no-ops**: methods return `nil` early when there's nothing to do (no tracked contracts, nothing staged).
+- **Transaction safety**: `PersistHistory` and `PersistCurrentState` receive a `pgx.Tx` and all writes happen within it. The CAS cursor advance commits in the same transaction, so writes and cursor move atomically (and roll back together on failure).
 
 ## Step 5: Register the Validator and Processor
 
@@ -631,15 +644,13 @@ func TestMyProtocolValidator_WrongSignature(t *testing.T) {
 }
 ```
 
-**Processor tests** (`internal/services/<protocol>_processor_test.go`) -- Verify buffer management, persistence, and state loading. Use a stub implementation of your data model interface:
+**Processor tests** (`internal/services/<protocol>_processor_test.go`) -- Verify folding, persistence, and reset behavior. Use a stub implementation of your data model interface:
 
 ```go
 type myEntryModelStub struct {
     lastUpserts []data.MyProtocolEntry
     lastDeletes []data.MyProtocolEntry
-    getAllRows  []data.MyProtocolEntry
     batchErr    error
-    getAllErr   error
 }
 
 var _ data.MyProtocolEntryModelInterface = (*myEntryModelStub)(nil)
@@ -649,19 +660,14 @@ func (s *myEntryModelStub) BatchUpsert(_ context.Context, _ pgx.Tx, upserts []da
     s.lastDeletes = append([]data.MyProtocolEntry(nil), deletes...)
     return s.batchErr
 }
-
-func (s *myEntryModelStub) GetAll(_ context.Context, _ pgx.Tx) ([]data.MyProtocolEntry, error) {
-    return append([]data.MyProtocolEntry(nil), s.getAllRows...), s.getAllErr
-}
 ```
 
 Test cases to cover:
 
-- `PersistCurrentState` writes buffered upserts and deletes to the model
-- `PersistCurrentState` updates in-memory `currentState` (adds upserts, removes deletes)
-- `PersistCurrentState` clears pending buffers after persistence
-- `PersistCurrentState` is a no-op when both buffers are empty
-- `LoadCurrentState` populates the in-memory map from the model's `GetAll` result
+- `ProcessLedger` folds repeated touches of the same key across ledgers to the latest write (batch-equivalence: a coalesced window equals per-ledger processing)
+- `PersistCurrentState` writes the staged upserts and deletes to the model
+- `PersistCurrentState` is a no-op when nothing is staged
+- `Reset` clears the staged sets so a committed window doesn't leak into the next
 - `bindModels` returns an error when models are nil or the required field is missing
 
 See `internal/services/protocol_processor_binding_test.go` for examples of testing model binding separately.
