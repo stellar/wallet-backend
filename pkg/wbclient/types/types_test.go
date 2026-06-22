@@ -53,6 +53,38 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesNativeBalance(t *testing.T) {
 	assert.Equal(t, uint32(12345), native.LastModifiedLedger)
 }
 
+func Test_BalanceEdge_UnmarshalJSON_DecodesSEP41Balance(t *testing.T) {
+	payload := []byte(`{
+		"cursor": "cur-1",
+		"node": {
+			"__typename": "SEP41Balance",
+			"balance": "5000000000",
+			"tokenId": "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4",
+			"tokenType": "SEP41",
+			"name": "SEP41 Token",
+			"symbol": "SEP41",
+			"decimals": 7,
+			"lastModifiedLedger": 12345
+		}
+	}`)
+
+	var edge BalanceEdge
+	err := json.Unmarshal(payload, &edge)
+	require.NoError(t, err)
+	require.NotNil(t, edge.Node)
+
+	sep41, ok := edge.Node.(*SEP41Balance)
+	require.True(t, ok, "expected node to decode into *SEP41Balance, got %T", edge.Node)
+	// The server returns the raw i128 amount, unscaled by decimals.
+	assert.Equal(t, "5000000000", sep41.BalanceValue)
+	assert.Equal(t, "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4", sep41.TokenID)
+	assert.Equal(t, TokenTypeSEP41, sep41.TokenType)
+	require.NotNil(t, sep41.Symbol)
+	assert.Equal(t, "SEP41", *sep41.Symbol)
+	assert.Equal(t, int32(7), sep41.Decimals)
+	assert.Equal(t, uint32(12345), sep41.LastModifiedLedger)
+}
+
 func Test_BalanceConnection_Balances(t *testing.T) {
 	cursor1, cursor2 := "c1", "c2"
 	native := &NativeBalance{BalanceValue: "100", TokenID: "native", TokenType: TokenTypeNative}
