@@ -248,6 +248,8 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "signerAccountId"
 		case "funderAddress":
 			fieldName = "funderAccountId"
+		case "deployerAddress":
+			fieldName = "deployerAccountId"
 		case "limit":
 			// GraphQL "limit" field requires both old and new trustline limit columns
 			dbColumns = append(dbColumns, "trustline_limit_old", "trustline_limit_new")
