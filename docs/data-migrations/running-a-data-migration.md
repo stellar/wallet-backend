@@ -83,7 +83,6 @@ Optional flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--latest-ledger-cursor-name` | `latest_ingest_ledger` | Name of the latest ledger cursor in the ingest store. Must match the value used by the ingest service. |
 | `--oldest-ledger-cursor-name` | `oldest_ingest_ledger` | Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service. |
 
 ### Step 4b: Current-State Migration
