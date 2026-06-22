@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/types"
 	"io"
-	"net/http"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -214,10 +213,10 @@ func runMigration(
 		rpcService, rpcErr := services.NewRPCService(
 			opts.rpcURL,
 			opts.networkPassphrase,
-			// Keep-alives disabled: a fresh connection per request sidesteps stale-connection EOFs
-			// behind intermediaries that don't support HTTP connection reuse; negligible at this
-			// command's RPC volume.
-			&http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}},
+			// Keep-alives disabled (see keepAlivesDisabledHTTPClient): a fresh connection per request
+			// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection
+			// reuse; negligible at this command's RPC volume.
+			keepAlivesDisabledHTTPClient(30*time.Second),
 			m.RPC,
 		)
 		if rpcErr != nil {

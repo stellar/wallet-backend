@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -104,13 +103,10 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		return fmt.Errorf("creating models: %w", err)
 	}
 
-	// Create RPC service. Keep-alives are disabled so each request uses a fresh connection: this
-	// one-shot command makes only a short burst of RPC calls, and a fresh connection sidesteps
-	// stale-connection EOFs behind intermediaries that don't support HTTP connection reuse.
-	httpClient := &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: &http.Transport{DisableKeepAlives: true},
-	}
+	// Create RPC service with keep-alives disabled (see keepAlivesDisabledHTTPClient): this
+	// one-shot command makes only a short burst of RPC calls, and a fresh connection per request
+	// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection reuse.
+	httpClient := keepAlivesDisabledHTTPClient(30 * time.Second)
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)
