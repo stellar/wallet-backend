@@ -239,7 +239,8 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
-// - SEP-41 token (500) - backfilled by DataMigrationTestSuite's current-state migration
+// Account 1 holds no SEP-41 balance: it was minted the custom token but transferred
+// the full amount to account 2 (prepareSEP41TransferOp), so its balance nets to zero.
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
@@ -248,7 +249,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41")
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -280,9 +281,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
 
-		case *types.SEP41Balance:
-			suite.assertSEP41TokenBalance(b)
-
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
@@ -291,9 +289,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 // TestLiveIngestion_Account2_HasNewBalances verifies that balance test account 2
 // has the expected balances after fixture transactions create new token holdings:
-// - Native XLM
-// - USDC trustline (100) - unchanged
-// - EURC trustline (75) - NEW from trustline creation and payment
+//   - Native XLM
+//   - USDC trustline (100) - unchanged
+//   - EURC trustline (75) - NEW from trustline creation and payment
+//   - SEP-41 token (500) - received from account 1's transfer, backfilled by the DataMigrationTestSuite current-state migration
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
@@ -302,7 +301,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
+	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -333,6 +332,9 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 			default:
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
+
+		case *types.SEP41Balance:
+			suite.assertSEP41TokenBalance(b)
 
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)

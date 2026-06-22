@@ -17,11 +17,14 @@ import (
 const commandContainerExitTimeout = 2 * time.Minute
 
 // RunWalletBackendCommand runs a one-shot wallet-backend subcommand (e.g.
-// "protocol-setup --protocol-id SEP41") in its own container against the shared
-// network, waits for it to exit, and returns the exit code and combined logs.
-// It mirrors the ingest container's image and environment so the command sees
-// the same DB and RPC as live ingestion.
-func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, command string, extraEnv map[string]string) (int, string, error) {
+// "protocol-setup --protocol-id SEP41") in its own named container against the
+// shared network, waits for it to exit, and returns the exit code and combined
+// logs. It mirrors the ingest container's image and environment so the command
+// sees the same DB and RPC as live ingestion.
+//
+// The container is intentionally NOT terminated (like the backfill container) so
+// it remains visible to `docker logs <name>` for post-run inspection.
+func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, name, command string, extraEnv map[string]string) (int, string, error) {
 	env := map[string]string{
 		"RPC_URL":                 "http://stellar-rpc:8000",
 		"DATABASE_URL":            "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
@@ -34,6 +37,7 @@ func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, command 
 	maps.Copy(env, extraEnv)
 
 	containerRequest := testcontainers.ContainerRequest{
+		Name:  name,
 		Image: s.walletBackendImage,
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
@@ -49,15 +53,8 @@ func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, command 
 		ContainerRequest: containerRequest,
 		Started:          true,
 	})
-	if container != nil {
-		defer func() {
-			if termErr := container.Terminate(ctx); termErr != nil {
-				log.Ctx(ctx).Warnf("terminating command container: %v", termErr)
-			}
-		}()
-	}
 	if err != nil {
-		return -1, "", fmt.Errorf("starting wallet-backend command container %q: %w", command, err)
+		return -1, "", fmt.Errorf("running wallet-backend command container %q: %w", command, err)
 	}
 
 	logs := readContainerLogs(ctx, container)

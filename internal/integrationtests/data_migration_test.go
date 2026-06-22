@@ -3,6 +3,7 @@ package integrationtests
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
@@ -83,10 +85,11 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 	s.Require().Greater(startLedger, uint32(0), "oldest_ledger_cursor should be set by live ingestion")
 
 	// Phase 2: protocol-setup classifies the SEP-41 WASM via bytecode analysis.
+	// The container persists as "wallet-backend-protocol-setup" for `docker logs`.
 	exitCode, logs, err := s.testEnv.Containers.RunWalletBackendCommand(ctx,
-		"protocol-setup --protocol-id "+sep41ProtocolID, nil)
+		"wallet-backend-protocol-setup", "protocol-setup --protocol-id "+sep41ProtocolID, nil)
 	s.Require().NoError(err)
-	s.Require().Zerof(exitCode, "protocol-setup should exit 0; logs:\n%s", logs)
+	s.Require().Zerof(exitCode, "protocol-setup should exit 0 (see `docker logs wallet-backend-protocol-setup`); logs:\n%s", logs)
 
 	classifiedContracts, err := models.ProtocolContracts.GetByProtocolID(ctx, sep41ProtocolID)
 	s.Require().NoError(err)
@@ -104,18 +107,25 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 	// Phase 3: protocol-migrate current-state builds SEP-41 balances from start
 	// ledger to the tip, coalescing with --window-size 10. It terminates by
 	// handing off to the concurrently-running live ingestion at the tip.
+	// The container persists as "wallet-backend-protocol-migrate" for `docker logs`.
 	cmd := fmt.Sprintf("protocol-migrate current-state --protocol-id %s --ledger-backend-type rpc --start-ledger %d --window-size 10",
 		sep41ProtocolID, startLedger)
-	exitCode, logs, err = s.testEnv.Containers.RunWalletBackendCommand(ctx, cmd, nil)
+	exitCode, logs, err = s.testEnv.Containers.RunWalletBackendCommand(ctx, "wallet-backend-protocol-migrate", cmd, nil)
 	s.Require().NoError(err)
-	s.Require().Zerof(exitCode, "protocol-migrate current-state should exit 0; logs:\n%s", logs)
+	s.Require().Zerof(exitCode, "protocol-migrate current-state should exit 0 (see `docker logs wallet-backend-protocol-migrate`); logs:\n%s", logs)
 
-	// Phase 4: assert the migrated current state. Both holders received a single
-	// mint of TestSEP41MintStroops during setup; those are the only custom-SEP-41
-	// events, so the migrated balance must equal the minted amount exactly.
-	mintAmount := fmt.Sprintf("%d", infrastructure.TestSEP41MintStroops)
-	s.assertSEP41Balance(ctx, models, s.testEnv.BalanceTestAccount1KP.Address(), mintAmount)
-	s.assertSEP41Balance(ctx, models, s.testEnv.HolderContractAddress, mintAmount)
+	// Phase 4: assert the migrated current state, replaying the full custom-SEP-41
+	// event sequence from setup + use cases:
+	//   - account1 was minted TestSEP41MintStroops, then transferred it all to
+	//     account2 (fixtures prepareSEP41TransferOp), so its balance nets to zero
+	//     and the row is swept — account1 holds nothing.
+	//   - account2 received the transfer (TestSEP41TransferStroops).
+	//   - the holder contract was minted TestSEP41MintStroops and kept it.
+	s.assertNoSEP41Balance(ctx, models, s.testEnv.BalanceTestAccount1KP.Address())
+	s.assertSEP41Balance(ctx, models, pool, s.testEnv.BalanceTestAccount2KP.Address(),
+		fmt.Sprintf("%d", infrastructure.TestSEP41TransferStroops))
+	s.assertSEP41Balance(ctx, models, pool, s.testEnv.HolderContractAddress,
+		fmt.Sprintf("%d", infrastructure.TestSEP41MintStroops))
 
 	protocols, err = models.Protocols.GetByIDs(ctx, []string{sep41ProtocolID})
 	s.Require().NoError(err)
@@ -132,12 +142,46 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 // assertSEP41Balance asserts the holder has exactly one SEP-41 balance — for the
 // custom SEP-41 token deployed in setup — with the expected amount. The custom
 // token is the only pure SEP-41 contract; USDC/EURC are SACs tracked separately.
-func (s *DataMigrationTestSuite) assertSEP41Balance(ctx context.Context, models *data.Models, holder, expectedAmount string) {
+// On failure it dumps every sep41_balances row (decoded) and the relevant
+// addresses so the mismatch is diagnosable from a single run.
+func (s *DataMigrationTestSuite) assertSEP41Balance(ctx context.Context, models *data.Models, pool *pgxpool.Pool, holder, expectedAmount string) {
 	balances, err := models.SEP41.Balances.GetByAccount(ctx, holder, nil, nil, sep41data.SortASC)
 	s.Require().NoError(err)
-	s.Require().Len(balances, 1, "expected exactly one SEP-41 balance for %s", holder)
+	s.Require().Lenf(balances, 1,
+		"expected exactly one SEP-41 balance for %s\nactual sep41_balances:\n%s(account1=%s holder=%s master=%s sep41token=%s)",
+		holder, s.dumpSEP41Balances(ctx, pool),
+		s.testEnv.BalanceTestAccount1KP.Address(), s.testEnv.HolderContractAddress,
+		s.testEnv.MasterAccountAddress, s.testEnv.SEP41ContractAddress)
 	s.Assert().Equal(s.testEnv.SEP41ContractAddress, balances[0].TokenID, "balance should be for the custom SEP-41 token")
-	s.Assert().Equal(expectedAmount, balances[0].Balance, "migrated SEP-41 balance for %s should equal the minted amount", holder)
+	s.Assert().Equal(expectedAmount, balances[0].Balance, "migrated SEP-41 balance for %s should equal the expected amount", holder)
+}
+
+// assertNoSEP41Balance asserts the account holds no SEP-41 balance — e.g. account1,
+// whose minted tokens were transferred away, leaving a zero balance the data layer sweeps.
+func (s *DataMigrationTestSuite) assertNoSEP41Balance(ctx context.Context, models *data.Models, holder string) {
+	balances, err := models.SEP41.Balances.GetByAccount(ctx, holder, nil, nil, sep41data.SortASC)
+	s.Require().NoError(err)
+	s.Assert().Empty(balances, "expected no SEP-41 balance for %s (tokens were transferred away)", holder)
+}
+
+// dumpSEP41Balances renders every sep41_balances row with its decoded holder
+// address and token C-address — used only in assertion failure messages.
+func (s *DataMigrationTestSuite) dumpSEP41Balances(ctx context.Context, pool *pgxpool.Pool) string {
+	rows, err := pool.Query(ctx,
+		`SELECT b.account_id, b.balance, ct.contract_id
+		 FROM sep41_balances b JOIN contract_tokens ct ON ct.id = b.contract_id`)
+	s.Require().NoError(err)
+	defer rows.Close()
+
+	var sb strings.Builder
+	for rows.Next() {
+		var account types.AddressBytea
+		var balance, token string
+		s.Require().NoError(rows.Scan(&account, &balance, &token))
+		fmt.Fprintf(&sb, "  holder=%s token=%s balance=%s\n", account, token, balance)
+	}
+	s.Require().NoError(rows.Err())
+	return sb.String()
 }
 
 func (s *DataMigrationTestSuite) countSEP41Balances(ctx context.Context, pool *pgxpool.Pool) int {
