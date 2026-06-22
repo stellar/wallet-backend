@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"go/types"
 	"io"
+	"net/http"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -57,6 +59,7 @@ type migrationCommandOpts struct {
 	datastore         ingest.DatastoreConfig
 	getLedgersLimit   int
 	windowSize        uint32
+	metricsPort       int
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
@@ -150,6 +153,7 @@ func buildMigrationCommand(
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
 	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (0 or 1 = commit every ledger)")
+	cmd.Flags().IntVar(&opts.metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
 
 	if addFlags != nil {
 		addFlags(cmd, &opts)
@@ -169,6 +173,8 @@ func runMigration(
 		ledgerBackend ledgerbackend.LedgerBackend,
 		models *data.Models,
 		processors []services.ProtocolProcessor,
+		migrationMetrics *metrics.MigrationMetrics,
+		tipProvider func() (uint32, error),
 	) error,
 ) error {
 	ctx := context.Background()
@@ -190,11 +196,23 @@ func runMigration(
 		return fmt.Errorf("creating models: %w", err)
 	}
 
+	if opts.metricsPort > 0 {
+		metricsServer := startMigrationMetricsServer(opts.metricsPort, m.Registry())
+		defer func() {
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelShutdown()
+			if shErr := metricsServer.Shutdown(shutdownCtx); shErr != nil {
+				log.Ctx(ctx).Warnf("error shutting down metrics server: %v", shErr)
+			}
+		}()
+	}
+
 	// ContractMetadataService is wired in only if an RPC URL is available; the
 	// protocol-migrate CLI does not strictly require RPC (datastore backend
 	// runs without one), but per-protocol contract metadata enrichment on
 	// first-ingest does. A nil ContractMetadataService is tolerated by
 	// processors — they fall back to defaults.
+	var tipProvider func() (uint32, error)
 	var metadataService services.ContractMetadataService
 	if opts.rpcURL != "" {
 		rpcService, rpcErr := services.NewRPCService(
@@ -208,6 +226,13 @@ func runMigration(
 		)
 		if rpcErr != nil {
 			return fmt.Errorf("instantiating rpc service for metadata fetcher: %w", rpcErr)
+		}
+		tipProvider = func() (uint32, error) {
+			h, healthErr := rpcService.GetHealth()
+			if healthErr != nil {
+				return 0, fmt.Errorf("getting rpc health for migration chain tip: %w", healthErr)
+			}
+			return h.LatestLedger, nil
 		}
 		metadataPool := pond.NewPool(0)
 		defer metadataPool.StopAndWait()
@@ -250,7 +275,7 @@ func runMigration(
 		}
 	}()
 
-	return createAndRun(ctx, dbPool, ledgerBackend, models, processors)
+	return createAndRun(ctx, dbPool, ledgerBackend, models, processors, m.Migration, tipProvider)
 }
 
 func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
@@ -265,7 +290,7 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 		},
 		nil,
 		func(opts *migrationCommandOpts) error {
-			return runMigration("history", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+			return runMigration("history", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
 				service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
@@ -276,6 +301,8 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					Processors:             processors,
 					OldestLedgerCursorName: oldestLedgerCursorName,
 					WindowSize:             opts.windowSize,
+					Metrics:                migrationMetrics,
+					TipProvider:            tipProvider,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate history service: %w", err)
@@ -306,7 +333,7 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			return nil
 		},
 		func(opts *migrationCommandOpts) error {
-			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
 				service, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
@@ -317,6 +344,8 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					Processors:             processors,
 					StartLedger:            startLedger,
 					WindowSize:             opts.windowSize,
+					Metrics:                migrationMetrics,
+					TipProvider:            tipProvider,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate current-state service: %w", err)
@@ -328,4 +357,29 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			})
 		},
 	)
+}
+
+// migrationMetricsHandler serves the Prometheus registry at /metrics.
+func migrationMetricsHandler(reg *prometheus.Registry) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	return mux
+}
+
+// startMigrationMetricsServer starts a goroutine serving /metrics on the given
+// port for the life of the migration run. The returned server is shut down by
+// the caller when Run completes.
+func startMigrationMetricsServer(port int, reg *prometheus.Registry) *http.Server {
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           migrationMetricsHandler(reg),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Infof("Starting protocol-migrate metrics server on port %d at /metrics", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Errorf("metrics server on %s stopped: %v", server.Addr, err)
+		}
+	}()
+	return server
 }
