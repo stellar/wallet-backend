@@ -239,6 +239,7 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
+// - SEP-41 token (500) - backfilled by DataMigrationTestSuite's current-state migration
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
@@ -247,7 +248,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(3, len(balances), "Expected 3 balances: native XLM, USDC, and EURC")
+	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -278,6 +279,9 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 			default:
 				suite.Fail("Unexpected trustline code: %s", *b.Code)
 			}
+
+		case *types.SEP41Balance:
+			suite.assertSEP41TokenBalance(b)
 
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
@@ -340,6 +344,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // has the expected balances after fixture transactions add EURC:
 // - USDC SAC tokens (200) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
+// - SEP-41 token (500) - backfilled by DataMigrationTestSuite's current-state migration
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
@@ -348,7 +353,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and EURC SAC")
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: USDC SAC, EURC SAC, and SEP-41")
 
 	for _, balance := range balances {
 		switch b := balance.(type) {
@@ -368,8 +373,23 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 				suite.Fail("Unexpected SAC code: %s", b.Code)
 			}
 
+		case *types.SEP41Balance:
+			suite.assertSEP41TokenBalance(b)
+
 		default:
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
 	}
+}
+
+// assertSEP41TokenBalance verifies a SEP-41 balance node matches the custom token
+// deployed in setup and migrated by DataMigrationTestSuite. The API returns the
+// raw i128 amount (unscaled by decimals), so the balance is the minted stroop
+// count, e.g. "5000000000" for 500 tokens at 7 decimals.
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) assertSEP41TokenBalance(b *types.SEP41Balance) {
+	suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+	suite.Require().Equal(strconv.Itoa(infrastructure.TestSEP41MintStroops), b.GetBalance(),
+		"SEP-41 balance should equal the migrated mint amount")
+	suite.Require().Equal(int32(7), b.Decimals, "SEP-41 token was deployed with 7 decimals")
 }
