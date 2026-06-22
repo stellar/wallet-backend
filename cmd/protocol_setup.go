@@ -32,12 +32,13 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	var rpcURL string
 	var networkPassphrase string
 	var protocolIDs []string
-	var logLevel string
+	var logLevel logrus.Level
 
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&databaseURL),
 		utils.RPCURLOption(&rpcURL),
 		utils.NetworkPassphraseOption(&networkPassphrase),
+		utils.LogLevelOption(&logLevel),
 	}
 
 	cmd := &cobra.Command{
@@ -52,13 +53,7 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if logLevel != "" {
-				ll, err := logrus.ParseLevel(logLevel)
-				if err != nil {
-					return fmt.Errorf("invalid log level %q: %w", logLevel, err)
-				}
-				log.DefaultLogger.SetLevel(ll)
-			}
+			log.DefaultLogger.SetLevel(logLevel)
 
 			if len(protocolIDs) == 0 {
 				return fmt.Errorf("at least one --protocol-id is required")
@@ -75,7 +70,6 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&protocolIDs, "protocol-id", nil, "Protocol ID(s) to classify (required, repeatable)")
-	cmd.Flags().StringVar(&logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
 
 	return cmd
 }

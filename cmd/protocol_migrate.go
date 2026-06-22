@@ -52,7 +52,7 @@ type migrationCommandOpts struct {
 	rpcURL            string
 	networkPassphrase string
 	protocolIDs       []string
-	logLevel          string
+	logLevel          logrus.Level
 	ledgerBackendType string
 	datastore         ingest.DatastoreConfig
 	getLedgersLimit   int
@@ -73,6 +73,7 @@ func buildMigrationCommand(
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&opts.databaseURL),
 		utils.NetworkPassphraseOption(&opts.networkPassphrase),
+		utils.LogLevelOption(&opts.logLevel),
 		// RPC URL is only required when --ledger-backend-type=rpc; validated in PersistentPreRunE.
 		{
 			Name:        "rpc-url",
@@ -113,13 +114,7 @@ func buildMigrationCommand(
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if opts.logLevel != "" {
-				ll, err := logrus.ParseLevel(opts.logLevel)
-				if err != nil {
-					return fmt.Errorf("invalid log level %q: %w", opts.logLevel, err)
-				}
-				log.DefaultLogger.SetLevel(ll)
-			}
+			log.DefaultLogger.SetLevel(opts.logLevel)
 
 			if len(opts.protocolIDs) == 0 {
 				return fmt.Errorf("at least one --protocol-id is required")
@@ -154,7 +149,6 @@ func buildMigrationCommand(
 	}
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
-	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
 	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (0 or 1 = commit every ledger)")
 
 	if addFlags != nil {
