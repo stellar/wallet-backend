@@ -18,7 +18,7 @@ const (
 
 	// Soroban contract amounts (in stroops with 7 decimals)
 	TestEURCTransferStroops  = 500000000  // 50 EURC
-	TestSEP41TransferStroops = 5000000000 // 500 SEP41
+	TestSEP41TransferStroops = 2000000000 // 200 SEP41 (partial: account1 keeps 300 of its 500 mint)
 	TestUSDCTransferStroops  = 2000000000 // 200 USDC
 	TestSEP41MintStroops     = 5000000000 // 500 SEP41
 	TestXLMTransferStroops   = 100000000  // 10 XLM (with 7 decimals)

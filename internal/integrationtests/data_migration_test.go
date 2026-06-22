@@ -115,13 +115,16 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 	s.Require().Zerof(exitCode, "protocol-migrate current-state should exit 0 (see `docker logs wallet-backend-protocol-migrate`); logs:\n%s", logs)
 
 	// Phase 4: assert the migrated current state, replaying the full custom-SEP-41
-	// event sequence from setup + use cases:
-	//   - account1 was minted TestSEP41MintStroops, then transferred it all to
-	//     account2 (fixtures prepareSEP41TransferOp), so its balance nets to zero
-	//     and the row is swept — account1 holds nothing.
-	//   - account2 received the transfer (TestSEP41TransferStroops).
-	//   - the holder contract was minted TestSEP41MintStroops and kept it.
-	s.assertNoSEP41Balance(ctx, models, s.testEnv.BalanceTestAccount1KP.Address())
+	// event sequence from setup + use cases. The mint and the partial transfer land
+	// in different coalescing windows, so each holder's balance is correct only if
+	// the migration accumulated the signed per-ledger deltas:
+	//   - account1: minted TestSEP41MintStroops, then transferred TestSEP41TransferStroops
+	//     to account2 (fixtures prepareSEP41TransferOp), so it keeps the difference.
+	//   - account2: received the transferred amount.
+	//   - holder contract: minted TestSEP41MintStroops and kept it.
+	// The three amounts are distinct, so a mis-credited delta cannot pass silently.
+	s.assertSEP41Balance(ctx, models, pool, s.testEnv.BalanceTestAccount1KP.Address(),
+		fmt.Sprintf("%d", infrastructure.TestSEP41MintStroops-infrastructure.TestSEP41TransferStroops))
 	s.assertSEP41Balance(ctx, models, pool, s.testEnv.BalanceTestAccount2KP.Address(),
 		fmt.Sprintf("%d", infrastructure.TestSEP41TransferStroops))
 	s.assertSEP41Balance(ctx, models, pool, s.testEnv.HolderContractAddress,
@@ -154,14 +157,6 @@ func (s *DataMigrationTestSuite) assertSEP41Balance(ctx context.Context, models 
 		s.testEnv.MasterAccountAddress, s.testEnv.SEP41ContractAddress)
 	s.Assert().Equal(s.testEnv.SEP41ContractAddress, balances[0].TokenID, "balance should be for the custom SEP-41 token")
 	s.Assert().Equal(expectedAmount, balances[0].Balance, "migrated SEP-41 balance for %s should equal the expected amount", holder)
-}
-
-// assertNoSEP41Balance asserts the account holds no SEP-41 balance — e.g. account1,
-// whose minted tokens were transferred away, leaving a zero balance the data layer sweeps.
-func (s *DataMigrationTestSuite) assertNoSEP41Balance(ctx context.Context, models *data.Models, holder string) {
-	balances, err := models.SEP41.Balances.GetByAccount(ctx, holder, nil, nil, sep41data.SortASC)
-	s.Require().NoError(err)
-	s.Assert().Empty(balances, "expected no SEP-41 balance for %s (tokens were transferred away)", holder)
 }
 
 // dumpSEP41Balances renders every sep41_balances row with its decoded holder
