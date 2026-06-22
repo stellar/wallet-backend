@@ -108,14 +108,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "datastore-config-path",
-			Usage:       "Path to TOML config file for datastore backend. Required when ledger-backend-type is 'datastore'",
-			OptType:     types.String,
-			ConfigKey:   &cfg.DatastoreConfigPath,
-			FlagDefault: "config/datastore-pubnet.toml",
-			Required:    false,
-		},
-		{
 			Name:        "chunk-interval",
 			Usage:       "TimescaleDB chunk time interval for hypertables. Only affects future chunks. Uses PostgreSQL INTERVAL syntax.",
 			OptType:     types.String,
@@ -158,6 +150,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 	}
 
 	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
+	cfgOpts = append(cfgOpts, utils.DatastoreOptions(&cfg.Datastore)...)
 
 	cmd := &cobra.Command{
 		Use:   "ingest",

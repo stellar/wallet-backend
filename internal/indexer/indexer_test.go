@@ -1019,8 +1019,10 @@ func extractContractEventsViaReader(ctx context.Context, networkPassphrase strin
 // loadLedgerFixture reads a gzip-compressed XDR LedgerCloseMeta from testdata/.
 //
 // Fixtures are pubnet LedgerCloseMeta captured from the public data lake
-// (config/datastore-pubnet.toml). To refresh or expand the corpus, run a small
-// program from the repo root that builds an ingest.NewLedgerBackend with
+// (the datastore backend's pubnet defaults: bucket
+// aws-public-blockchain/v1.1/stellar/ledgers/pubnet, region us-east-2). To refresh or
+// expand the corpus, run a small program from the repo root that builds an
+// ingest.NewLedgerBackend with
 // LedgerBackendType=datastore + NetworkPassphrase=PublicNetworkPassphrase,
 // discovers the lake tip via datastore.FindLatestLedgerSequence, then for each
 // sequence calls backend.GetLedger(seq), lcm.MarshalBinary(), gzips the bytes,

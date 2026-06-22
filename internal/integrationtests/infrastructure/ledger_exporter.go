@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Shared minio + datastore settings. The schema constants MUST match
-// config/datastore-standalone.toml so the exporter's object keys line up with what the
+// Shared minio + datastore settings. The schema constants MUST match what DatastoreEnv()
+// advertises to the migrate container so the exporter's object keys line up with what the
 // migrate container's optimizedStorageBackend reads.
 const (
 	minioImage        = "minio/minio:latest"
@@ -23,6 +23,9 @@ const (
 	minioPort         = "9000"
 	minioRootUser     = "minioadmin"
 	minioRootPassword = "minioadmin"
+	// minioNetworkEndpoint is how a sibling container (e.g. the migrate container) reaches minio
+	// over the docker network. The host test process uses the testcontainers connection string.
+	minioNetworkEndpoint = "http://" + minioNetworkAlias + ":" + minioPort
 
 	datastoreBucket            = "ledgers"
 	datastoreRegion            = "us-east-1"
@@ -31,13 +34,27 @@ const (
 )
 
 // DatastoreEnv returns the env a wallet-backend container needs to read the minio-backed
-// datastore: the S3 datastore resolves credentials via the AWS default chain and falls back
-// to anonymous access (which a private bucket rejects) if none are present.
+// datastore. AWS_* feed the S3 datastore's default credential chain (it falls back to anonymous
+// access, which a private bucket rejects, if absent). DATASTORE_* drive the datastore ledger
+// backend; the schema values MUST match the exporter's object keys, hence the shared datastore*
+// constants.
 func (s *SharedContainers) DatastoreEnv() map[string]string {
 	return map[string]string{
 		"AWS_ACCESS_KEY_ID":     minioRootUser,
 		"AWS_SECRET_ACCESS_KEY": minioRootPassword,
 		"AWS_REGION":            datastoreRegion,
+
+		"DATASTORE_BUCKET_PATH":         datastoreBucket,
+		"DATASTORE_REGION":              datastoreRegion,
+		"DATASTORE_ENDPOINT_URL":        minioNetworkEndpoint,
+		"DATASTORE_LEDGERS_PER_FILE":    fmt.Sprintf("%d", datastoreLedgersPerFile),
+		"DATASTORE_FILES_PER_PARTITION": fmt.Sprintf("%d", datastoreFilesPerPartition),
+		// Shallow buffer/worker counts: the test sits at the live tip almost immediately, where a
+		// deep prefetch only spams minio with 404s for not-yet-exported ledgers.
+		"DATASTORE_BUFFER_SIZE": "10",
+		"DATASTORE_NUM_WORKERS": "2",
+		"DATASTORE_RETRY_LIMIT": "3",
+		"DATASTORE_RETRY_WAIT":  "1s",
 	}
 }
 

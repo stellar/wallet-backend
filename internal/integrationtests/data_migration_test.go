@@ -119,8 +119,10 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 	stopExporter := infrastructure.StartLedgerExporter(s.T(), rpcURL, minioEndpoint, startLedger)
 	defer stopExporter()
 
+	// Datastore config (bucket, endpoint, schema, buffer/worker tuning) arrives via env from
+	// DatastoreEnv() below — see internal/integrationtests/infrastructure/ledger_exporter.go.
 	cmd := fmt.Sprintf("protocol-migrate current-state --protocol-id %s "+
-		"--ledger-backend-type datastore --datastore-config-path config/datastore-standalone.toml "+
+		"--ledger-backend-type datastore "+
 		"--start-ledger %d --window-size 10", sep41ProtocolID, startLedger)
 	exitCode, logs, err = s.testEnv.Containers.RunWalletBackendCommand(ctx, "wallet-backend-protocol-migrate", cmd, s.testEnv.Containers.DatastoreEnv())
 	s.Require().NoError(err)

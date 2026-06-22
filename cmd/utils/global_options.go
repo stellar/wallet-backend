@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/config"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/ingest"
 )
 
 func IngestServerPortOption(configKey *int) *config.ConfigOption {
@@ -199,6 +200,89 @@ func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration,
 			ConfigKey:      maxConnIdleTime,
 			FlagDefault:    db.DefaultMaxConnIdleTime.String(),
 			Required:       false,
+		},
+	}
+}
+
+// DatastoreOptions returns the config options for the datastore ledger backend. Defaults match
+// the Stellar pubnet public data lake, so a flag-less invocation reads pubnet ledgers. The
+// schema options (ledgers-per-file, files-per-partition) default to 0, meaning the schema is
+// read from the datastore's published manifest; set them only for a manifest-less store such as
+// the integration-test minio bucket.
+func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
+	return config.ConfigOptions{
+		{
+			Name:        "datastore-bucket-path",
+			Usage:       "Datastore bucket and path holding exported ledgers (S3 destination_bucket_path).",
+			OptType:     types.String,
+			ConfigKey:   &cfg.BucketPath,
+			FlagDefault: "aws-public-blockchain/v1.1/stellar/ledgers/pubnet",
+			Required:    false,
+		},
+		{
+			Name:        "datastore-region",
+			Usage:       "AWS region of the datastore bucket. Leave empty to use the AWS default chain.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.Region,
+			FlagDefault: "us-east-2",
+			Required:    false,
+		},
+		{
+			Name:        "datastore-endpoint-url",
+			Usage:       "Custom S3 endpoint URL (e.g. for minio). Leave empty to use the default AWS endpoint.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.EndpointURL,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:        "datastore-buffer-size",
+			Usage:       "Number of ledger files to prefetch into the datastore read buffer.",
+			OptType:     types.Uint32,
+			ConfigKey:   &cfg.BufferSize,
+			FlagDefault: uint32(1000),
+			Required:    false,
+		},
+		{
+			Name:        "datastore-num-workers",
+			Usage:       "Number of concurrent workers downloading ledger files from the datastore.",
+			OptType:     types.Uint32,
+			ConfigKey:   &cfg.NumWorkers,
+			FlagDefault: uint32(45),
+			Required:    false,
+		},
+		{
+			Name:        "datastore-retry-limit",
+			Usage:       "Maximum retries for a failed (transient) ledger-file download.",
+			OptType:     types.Uint32,
+			ConfigKey:   &cfg.RetryLimit,
+			FlagDefault: uint32(3),
+			Required:    false,
+		},
+		{
+			Name:           "datastore-retry-wait",
+			Usage:          "Wait between datastore download retries (Go duration string, e.g. \"5s\").",
+			OptType:        types.String,
+			CustomSetValue: SetConfigOptionDuration,
+			ConfigKey:      &cfg.RetryWait,
+			FlagDefault:    "5s",
+			Required:       false,
+		},
+		{
+			Name:        "datastore-ledgers-per-file",
+			Usage:       "Ledgers per datastore file. 0 reads the schema from the datastore manifest (.config.json).",
+			OptType:     types.Uint32,
+			ConfigKey:   &cfg.LedgersPerFile,
+			FlagDefault: uint32(0),
+			Required:    false,
+		},
+		{
+			Name:        "datastore-files-per-partition",
+			Usage:       "Files per datastore partition. 0 reads the schema from the datastore manifest (.config.json).",
+			OptType:     types.Uint32,
+			ConfigKey:   &cfg.FilesPerPartition,
+			FlagDefault: uint32(0),
+			Required:    false,
 		},
 	}
 }
