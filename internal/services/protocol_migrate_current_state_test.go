@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -149,4 +150,51 @@ func TestEngineMetricsAndTipProviderWiring(t *testing.T) {
 	tip, tipErr := svc2.engine.tipProvider()
 	require.NoError(t, tipErr)
 	assert.Equal(t, uint32(123), tip)
+}
+
+func TestCurrentStateRecordsMetrics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dbPool, ingestStore := setupTestDB(t)
+	setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 100)
+
+	_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+	require.NoError(t, err)
+
+	protocolsModel := data.NewProtocolsModelMock(t)
+	protocolContractsModel := data.NewProtocolContractsModelMock(t)
+	processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+	protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
+		{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusNotStarted},
+	}, nil)
+	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
+	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+	backend := &multiLedgerBackend{
+		ledgers: map[uint32]xdr.LedgerCloseMeta{100: dummyLedgerMeta(100)},
+	}
+
+	mm := metrics.NewMetrics(prometheus.NewRegistry()).Migration
+	svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		DB: dbPool, LedgerBackend: backend,
+		ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+		IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+		Processors:  []ProtocolProcessor{processor},
+		StartLedger: 100,
+		Metrics:     mm,
+		TipProvider: func() (uint32, error) { return 100, nil },
+	})
+	require.NoError(t, err)
+
+	err = svc.Run(ctx, []string{"testproto"})
+	require.Error(t, err) // unbounded range blocks on ledger 101 until the ctx deadline
+
+	assert.Equal(t, 1.0, testutil.ToFloat64(mm.LedgersProcessed))
+	assert.Equal(t, 100.0, testutil.ToFloat64(mm.CurrentLedger))
+	assert.Equal(t, 100.0, testutil.ToFloat64(mm.Cursor.WithLabelValues("testproto")))
+	assert.Equal(t, 100.0, testutil.ToFloat64(mm.TargetTip))
+	assert.Equal(t, 99.0, testutil.ToFloat64(mm.StartLedger.WithLabelValues("testproto")))
+	assert.Equal(t, metrics.MigrationStatusFailed, testutil.ToFloat64(mm.Status.WithLabelValues("testproto")))
 }

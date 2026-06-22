@@ -93,6 +93,9 @@ func (s *protocolMigrateEngine) Run(ctx context.Context, protocolIDs []string) e
 	}); txErr != nil {
 		return fmt.Errorf("setting %s migration status to in_progress: %w", s.strategy.Label, txErr)
 	}
+	for _, pid := range activeProtocolIDs {
+		s.metrics.Status.WithLabelValues(pid).Set(metrics.MigrationStatusInProgress)
+	}
 
 	// Phase 2: Process each protocol
 	handedOffIDs, err := s.processAllProtocols(ctx, activeProtocolIDs)
@@ -118,6 +121,12 @@ func (s *protocolMigrateEngine) Run(ctx context.Context, protocolIDs []string) e
 				log.Ctx(ctx).Errorf("error setting %s migration status to failed: %v", s.strategy.Label, txErr)
 			}
 		}
+		for _, pid := range handedOffIDs {
+			s.metrics.Status.WithLabelValues(pid).Set(metrics.MigrationStatusSuccess)
+		}
+		for _, pid := range failedIDs {
+			s.metrics.Status.WithLabelValues(pid).Set(metrics.MigrationStatusFailed)
+		}
 
 		return fmt.Errorf("processing protocols: %w", err)
 	}
@@ -127,6 +136,9 @@ func (s *protocolMigrateEngine) Run(ctx context.Context, protocolIDs []string) e
 		return s.strategy.UpdateMigrationStatus(ctx, dbTx, activeProtocolIDs, data.StatusSuccess)
 	}); txErr != nil {
 		return fmt.Errorf("setting %s migration status to success: %w", s.strategy.Label, txErr)
+	}
+	for _, pid := range activeProtocolIDs {
+		s.metrics.Status.WithLabelValues(pid).Set(metrics.MigrationStatusSuccess)
 	}
 
 	log.Ctx(ctx).Infof("%s migration completed successfully for protocols: %v", s.strategy.Label, activeProtocolIDs)
@@ -262,6 +274,10 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		contractsByProtocol[t.protocolID] = contracts
 	}
 
+	for _, t := range trackers {
+		s.metrics.StartLedger.WithLabelValues(t.protocolID).Set(float64(t.cursorValue))
+	}
+
 	windowSize := s.windowSize
 	if windowSize == 0 {
 		windowSize = 1
@@ -312,7 +328,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 
 		fetchStart := time.Now()
 		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
-		timers.fetch += time.Since(fetchStart)
+		fetchDur := time.Since(fetchStart)
+		timers.fetch += fetchDur
+		s.metrics.PhaseDuration.WithLabelValues("fetch").Observe(fetchDur.Seconds())
 		if fetchErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
 		}
@@ -322,7 +340,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// where buffer.GetContractEvents() is computed once per ledger.
 		extractStart := time.Now()
 		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ctx, s.networkPassphrase, ledgerMeta)
-		timers.extract += time.Since(extractStart)
+		extractDur := time.Since(extractStart)
+		timers.extract += extractDur
+		s.metrics.PhaseDuration.WithLabelValues("extract").Observe(extractDur.Seconds())
 		if eventsErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract events for ledger %d: %w", seq, eventsErr)
 		}
@@ -341,7 +361,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			}
 			processStart := time.Now()
 			processErr := t.processor.ProcessLedger(ctx, input)
-			timers.process += time.Since(processStart)
+			processDur := time.Since(processStart)
+			timers.process += processDur
+			s.metrics.PhaseDuration.WithLabelValues("process").Observe(processDur.Seconds())
 			if processErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("processing ledger %d for protocol %s: %w", seq, t.protocolID, processErr)
 			}
@@ -356,8 +378,17 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			}
 		}
 
+		s.metrics.CurrentLedger.Set(float64(seq))
+		s.metrics.LedgersProcessed.Inc()
 		intervalLedgers++
 		if seq%windowSize == 0 {
+			if s.tipProvider != nil {
+				if tip, tipErr := s.tipProvider(); tipErr == nil {
+					s.metrics.TargetTip.Set(float64(tip))
+				} else {
+					log.Ctx(ctx).Debugf("migration tip provider error (skipping target_tip update): %v", tipErr)
+				}
+			}
 			wall := time.Since(intervalStart)
 			var lps float64
 			if wall > 0 {
@@ -421,6 +452,7 @@ func (s *protocolMigrateEngine) flushWindow(ctx context.Context, t *protocolTrac
 	if t.pending == 0 {
 		return nil
 	}
+	flushStart := time.Now()
 	winEnd := t.cursorValue + t.pending
 	expected := strconv.FormatUint(uint64(t.cursorValue), 10) // winStart - 1
 	next := strconv.FormatUint(uint64(winEnd), 10)
@@ -448,11 +480,14 @@ func (s *protocolMigrateEngine) flushWindow(ctx context.Context, t *protocolTrac
 	t.processor.Reset()
 	if swapped {
 		t.cursorValue = winEnd
+		s.metrics.Cursor.WithLabelValues(t.protocolID).Set(float64(winEnd))
 	} else {
 		log.Ctx(ctx).Infof("Protocol %s: CAS failed at window [%d,%d], handoff to live ingestion detected", t.protocolID, t.cursorValue+1, winEnd)
 		t.handedOff = true
+		s.metrics.Handoffs.WithLabelValues(t.protocolID).Inc()
 	}
 	t.pending = 0
+	s.metrics.PhaseDuration.WithLabelValues("flush").Observe(time.Since(flushStart).Seconds())
 	return nil
 }
 

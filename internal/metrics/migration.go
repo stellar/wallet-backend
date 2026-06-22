@@ -68,7 +68,7 @@ func newMigrationMetrics(reg prometheus.Registerer) *MigrationMetrics {
 		}, []string{"protocol_id"}),
 		StartLedger: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "wallet_migration_start_ledger",
-			Help: "Ledger each protocol's migration began from (denominator base for % complete).",
+			Help: "Committed cursor at this protocol's migration start; %-complete denominator base (Cursor - StartLedger = ledgers migrated).",
 		}, []string{"protocol_id"}),
 		Handoffs: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_migration_handoffs_total",
