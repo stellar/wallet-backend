@@ -287,6 +287,17 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	return nil
 }
 
+// lagLedgers returns how far latestIngested trails backendTip, and false when there is no
+// valid measurement yet. GetLatestLedgerSequence reports 0 until the backend delivers its first
+// batch, so an unsigned subtraction would otherwise underflow into a ~4-billion-ledger lag spike
+// and trip false alerts during slow initial datastore fetches.
+func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
+	if backendTip < latestIngested {
+		return 0, false
+	}
+	return float64(backendTip - latestIngested), true
+}
+
 // ingestLiveLedgers continuously processes ledgers starting from startLedger,
 // updating cursors and metrics after each successful ledger.
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
@@ -310,7 +321,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 				return
 			case <-ticker.C:
 				if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(lagCtx); lagErr == nil {
-					m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - latestIngested.Load()))
+					if lag, ok := lagLedgers(backendTip, latestIngested.Load()); ok {
+						m.appMetrics.Ingestion.LagLedgers.Set(lag)
+					}
 				}
 			}
 		}
