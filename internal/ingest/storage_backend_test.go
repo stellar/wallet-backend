@@ -526,6 +526,56 @@ func TestOptimizedStorageBackend_UnboundedPrepareNoDeadlock(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
+// TestOptimizedStorageBackend_UnboundedNotExistRetriesIndefinitely guards the live-tip wait:
+// on an unbounded range the next ledger file is legitimately absent until the exporter publishes
+// it, which can take longer than RetryLimit polls. The worker must keep awaiting that file rather
+// than giving up after RetryLimit — otherwise it falls out without delivering or re-enqueuing, and
+// the drainer (plus every later GetLedger) stalls forever. Here the file is missing for far more
+// polls than RetryLimit, then appears; GetLedger must still return it. RetryLimit bounds only
+// transient (non-NotExist) errors, exercised by TestOptimizedStorageBackend_WorkerRetry.
+func TestOptimizedStorageBackend_UnboundedNotExistRetriesIndefinitely(t *testing.T) {
+	ds := &mockDataStore{}
+	schema := testSchema(1) // 1 ledger per file
+
+	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+		BufferSize: 2,
+		NumWorkers: 1,
+		RetryLimit: 1, // far fewer than the NotExist polls below; must not bound them
+		RetryWait:  5 * time.Millisecond,
+	}, ds, schema)
+	require.NoError(t, err)
+
+	objectKey100 := schema.GetObjectKeyFromSequenceNumber(100)
+	// Absent for 5 polls (>> RetryLimit+1), then published.
+	ds.On("GetFile", mock.Anything, objectKey100).Return(nil, os.ErrNotExist).Times(5)
+	ds.On("GetFile", mock.Anything, objectKey100).Return(encodeBatch(t, 100, 100), nil)
+	// Prefetched later files (101, 102, …) never arrive — the consumer only needs 100.
+	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
+
+	ctx := context.Background()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+
+	type result struct {
+		lcm xdr.LedgerCloseMeta
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		lcm, getErr := backend.GetLedger(ctx, 100)
+		done <- result{lcm, getErr}
+	}()
+
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		assert.Equal(t, xdr.Uint32(100), r.lcm.V0.LedgerHeader.Header.LedgerSeq)
+	case <-time.After(3 * time.Second):
+		t.Fatal("GetLedger stalled: worker gave up on a not-yet-published file instead of awaiting it")
+	}
+
+	require.NoError(t, backend.Close())
+}
+
 // delayedReadCloser sleeps once before yielding its bytes, simulating a slow download.
 type delayedReadCloser struct {
 	delay time.Duration

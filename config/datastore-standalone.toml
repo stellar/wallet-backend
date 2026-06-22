@@ -23,4 +23,5 @@ files_per_partition = 1
 # window keeps the retry traffic minimal while still covering the tiny historical backlog.
 buffer_size = 10
 num_workers = 2
+retry_limit = 3     # bounds transient download errors; the not-yet-published tip file is awaited indefinitely
 retry_wait = "1s"   # short wait while polling for the next not-yet-exported file

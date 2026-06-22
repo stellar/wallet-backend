@@ -333,46 +333,54 @@ func (buf *storageBuffer) drainer() {
 	}
 }
 
+// downloadAndStore downloads, decodes, and hands a ledger file to the drainer, retrying on
+// failure. A NotExist file on an unbounded range is awaited indefinitely (the live tip may not
+// have published it yet) — counting that wait against RetryLimit would strand the drainer on a
+// missing start ledger once the limit is hit. A NotExist file on a bounded range is a hard
+// error. Other (transient) errors are bounded by RetryLimit. The function returns only after the
+// batch is enqueued, the context is cancelled, or it gives up by cancelling the buffer — it never
+// returns without delivering while the buffer is still live.
 func (buf *storageBuffer) downloadAndStore(sequence uint32) {
-	for attempt := uint32(0); attempt <= buf.config.RetryLimit; attempt++ {
+	for transientAttempts := uint32(0); ; {
 		batch, err := buf.downloadAndDecode(sequence)
-		if err != nil {
-			if buf.ctx.Err() != nil {
-				return // context cancelled, stop retrying
+		if err == nil {
+			// Hand the decoded batch to the drainer (unordered); it reorders and delivers in sequence.
+			select {
+			case buf.decodedQueue <- decodedBatch{batch: batch, startLedger: sequence}:
+			case <-buf.ctx.Done():
 			}
-			// errors.Is (not os.IsNotExist) so the NotExist sentinel is still detected after
-			// downloadAndDecode wraps it with %w; os.IsNotExist does not unwrap.
-			if errors.Is(err, os.ErrNotExist) {
-				if !buf.ledgerRange.Bounded() {
-					// Unbounded range: file may not exist yet, wait and retry.
-					if !sleepWithContext(buf.ctx, buf.config.RetryWait) {
-						return
-					}
-					continue
-				}
+			return
+		}
+		if buf.ctx.Err() != nil {
+			return // context cancelled, stop retrying
+		}
+		// errors.Is (not os.IsNotExist) so the NotExist sentinel is still detected after
+		// downloadAndDecode wraps it with %w; os.IsNotExist does not unwrap.
+		if errors.Is(err, os.ErrNotExist) {
+			if buf.ledgerRange.Bounded() {
 				// Bounded range: missing file is a hard error.
 				buf.cancel(fmt.Errorf("ledger file for sequence %d not found: %w", sequence, err))
 				return
 			}
-			if attempt == buf.config.RetryLimit {
-				buf.cancel(fmt.Errorf("downloading ledger file for sequence %d: maximum retries (%d) exceeded: %w",
-					sequence, buf.config.RetryLimit, err))
-				return
-			}
-			log.WithField("sequence", sequence).WithError(err).
-				Warnf("Failed to download ledger file (attempt %d/%d), retrying...", attempt+1, buf.config.RetryLimit)
+			// Unbounded range: the file may not be published yet. Wait and retry indefinitely
+			// (NOT counted against RetryLimit) until it appears or the context is cancelled.
 			if !sleepWithContext(buf.ctx, buf.config.RetryWait) {
 				return
 			}
 			continue
 		}
-
-		// Hand the decoded batch to the drainer (unordered); it reorders and delivers in sequence.
-		select {
-		case buf.decodedQueue <- decodedBatch{batch: batch, startLedger: sequence}:
-		case <-buf.ctx.Done():
+		// Transient error: bounded by RetryLimit.
+		if transientAttempts >= buf.config.RetryLimit {
+			buf.cancel(fmt.Errorf("downloading ledger file for sequence %d: maximum retries (%d) exceeded: %w",
+				sequence, buf.config.RetryLimit, err))
+			return
 		}
-		return
+		transientAttempts++
+		log.WithField("sequence", sequence).WithError(err).
+			Warnf("Failed to download ledger file (attempt %d/%d), retrying...", transientAttempts, buf.config.RetryLimit)
+		if !sleepWithContext(buf.ctx, buf.config.RetryWait) {
+			return
+		}
 	}
 }
 
